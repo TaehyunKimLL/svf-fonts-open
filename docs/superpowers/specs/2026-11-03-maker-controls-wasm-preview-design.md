@@ -644,3 +644,11 @@ Each with my recommendation; the design above assumes the recommendation.
 - **D7. The vector-fit route always on for outline fonts** although its run time is unmeasured here: recommended on,
   behind `experimental` like the fit, with a note on the page ("minutes per font"); measure on the first real run and
   decide whether to drop it.
+
+## 15. Rulings on section 14 (2026-11-03, controller)
+
+D1 keep the Pillow PNG for the source column and use the WASM-drawn probe face for the converter view. D2 yes, with the per-font
+`jamo_route` override. D3 yes, `mkfont.py --report FILE.json`. D4 accept the placeholder thresholds (pass >= 0.95, warn >= 0.80),
+reported in the JSON, to be revisited after the first real run. D5 drop the PNG result preview. D6 yes, all five extra named ranges,
+ASCII always on. D7 yes, behind `experimental` with a "minutes per font" note. Recorded as rulings, not user decisions: each is
+reversible by editing this section and the plan.
