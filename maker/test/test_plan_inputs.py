@@ -321,6 +321,59 @@ class KscJamoTest(Case):
         self.assertIsNotNone(inputkinds.zip_face(z).jset)
 
 
+FONT_DOS = {"source_kind": "dos-raw", "face_index": 0, "sizes": [16], "dos": {"candidates": ["844"]}}
+
+
+class Johab844Test(Case):
+    def put_dos(self, folder, eng=None, eng_name="ASCII.PFT"):
+        raw = os.path.join(self.tmp, "HAN.FNT")
+        fixtures._dos_raw(raw)
+        with open(raw, "rb") as fh:
+            files = {folder + "/HAN.FNT": fh.read()}
+        if eng is not None:
+            files[folder + "/" + eng_name] = eng
+        return files
+
+    def test_offered_only_for_11520_bytes(self):
+        self.assertEqual([r.label for r in routes.routes(dict(FONT_DOS, dos_bytes=11520))], ["johab844", "dos raw"])
+        self.assertEqual([r.label for r in routes.routes(dict(FONT_DOS, dos_bytes=25920))], ["dos raw"])
+        self.assertEqual([r.label for r in routes.routes(FONT_DOS)], ["dos raw"])
+
+    def test_layout_and_eng_rules(self):
+        d = os.path.join(self.tmp, "d")
+        os.makedirs(d)
+        for name, data in self.put_dos("", inputfx.pft_eng()).items():
+            with open(os.path.join(d, name.lstrip("/")), "wb") as fh:
+                fh.write(data)
+        with open(os.path.join(d, "LICENSE.txt"), "w") as fh:
+            fh.write(inputkinds.LICENCE)
+        fonts = detect.scan(d)
+        fid = fid_of(fonts, kind="dos-raw")
+        s = settings.defaults(fonts)
+        s["fonts"][fid].update(selected=True, kinds=["precomposed"], dos_layout="844-ihnm", bpp=[1])
+        self.assertIn("%s: johab844 needs layout 844" % fid, settings.validate(fonts, s))
+        s["fonts"][fid]["dos_layout"] = "844"
+        self.assertIn("%s: johab844 takes an 8x16 English font" % fid, settings.validate(fonts, s))
+
+    def test_johab844_end_to_end(self):
+        import johab844
+        eng = os.path.join(self.tmp, "ENG.FNT")
+        fixtures._eng(eng)
+        with open(eng, "rb") as fh:
+            eng_data = fh.read()
+        files = self.put_dos("h", eng_data, "ENG.FNT")
+        job, z = self.run_batch(files, lambda f, s: select(s, fid_of(f, kind="dos-raw"), kinds=["precomposed"],
+                                                           dos_layout="844"))
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["johab844.py"]])
+        argv = job["steps"][0]["argv"][0]
+        self.assertTrue(argv[4].endswith("svf/dos/NEODG16.SVF"))
+        self.assertIn("--eng", argv)
+        self.assertEqual([st["state"] for st in job["steps"]], ["done"])
+        inputkinds.assert_facecheck(self, z)
+        raw = files["h/HAN.FNT"]
+        self.assertEqual(bytes(inputkinds.zip_face(z).glyphs[0xAC00]), johab844.compose(raw, 0xAC00))
+
+
 class ZipoutSourceTitleTest(unittest.TestCase):
     def test_source_step_title(self):
         self.assertEqual(zipout._step_title({"id": "s01", "font": "f02", "kind": "source"}), "## s01 f02 source")

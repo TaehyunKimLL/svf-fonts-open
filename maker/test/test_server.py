@@ -107,7 +107,7 @@ def canonical_fonts():
     present, so a route that needs one is offered; the SVF kinds get their 1 and 2 bpp variants.
     """
     base = {"face_index": 0, "sizes": [16], "bdf": {"box": [16, 16]}, "dos": {"candidates": ["844"]},
-            "svf": {"bpp": 1}}
+            "svf": {"bpp": 1}, "dos_bytes": 11520}
     fonts = [dict(base, source_kind=kind) for kind in presets.ALL_SOURCES]
     fonts += [dict(base, source_kind=kind, svf={"bpp": 2})
               for kind in ("svf-precomposed", "svf-jamo")]

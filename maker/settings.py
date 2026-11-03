@@ -682,7 +682,7 @@ def _batch_shape_errors(batch, fonts, upload_dir):
     return errors
 
 
-def _route_errors(fid, font, eff):
+def _route_errors(fid, font, eff, fmap=None):
     """The route rules, on the effective values: what each selected font's routes can honour.
 
     An effective value may be a batch value the type rules refused (the font does not override it), so `kinds`,
@@ -723,6 +723,14 @@ def _route_errors(fid, font, eff):
             errors.append("%s: confirm the DOS Johab layout" % fid)
         elif eff.get("dos_layout") not in candidates:
             errors.append("%s: dos_layout %s is not one of %s" % (fid, eff.get("dos_layout"), ", ".join(candidates)))
+    if font.get("source_kind") == "dos-raw" and "precomposed" in kinds:
+        route = routes.route_for(font, "precomposed", False)
+        if route is not None and route.label == "johab844":
+            if eff.get("dos_layout") not in (None, "844"):
+                errors.append("%s: johab844 needs layout 844" % fid)
+            companion = (fmap or {}).get(eff.get("latin_companion")) if isinstance(eff.get("latin_companion"), str) else None
+            if companion and (companion.get("eng") or {}).get("cell") == "12x24":
+                errors.append("%s: johab844 takes an 8x16 English font" % fid)
     instance = eff.get("instance")
     if isinstance(instance, dict):
         axes = {axis["tag"]: axis for axis in (font.get("variable") or {}).get("axes") or []}
@@ -809,7 +817,7 @@ def validate(fonts, settings, upload_dir=None):
         errors += _shape_errors(fid, fmap[fid], eff, per, batch, fonts, upload_dir)
     for fid, eff in shaped:
         if eff.get("selected"):
-            errors += _route_errors(fid, fmap[fid], eff)
+            errors += _route_errors(fid, fmap[fid], eff, fmap)
     return list(dict.fromkeys(errors))                       # G3: each problem is reported once, order kept
 
 
@@ -1075,6 +1083,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
     work_root = os.path.join(job_dir, "work")
     os.makedirs(work_root, exist_ok=True)
     range_files = None
+    base = os.path.join(os.path.dirname(tools_dir), "svf", routes.JOHAB844_BASE)
     steps = []
     counter = 0
     for font in fonts:
@@ -1134,7 +1143,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                 master = os.path.join(step_dir, "master.json")
                 paths = {"tools": tools_dir, "src": src, "out": master,
                          "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
-                         "range_file": range_file}
+                         "range_file": range_file, "base": base}
                 steps.append(_step(sid, fid, "prepare", None, None, layout, None,
                                    route.prepare_commands(font, layout, paths), "work/%s/master.json" % sid))
             for size in sorted(eff.get("sizes") or []):
@@ -1155,7 +1164,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                     step_layout = None if kind == "precomposed" or route.label == "copy" else layout
                     paths = {"tools": tools_dir, "src": src, "out": out,
                              "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
-                             "range_file": range_file}
+                             "range_file": range_file, "base": base}
                     extra = routes.apply_flags(presets.argv_for(eff.get("preset"), kind, size),
                                                presets.panel_argv(eff.get("options"), kind, route.label, bpp))
                     try:

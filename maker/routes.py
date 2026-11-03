@@ -19,6 +19,9 @@ import detect
 
 PY = [sys.executable, "-P"]
 
+# The 16x16 1 bpp base face johab844.py redraws the Hangul of (relative to the checkout's svf/).
+JOHAB844_BASE = "dos/NEODG16.SVF"
+
 # The maker's own source-conversion CLI (a TTC face, a PCF as BDF): tools/ has no tool for those two.
 SRCPREP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "srcprep.py")
 
@@ -150,6 +153,13 @@ def _dos_commands(font, size, bpp, layout, range_spec, paths, extra):
         argv += ["--eng", paths["eng"]]
     if layout in detect.DKB_LAYOUTS:
         argv += ["--face", str(font.get("face_index", 0))]
+    return _with_extra([argv], extra)
+
+
+def _johab844_commands(font, size, bpp, layout, range_spec, paths, extra):
+    argv = PY + [_tool(paths, "johab844.py"), paths["src"], paths["base"], paths["out"]]
+    if paths.get("eng"):
+        argv += ["--eng", paths["eng"]]
     return _with_extra([argv], extra)
 
 
@@ -319,6 +329,8 @@ def routes(font):
         out.append(Route("precomposed", "mkfont", True, [], [1], sizes, None, None, _mkfont_commands))
     elif kind == "dos-raw":
         layouts = [l for l in (font.get("dos") or {}).get("candidates", []) if l != "none"]
+        if font.get("dos_bytes") == 11520 and "844" in layouts:   # a 16 px 8x4x4 raw font: its pieces make precomposed syllables
+            out.append(Route("precomposed", "johab844", True, [], [1], [16], None, None, _johab844_commands))
         out.append(Route("jamo", "dos raw", True, layouts, [1], sizes, None, None, _dos_commands))
     elif kind == "bdf-johab":
         out.append(Route("jamo", "hanterm", True, ["hanterm-johab"], [1], sizes, None, None, _hanterm_commands))

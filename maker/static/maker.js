@@ -45,7 +45,8 @@ const ROUTES = {
   "bdf-ksc5601": [{"kind": "precomposed", "label": "bdfface", "native": true, "bpps": [1]},
                   {"kind": "jamo", "label": "bdfface + from-svf fit", "native": false, "bpps": [1]}],
   "bdf-johab": [{"kind": "jamo", "label": "hanterm", "native": true, "bpps": [1]}],
-  "dos-raw": [{"kind": "jamo", "label": "dos raw", "native": true, "bpps": [1]}],
+  "dos-raw": [{"kind": "precomposed", "label": "johab844", "native": true, "bpps": [1]},
+              {"kind": "jamo", "label": "dos raw", "native": true, "bpps": [1]}],
   "svf-precomposed": [{"kind": "precomposed", "label": "copy", "native": true, "bpps": [1, 2]},
                       {"kind": "jamo", "label": "from-svf fit", "native": false, "bpps": [1]}],
   "svf-jamo": [{"kind": "jamo", "label": "copy", "native": true, "bpps": [1, 2]}]
@@ -76,6 +77,7 @@ const FLAG_KEYS = new Set(["mono_hint", "clip_cell", "embolden", "symbols"]);
 const OPTION_VISIBLE = {
   "mkfont": {"1": ["cell", "ascent", "mono_hint", "clip_cell", "space_advance"],
              "2": ["cell", "ascent", "clip_cell", "space_advance"]},
+  "johab844": {"1": []},
   "dos raw": {"1": ["embolden", "symbols", "jset_version"]},
   "hanterm": {"1": ["embolden", "symbols", "jset_version"]},
   "composite": {"1": ["symbols", "jset_version"], "2": ["symbols", "jset_version"]},
