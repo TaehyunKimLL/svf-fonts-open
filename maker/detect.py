@@ -115,7 +115,26 @@ def sniff(data, size=None):
         return "dos-raw"
     if size in (2048, 4096):
         return "eng"
+    if _mac_head(data, size):
+        return "mac-rsrc"
     return "unknown"
+
+
+def _mac_head(data, size):
+    """True when @p data (the first 512 bytes of a file of @p size bytes) opens a Mac resource-fork container: an
+    AppleDouble head, a MacBinary head whose forks fit the file, or a raw fork (.dfont) whose header and map account
+    for the whole file."""
+    if data[:4] == b"\x00\x05\x16\x07":
+        return True
+    if len(data) >= 128 and data[0] == 0 and 1 <= data[1] <= 63 and data[74] == 0 and data[82] == 0:
+        dlen, rlen = struct.unpack_from(">II", data, 83)
+        if rlen and 128 + ((dlen + 127) // 128) * 128 + rlen <= size:
+            return True
+    if len(data) >= 16:
+        data_off, map_off, data_len, map_len = struct.unpack_from(">IIII", data, 0)
+        if data_off >= 16 and data_off + data_len <= map_off and map_len >= 30 and map_off + map_len == size:
+            return True
+    return False
 
 
 def gunzip_head(path):
@@ -429,6 +448,9 @@ def _detect_file(abs_path, rel):
     if fmt == "ttc":
         return _ttc_entries(abs_path, rel, gz, zipped)
 
+    if fmt == "mac-rsrc":
+        return _mac_entries(abs_path, rel, gz, zipped)
+
     if fmt == "bdf":
         text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
         reg, enc = _bdf_charset(text)
@@ -563,6 +585,40 @@ def _ttc_entries(abs_path, rel, gz, zipped):
                            family=_stem(rel), gz=zipped)
         e["label"] += more
         out.append(e)
+    return out
+
+
+MAC_BITMAP_TYPES = (b"NFNT", b"FONT", b"fbit")
+
+
+def _mac_entries(abs_path, rel, gz, zipped):
+    """One entry per `sfnt` resource of a Mac container (capped at _FACE_CAP); a container with only bitmap fonts is one
+    `other` entry and a corrupt resource map one `unknown` entry: the file never vanishes."""
+    data = _read_bytes(abs_path, gz)
+    try:
+        container, res = srcprep.mac_resources(data)
+    except srcprep.PrepError as e:
+        return [_entry(rel, 0, "unknown", "unknown (Mac resource fork: %s)" % e, "other", family=_stem(rel),
+                       gz=zipped)]
+    sfnts = [(rid, body) for rtype, rid, _name, body in res if rtype == b"sfnt"][:_FACE_CAP]
+    if not sfnts:
+        if any(rtype in MAC_BITMAP_TYPES for rtype, _i, _n, _b in res):
+            return [_entry(rel, 0, "mac-rsrc", "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)",
+                           "other", family=_stem(rel), gz=zipped)]
+        return [_entry(rel, 0, "mac-rsrc", "%s: no sfnt or bitmap font resource" % container, "other",
+                       family=_stem(rel), gz=zipped)]
+    out = []
+    for n, (rid, body) in enumerate(sfnts):
+        label = "%s: sfnt %d" % (container, rid)
+        try:
+            font = TTFont(io.BytesIO(body), lazy=True)
+            try:
+                out.append(_sfnt_entry(rel, n, "mac-rsrc", label, font, [{"op": "rsrc-sfnt", "id": rid}], zipped))
+            finally:
+                font.close()
+        except Exception as e:            # an sfnt resource that is not a font still gets its entry
+            out.append(_entry(rel, n, "mac-rsrc", "%s unreadable (%s)" % (label, type(e).__name__), "other",
+                              family=_stem(rel), gz=zipped))
     return out
 
 

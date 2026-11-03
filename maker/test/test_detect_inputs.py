@@ -117,5 +117,47 @@ class SfntDetectTest(DirCase):
         self.assertEqual(routes.routes(e), [])
 
 
+class MacContainerTest(DirCase):
+    def test_each_wrapper_lists_its_sfnts(self):
+        fk = inputfx.fork([(b"FOND", 128, "Synth", bytes(52)), (b"sfnt", 128, "Synth", inputfx.mac_cmap_ttf()),
+                           (b"sfnt", 129, "", inputfx.ttf("Plain", BOX1))])
+        for name, blob, container in (("F.dfont", fk, "resource fork"), ("._F", inputfx.appledouble(fk), "AppleDouble"),
+                                      ("F.bin", inputfx.macbinary(fk), "MacBinary")):
+            out = detect.detect_file(self.put(name, blob), name)
+            self.assertEqual([(e["format"], e["face_index"], e["label"], e["source_kind"], e["prep"]) for e in out],
+                             [("mac-rsrc", 0, container + ": sfnt 128; Mac Korean cmap", "outline",
+                               [{"op": "rsrc-sfnt", "id": 128}, {"op": "mac-cmap"}]),
+                              ("mac-rsrc", 1, container + ": sfnt 129", "outline", [{"op": "rsrc-sfnt", "id": 129}])])
+
+    def test_sniff_tags(self):
+        fk = inputfx.fork([(b"sfnt", 128, "", inputfx.ttf("P", BOX1))])
+        self.assertEqual(detect.sniff(fk[:512], len(fk)), "mac-rsrc")
+        self.assertEqual(detect.sniff(bytes(512), 11520), "dos-raw")     # a blank-led DOS raw font is not a fork
+
+    def test_a_fork_with_only_bitmap_fonts_is_other(self):
+        e, = detect.detect_file(self.put("B.dfont", inputfx.fork([(b"NFNT", 200, "", bytes(26))])), "B.dfont")
+        self.assertEqual((e["source_kind"], e["label"]),
+                         ("other", "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)"))
+
+    def test_a_corrupt_fork_is_one_unknown_entry(self):
+        fk = bytearray(inputfx.fork([(b"sfnt", 128, "", inputfx.ttf("P", BOX1))]))
+        struct.pack_into(">H", fk, struct.unpack_from(">I", fk, 4)[0] + 24, 0xFFF0)   # type list offset past the map
+        e, = detect.detect_file(self.put("C.dfont", bytes(fk)), "C.dfont")
+        self.assertEqual(e["format"], "unknown")
+        self.assertTrue(e["label"].startswith("unknown (Mac resource fork: "))
+
+    def test_a_mac_sfnt_coverage_is_read_through_the_ops(self):
+        self.put("m/F.dfont", inputfx.fork([(b"sfnt", 128, "Synth", inputfx.mac_cmap_ttf())]))
+        e, = detect.scan(self.dir("m"))
+        self.assertEqual(e["coverage"]["all"], 1)
+
+    def test_a_gz_dfont_is_read_through_its_decompressed_bytes(self):
+        import gzip
+        fk = inputfx.fork([(b"sfnt", 128, "Synth", inputfx.mac_cmap_ttf())])
+        self.put("g/F.dfont.gz", gzip.compress(fk))
+        e, = detect.scan(self.dir("g"))
+        self.assertEqual((e["format"], e["gzip"], e["coverage"]["all"]), ("mac-rsrc", True, 1))
+
+
 if __name__ == "__main__":
     unittest.main()
