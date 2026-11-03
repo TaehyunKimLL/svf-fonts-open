@@ -331,3 +331,16 @@ def latin_bdf_from_neodg(path):
         glyphs.append((cp, 8, 16, 0, -3, [cell[2 * y] for y in range(16)]))
     fixtures._bdf(path, glyphs, 16, 13, 3, "ISO10646", (8, 16))
     return path
+
+
+def dos844_24():
+    """25,920 bytes: 360 24x24 glyphs (72 bytes) of an 8x4x4 raw font, the fill slots blank, every other glyph's first
+    row 0xFF 0xFF 0xFF (the 24 px counterpart of fixtures._dos_raw)."""
+    import jamoset
+    count, gb = 360, 72
+    fill = set(jamoset.slots_of(8, 4, 4, 160, 248))
+    data = bytearray(count * gb)
+    for i in range(count):
+        if i not in fill:
+            data[i * gb:i * gb + 3] = b"\xFF\xFF\xFF"
+    return bytes(data)

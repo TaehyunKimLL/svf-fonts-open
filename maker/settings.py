@@ -723,6 +723,11 @@ def _route_errors(fid, font, eff, fmap=None):
             errors.append("%s: confirm the DOS Johab layout" % fid)
         elif eff.get("dos_layout") not in candidates:
             errors.append("%s: dos_layout %s is not one of %s" % (fid, eff.get("dos_layout"), ", ".join(candidates)))
+    if font.get("source_kind") == "dos-raw":
+        companion = (fmap or {}).get(eff.get("latin_companion")) if isinstance(eff.get("latin_companion"), str) else None
+        px = (font.get("sizes") or [None])[0]
+        if companion and (companion.get("eng") or {}).get("cell") == "12x24" and isinstance(px, int) and px < 24:
+            errors.append("%s: a 12x24 English font needs a face of 24 px or more" % fid)
     if font.get("source_kind") == "dos-raw" and "precomposed" in kinds:
         route = routes.route_for(font, "precomposed", False)
         if route is not None and route.label == "johab844":

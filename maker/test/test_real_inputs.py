@@ -85,6 +85,16 @@ class RealInputsTest(unittest.TestCase):
         self.assertEqual(job["state"], "done", job.get("error"))
         inputkinds.assert_facecheck(self, z)
 
+    @real("SVF_MAKER_REAL_PFT")
+    def test_real_pft(self):
+        with open(os.environ["SVF_MAKER_REAL_PFT"], "rb") as fh:
+            pft = fh.read()
+        job, z = inputkinds.run_batch(
+            self, os.path.join(self.tmp, "job"), {"r/HAN24.FNT": inputfx.dos844_24(), "r/ASCII.PFT": pft},
+            lambda f, s: select(s, fid_of(f, kind="dos-raw"), kinds=["jamo"], dos_layout="844"))
+        self.assertEqual(job["state"], "done", job.get("error"))
+        inputkinds.assert_facecheck(self, z)
+
     @real("SVF_MAKER_REAL_EBDT")
     def test_real_ebdt(self):
         def choose(fonts, s, rel):

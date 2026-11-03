@@ -374,6 +374,40 @@ class Johab844Test(Case):
         self.assertEqual(bytes(inputkinds.zip_face(z).glyphs[0xAC00]), johab844.compose(raw, 0xAC00))
 
 
+class Eng12x24Test(Case):
+    def scan_dos(self, raw, eng):
+        d = os.path.join(self.tmp, "dos%d" % self.n)
+        self.n += 1
+        os.makedirs(d)
+        for name, data in (("HAN.FNT", raw), ("ASCII.PFT", eng), ("LICENSE.txt", inputkinds.LICENCE.encode())):
+            with open(os.path.join(d, name), "wb") as fh:
+                fh.write(data)
+        return detect.scan(d)
+
+    def test_a_16px_face_refuses_a_12x24_eng(self):
+        raw = os.path.join(self.tmp, "r.fnt")
+        fixtures._dos_raw(raw)
+        with open(raw, "rb") as fh:
+            fonts = self.scan_dos(fh.read(), inputfx.pft_eng())
+        fid = fid_of(fonts, kind="dos-raw")
+        s = settings.defaults(fonts)
+        s["fonts"][fid].update(selected=True, dos_layout="844")
+        self.assertIn("%s: a 12x24 English font needs a face of 24 px or more" % fid, settings.validate(fonts, s))
+
+    def test_pft_and_hbios_eng_on_a_24px_face(self):
+        for name, eng in (("pft", inputfx.pft_eng()), ("hbios", inputfx.hbios_eng())):
+            with self.subTest(companion=name):
+                files = {"d/HAN24.FNT": inputfx.dos844_24(), "d/ASCII.PFT": eng}
+                job, z = self.run_batch(files, lambda f, s: select(s, fid_of(f, kind="dos-raw"), kinds=["jamo"],
+                                                                   dos_layout="844"))
+                self.assertEqual(inputkinds.step_tools(job["steps"]), [["jamoset.py"]])
+                argv = job["steps"][0]["argv"][0]
+                self.assertTrue(argv[argv.index("--eng") + 1].endswith("ASCII.PFT"))
+                self.assertEqual([st["state"] for st in job["steps"]], ["done"])
+                inputkinds.assert_facecheck(self, z)
+                self.assertTrue(any(inputkinds.zip_face(z).glyphs[0x41]))
+
+
 class ZipoutSourceTitleTest(unittest.TestCase):
     def test_source_step_title(self):
         self.assertEqual(zipout._step_title({"id": "s01", "font": "f02", "kind": "source"}), "## s01 f02 source")
