@@ -179,6 +179,63 @@ class StrikeRouteTest(Case):
         self.assertEqual((argv[argv.index("--size") + 1], argv[argv.index("--bpp") + 1]), ("12", "1"))
 
 
+class InstanceSettingsTest(Case):
+    def scan(self, data, name="Vary.ttf"):
+        d = os.path.join(self.tmp, "scan%d" % self.n)
+        self.n += 1
+        os.makedirs(d)
+        for rel, blob in ((name, data), ("LICENSE.txt", inputkinds.LICENCE.encode())):
+            with open(os.path.join(d, rel), "wb") as fh:
+                fh.write(blob)
+        return detect.scan(d)
+
+    def font_id(self, fonts):
+        return inputkinds.only_font(fonts)
+
+    def test_instance_rules(self):
+        fonts = self.scan(inputfx.variable_ttf())
+        s = settings.defaults(fonts)
+        fid = self.font_id(fonts)
+        for value, msg in (({"wght": 950}, "%s: instance wght=950 is outside 100..900" % fid),
+                           ({"opsz": 12}, "%s: instance axis opsz is not in the font" % fid),
+                           ("Bold", "%s: instance is not an object of axis values" % fid),
+                           ({"wght": True}, "%s: instance is not an object of axis values" % fid)):
+            s["fonts"][fid].update(selected=True, instance=value)
+            self.assertIn(msg, settings.validate(fonts, s))
+        s["fonts"][fid]["instance"] = {"wght": 700}
+        self.assertEqual(settings.validate(fonts, s), [])
+
+    def test_instance_on_a_static_font_is_refused(self):
+        fonts = self.scan(inputfx.ttf("S", BOX1), "S.ttf")
+        s = settings.defaults(fonts)
+        fid = self.font_id(fonts)
+        s["fonts"][fid].update(selected=True, instance={"wght": 400})
+        self.assertIn("%s: instance needs a variable font" % fid, settings.validate(fonts, s))
+
+    def test_defaults_carry_instance_none(self):
+        fonts = self.scan(inputfx.variable_ttf())
+        self.assertIsNone(settings.defaults(fonts)["fonts"][self.font_id(fonts)]["instance"])
+        self.assertIn("instance", settings.FONT_ONLY_KEYS)
+
+    def test_instance_coords_overlay_the_axis_defaults(self):
+        font = {"variable": {"axes": [{"tag": "wght", "min": 100, "default": 400, "max": 900},
+                                      {"tag": "wdth", "min": 75, "default": 100, "max": 100}]}}
+        self.assertEqual(settings.instance_coords(font, {"wght": 700}), {"wght": 700, "wdth": 100})
+
+
+class InstanceE2ETest(Case):
+    def test_bold_instance_differs_from_the_default(self):
+        files = {"v/Vary.ttf": inputfx.variable_ttf()}
+        reg, z1 = self.run_batch(files, lambda f, s: select(s, inputkinds.only_font(f), sizes=[24], bpp=[1]))
+        bold, z2 = self.run_batch(files, lambda f, s: select(s, inputkinds.only_font(f), sizes=[24], bpp=[1],
+                                                             instance={"wght": 700}))
+        self.assertEqual(inputkinds.step_tools(reg["steps"]), [["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(bold["steps"]), [["-m fontTools.varLib.instancer"], ["mkfont.py"]])
+        self.assertEqual([st["state"] for st in bold["steps"]], ["done", "done"])
+        inputkinds.assert_facecheck(self, z2)
+        self.assertNotEqual(ga(z1), ga(z2))
+
+
 class ZipoutSourceTitleTest(unittest.TestCase):
     def test_source_step_title(self):
         self.assertEqual(zipout._step_title({"id": "s01", "font": "f02", "kind": "source"}), "## s01 f02 source")

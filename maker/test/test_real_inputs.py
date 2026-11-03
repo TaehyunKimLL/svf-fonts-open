@@ -59,6 +59,16 @@ class RealInputsTest(unittest.TestCase):
         self.run_file("SVF_MAKER_REAL_DFONT", lambda f, s, rel: select(
             s, fid_of(f, face=0, path=rel), kinds=["precomposed"], sizes=[16]))
 
+    @real("SVF_MAKER_REAL_VF")
+    def test_real_vf(self):
+        def choose(fonts, s, rel):
+            fid = fid_of(fonts, face=0, path=rel)
+            font = [f for f in fonts if f["id"] == fid][0]
+            self.assertIsNotNone(font.get("variable"), "the file is not a variable font")
+            first = font["variable"]["instances"][0]["coords"] if font["variable"]["instances"] else {}
+            select(s, fid, kinds=["precomposed"], sizes=[16], instance=first)
+        self.run_file("SVF_MAKER_REAL_VF", choose)
+
     @real("SVF_MAKER_REAL_EBDT")
     def test_real_ebdt(self):
         def choose(fonts, s, rel):

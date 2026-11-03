@@ -28,7 +28,7 @@ import routes
 
 BATCH_KEYS = ("dest", "kinds", "layout", "sizes", "bpp", "range", "preset", "options")
 FONT_ONLY_KEYS = ("selected", "experimental", "dos_layout", "latin_companion", "licence", "names", "licence_name",
-                  "note_name")
+                  "note_name", "instance")
 DEFAULT_OPTIONS = {"mkfont": {"cell": None, "ascent": None, "mono_hint": False, "clip_cell": False, "space_advance": None},
                    "jamoset": {"embolden": False, "symbols": False, "jset_version": None}}
 
@@ -37,7 +37,8 @@ BATCH_DEFAULTS = {"dest": "dos", "kinds": ["precomposed"], "layout": "844", "siz
                   "range": "2350", "preset": "plain", "options": DEFAULT_OPTIONS}
 
 _FONT_ONLY_DEFAULTS = {"selected": False, "experimental": False, "dos_layout": None, "latin_companion": None,
-                       "licence": None, "names": {}, "licence_name": "", "note_name": ""}
+                       "licence": None, "names": {}, "licence_name": "", "note_name": "",
+                       "instance": None}
 
 # A `names` key: a kind, a size and a bpp, all digits (`effective` ignores a well-formed key outside the selection).
 NAME_KEY_RE = re.compile(r"^(precomposed|jamo)/\d+/\d+$")
@@ -167,8 +168,16 @@ def _font_defaults(font, batch):
         "names": {},
         "licence_name": _licence_name(font.get("family", ""), licences[0] if licences else None),
         "note_name": naming.suggest_note_name(font.get("family", "")),
+        "instance": None,
     })
     return per
+
+
+def instance_coords(font, instance):
+    """The full `{axis tag: value}` of a variable-font instance: every axis's default, overlaid by @p instance."""
+    coords = {axis["tag"]: axis["default"] for axis in (font.get("variable") or {}).get("axes") or []}
+    coords.update(instance)
+    return coords
 
 
 def defaults(fonts):
@@ -513,6 +522,11 @@ def _type_errors(fid, eff, per):
             errors.append("%s: bpp is not a list" % fid)
         elif any(not _is_int(value) for value in bpp):
             errors.append("%s: bpp has a value that is not an int" % fid)
+    instance = eff.get("instance")
+    if instance is not None and not (isinstance(instance, dict) and all(
+            isinstance(tag, str) and isinstance(value, (int, float)) and not isinstance(value, bool)
+            for tag, value in instance.items())):
+        errors.append("%s: instance is not an object of axis values" % fid)
     for key in ("selected", "experimental"):
         if not isinstance(eff.get(key), bool):
             errors.append("%s: %s is not true or false" % (fid, key))
@@ -709,6 +723,16 @@ def _route_errors(fid, font, eff):
             errors.append("%s: confirm the DOS Johab layout" % fid)
         elif eff.get("dos_layout") not in candidates:
             errors.append("%s: dos_layout %s is not one of %s" % (fid, eff.get("dos_layout"), ", ".join(candidates)))
+    instance = eff.get("instance")
+    if isinstance(instance, dict):
+        axes = {axis["tag"]: axis for axis in (font.get("variable") or {}).get("axes") or []}
+        if not axes:
+            errors.append("%s: instance needs a variable font" % fid)
+        for tag, value in instance.items():
+            if axes and tag not in axes:
+                errors.append("%s: instance axis %s is not in the font" % (fid, tag))
+            elif axes and not axes[tag]["min"] <= value <= axes[tag]["max"]:
+                errors.append("%s: instance %s=%g is outside %g..%g" % (fid, tag, value, axes[tag]["min"], axes[tag]["max"]))
     preset_name = eff.get("preset")
     preset = presets.PRESETS.get(preset_name) if isinstance(preset_name, str) else None
     if preset is not None:
@@ -1077,6 +1101,8 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
             range_file = range_files[rkind]
             range_arg = (rkind, None)
         ops = list(font.get("prep") or [])
+        if eff.get("instance") is not None:
+            ops.append({"op": "instance", "coords": instance_coords(font, eff["instance"])})
         if ops:                                          # the font's source step: every later step reads its file
             counter += 1
             sid = "s%02d" % counter
