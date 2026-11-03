@@ -18,6 +18,7 @@ import bdfface
 import jamoaa
 import jamoset
 import mkfont
+import srcprep
 import svf2to3
 from PIL import Image, ImageFont
 from fontTools.ttLib import TTFont
@@ -188,6 +189,18 @@ def _name_record(name_table, ids):
     return ""
 
 
+def _names_of(font):
+    """(family, style, version) of an open font: name IDs 16/17 else 1/2, version ID 5; "" when absent."""
+    try:
+        table = font["name"]
+    except Exception:
+        table = None
+    family = _name_record(table, (16, 1)) if table is not None else ""
+    style = _name_record(table, (17, 2)) if table is not None else ""
+    version = _name_record(table, (5,)) if table is not None else ""
+    return family.strip(), style.strip(), version.strip()
+
+
 def read_name(path, face_index=0, data=None):
     """(family, style, version): name IDs 16/17 else 1/2, version ID 5; family falls back to the file stem.
 
@@ -199,20 +212,14 @@ def read_name(path, face_index=0, data=None):
     try:
         f = TTFont(handle, fontNumber=face_index, lazy=True)
         try:
-            try:
-                table = f["name"]
-            except Exception:
-                table = None
-            family = _name_record(table, (16, 1)) if table is not None else ""
-            style = _name_record(table, (17, 2)) if table is not None else ""
-            version = _name_record(table, (5,)) if table is not None else ""
+            family, style, version = _names_of(f)
         finally:
             f.close()
     finally:
         handle.close()
-    if not family.strip():
+    if not family:
         family = _stem(path)
-    return family, style.strip(), version.strip()
+    return family, style, version
 
 
 def _open_font(path, size, index=0, data=None):
@@ -281,13 +288,85 @@ def detect_file(abs_path, rel):
 
 
 def _entry(rel, face_index, fmt, label, source_kind, family="", style="", version="", sizes=None, sizes_fixed=False,
-           dos=None, bdf=None, svf=None, error=None, gz=False):
+           dos=None, bdf=None, svf=None, error=None, gz=False, prep=None, variable=None, strikes=None, eng=None,
+           dos_bytes=None):
     e = {"path": rel, "face_index": face_index, "format": fmt, "label": label, "source_kind": source_kind,
          "family": family, "style": style, "version": version, "sizes": sizes or [], "sizes_fixed": sizes_fixed,
          "coverage": None, "jamo": "none", "dos": dos, "bdf": bdf, "svf": svf, "error": error}
     if gz:                            # a non-PCF .gz source: decompress it before any tool or Pillow reads it
         e["gzip"] = True
+    if prep:                          # the source conversions the file needs before any tool can read it
+        e["prep"] = prep
+    if variable is not None:
+        e["variable"] = variable
+    if strikes:
+        e["strikes"] = strikes
+    if eng:
+        e["eng"] = eng
+    if dos_bytes:
+        e["dos_bytes"] = dos_bytes
     return e
+
+
+def _sfnt_facts(font):
+    """{"variable", "strikes", "mac_cmap", "outlines"} of an open sfnt; a table that cannot be read counts as absent."""
+    def safe(fn, default):
+        try:
+            return fn(font)
+        except Exception:
+            return default
+    return {"variable": safe(srcprep.variable_info, None), "strikes": safe(srcprep.embedded_strikes, []),
+            "mac_cmap": safe(srcprep.mac_cmap_only, False), "outlines": srcprep.has_outlines(font)}
+
+
+def _axis_label(a):
+    return "%s %g..%g" % (a["tag"], a["min"], a["max"])
+
+
+def _sfnt_entry(rel, face_index, fmt, label, font, prep, gz):
+    """The entry of one open sfnt face: ttf, otf, a TTC face or a Mac `sfnt` resource.
+
+    Outlines make an `outline` entry, embedded strikes alone a `bitmap` one at those sizes; @p prep is the list of
+    source conversions it needs (the Mac cmap one is added here); the label says what the file carries.
+    """
+    facts = _sfnt_facts(font)
+    family, style, version = _names_of(font)
+    family = family or _stem(rel)
+    prep = list(prep) + ([{"op": "mac-cmap"}] if facts["mac_cmap"] else [])
+    strikes = facts["strikes"]
+    suffix = ""
+    if facts["variable"] is not None:
+        suffix += "; variable (%s)" % ", ".join(_axis_label(a) for a in facts["variable"]["axes"])
+    if strikes:
+        suffix += "; bitmap strikes %s" % ", ".join(str(n) for n in strikes)
+    if facts["mac_cmap"]:
+        suffix += "; Mac Korean cmap"
+    kw = dict(prep=prep, variable=facts["variable"], strikes=strikes, gz=gz)
+    if facts["outlines"]:
+        return _entry(rel, face_index, fmt, label + suffix, "outline", family, style, version, [16], False, **kw)
+    if strikes:
+        return _entry(rel, face_index, fmt, _bitmap_only(label) + suffix,
+                      "bitmap", family, style, version, list(strikes), True, **kw)
+    return _entry(rel, face_index, fmt, label + "; no outlines, no bitmap strikes" + suffix, "other", family, style,
+                  version, **kw)
+
+
+def _bitmap_only(label):
+    """"TTF" -> "TTF bitmap-only"; a longer label ("TTC face 1") gets the word at its end."""
+    return label + " bitmap-only"
+
+
+def _open_sfnt_entry(abs_path, rel, face_index, fmt, label, data, prep, gz):
+    """`_sfnt_entry` of face @p face_index of the file (or of @p data, a `.gz` source's decompressed bytes)."""
+    handle = open(abs_path, "rb") if data is None else io.BytesIO(data)
+    try:
+        font = TTFont(handle, fontNumber=face_index, lazy=True)
+        try:
+            return _sfnt_entry(rel, face_index, fmt, label, font, prep, gz)
+        finally:
+            font.close()
+    finally:
+        handle.close()
 
 
 def _read_bytes(path, gz=False):
@@ -345,9 +424,7 @@ def _detect_file(abs_path, rel):
 
     if fmt in ("ttf", "otf"):
         data = _read_bytes(abs_path, True) if gz else None
-        family, style, version = read_name(abs_path, 0, data)
-        return [_entry(rel, 0, fmt, "TTF" if fmt == "ttf" else "OTF", "outline", family, style, version, [16], False,
-                       gz=zipped)]
+        return [_open_sfnt_entry(abs_path, rel, 0, fmt, "TTF" if fmt == "ttf" else "OTF", data, [], zipped)]
 
     if fmt == "ttc":
         return _ttc_entries(abs_path, rel, gz, zipped)
@@ -473,14 +550,19 @@ def _ttc_entries(abs_path, rel, gz, zipped):
         faces = 1
     out = []
     for i in range(faces):
+        label = "TTC face %d" % i
+        more = "; more faces not listed" if i == faces - 1 and total > faces else ""
+        prep = [{"op": "ttc-face", "index": i}] if i else []
         if i == 0:
-            family, style, version = read_name(abs_path, 0, data)
-            out.append(_entry(rel, 0, "ttc", "TTC face 0", "outline", family, style, version, [16], False, gz=zipped))
+            e = _open_sfnt_entry(abs_path, rel, 0, "ttc", label, data, prep, zipped)
         else:
-            label = "face index %d: not convertible in v1" % i
-            if i == faces - 1 and total > faces:
-                label += "; more faces not listed"
-            out.append(_entry(rel, i, "ttc", label, "other", family=_stem(rel), gz=zipped))
+            try:
+                e = _open_sfnt_entry(abs_path, rel, i, "ttc", label, data, prep, zipped)
+            except Exception as ex:           # a face that does not open still gets its entry
+                e = _entry(rel, i, "ttc", "%s: unreadable (%s)" % (label, type(ex).__name__), "other",
+                           family=_stem(rel), gz=zipped)
+        e["label"] += more
+        out.append(e)
     return out
 
 
@@ -705,6 +787,21 @@ def coverage_outline(path, face_index=0, data=None):
         return coverage_of(lambda cp: cp in cmap)
     finally:
         face.font.close()
+
+
+def coverage_cmap(path, face_index=0, data=None):
+    """An sfnt face's coverage by cmap membership, for a face that has no outlines (a bitmap-only sfnt: Pillow would
+    have to open it at every size and draw every glyph). @p data is the face's bytes when not read from @p path."""
+    handle = open(path, "rb") if data is None else io.BytesIO(data)
+    try:
+        font = TTFont(handle, fontNumber=face_index, lazy=True)
+        try:
+            cmap = font.getBestCmap() or {}
+        finally:
+            font.close()
+    finally:
+        handle.close()
+    return coverage_of(lambda cp: cp in cmap)
 
 
 def _bitmap_cell(font):
@@ -989,7 +1086,10 @@ def _bdf_glyphs(path, unicode_enc=None, data=None):
             pass
 
 
-def _coverage_of_entry(path, entry, data=None):
+SFNT_FORMATS = ("ttf", "otf", "ttc", "mac-rsrc")
+
+
+def _coverage_of_entry(path, entry, data=None, face_index=None):
     """An entry's coverage, or None when the source cannot be read (a kind with none, or an unsafe HBF).
 
     @p data is a `.gz` source's decompressed bytes (read once per file by `scan`), shared with the composite test.
@@ -997,11 +1097,14 @@ def _coverage_of_entry(path, entry, data=None):
     here.
     """
     kind = entry["source_kind"]
+    face = entry["face_index"] if face_index is None else face_index
     try:
         if kind == "dos-raw":
             return dict(DOS_COVERAGE)
         if kind in ("outline", "outline-composite"):
-            return coverage_outline(path, entry["face_index"], data)
+            return coverage_outline(path, face, data)
+        if kind == "bitmap" and entry["format"] in SFNT_FORMATS:
+            return coverage_cmap(path, face, data)
         if kind == "bitmap":
             return coverage_bitmap(path, entry["sizes"][0]) if entry["sizes"] else None
         if kind in ("bdf-iso10646", "bdf-iso8859"):
@@ -1091,7 +1194,7 @@ def scan(upload_dir):
         if not group:
             continue
         path = abs_of[rel]
-        data = None
+        data = raw = None
         if any(e.get("gzip") for e in group):
             try:
                 data = _read_bytes(path, True)
@@ -1105,17 +1208,29 @@ def scan(upload_dir):
             if entry["format"] == "eng" and os.path.dirname(entry["path"]) not in dos_folders:
                 entry["format"] = "unknown"       # a Latin companion needs a DOS Johab font beside it
                 entry["label"] = "unknown (%s; no DOS Johab font beside it)" % _entry_size(path, entry, data)
-            if entry["source_kind"] == "outline" and _is_composite(path, entry["face_index"], data):
+            src, face, cannot = data, entry["face_index"], None
+            if entry.get("prep") and time.monotonic() < deadline:
+                # the font as the tools will read it: a prep entry's composite test and coverage run on those bytes
+                try:
+                    if data is None and raw is None:
+                        raw = _read_bytes(path)
+                    src, face = srcprep.prepared_bytes(data if data is not None else raw, entry["prep"]), 0
+                except (srcprep.PrepError, OSError) as ex:
+                    cannot = str(ex)
+            if cannot is None and entry["source_kind"] == "outline" and _is_composite(path, face, src):
                 entry["source_kind"] = "outline-composite"
-            if time.monotonic() >= deadline:
+            if cannot is not None:
+                entry["coverage"] = None
+                entry["label"] += "; cannot prepare: %s" % cannot
+            elif time.monotonic() >= deadline:
                 entry["coverage"] = None
                 entry["label"] += "; coverage skipped (time budget)"
             else:
-                entry["coverage"] = _coverage_of_entry(path, entry, data)
+                entry["coverage"] = _coverage_of_entry(path, entry, src, face)
             entry["jamo"] = jamo_label(entry)
             entry["licences"] = [{"path": _rel(upload_dir, p), "first_line": _first_line(p)}
                                  for p in find_licences(path, all_abs, licences, licence_root)]
-        data = None                      # drop the decompressed bytes before the next file
+        data = raw = src = None          # drop the decompressed bytes before the next file
 
     latin_ids = [e["id"] for e in entries if e["source_kind"] in ("bdf-iso10646", "bdf-iso8859", "hbf")]
     for entry in entries:

@@ -496,7 +496,8 @@ class FixRoundOneTest(FixtureCase):
         self.assertEqual((out[0]["format"], out[0]["label"], out[0]["source_kind"], out[0]["family"]),
                          ("ttc", "TTC face 0", "outline", "Ttc"))
         self.assertEqual((out[1]["face_index"], out[1]["source_kind"], out[1]["label"]),
-                         (1, "other", "face index 1: not convertible in v1"))
+                         (1, "outline", "TTC face 1"))
+        self.assertEqual(out[1]["prep"], [{"op": "ttc-face", "index": 1}])
 
     def test_the_ttc_face_list_is_capped_at_64(self):
         p = ttc(os.path.join(ROOT, "many.ttc"), 70)

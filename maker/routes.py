@@ -259,6 +259,8 @@ def routes(font):
     kind = font.get("source_kind")
     sizes = list(font.get("sizes") or [])
     face_index = font.get("face_index", 0)
+    if font.get("prep"):                         # until the source step exists (Task B1)
+        return []
     out = []
     if kind in ("outline", "outline-composite"):
         if face_index > 0:                       # only a TTC/FON's first face is a source
