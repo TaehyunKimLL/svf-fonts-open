@@ -1134,6 +1134,8 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
             range_arg = (rkind, None)
         ops = list(font.get("prep") or [])
         if eff.get("instance") is not None:
+            if not ops and font.get("format") == "ttc":    # face 0 of a collection: the instancer reads one face
+                ops.append({"op": "ttc-face", "index": font.get("face_index", 0)})
             ops.append({"op": "instance", "coords": instance_coords(font, eff["instance"])})
         if ops:                                          # the font's source step: every later step reads its file
             counter += 1

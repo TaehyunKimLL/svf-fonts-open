@@ -132,6 +132,18 @@ class SrcprepTest(TmpCase):
         with self.assertRaises(srcprep.PrepError):
             srcprep.mac_resources(fork)
 
+    def test_a_fork_with_an_out_of_range_resource_is_named_by_the_reader(self):
+        import struct
+        fk = bytearray(inputfx.fork([(b"sfnt", 128, "", inputfx.ttf("P", BOX))]))
+        data_off = struct.unpack_from(">I", fk, 0)[0]
+        struct.pack_into(">I", fk, data_off, 0xFFFFFFF0)            # the body's length field: far past the fork
+        with self.assertRaises(srcprep.PrepError) as ctx:
+            srcprep.mac_resources(bytes(fk))
+        self.assertIn("runs past the fork", str(ctx.exception))      # macsfnt's message, not "resources too large"
+        for cut in (60, 200, len(fk) - 10):
+            with self.assertRaises(srcprep.PrepError):
+                srcprep.mac_resources(bytes(fk[:cut]))
+
     def test_embedded_strikes_ignore_a_zero_ppem(self):
         self.assertEqual(srcprep.embedded_strikes(TTFont(io.BytesIO(inputfx.eblc_ttf((0, 12))))), [12])
 

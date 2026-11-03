@@ -20,36 +20,40 @@ preview (the result preview of any produced face is always `svfline` via `result
 |---|---|---|---|---|
 | TTF (static) | yes: `ttf` -> `outline`; composite syllables -> `outline-composite` | precomposed: `mkfont.py SRC OUT --size S --bpp B --unicode ascii,ksx1001-hangul` (or `ascii,hangul`, or a list file). Jamo: composite -> `jamovec.py master --components [--adaptive]` then `jamovec.py render --binarize threshold --check`; non-composite -> "experimental fit" `jamoset.py --layout 844\|adaptive --from-ttf --binarize threshold\|--bpp 2 --check` | yes, Pillow `source_png` at the first size | detect.py:91, 346-350, 851, 1108; routes.py:113-117, 119-130, 132-141, 263-272; preview.py:118 |
 | OTF (CFF) | yes: `otf` -> `outline` (never composite: CFF has none) | same as TTF: mkfont; jamo only via the experimental fit | yes (Pillow/FreeType) | detect.py:93, 346; routes.py:263-272 |
-| TTC / OTC | face 0 only; faces 1.. are listed as "not convertible in v1" (`other`) | face 0 as TTF; no per-face extraction (recipes: save the face out with fontTools) | face 0 only | detect.py:95, 462-485; routes.py:264-265 |
-| Variable font | detected as plain `ttf`/`otf`; no `fvar` reading, no instance choice | mkfont draws the default instance only; no `fontTools.varLib.instancer` step | default instance | detect.py:346; no `fvar`/`instancer` anywhere in maker/ (grep) |
+| TTC / OTC | yes: every face (up to 64) is listed; a face after the first, or a face with a Mac-only cmap, carries a `prep` list (`ttc-face`) | a `source` step first: `maker/srcprep.py ttc-face SRC OUT --index N` saves the face as a plain sfnt (`.otf` for CFF), then the TTF/OTF routes read it | no (see Known gap below) | maker/detect.py `_ttc_entries`; maker/srcprep.py; routes.py `source_commands`; branch maker-inputs, A3/B1 |
+| Variable font | yes: `fvar` axes and named instances are read (`variable` on the entry, label `; variable (wght 100..900)`) | one instance per font per job: setting `instance` adds a `fontTools.varLib.instancer` source op pinning every axis (default overlaid by the choice); the page has an instance select | no: the source preview draws the default instance (Known gap below) | settings.py `instance`, `instance_coords`; routes.py `source_commands`; maker.js `perFontInstance`; B2/C1 |
 | GSUB-decomposable outline (`ljmo`/`vjmo`/`tjmo`) | no: not tested for; such a font is `outline` | no `--mask-font` route. The fit runs `jamoset.py --from-ttf` without `--mask-font`; jamoset then auto-uses `$JAMOSET_MASK_FONT` or a NotoSansKR beside the tree only when freetype-py and uharfbuzz import. The worker's `ENV` (jobs.py:66) drops `JAMOSET_MASK_FONT` and `JAMOSET_PYLIB`, and neither module is installed here, so the mask path never runs from the maker (not verified on a host that has them) | as TTF | routes.py:132-141; jobs.py:66; tools/jamoset.py:2297-2302, 2855 |
 | BDF ISO 10646 (Unicode) | yes: `bdf-iso10646`, sizes = the strike FreeType opens | precomposed: mkfont at the strike, 1 bpp only | yes (Pillow) | detect.py:355-373, 516; routes.py:273-276 |
 | BDF ISO 8859 | yes: `bdf-iso8859`, used only as a Latin companion | no route of its own | no | detect.py:516; routes.py (no branch); settings companions detect.py:1120-1130 |
 | hanterm (johab BDF) | yes: `bdf-johab` (registry contains `johab`/`hanterm`) | `jamoset.py SRC --layout hanterm-johab --check [--eng]` | no: FreeType gives no Unicode charmap, `_draws_sample` refuses | detect.py:516-525; routes.py:153-158, 280-281; preview.py:236 |
-| KS X 1001 BDF (KSC5601.1987 / KSX1001) | yes: `bdf-ksc5601` | precomposed: `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST`; needs a Latin companion (ISO 10646/8859 BDF or HBF); no `--from-svf` jamo step chained after it | no (same reason) | detect.py:516-525, 1126; routes.py:161-172, 282-285; settings.py:1080-1081 |
-| PCF | yes, as generic `bitmap` (no charset read); `.pcf.gz` read by FreeType directly | mkfont at the strike, 1 bpp. A KSC5601/johab PCF is not told apart from a Unicode one and has no bdfface/hanterm route (recipes: `pcf2bdf` first); what mkfont makes of such a PCF was not run | yes when the PCF has a Unicode charmap, else refused | detect.py:99, 385-389, 614; routes.py:273-276 |
+| KS X 1001 BDF (KSC5601.1987 / KSX1001) | yes: `bdf-ksc5601` | precomposed: `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST`; needs a Latin companion. Experimental jamo route "bdfface + from-svf fit": `bdfface.py -o precomposed.svf` then `jamoset.py --layout 844\|adaptive --from-svf precomposed.svf --check` | no (same reason) | routes.py `_bdfface_fit_commands`; B4 |
+| PCF | yes. A KSC5601/KSX1001 or johab PCF is read by `srcprep.pcf_properties` and becomes `bdf-ksc5601` / `bdf-johab` with a `pcf-bdf` prep op; any other PCF stays a generic `bitmap` (`.pcf.gz` read by FreeType) | `source` step `srcprep.py pcf-bdf IN OUT` (the maker's own reader, no `pcf2bdf`), then the BDF routes; other PCF: mkfont at the strike | KSC/johab: no; other: yes | detect.py `_ksc_pcf_entry`; srcprep.py `pcf_to_bdf`; B3 |
 | HBF | yes: `hbf`, as a Latin companion only | no route | no | detect.py:101, 375-383; routes.py (no branch) |
 | DOS johab raw (`.FNT`, `*.KOR`, HBIOS, san, 621, Dokkaebi, Kyra) | yes: by exact size (`DOS_SIZES`), candidates filtered by the layout opener; the owner confirms the layout | `jamoset.py SRC --layout L --check [--eng ENG] [--face 0\|1]`; `--eng` = a 2048/4096-byte file beside it | yes: baked with the same command at the first size, then `svfline` | detect.py:29-33, 241-253, 417-436; routes.py:144-150, 277-279; preview.py:146-197; server.py:906-913 |
-| DOS `johab844.py` (precomposed from raw pieces) | (input detected as above) | not offered; only the jamo route | n/a | routes.py:277-279 |
-| HWP `ASCII.PFT` (12x24 English, 12,288 bytes) / HBIOS 12x24 English (15,360) | PFT: `unknown` (12,288 not in `DOS_SIZES`, not `eng`). HBIOS English: listed as "not convertible" | `jamoset.py --eng ASCII.PFT` is never built (`--eng` takes only `eng`-tagged 2048/4096 files) | no | detect.py:29-33, 115-116, 417-430 (sniff checked by hand: 12,288 zero bytes -> `unknown`) |
+| DOS `johab844.py` (precomposed from raw pieces) | yes: an 11,520-byte raw font with candidate `844` (`dos_bytes`) | precomposed route `johab844`: `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng ENG]`; layout 844 and an 8x16 English font only; the chosen range is ignored and the note names the base face | n/a | routes.py `_johab844_commands`; settings.py `_route_errors`; B5 |
+| HWP `ASCII.PFT` (12x24 English, 12,288 bytes) / HBIOS 12x24 English (15,360) | yes: both are `eng` entries (`eng` = bytes and cell); a 15,360-byte file is HBIOS English only when `hbios_eng_like` (blank margin rows, 12 px cell, ink in `A`), else a Dokkaebi face; no UI override | `jamoset.py --eng FILE` on a DOS jamo route; refused below a 24 px face | no | detect.py `hbios_eng_like`; settings.py `_route_errors`; A5/B6 |
 | HWP Hangul `.PFT` | `unknown` (the repository has no reader either) | none (recipes: out of scope; feed a BDF or precomposed SVF instead) | no | recipes.md "HWP 1.x and 2.x fonts" |
 | Windows `.FNT` / `.FON` | yes: `fnt`/`fon` -> `bitmap`; FON face 0 only | mkfont at the strike, 1 bpp | yes | detect.py:109-112, 391-415; routes.py:273-276 |
 | Mac TrueType with a Unicode cmap (`true` magic) | yes: `ttf` | as TTF | yes | detect.py:90-91 |
-| Mac TrueType with only a Mac Korean (1,3) or Wansung (3,5) cmap | detected as `ttf`, coverage reads 0 (cmap membership via `getBestCmap`); no `macsfnt.py unicode` step | mkfont would draw nothing useful (not run) | refused (no 가) | detect.py:697-707; no `macsfnt` in maker/ (grep) |
-| `.dfont`, suitcase, resource fork, AppleDouble, MacBinary | no: `unknown` (sniff checked by hand: resource header `00 00 01 00`, AppleDouble `00 05 16 07`, MacBinary -> `unknown`) | no `macsfnt.py extract` step | no | detect.py:84-117 |
+| Mac TrueType with only a Mac Korean (1,3) or Wansung (3,5) cmap | yes: `mac_cmap_only` gives the entry a `mac-cmap` prep op and coverage is read through it (a font that also has a Unicode subtable gets none) | `source` step: `macsfnt.py unicode IN OUT`, then the TTF routes | no (Known gap) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |
+| `.dfont`, suitcase, resource fork, AppleDouble, MacBinary | yes: `mac-rsrc`; one entry per `sfnt` resource (`rsrc-sfnt` op, plus `mac-cmap` when needed); only `NFNT`/`fbit` resources: one `other` entry; a corrupt map: one `unknown` entry | `source` step: `macsfnt.py extract IN OUT --id N` (then `unicode`) | no (Known gap) | detect.py `_mac_head`, `_mac_entries`; B1 |
 | Mac HangulTalk 1.0 `fbit` (`--layout mac-fbit-45sets`) | no: `unknown` | no route (the tool exists: tools/jamoset.py:2471-2485) | no | detect.py:84-117 |
 | Mac HangulTalk 7.1 type-3 `fbit` (+ HTBL) | no | no `macfbit3.py` / `macfbit_svf.py` route | no | grep: neither tool named in maker/ |
-| Embedded bitmap strikes (`EBDT`/`bdat`) | as `ttf`; strike sizes not listed (outline fonts default to size 16, `sizes_fixed=False`) | mkfont at whatever size is asked | yes | detect.py:346-350 |
+| Embedded bitmap strikes (`EBDT`/`bdat`) | yes: `EBLC`/`bloc` strike sizes are listed (`strikes`); an sfnt with strikes and no outlines is a `bitmap` source at those sizes (`sizes_fixed`) | mkfont at the strike (planned and tested; a real bitmap-only font is run only by `SVF_MAKER_REAL_EBDT`) | yes for outline fonts | detect.py `_sfnt_entry`; srcprep.py `embedded_strikes`; A3/B1 |
 | WOFF / WOFF2 | no: `unknown` (not a recipe input either) | none | no | detect.py:84-117 |
 | SVF v3 (precomposed / jamo) | yes: `svf-precomposed` / `svf-jamo`, with JSET version and JMAP mode | copy, or `svf2to3.py --jset-version V --check`; precomposed 1 bpp also "from-svf fit" `jamoset.py --layout 844\|adaptive --from-svf --check` | yes: copied, then `svfline` | detect.py:438-451; routes.py:224-250, 286-296; preview.py:173-179 |
 | SVF v2 | yes: converted to v3 | `svf2to3.py --jset-version 1 --check` | yes | detect.py:103-105, 438-451; routes.py:200-221 |
 | SVF v1 | refused ("convert from the original font") | none | no | detect.py:440-441 |
 | Archives (zip/tar/gz/xz) | unpacked on upload with guards; `.gz` single files decompressed (128 MiB cap) | n/a | n/a | detect.py:106-107, 120-134; maker/archive.py |
 
-Summary: the maker covers static TTF/OTF, TTC face 0, Unicode BDF/PCF/FNT/FON, hanterm, KS X 1001 BDF (with a
-companion), all DOS raw layouts of `jamoset.py` and SVF v2/v3. It has nothing for variable-font instances, TTC faces
-past 0, GSUB-mask jamo sets, KSC/johab PCF, Mac-cmap TTF, dfont/suitcase/AppleDouble/MacBinary, Mac `fbit` (both
-generations), HWP `ASCII.PFT`, and `johab844.py`.
+Summary (after branch maker-inputs, card t_f3ef3189): the maker covers static and variable TTF/OTF (one instance per font
+per job), every TTC/OTC face, Mac-cmap TTF, dfont/suitcase/AppleDouble/MacBinary, Unicode BDF/PCF/FNT/FON, KSC/johab PCF,
+hanterm, KS X 1001 BDF (precomposed, and an experimental `--from-svf` jamo route), all DOS raw layouts of `jamoset.py`,
+`johab844.py`, 12x24 English companions and SVF v2/v3. It still has nothing for GSUB-mask jamo sets, Mac `fbit` (both
+generations) and HWP Hangul `.PFT`.
+
+Known gap (card t_9acea7ab): the source preview still draws the uploaded file's default face, so it does not show a
+chosen variable instance, a TTC face after the first, or a prepared Mac font.
 
 ## 2. Controls missing compared with the recipes
 
@@ -181,10 +185,9 @@ server deployment is kept.
 4. **t_9acea7ab** - jamo set from decomposable fonts with a piece identity check: a GSUB-mask route (`--mask-font`,
    pylib pass-through in `ENV`), `jamovec.py master` without `--components`; the jamo recogniser is not in this
    repository and has to be brought in or written.
-5. **t_f3ef3189** - input kinds: VF instance choice (fvar + instancer step), TTC face N (save-out step), Mac TTF
-   (`macsfnt.py cmap/unicode`), dfont/suitcase/AppleDouble/MacBinary (`macsfnt.py extract`), KSC/johab PCF (charset
-   read + `pcf2bdf` or a PCF reader), `johab844.py` route, HWP `ASCII.PFT` and HBIOS 12x24 as `--eng`, `--from-svf`
-   after `bdfface` for KS X 1001 jamo sets, embedded-bitmap strike sizes.
+5. **t_f3ef3189** - input kinds: done on branch maker-inputs (see section 1: VF instance, TTC faces, Mac TTF and containers,
+   KSC/johab PCF, `johab844.py`, 12x24 `--eng`, `--from-svf` after `bdfface`, strike sizes). What remains of it: source and
+   instance previews (t_9acea7ab), local-only mode and Mac `fbit` (t_cbd14d61), Electron, packaging, the jamo recogniser.
 6. **t_cbd14d61** - local-only mode: path-based sources, Mac `fbit` (`jamoset --layout mac-fbit-45sets`,
    `macfbit3.py`, `macfbit_svf.py`) and HWP-derived inputs only there; outputs only in the chosen folder; 127.0.0.1
    proven by test.

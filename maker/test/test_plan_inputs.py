@@ -453,6 +453,27 @@ class Eng12x24Test(Case):
                 self.assertTrue(any(inputkinds.zip_face(z).glyphs[0x41]))
 
 
+class VariableCollectionTest(Case):
+    def vtc(self):
+        return inputfx.ttc([inputfx.variable_ttf(), inputfx.ttf("Two", BOX2)])
+
+    def test_face_0_of_a_variable_ttc_needs_a_ttc_face_op_for_an_instance(self):
+        job, z = self.run_batch({"v/V.ttc": self.vtc()}, lambda f, s: select(
+            s, fid_of(f, face=0, path="v/V.ttc"), sizes=[24], instance={"wght": 700}))
+        self.assertEqual(inputkinds.step_tools(job["steps"]),
+                         [["srcprep.py ttc-face", "-m fontTools.varLib.instancer"], ["mkfont.py"]])
+        self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
+        inputkinds.assert_facecheck(self, z)
+        _, reg = self.run_batch({"v/V.ttc": self.vtc()}, lambda f, s: select(
+            s, fid_of(f, face=0, path="v/V.ttc"), sizes=[24]))
+        self.assertNotEqual(ga(z), ga(reg))
+
+    def test_the_default_instance_of_face_0_stays_free_of_a_source_step(self):
+        job, _z = self.run_batch({"v/V.ttc": self.vtc()}, lambda f, s: select(
+            s, fid_of(f, face=0, path="v/V.ttc"), sizes=[24]))
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["mkfont.py"]])
+
+
 class ZipoutSourceTitleTest(unittest.TestCase):
     def test_source_step_title(self):
         self.assertEqual(zipout._step_title({"id": "s01", "font": "f02", "kind": "source"}), "## s01 f02 source")

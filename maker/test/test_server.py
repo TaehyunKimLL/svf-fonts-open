@@ -941,10 +941,6 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(js_json_block(js, "SOURCE_ARTICLES"), settings._SOURCE_ARTICLES)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 MAKER_JS = os.path.join(MAKER_DIR, "static", "maker.js")
 
 VF_ENTRY = {"id": "f01", "path": "v/Vary.ttf", "face_index": 0, "source_kind": "outline",
@@ -974,6 +970,12 @@ class InstancePageTest(unittest.TestCase):
         other_axis = dict(VF_ENTRY, variable={"axes": [{"tag": "wdth", "min": 75, "default": 100, "max": 100}],
                                               "instances": []})
         self.assertIsNone(server._kept_settings(old, [other_axis], [VF_ENTRY])["fonts"]["f01"]["instance"])
+        narrower = dict(VF_ENTRY, variable={"axes": [{"tag": "wght", "min": 100, "default": 400, "max": 600}],
+                                            "instances": []})
+        self.assertIsNone(server._kept_settings(old, [narrower], [VF_ENTRY])["fonts"]["f01"]["instance"])   # 700 > 600
+        for bad in ({"wght": True}, {"wght": "700"}, {"wght": float("nan")}):
+            old_bad = {"batch": old["batch"], "fonts": {"f01": {"selected": True, "instance": bad}}}
+            self.assertIsNone(server._kept_settings(old_bad, [VF_ENTRY], [VF_ENTRY])["fonts"]["f01"]["instance"], bad)
 
     def test_changed_preview_fonts_sees_an_instance_change(self):
         before = settings.defaults([VF_ENTRY])
@@ -981,6 +983,10 @@ class InstancePageTest(unittest.TestCase):
         after["fonts"]["f01"]["instance"] = {"wght": 700}
         self.assertEqual(server._changed_preview_fonts([VF_ENTRY], before, after), ["f01"])
         self.assertEqual(server._changed_preview_fonts([VF_ENTRY], before, before), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
 
 
 class KeptCompanionTest(unittest.TestCase):

@@ -133,7 +133,13 @@ def _fork_guard(fork):
     total = 0
     for ref in refs:
         _rid, _noff, attr_data = struct.unpack_from(">hHI", fork, ref)
-        total += struct.unpack_from(">I", fork, data_off + (attr_data & 0xFFFFFF))[0]
+        doff = data_off + (attr_data & 0xFFFFFF)
+        if doff + 4 > len(fork):
+            return                                   # out of range: macsfnt.resources names the bounds error
+        length = struct.unpack_from(">I", fork, doff)[0]
+        if doff + 4 + length > len(fork):
+            return
+        total += length
         if total > MAX_BYTES:
             raise PrepError("resources too large")
 

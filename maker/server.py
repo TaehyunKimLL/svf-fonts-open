@@ -245,11 +245,20 @@ def _kept_settings(old, fonts, old_fonts):
 
 
 def _instance_fits(font, instance):
-    """True when @p instance is None or a dict of tags that are all still axes of the re-detected @p font."""
+    """True when @p instance is None or a dict whose every tag is still an axis of the re-detected @p font and whose
+    value is a number (not a bool) inside that axis's range."""
     if instance is None:
         return True
-    axes = {axis.get("tag") for axis in (font.get("variable") or {}).get("axes") or []}
-    return bool(axes) and isinstance(instance, dict) and all(tag in axes for tag in instance)
+    axes = {axis.get("tag"): axis for axis in (font.get("variable") or {}).get("axes") or []}
+    if not axes or not isinstance(instance, dict):
+        return False
+    for tag, value in instance.items():
+        axis = axes.get(tag)
+        if axis is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        if not axis["min"] <= value <= axis["max"]:          # False for NaN too
+            return False
+    return True
 
 
 # ---- the server ------------------------------------------------------------------------------------------------
