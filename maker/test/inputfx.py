@@ -29,6 +29,9 @@ HEAD_TIME = fixtures.HEAD_TIME
 
 
 def _save(font):
+    if "head" in font:
+        font["head"].created = font["head"].modified = HEAD_TIME
+    font.recalcTimestamp = False
     buf = io.BytesIO()
     font.save(buf)
     return buf.getvalue()
@@ -81,7 +84,7 @@ def otf(family, ga_box):
 def ttc(fonts):
     """A TTCollection of the given font files."""
     coll = TTCollection()
-    coll.fonts = [TTFont(io.BytesIO(b)) for b in fonts]
+    coll.fonts = [TTFont(io.BytesIO(b), recalcTimestamp=False) for b in fonts]
     buf = io.BytesIO()
     coll.save(buf)
     return buf.getvalue()
@@ -105,7 +108,7 @@ def variable_ttf():
 
 
 def mac_cmap_ttf():
-    return test_macsfnt.mac_korean_font()
+    return _save(TTFont(io.BytesIO(test_macsfnt.mac_korean_font()), recalcTimestamp=False))
 
 
 def both_cmaps_ttf():
@@ -161,9 +164,7 @@ def bitmap_only_ttf(ppems=(12, 16)):
     del font["glyf"]
     del font["loca"]
     font["maxp"].tableVersion = 0x00005000
-    buf = io.BytesIO()
-    font.save(buf)
-    return buf.getvalue()
+    return _save(font)
 
 
 def pcf(glyphs, registry, encoding, px, ascent, descent, family="Fixture", fmt=0x0000000C):

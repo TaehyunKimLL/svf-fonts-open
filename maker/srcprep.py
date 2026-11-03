@@ -18,11 +18,13 @@ for _p in (MAKER_DIR, os.path.join(os.path.dirname(MAKER_DIR), "tools")):
         sys.path.insert(0, _p)
 
 import argparse
+import array
 import io
 import struct
+import zlib
 
 import macsfnt
-from fontTools.ttLib import TTCollection, TTFont, TTLibError
+from fontTools.ttLib import TTFont, TTLibError
 
 MAX_BYTES = 128 << 20          # the same cap as detect.MAX_DECOMPRESSED (srcprep does not import detect)
 
@@ -34,16 +36,15 @@ class PrepError(Exception):
 # ---- sfnt reading ----------------------------------------------------------------------------------------------
 
 def ttc_face_bytes(data, index):
-    """Face @p index of a TTC/OTC saved as a plain sfnt."""
-    try:
-        coll = TTCollection(io.BytesIO(data))
-    except (TTLibError, struct.error, OSError, AssertionError) as e:
-        raise PrepError("not a font collection (%s)" % e)
-    if not 0 <= index < len(coll.fonts):
-        raise PrepError("face %d out of range (the collection has %d faces)" % (index, len(coll.fonts)))
+    """Face @p index of a TTC/OTC saved as a plain sfnt (only that face is opened: a header may list thousands)."""
+    if data[:4] != b"ttcf" or len(data) < 12:
+        raise PrepError("not a font collection")
+    total = struct.unpack_from(">I", data, 8)[0]
+    if not 0 <= index < total:
+        raise PrepError("face %d out of range (the collection has %d faces)" % (index, total))
     buf = io.BytesIO()
     try:
-        coll.fonts[index].save(buf)
+        TTFont(io.BytesIO(data), fontNumber=index).save(buf)
     except Exception as e:
         raise PrepError("cannot save face %d (%s: %s)" % (index, type(e).__name__, e))
     return buf.getvalue()
@@ -86,7 +87,7 @@ def embedded_strikes(font):
         n = struct.unpack_from(">I", raw, 4)[0]
         if 8 + 48 * n > len(raw):
             return []
-        return sorted({raw[8 + 48 * i + 45] for i in range(n)})
+        return sorted({raw[8 + 48 * i + 45] for i in range(n)} - {0})
     return []
 
 
@@ -107,10 +108,40 @@ def mac_cmap_only(font):
 
 # ---- Mac containers --------------------------------------------------------------------------------------------
 
+MAX_RESOURCES = 4096
+
+
+def _fork_guard(fork):
+    """Refuse a fork macsfnt.resources would expand into a huge copy: more than MAX_RESOURCES references, or reference
+    bodies that add up past MAX_BYTES (many references may share one body). Raises PrepError."""
+    if len(fork) < 16:
+        return                                   # macsfnt names this one
+    data_off, map_off, data_len, _map_len = struct.unpack_from(">IIII", fork, 0)
+    if map_off + 30 > len(fork) or data_off + data_len > len(fork):
+        return
+    type_list = map_off + struct.unpack_from(">H", fork, map_off + 24)[0]
+    ntypes = (struct.unpack_from(">H", fork, type_list)[0] + 1) & 0xFFFF
+    if ntypes > MAX_RESOURCES:
+        raise PrepError("too many resource types (%d)" % ntypes)
+    refs = []
+    for t in range(ntypes):
+        _rtype, count, ref_off = struct.unpack_from(">4sHH", fork, type_list + 2 + 8 * t)
+        if len(refs) + count + 1 > MAX_RESOURCES:
+            raise PrepError("too many resources (more than %d)" % MAX_RESOURCES)
+        refs.extend(type_list + ref_off + 12 * r for r in range(count + 1))
+    total = 0
+    for ref in refs:
+        _rid, _noff, attr_data = struct.unpack_from(">hHI", fork, ref)
+        total += struct.unpack_from(">I", fork, data_off + (attr_data & 0xFFFFFF))[0]
+        if total > MAX_BYTES:
+            raise PrepError("resources too large")
+
+
 def mac_resources(data):
     """(container, [(type, id, name, body)]); container is "AppleDouble", "MacBinary" or "resource fork"."""
     try:
         fork = macsfnt.resource_fork(data)
+        _fork_guard(fork)
         res = macsfnt.resources(fork)
     except (macsfnt.MacError, struct.error, IndexError) as e:
         raise PrepError(str(e) or type(e).__name__)
@@ -128,32 +159,38 @@ def mac_resources(data):
 def prepared_bytes(data, ops):
     """@p ops applied in order, in-process. An `instance` op raises: detection never instantiates."""
     for op in ops:
-        kind = op.get("op")
-        if kind == "rsrc-sfnt":
-            for rtype, rid, _name, body in mac_resources(data)[1]:
-                if rtype == b"sfnt" and rid == op["id"]:
-                    data = body
-                    break
-            else:
-                raise PrepError("no 'sfnt' resource %s" % op["id"])
-        elif kind == "ttc-face":
-            data = ttc_face_bytes(data, op["index"])
-        elif kind == "mac-cmap":
-            try:
-                font = TTFont(io.BytesIO(data))
-                macsfnt.add_unicode(font)
-                buf = io.BytesIO()
-                font.save(buf)
-            except macsfnt.MacError as e:
-                raise PrepError(str(e))
-            except (TTLibError, struct.error, OSError, KeyError) as e:
-                raise PrepError("not an sfnt font (%s)" % e)
-            data = buf.getvalue()
-        elif kind == "pcf-bdf":
-            data = pcf_to_bdf(data)
-        else:
-            raise PrepError("unsupported prep op %r" % kind)
+        try:
+            data = _apply_op(data, op)
+        except PrepError:
+            raise
+        except Exception as e:                     # a damaged table can raise anything: one reason, never a crash
+            raise PrepError("%s: %s" % (type(e).__name__, e))
     return data
+
+
+def _apply_op(data, op):
+    kind = op.get("op")
+    if kind == "rsrc-sfnt":
+        for rtype, rid, _name, body in mac_resources(data)[1]:
+            if rtype == b"sfnt" and rid == op["id"]:
+                return body
+        raise PrepError("no 'sfnt' resource %s" % op["id"])
+    if kind == "ttc-face":
+        return ttc_face_bytes(data, op["index"])
+    if kind == "mac-cmap":
+        try:
+            font = TTFont(io.BytesIO(data))
+            macsfnt.add_unicode(font)
+            buf = io.BytesIO()
+            font.save(buf)
+        except macsfnt.MacError as e:
+            raise PrepError(str(e))
+        except (TTLibError, struct.error, OSError, KeyError) as e:
+            raise PrepError("not an sfnt font (%s)" % e)
+        return buf.getvalue()
+    if kind == "pcf-bdf":
+        return pcf_to_bdf(data)
+    raise PrepError("unsupported prep op %r" % kind)
 
 
 # ---- PCF -------------------------------------------------------------------------------------------------------
@@ -177,7 +214,7 @@ def _inflate(data):
                 if size > MAX_BYTES:
                     raise PrepError("too large")
                 parts.append(chunk)
-    except (OSError, EOFError) as e:
+    except (OSError, EOFError, zlib.error) as e:
         raise PrepError("bad gzip (%s)" % e)
     return b"".join(parts)
 
@@ -220,6 +257,8 @@ def _pcf_properties(data, tables):
         raise PrepError("PCF properties run past the table")
 
     def text(o):
+        if not 0 <= o < off + size - base:
+            raise PrepError("PCF property string offset out of range")
         start = base + o
         end = data.find(b"\0", start, off + size)
         if start >= off + size or end < 0:
@@ -229,7 +268,7 @@ def _pcf_properties(data, tables):
     out = {}
     for i in range(n):
         name_off, is_str = struct.unpack_from(en + "IB", data, rec + 9 * i)
-        value = struct.unpack_from(en + "i", data, rec + 9 * i + 5)[0]
+        value = struct.unpack_from(en + ("I" if is_str else "i"), data, rec + 9 * i + 5)[0]
         out[text(name_off)] = text(value) if is_str else value
     return out
 
@@ -264,6 +303,19 @@ def _pcf_metrics(data, tables):
     return out
 
 
+def _swap_units(block, unit):
+    """@p block with the bytes inside each @p unit byte scan unit reversed (a tail shorter than a unit is kept)."""
+    if unit == 1:
+        return block
+    code = {2: "H", 4: "I", 8: "Q"}.get(unit)
+    if code is None:
+        return block
+    whole = len(block) - len(block) % unit
+    arr = array.array(code, bytes(block[:whole]))
+    arr.byteswap()
+    return bytearray(arr.tobytes()) + block[whole:]
+
+
 def _pcf_bitmaps(data, tables, metrics):
     """[bytes] one glyph's rows (MSBit-first, rows padded to the table's row pad) per glyph, bit/byte order undone."""
     off, size = _need(data, tables, _PCF_BITMAPS, "bitmaps")
@@ -283,18 +335,19 @@ def _pcf_bitmaps(data, tables, metrics):
         table = bytes(int("{:08b}".format(b)[::-1], 2) for b in range(256))
         block = bytearray(block.translate(table))
     if bool(fmt & 4) != bool(fmt & 8):                # byte order differs from bit order: swap inside each scan unit
-        unit = 1 << ((fmt >> 4) & 3)
-        if unit > 1:
-            for i in range(0, len(block) - unit + 1, unit):
-                block[i:i + unit] = block[i:i + unit][::-1]
+        block = _swap_units(block, 1 << ((fmt >> 4) & 3))
     pad = 1 << (fmt & 3)
     out = []
+    budget = 0
     for i, (lsb, rsb, _w, ascent, descent) in enumerate(metrics):
         rows = ascent + descent
         row_bytes = (max(0, rsb - lsb) + 7) // 8
         stride = (row_bytes + pad - 1) // pad * pad
         if rows < 0 or offsets[i] + rows * stride > len(block):
             raise PrepError("PCF glyph %d runs past the bitmaps" % i)
+        budget += rows * row_bytes                    # glyphs may share bytes: bound what is copied out
+        if budget > MAX_BYTES // 4:
+            raise PrepError("PCF bitmaps too large")
         out.append(b"".join(bytes(block[offsets[i] + r * stride:offsets[i] + r * stride + row_bytes])
                             for r in range(rows)))
     return out
@@ -307,7 +360,7 @@ def _pcf_encodings(data, tables):
     en = ">" if fmt & 4 else "<"
     min2, max2, min1, max1, _default = struct.unpack_from(en + "5h", data, off + 4)
     w, h = max2 - min2 + 1, max1 - min1 + 1
-    if w <= 0 or h <= 0 or off + 14 + 2 * w * h > off + size:
+    if min2 < 0 or min1 < 0 or w <= 0 or h <= 0 or off + 14 + 2 * w * h > off + size:
         raise PrepError("PCF encodings run past the table")
     idx = struct.unpack_from(en + "%dH" % (w * h), data, off + 14)
     out = {}
@@ -315,6 +368,34 @@ def _pcf_encodings(data, tables):
         if g != 0xFFFF:
             out[((min1 + i // w) << 8) | (min2 + i % w)] = g
     return out
+
+
+def _ink_box(metrics, enc):
+    """(x0, y0, x1, y1): the union of the ink boxes of the encoded glyphs (all zero without any)."""
+    inked = [metrics[g] for g in enc.values() if metrics[g][1] > metrics[g][0] and metrics[g][3] + metrics[g][4] > 0]
+    if not inked:
+        return 0, 0, 0, 0
+    return (min(m[0] for m in inked), min(-m[4] for m in inked), max(m[1] for m in inked), max(m[3] for m in inked))
+
+
+def pcf_box(data):
+    """[w, h] of the font bounding box (the union of the encoded glyphs' ink boxes), read from the metrics alone."""
+    data = _inflate(data)
+    try:
+        tables = _pcf_tables(data)
+        metrics = _pcf_metrics(data, tables)
+        enc = _pcf_encodings(data, tables)
+    except (struct.error, IndexError, ValueError) as e:
+        raise PrepError("bad PCF (%s)" % e)
+    if any(g >= len(metrics) for g in enc.values()):
+        raise PrepError("PCF encodings name a glyph it does not have")
+    x0, y0, x1, y1 = _ink_box(metrics, enc)
+    return [x1 - x0, y1 - y0]
+
+
+def _clean(text):
+    """@p text with control characters replaced by a space (a BDF line must not be split by a property)."""
+    return "".join(" " if ord(c) < 32 or ord(c) == 127 else c for c in text)
 
 
 def pcf_to_bdf(data):
@@ -330,26 +411,25 @@ def pcf_to_bdf(data):
         raise PrepError("bad PCF (%s)" % e)
     if any(g >= len(metrics) for g in enc.values()):
         raise PrepError("PCF encodings name a glyph it does not have")
-    inked = [metrics[g] for g in enc.values() if metrics[g][1] > metrics[g][0] and metrics[g][3] + metrics[g][4] > 0]
-    if inked:
-        x0, x1 = min(m[0] for m in inked), max(m[1] for m in inked)
-        y0, y1 = min(-m[4] for m in inked), max(m[3] for m in inked)
-    else:
-        x0 = x1 = y0 = y1 = 0
+    x0, y0, x1, y1 = _ink_box(metrics, enc)
     px = props.get("PIXEL_SIZE")
     if not isinstance(px, int) or px <= 0:
         px = (y1 - y0) or 16
     props = dict(props)
     props.setdefault("FONT_ASCENT", max([m[3] for m in metrics] or [0]))
     props.setdefault("FONT_DESCENT", max([m[4] for m in metrics] or [0]))
-    name = props.pop("FONT", None) or "-pcf-%s" % (props.get("FAMILY_NAME") or "font")
+    name = _clean(str(props.pop("FONT", None) or "-pcf-%s" % (props.get("FAMILY_NAME") or "font")))
     out = ["STARTFONT 2.1", "FONT %s" % name, "SIZE %d 75 75" % px,
            "FONTBOUNDINGBOX %d %d %d %d" % (x1 - x0, y1 - y0, x0, y0), "STARTPROPERTIES %d" % len(props)]
     for k, v in props.items():
+        if isinstance(v, str):
+            v = _clean(v).replace('"', '""')
         out.append('%s "%s"' % (k, v) if isinstance(v, str) else "%s %d" % (k, v))
     out += ["ENDPROPERTIES", "CHARS %d" % len(enc)]
+    size = sum(len(x) + 1 for x in out)
     for code in sorted(enc):
         g = enc[code]
+        start = len(out)
         lsb, rsb, width, ascent, descent = metrics[g]
         w, h = max(0, rsb - lsb), ascent + descent
         out += ["STARTCHAR g%04X" % code, "ENCODING %d" % code,
@@ -359,6 +439,9 @@ def pcf_to_bdf(data):
         if w and h > 0:
             out += [bitmaps[g][r * nb:(r + 1) * nb].hex().upper() for r in range(h)]
         out.append("ENDCHAR")
+        size += sum(len(x) + 1 for x in out[start:])
+        if size > MAX_BYTES:
+            raise PrepError("PCF converts to more than %d MiB of BDF" % (MAX_BYTES >> 20))
     out += ["ENDFONT", ""]
     return "\n".join(out).encode("latin-1", "replace")
 

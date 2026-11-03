@@ -608,6 +608,8 @@ def _ttc_entries(abs_path, rel, gz, zipped):
         prep = [{"op": "ttc-face", "index": i}] if i else []
         if i == 0:
             e = _open_sfnt_entry(abs_path, rel, 0, "ttc", label, data, prep, zipped)
+            if e.get("prep"):             # a further op (a Mac cmap) must read the face, not the whole collection
+                e["prep"] = [{"op": "ttc-face", "index": 0}] + e["prep"]
         else:
             try:
                 e = _open_sfnt_entry(abs_path, rel, i, "ttc", label, data, prep, zipped)
@@ -633,10 +635,9 @@ def _ksc_pcf_entry(abs_path, rel, gz):
         kind = _bdf_kind(reg)
         if kind not in ("bdf-ksc5601", "bdf-johab"):
             return None
-        text = srcprep.pcf_to_bdf(data).decode("latin-1")
-    except (srcprep.PrepError, OSError):
+        box = srcprep.pcf_box(data)
+    except Exception:                 # unreadable here: FreeType gets to try it as a bitmap font
         return None
-    box = _bdf_box(text)
     family = str(props.get("FAMILY_NAME", "")).strip() or _stem(rel)
     bdf = {"registry": ("%s-%s" % (reg, enc)) if enc else reg, "box": box}
     return _entry(rel, 0, "pcf", "PCF (%s)" % reg, kind, family, sizes=[box[1]] if box else [], sizes_fixed=True,
@@ -655,7 +656,8 @@ def _mac_entries(abs_path, rel, gz, zipped):
     except srcprep.PrepError as e:
         return [_entry(rel, 0, "unknown", "unknown (Mac resource fork: %s)" % e, "other", family=_stem(rel),
                        gz=zipped)]
-    sfnts = [(rid, body) for rtype, rid, _name, body in res if rtype == b"sfnt"][:_FACE_CAP]
+    all_sfnts = [(rid, body) for rtype, rid, _name, body in res if rtype == b"sfnt"]
+    sfnts = all_sfnts[:_FACE_CAP]
     if not sfnts:
         if any(rtype in MAC_BITMAP_TYPES for rtype, _i, _n, _b in res):
             return [_entry(rel, 0, "mac-rsrc", "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)",
@@ -674,6 +676,8 @@ def _mac_entries(abs_path, rel, gz, zipped):
         except Exception as e:            # an sfnt resource that is not a font still gets its entry
             out.append(_entry(rel, n, "mac-rsrc", "%s unreadable (%s)" % (label, type(e).__name__), "other",
                               family=_stem(rel), gz=zipped))
+    if len(all_sfnts) > len(sfnts):
+        out[-1]["label"] += "; more faces not listed"
     return out
 
 
@@ -1326,8 +1330,8 @@ def scan(upload_dir):
                     if data is None and raw is None:
                         raw = _read_bytes(path)
                     src, face = srcprep.prepared_bytes(data if data is not None else raw, entry["prep"]), 0
-                except (srcprep.PrepError, OSError) as ex:
-                    cannot = str(ex)
+                except Exception as ex:           # a damaged table must not take the scan down
+                    cannot = str(ex) or type(ex).__name__
             if cannot is None and entry["source_kind"] == "outline" and _is_composite(path, face, src):
                 entry["source_kind"] = "outline-composite"
             if cannot is not None:

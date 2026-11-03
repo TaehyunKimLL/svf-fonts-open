@@ -112,6 +112,28 @@ class SfntDetectTest(DirCase):
         self.assertEqual([(e["source_kind"], e.get("prep")) for e in out],
                          [("outline", None), ("outline", [{"op": "ttc-face", "index": 1}])])
 
+    def test_ttc_face_0_with_a_mac_cmap_gets_a_ttc_face_op(self):
+        self.put("t/m.ttc", inputfx.ttc([inputfx.mac_cmap_ttf(), inputfx.mac_cmap_ttf()]))
+        out = detect.scan(self.dir("t"))
+        self.assertEqual([e["prep"] for e in out],
+                         [[{"op": "ttc-face", "index": 0}, {"op": "mac-cmap"}],
+                          [{"op": "ttc-face", "index": 1}, {"op": "mac-cmap"}]])
+        self.assertEqual([e["coverage"]["all"] for e in out], [1, 1])
+
+    def test_a_damaged_mac_cmap_font_does_not_take_the_scan_down(self):
+        from fontTools.ttLib import TTFont
+        import io
+        base = inputfx.mac_cmap_ttf()
+        bad = bytearray(base)
+        bad[TTFont(io.BytesIO(base)).reader.tables["cmap"].offset + 553] = 0xFF
+        self.put("u/Good.ttf", inputfx.ttf("Good", BOX1))
+        self.put("u/Bad.ttf", bytes(bad))
+        out = detect.scan(self.dir("u"))
+        self.assertEqual(len(out), 2)
+        bad_e = [e for e in out if e["path"] == "Bad.ttf"][0]
+        self.assertIn("cannot prepare", bad_e["label"])
+        self.assertIsNone(bad_e["coverage"])
+
     def test_a_prepped_font_offers_no_route_yet(self):
         e = detect.detect_file(self.put("Mac.ttf", inputfx.mac_cmap_ttf()), "Mac.ttf")[0]
         self.assertEqual(routes.routes(e), [])
@@ -128,6 +150,14 @@ class MacContainerTest(DirCase):
                              [("mac-rsrc", 0, container + ": sfnt 128; Mac Korean cmap", "outline",
                                [{"op": "rsrc-sfnt", "id": 128}, {"op": "mac-cmap"}]),
                               ("mac-rsrc", 1, container + ": sfnt 129", "outline", [{"op": "rsrc-sfnt", "id": 129}])])
+
+    def test_more_sfnts_than_the_cap_say_so(self):
+        small = inputfx.ttf("P", BOX1)
+        fk = inputfx.fork([(b"sfnt", 100 + i, "", small) for i in range(detect._FACE_CAP + 2)])
+        out = detect.detect_file(self.put("M.dfont", fk), "M.dfont")
+        self.assertEqual(len(out), detect._FACE_CAP)
+        self.assertTrue(out[-1]["label"].endswith("; more faces not listed"))
+        self.assertNotIn("more faces", out[-2]["label"])
 
     def test_sniff_tags(self):
         fk = inputfx.fork([(b"sfnt", 128, "", inputfx.ttf("P", BOX1))])
@@ -184,6 +214,14 @@ class EngTest(DirCase):
         self.assertEqual([e["source_kind"] for e in out], ["dos-raw", "dos-raw"])
         self.assertTrue(all(e["dos_bytes"] == 15360 for e in out))
 
+    def test_a_dokkaebi_face_with_ink_in_a_right_hand_nibble_stays_dos_raw(self):
+        data = bytearray(inputfx.hbios_eng())
+        for g in range(256):
+            data[g * 60 + 14 * 2 + 1] |= 0x01            # column 15 of the row: outside a 12 px cell
+        self.assertFalse(detect.hbios_eng_like(bytes(data)))
+        out = detect.detect_file(self.put("HANGUL16.FNT", bytes(data)), "HANGUL16.FNT")
+        self.assertEqual([e["source_kind"] for e in out], ["dos-raw", "dos-raw"])
+
     def test_a_12x24_eng_is_a_companion_of_a_dos_font_beside_it(self):
         fixtures._dos_raw(self.path("d/HAN.FNT"))                 # 11,520 bytes, 8x4x4
         self.put("d/ASCII.PFT", inputfx.pft_eng())
@@ -227,6 +265,13 @@ class PcfDetectTest(DirCase):
         e = detect.detect_file(self.put("u.pcf", inputfx.pcf([(0x41, [0x8001] * 16, 16)], "ISO10646", "1", 16, 14, 2)),
                                "u.pcf")[0]
         self.assertEqual((e["source_kind"], e.get("prep")), ("bitmap", None))
+
+    def test_a_damaged_gz_pcf_falls_back_to_the_bitmap_path(self):
+        import gzip
+        blob = gzip.compress(inputfx.pcf(PCF_KSC_GLYPHS, "KSC5601.1987", "0", 16, 14, 2)[:200])
+        e, = detect.detect_file(self.put("c.pcf.gz", blob), "c.pcf.gz")
+        self.assertEqual((e["format"], e["label"]), ("pcf", "PCF; no openable size"))
+        self.assertNotIn("prep", e)
 
     def test_a_truncated_pcf_still_gets_one_entry(self):
         data = inputfx.pcf(PCF_KSC_GLYPHS, "KSC5601.1987", "0", 16, 14, 2)[:200]
