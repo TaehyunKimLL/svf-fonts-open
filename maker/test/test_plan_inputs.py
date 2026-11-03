@@ -280,6 +280,47 @@ class PcfE2ETest(Case):
         inputkinds.assert_facecheck(self, z)
 
 
+FONT_KSC = {"source_kind": "bdf-ksc5601", "face_index": 0, "sizes": [16], "bdf": {"box": [16, 16]}}
+PATHS = {"tools": "/T", "src": "/u/k.bdf", "out": "/w/OUT.SVF", "work": "/w", "eng": None, "latin": "/u/l.bdf",
+         "master": None, "range_file": "/w/range.txt"}
+
+
+class KscJamoTest(Case):
+    def test_route_and_argv(self):
+        self.assertEqual([r.label for r in routes.routes(FONT_KSC)], ["bdfface", "bdfface + from-svf fit"])
+        argvs = routes.route_for(FONT_KSC, "jamo", True).commands(FONT_KSC, 24, 1, "844", ("file", "/u/c.txt"),
+                                                                  PATHS, [])
+        self.assertEqual([a[2].rsplit("/", 1)[1] for a in argvs], ["bdfface.py", "jamoset.py"])
+        self.assertEqual(argvs[1][argvs[1].index("--from-svf") + 1], "/w/precomposed.svf")
+        self.assertEqual(argvs[0][argvs[0].index("-o") + 1], "/w/precomposed.svf")
+        self.assertEqual(argvs[1][-2:], ["-o", "/w/OUT.SVF"])
+        self.assertIsNone(routes.route_for(FONT_KSC, "jamo", False))
+        self.assertEqual(routes.route_for(FONT_KSC, "precomposed", False).label, "bdfface")
+
+    def test_extra_flags_reach_the_jamoset_command_only(self):
+        argvs = routes.route_for(FONT_KSC, "jamo", True).commands(FONT_KSC, 16, 1, "844", ("file", "/u/c.txt"),
+                                                                  PATHS, ["--jset-version", "2"])
+        self.assertNotIn("--jset-version", argvs[0])
+        self.assertIn("--jset-version", argvs[1])
+
+    def test_ksc_bdf_jamo_set_end_to_end(self):
+        bdf = os.path.join(self.tmp, "ksc.bdf")
+        fixtures._bdf(bdf, [(gl, 16, 16, 0, -2, rows) for gl, rows, _w in inputfx.ksc_glyphs_from_neodg()],
+                      16, 14, 2, "KSC5601.1987", (16, 16))
+        with open(bdf, "rb") as fh:
+            ksc = fh.read()
+        latin = inputfx.latin_bdf_from_neodg(os.path.join(self.tmp, "latin.bdf"))
+        with open(latin, "rb") as fh:
+            latin_data = fh.read()
+        job, z = self.run_batch({"k/ksc.bdf": ksc, "k/latin.bdf": latin_data},
+                                lambda f, s: select(s, fid_of(f, kind="bdf-ksc5601"), kinds=["jamo"],
+                                                    experimental=True, layout="844", range="2350"))
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["bdfface.py", "jamoset.py"]])
+        self.assertEqual([st["state"] for st in job["steps"]], ["done"])
+        inputkinds.assert_facecheck(self, z)
+        self.assertIsNotNone(inputkinds.zip_face(z).jset)
+
+
 class ZipoutSourceTitleTest(unittest.TestCase):
     def test_source_step_title(self):
         self.assertEqual(zipout._step_title({"id": "s01", "font": "f02", "kind": "source"}), "## s01 f02 source")

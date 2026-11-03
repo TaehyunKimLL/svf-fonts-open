@@ -174,6 +174,15 @@ def _bdfface_commands(font, size, bpp, layout, range_spec, paths, extra):
     return _with_extra([argv], extra)
 
 
+def _bdfface_fit_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """The KS X 1001 face from bdfface.py, then a jamo set fitted to it (`jamoset.py --from-svf`)."""
+    precomposed = os.path.join(paths["work"], "precomposed.svf")
+    first = _bdfface_commands(font, size, bpp, layout, range_spec, dict(paths, out=precomposed), [])[0]
+    argv = PY + [_tool(paths, "jamoset.py"), "--layout", layout, "--from-svf", precomposed, "--check", "-o",
+                 paths["out"]]                  # no --eng: the companion is a BDF (bdfface.py took its ASCII already)
+    return _with_extra([first, argv], extra)
+
+
 def _svf_version(font):
     """The SVFN version detect read from @p font's header (3 when the entry does not say)."""
     svf = font.get("svf")
@@ -317,6 +326,8 @@ def routes(font):
         if not (font.get("bdf") or {}).get("box"):   # bdfface needs the BDF's box for --cell
             return []
         out.append(Route("precomposed", "bdfface", True, [], [1], sizes, None, None, _bdfface_commands))
+        out.append(Route("jamo", "bdfface + from-svf fit", False, ["844", "adaptive"], [1], sizes, None, None,
+                         _bdfface_fit_commands))
     elif kind in ("svf-precomposed", "svf-jamo"):
         bpp = (font.get("svf") or {}).get("bpp") if isinstance(font.get("svf"), dict) else None
         if bpp not in (1, 2) or _svf_version(font) not in (2, 3):   # a malformed SVF entry offers no route

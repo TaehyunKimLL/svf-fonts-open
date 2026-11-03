@@ -42,7 +42,8 @@ const ROUTES = {
                         {"kind": "jamo", "label": "composite", "native": true, "bpps": [1, 2]}],
   "bitmap": [{"kind": "precomposed", "label": "mkfont", "native": true, "bpps": [1]}],
   "bdf-iso10646": [{"kind": "precomposed", "label": "mkfont", "native": true, "bpps": [1]}],
-  "bdf-ksc5601": [{"kind": "precomposed", "label": "bdfface", "native": true, "bpps": [1]}],
+  "bdf-ksc5601": [{"kind": "precomposed", "label": "bdfface", "native": true, "bpps": [1]},
+                  {"kind": "jamo", "label": "bdfface + from-svf fit", "native": false, "bpps": [1]}],
   "bdf-johab": [{"kind": "jamo", "label": "hanterm", "native": true, "bpps": [1]}],
   "dos-raw": [{"kind": "jamo", "label": "dos raw", "native": true, "bpps": [1]}],
   "svf-precomposed": [{"kind": "precomposed", "label": "copy", "native": true, "bpps": [1, 2]},
@@ -81,7 +82,8 @@ const OPTION_VISIBLE = {
   "experimental fit": {"1": ["jset_version"], "2": ["symbols", "jset_version"]},
   "copy": {"1": ["jset_version"], "2": ["jset_version"]},
   "from-svf fit": {"1": ["jset_version"]},
-  "bdfface": {"1": []}
+  "bdfface": {"1": []},
+  "bdfface + from-svf fit": {"1": []}
 };
 
 // Mirrors server._make_source_preview: how the page gets a source preview, per source kind. "draw": the server draws
