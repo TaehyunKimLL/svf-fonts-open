@@ -85,6 +85,6 @@ def panel_argv(options, kind, route_label, bpp):
                                    or (route_label == "experimental fit" and bpp == 2)):
         out.append("--symbols")
     if jamoset.get("jset_version") is not None and route_label in ("dos raw", "hanterm", "composite", "experimental fit",
-                                                                   "from-svf fit", "copy"):
+                                                                   "from-svf fit", "copy", "bdfface + from-svf fit"):
         out += ["--jset-version", str(jamoset["jset_version"])]   # unset: a writer's own 1, an SVF upload keeps its block
     return out

@@ -28,6 +28,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 import time
@@ -111,6 +112,17 @@ def canonical_fonts():
     fonts = [dict(base, source_kind=kind) for kind in presets.ALL_SOURCES]
     fonts += [dict(base, source_kind=kind, svf={"bpp": 2})
               for kind in ("svf-precomposed", "svf-jamo")]
+    # the rules a kind's own rows cannot show: johab844 only for an 11,520 byte raw font, a face after the first only
+    # with prep, a 2 bpp-less SVF, a KSC BDF without a box
+    prep = [{"op": "ttc-face", "index": 1}]
+    fonts += [dict(base, source_kind="dos-raw", dos_bytes=25920),
+              dict(base, source_kind="dos-raw", dos={"candidates": ["844-ihnm"]}),
+              dict(base, source_kind="outline", face_index=1),
+              dict(base, source_kind="outline", face_index=1, prep=prep),
+              dict(base, source_kind="outline-composite", face_index=1, prep=prep),
+              dict(base, source_kind="bitmap", face_index=1),
+              dict(base, source_kind="bitmap", face_index=1, prep=prep),
+              dict(base, source_kind="bdf-ksc5601", bdf={})]
     return fonts
 
 
@@ -868,6 +880,22 @@ class ApiTest(unittest.TestCase):
                for kind, rows in routes_js.items()}
         self.assertEqual(got, expected)
 
+        # `offeredRoutes` itself, run by node on every canonical font: the same routes as Python's, in order. The
+        # ROUTES table above is only the page's catalogue; the rules that pick from it are in this function.
+        if shutil.which("node"):
+            fonts = canonical_fonts()
+            table = re.search(r"const\s+ROUTES\s*=\s*([\[{].*?\n[\]}]);", js, re.S).group(1)
+            func = re.search(r"function offeredRoutes\(font\) \{.*?\n\}\n", js, re.S).group(0)
+            script = ("const ROUTES = %s;\n%s\nconst fonts = JSON.parse(process.argv[1]);\n"
+                      "console.log(JSON.stringify(fonts.map((f) => offeredRoutes(f).map((r) => [r.kind, r.label, r.native, r.bpps]))));\n"
+                      % (table, func))
+            out = subprocess.run(["node", "-e", script, json.dumps(fonts)], capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            got_js = json.loads(out.stdout)
+            want_py = [[[r.kind, r.label, r.native, r.bpps] for r in routes.routes(f)] for f in fonts]
+            for font, got, want in zip(fonts, got_js, want_py):
+                self.assertEqual(got, want, font)
+
         # The advanced panel's visibility (the page's `OPTION_VISIBLE`) is which flags `presets.panel_argv` emits for
         # a route label and bpp: every option carries a value that emits its flag, so the emitted flags name the keys
         # the page must show for that route and bpp. A new route label or a changed panel rule fails here.
@@ -915,6 +943,44 @@ class ApiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+MAKER_JS = os.path.join(MAKER_DIR, "static", "maker.js")
+
+VF_ENTRY = {"id": "f01", "path": "v/Vary.ttf", "face_index": 0, "source_kind": "outline",
+            "variable": {"axes": [{"tag": "wght", "min": 100, "default": 400, "max": 900}],
+                         "instances": [{"name": "Bold", "coords": {"wght": 700}}]},
+            "licences": [{"path": "v/LICENSE.txt", "first_line": "x"}], "companions": [], "sizes": [16],
+            "sizes_fixed": False}
+
+
+class InstancePageTest(unittest.TestCase):
+    def test_page_offers_the_instance_select_and_source_rows(self):
+        with open(MAKER_JS, encoding="utf-8") as f:
+            js = f.read()
+        self.assertIn('el("select", {"data-field": "instance"', js)     # the row builder's exact call
+        self.assertIn('step.kind === "source"', js)                     # the steps table's branch
+        if shutil.which("node"):
+            self.assertEqual(subprocess.run(["node", "--check", MAKER_JS]).returncode, 0)
+
+    def test_kept_settings_keeps_a_valid_instance(self):
+        old = {"batch": settings.defaults([VF_ENTRY])["batch"], "fonts": {"f01": {"selected": True, "instance": {"wght": 700}}}}
+        kept = server._kept_settings(old, [VF_ENTRY], [VF_ENTRY])
+        self.assertEqual(kept["fonts"]["f01"]["instance"], {"wght": 700})
+        static = dict(VF_ENTRY)
+        del static["variable"]
+        kept = server._kept_settings(old, [static], [VF_ENTRY])
+        self.assertIsNone(kept["fonts"]["f01"]["instance"])
+        other_axis = dict(VF_ENTRY, variable={"axes": [{"tag": "wdth", "min": 75, "default": 100, "max": 100}],
+                                              "instances": []})
+        self.assertIsNone(server._kept_settings(old, [other_axis], [VF_ENTRY])["fonts"]["f01"]["instance"])
+
+    def test_changed_preview_fonts_sees_an_instance_change(self):
+        before = settings.defaults([VF_ENTRY])
+        after = settings.defaults([VF_ENTRY])
+        after["fonts"]["f01"]["instance"] = {"wght": 700}
+        self.assertEqual(server._changed_preview_fonts([VF_ENTRY], before, after), ["f01"])
+        self.assertEqual(server._changed_preview_fonts([VF_ENTRY], before, before), [])
 
 
 class KeptCompanionTest(unittest.TestCase):

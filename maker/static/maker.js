@@ -85,7 +85,7 @@ const OPTION_VISIBLE = {
   "copy": {"1": ["jset_version"], "2": ["jset_version"]},
   "from-svf fit": {"1": ["jset_version"]},
   "bdfface": {"1": []},
-  "bdfface + from-svf fit": {"1": []}
+  "bdfface + from-svf fit": {"1": ["jset_version"]}
 };
 
 // Mirrors server._make_source_preview: how the page gets a source preview, per source kind. "draw": the server draws
@@ -406,9 +406,9 @@ function offeredRoutes(font) {
   if (!entries) return [];
   const sizes = Array.isArray(font.sizes) ? font.sizes : [];
   if (kind === "outline" || kind === "outline-composite") {
-    if ((font.face_index || 0) > 0) return [];
+    if ((font.face_index || 0) > 0 && !(font.prep || []).length) return [];
   } else if (kind === "bitmap" || kind === "bdf-iso10646") {
-    if ((font.face_index || 0) > 0 || !sizes.length) return [];
+    if (((font.face_index || 0) > 0 && !(font.prep || []).length) || !sizes.length) return [];
   } else if (kind === "bdf-ksc5601") {
     if (!(font.bdf || {}).box) return [];
   } else if (kind === "svf-precomposed" || kind === "svf-jamo") {
@@ -419,6 +419,7 @@ function offeredRoutes(font) {
   const out = [];
   for (const entry of entries) {
     if (entry.label === "from-svf fit" && svfBpp !== 1) continue;   // only a 1 bpp SVF can be re-fitted
+    if (entry.label === "johab844" && !(font.dos_bytes === 11520 && ((font.dos || {}).candidates || []).includes("844"))) continue;
     const bpps = (kind === "svf-precomposed" || kind === "svf-jamo") ? [svfBpp] : entry.bpps.slice();
     if (bpps.some((bpp) => bpp !== 1 && bpp !== 2)) continue;
     out.push({kind: entry.kind, label: entry.label, native: entry.native, bpps});
@@ -887,6 +888,22 @@ function perFontCompanion(per, font) {
   return select;
 }
 
+// The variable-font chooser: "default instance" or one of the font's named instances (value = its coordinates as JSON).
+function perFontInstance(per, font) {
+  const select = el("select", {"data-field": "instance"});
+  select.setAttribute("aria-label", "instance for " + fontName(font));
+  const instances = (font.variable || {}).instances || [];
+  const options = [["", "default instance"]];
+  for (const instance of instances) options.push([JSON.stringify(instance.coords), instance.name]);
+  let current = per.instance ? JSON.stringify(per.instance) : "";
+  if (current && !options.some(([value]) => value === current)) {
+    options.push([current, "custom " + current]);                // a value set elsewhere stays visible
+  }
+  fillSelect(select, options, current);
+  select.onchange = () => { per.instance = select.value ? JSON.parse(select.value) : null; markDirty(); };
+  return select;
+}
+
 function perFontText(per, key, font) {
   const input = el("input", {type: "text"});
   input.setAttribute("aria-label", key.replace(/_/g, " ") + " for " + fontName(font));
@@ -1015,6 +1032,9 @@ function overridePanel(font, per) {
     perFontSelect(per, "preset", presetOptions(per.preset), settings.batch.preset, font)));
   grid.append(el("label", {class: "label"}, experimental, el("span", {text: " experimental"})));
   grid.append(el("label", {class: "label"}, el("span", {text: "latin companion "}), perFontCompanion(per, font)));
+  if (font.variable) {
+    grid.append(el("label", {class: "label"}, el("span", {text: "instance "}), perFontInstance(per, font)));
+  }
   grid.append(el("label", {class: "label"}, el("span", {text: "licence name "}), perFontText(per, "licence_name", font)));
   grid.append(el("label", {class: "label"}, el("span", {text: "note name "}), perFontText(per, "note_name", font)));
   grid.append(el("label", {class: "label"}, advanced.toggle, el("span", {text: " advanced options"})));
@@ -1056,10 +1076,15 @@ function stepRow(step) {
   const tr = el("tr", {dataset: {step: step.id}});
   tr.append(el("td", {class: "fid", text: escapeControls(step.id)}));
   tr.append(el("td", {class: "fid", text: escapeControls(step.font || "")}));
-  tr.append(el("td", {}, bdi(step.kind || "")));
-  tr.append(el("td", {class: "nums", text: step.size === null || step.size === undefined ? "" : String(step.size)}));
-  tr.append(el("td", {class: "nums", text: step.bpp === null || step.bpp === undefined ? "" : String(step.bpp)}));
-  tr.append(el("td", {class: "nums", text: escapeControls(step.name || "")}));
+  if (step.kind === "source") {                       // the font's own conversion: no size, bpp or face name
+    tr.append(el("td", {}, bdi("source")), el("td", {class: "nums"}), el("td", {class: "nums"}),
+      el("td", {class: "nums"}));
+  } else {
+    tr.append(el("td", {}, bdi(step.kind || "")));
+    tr.append(el("td", {class: "nums", text: step.size === null || step.size === undefined ? "" : String(step.size)}));
+    tr.append(el("td", {class: "nums", text: step.bpp === null || step.bpp === undefined ? "" : String(step.bpp)}));
+    tr.append(el("td", {class: "nums", text: escapeControls(step.name || "")}));
+  }
 
   const state = el("td", {});
   state.append(el("span", {text: escapeControls(step.state || "")}));

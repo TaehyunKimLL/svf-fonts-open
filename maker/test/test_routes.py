@@ -159,6 +159,11 @@ class PresetTest(unittest.TestCase):
 
 
 class RoutesTest(unittest.TestCase):
+    def test_panel_argv_on_the_new_labels(self):
+        every = {"mkfont": {}, "jamoset": {"jset_version": 2, "symbols": True, "embolden": True}}
+        self.assertEqual(presets.panel_argv(every, "jamo", "bdfface + from-svf fit", 1), ["--jset-version", "2"])
+        self.assertEqual(presets.panel_argv(every, "precomposed", "johab844", 1), [])
+
     def test_outline_precomposed(self):
         r = routes.routes(FONT_TTF)
         self.assertEqual([(x.kind, x.label, x.native) for x in r], [("precomposed", "mkfont", True), ("jamo", "experimental fit", False)])

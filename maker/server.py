@@ -181,7 +181,7 @@ def _remove_preview(store, job_id, font_id):
 
 def _changed_preview_fonts(fonts, before, after):
     """The font ids whose effective preview inputs differ between the two settings (W2)."""
-    keys = ("dos_layout", "sizes", "kinds", "latin_companion")
+    keys = ("dos_layout", "sizes", "kinds", "latin_companion", "instance")
     changed = []
     for font in fonts:
         font_id = font.get("id")
@@ -238,8 +238,18 @@ def _kept_settings(old, fonts, old_fonts):
             if per["latin_companion"] is not None:
                 per["latin_companion"] = new if new in (font.get("companions") or []) else \
                     fresh["fonts"][fid].get("latin_companion")
+        if "instance" in per:                       # an instance stays only while the font still has those axes
+            per["instance"] = per["instance"] if _instance_fits(font, per["instance"]) else None
         fresh["fonts"][fid] = per
     return fresh
+
+
+def _instance_fits(font, instance):
+    """True when @p instance is None or a dict of tags that are all still axes of the re-detected @p font."""
+    if instance is None:
+        return True
+    axes = {axis.get("tag") for axis in (font.get("variable") or {}).get("axes") or []}
+    return bool(axes) and isinstance(instance, dict) and all(tag in axes for tag in instance)
 
 
 # ---- the server ------------------------------------------------------------------------------------------------
