@@ -200,7 +200,11 @@ Host: python3 with fontTools 4.66.1 and Pillow 10.2.0; `node` at `/usr/bin/node`
   module not built: run maker/build-wasm.sh" and every preview cell shows that text; no PNG fallback is kept (decision
   5.1 and ruling D5), and the worker stops writing `preview.png` (section 6.5).
 - Packaging (t_e64a56a7) ships the two module files and `svf/dos/NEODG16.SVF` (the Latin companion the page falls
-  back to, section 6.2) as data; nothing here depends on the repo checkout at run time beyond `maker/static/`.
+  back to, section 6.2) as data; nothing here depends on the repo checkout at run time beyond `maker/static/`. The
+  Electron shell (t_f04f1355) must load the page from the sidecar's own origin (`http://127.0.0.1:PORT/`), as a
+  browser does today: the `Host`/`Origin` check, which 6.2 extends to the byte-serving GETs, accepts only `http(s)`
+  origins on the bound host, so a page loaded from `file://` or a custom scheme would have every request refused
+  (the audit's section 4 says the same for the state changers).
 
 ### 6.2 Endpoints that serve bytes
 
@@ -276,28 +280,38 @@ module, so a 1 bpp target shows the renderer's own threshold of a 2 bpp face). E
   previews a header ascent or a dy without a rebuild. It mirrors `walk_next` (`svf_draw.c`) in JS:
   - `S(v)` = `SCALE_LEN` with the chain's reduced ratio: `Math.trunc((v * num + Math.trunc(den / 2)) / den)` for
     `v >= 0`, `-S(-v)` for `v < 0`.
-  - The text is split into **units**: a base code point plus the combining marks that follow it (U+0300..036F, the
-    default predicate the chain uses). Each unit is one `svfw_draw` call, so marks are placed by the core relative to
-    their base as in a line.
-  - The face of a unit's base is the first open slot with `svfw_has(slot, cp)` in slot order (`svfw_order` is never
-    changed by the page); a base no slot has advances the pen by 0 (the chain's `missing_advance`) and draws nothing;
-    an invalid UTF-8 sequence is U+FFFD as the core does (the page validates its text before, so this does not arise).
-  - Pen: `x += S(advance)` from `svfw_metrics(slot, cp)` after each non-mark unit.
-  - Vertical: for a unit drawn by slot 0 only, `y = baseline + S(A) - S(A') + S(d_new) - S(d_stored)`, where `A` is
-    slot 0's header ascent, `A'` the override (`A` when none), `d_stored` the glyph's dy from `svfw_metrics`, and
-    `d_new` the page's dy for that code point when it has one, else `d_stored` (a dy **replaces** the stored one, as
-    `svfdy.py` does). Every other slot draws at `y = baseline`. Because the core places a cell at
+  - **One `svfw_draw` call per code point**, marks included: the core places a combining mark (U+0300..036F, the
+    default predicate the chain uses) at the current pen, never relative to its base (`walk_next`: `p->dx = w->pen`,
+    minus the scaled negative bearing for a `MARKS_AT_ORIGIN` face), so a per-code-point call reproduces a line
+    exactly, and a mark gets its own face, its own dy and advances 0 (review probe: 6/6 dy-on-mark cases, 9/9 ascent
+    cases; a "base plus marks in one call" rule fails every dy case and was dropped).
+  - The face of a code point is the first open slot with `svfw_has(slot, cp)` in slot order (`svfw_order` is never
+    changed by the page); a code point no slot has advances the pen by 0 (the chain's `missing_advance`) and draws
+    nothing; an invalid UTF-8 sequence is U+FFFD as the core does (the page validates its text before, so this does
+    not arise).
+  - Pen: `x += S(advance)` from `svfw_metrics(slot, cp)` after each non-mark code point.
+  - Vertical: for a code point drawn by slot 0 only, `y = baseline + S(A) - S(A') + S(d_new) - S(d_stored)`, where
+    `A` is slot 0's header ascent, `A'` the override (`A` when none), `d_stored` the glyph's dy from `svfw_metrics`,
+    and `d_new` the page's dy for that code point when it has one, else `d_stored` (a dy **replaces** the stored one,
+    as `svfdy.py` does). Every other slot draws at `y = baseline`. Because the core places a cell at
     `y_baseline - S(ascent) + S(dy)`, this is exactly where a face with header ascent `A'` and a stored dy of `d_new`
     puts the cell (verified by the review's probe: 20 of 20 cases over scales 1/1, 2/1, 3/2, 5/4, a face with stored
-    dy and a two-slot chain). The pixels are the renderer's; only the pen moved.
-  - A composed code point of a jamo face takes no dy (its metrics dy is 0 and `svfdy.py` cannot set one): the page
-    never offsets it. The `pitch` option replaces the advance by a fixed step (the glyph grid).
+    dy and a two-slot chain, composed syllables under an ascent override included). The pixels are the renderer's;
+    only the pen moved.
+  - A composed code point of a jamo face (a syllable, a compat jamo drawn from a piece) has **no dy term**
+    (`d_new = d_stored = 0`: its metrics dy is 0 and `svfdy.py` cannot set one) but takes the **ascent term like any
+    slot-0 glyph**: on `dos raw`/`hanterm`, the routes with an ascent-to-try, nearly every drawn glyph is composed.
+  - Limitation on `dos raw`/`hanterm` with `symbols` on: U+2026 and U+25A1 are drawn by `jamoset.symbol_glyphs(w, h,
+    ascent, adv)`, i.e. the ascent is their frame, so a rebuild at `A'` keeps those two on the baseline while the
+    pieces and the `--eng` glyphs move with the header. The page therefore draws those two code points **without**
+    the ascent term when `symbols` is set (at `y = baseline + S(d_new) - S(d_stored)`), which matches the rebuild.
+  - The `pitch` option replaces the advance by a fixed step (the glyph grid).
 - `glyphCell(slot, cp)` -> `svfw_glyph` unpacked to a `Uint8Array` of levels (for the piece view and the identity
   panel); `pieces(slot, cp)` -> `svfw_pieces` (piece numbers; `drawPiece(slot, p)` draws `glyphCell(slot,
   0xF0000 + p)`); `codePoints(slot)` -> every `svfw_cmap_cp` (for a jamo face: its ASCII, symbols, compat jamo whole
   glyphs and the pieces at U+F0000+, **not** the syllables, which are composed; the grid offers a "syllables" view
   that lists U+AC00..D7A3 through `svfw_has`); `lineBox(text, x, baseline)` -> `svfw_line_box`.
-- The line box of `drawGlyphs` is computed in JS by `svf_measure_utf8`'s rule over the placed units (ascent up =
+- The line box of `drawGlyphs` is computed in JS by `svf_measure_utf8`'s rule over the placed code points (ascent up =
   `S(A') - S(d)`, descent down = `S(cell_h) - S(A') + S(d)`, each slot with its own ascent), so a descender lowered
   by dy enlarges the canvas as the spec says the line's descent grows.
 
@@ -314,7 +328,7 @@ cuts (review measurement: rebake 8..21 vs 7..21 ink rows, the pen-offset view 6.
 
 - the **ascent-to-try** control exists only on the `dos raw` and `hanterm` previews (header ascent); "apply" writes
   `options.jamoset.jamo_ascent`, and the next build draws what was shown (the raster is unchanged, the header byte is
-  the typed value);
+  the typed value; the two `--symbols` glyphs are the exception handled above);
 - on mkfont, the fits and bdfface the typed ascent drives only the clipping overlay of section 8, which is computed
   from the probe by the build's own rule; "apply" writes the route's ascent flag (and `clip_cell` for mkfont) and the
   build then cuts what the overlay showed. Glyphs are never shifted in those previews.
@@ -323,8 +337,10 @@ cuts (review measurement: rebake 8..21 vs 7..21 ink rows, the pen-offset view 6.
 
 Equivalence the tests pin (section 11): with no overrides, `drawGlyphs` of a text equals `drawLine` of the same text
 byte for byte; with an override it equals `drawLine` of the face with header byte 16 patched and/or `svfdy.apply`
-applied, at scales 1/1, 2/1 and 3/2, on a face with stored dy and a two-slot chain; `drawLine` equals `svfline.py
-line` (the existing oracle).
+applied, at scales 1/1, 2/1 and 3/2, on a face with stored dy and a two-slot chain, and on a face that holds marks
+(none in `svf/` has U+0300..036F: the test bakes one from `ttf/` with mkfont, as the review's probe did with
+EB Garamond and U+0300..0304); `drawLine` equals `svfline.py line` (the existing oracle). `svfw_pieces` can return
+piece number 0 (a real piece on NEODG16A): the page trusts the returned count, never a "0 means none" test.
 
 What a result cell shows (the steps table's `result` column becomes a `<svf-preview>` block): the sample line
 (`detect.SAMPLE_TEXT`, editable, kept per page), the scale (1/1 .. 4/1), target GRAY8 | MONO (threshold) | RGB565,
@@ -364,7 +380,7 @@ Option keys are unique across tools (the invariant of section 4), so the three a
 | Control (recipes.md) | Setting | Flag | Routes (label) | Validation |
 |---|---|---|---|---|
 | ascent (mkfont) | `options.mkfont.ascent` (exists) | `--ascent N` | mkfont | 1..cell (0 means "choose" to the tool: refused) |
-| header ascent (jamoset) | `options.jamoset.jamo_ascent` int/null | `--ascent N` | `dos raw`, `hanterm` | 1..the layout's cell height (`font["dos"]`/the BDF box) |
+| header ascent (jamoset) | `options.jamoset.jamo_ascent` int/null | `--ascent N` | `dos raw`, `hanterm` | 1..the face's cell height: the font's effective size (`font["sizes"]` is the layout's pixel size from `detect.layout_px`; `font["dos"]` holds only candidates and faces), the BDF box for hanterm |
 | frame baseline (fits) | `options.jamoset.fit_baseline` int/null | `--baseline N` | `experimental fit`, `mask fit`, `composite`, `vector fit` (the render command) | 1..size (the fit's cell is `size x size`) |
 | ascent (bdfface) | `options.bdfface.latin_ascent`, `options.bdfface.hangul_ascent` int/null | `--ascent N`, `--hangul-ascent N` | `bdfface`, and the **first** argv of `bdfface + from-svf fit` | 1..box height |
 | cell width | `options.mkfont.width` int/null | `--width W` | mkfont | 1..255 |
@@ -412,9 +428,16 @@ seven names with their `mkfont.NAMED_RANGES` key. `FONT_ONLY_KEYS` gains `"dy"` 
 `int(k, 0)` or a single character (the `svfdy.json_dy` rule); `jamo_route` is a route label string or null
 (`"%s: jamo_route %s is not offered"`).
 
-Caps in entries (review I8): at detect time the server stamps `font["mask_ok"] = caps["mask_libs"]` into every
-outline entry, so `routes.routes(font)` (Python) and `offeredRoutes(font)` (JS) decide `mask fit` from the entry
-alone and the drift harness needs no global; `canonical_fonts()` carries both values.
+Caps in entries (review I8): the server stamps `font["mask_ok"] = caps["mask_libs"]` into every outline entry of a
+job **each time it loads the job** (`_load`, so a detect, a settings PUT, a run and a page GET all see the live value;
+a server restarted with another `JAMOSET_PYLIB` cannot serve a stale flag), so `routes.routes(font)` (Python) and
+`offeredRoutes(font)` (JS) decide `mask fit` from the entry alone and the drift harness needs no global;
+`canonical_fonts()` carries both values; `run_ready` re-checks `jamo_route == "mask fit"` against the live caps.
+
+`jamo_route` and `experimental`: `mask fit` and `vector fit` are non-native, so a `jamo_route` naming either (or
+`experimental fit`) **requires** `experimental` on that font (`"%s: jamo_route %s needs experimental"`); it never
+overrides the flag. With `experimental` and no `jamo_route`, `route_for` keeps today's rule (the first native route,
+else the first non-native in page order).
 
 ### 7.3 `panel_argv` and `OPTION_VISIBLE`
 
@@ -452,7 +475,9 @@ font's effective `jamo_route` when set (else the first usable jamo route, `route
 `_fit_commands` keeps `--binarize threshold` as its default at 1 bpp and `apply_flags` replaces it when the panel says
 otherwise. It now also passes **`--mask-font none`** explicitly, so an experimental fit is the free fit whatever the
 worker's environment holds (section 9.1). `VALUED` gains `--baseline`, `--width`, `--aa-refine`, `--mask-font`,
-`--mask-radius`, `--hangul-ascent`, `--pylib`, `--report`, `--probe-cell`, `--json`.
+`--mask-radius`, `--hangul-ascent`, `--pylib`, `--report` (the flags `apply_flags` may meet from a preset or the
+panel; `--probe-cell` and `--json` never pass through it: the server builds the probe argv and `plan_steps` appends
+the svfdy argv whole).
 
 ### 7.5 The dy step (precomposed faces only)
 
@@ -503,16 +528,26 @@ mkfont.py SRC work/preview/<fid>/probe/<size>-<bpp>.svf --size S --bpp B --unico
           --report work/preview/<fid>/probe/<size>-<bpp>.json
 ```
 
+The probe argv is derived from the **step's own merged argv**, not from the options: the server calls
+`route.commands(font, size, bpp, ...)` with the same `apply_flags(presets.argv_for(preset, kind, size),
+panel_argv(...))` that `plan_steps` uses (factored into `settings.face_argv(font, eff, size, bpp, paths)` so both
+call one function), then keeps `--unicode`, `--latin`, `--mono-hint`, `--only-listed`, `--space-advance`,
+`--punct-extra` and the resolved `--width` (the argv's `--width`, else its `--cell`, else the size, as mkfont resolves
+it) and **replaces** `--cell`, `--ascent`, `--clip-cell` and `--fit-cell` by `--probe --probe-cell <the argv's cell_h,
+else the size>` and the output/report paths. Presets rewrite exactly those flags (`dos-l-1bpp`/`dos-u-2bpp` replace
+`--unicode` and `--cell`, `dos-u-2bpp` adds `--clip-cell --ascent {size-2}`, `latin-18cell-2bpp` sets `--cell 18
+--width 18 --only-listed`), so a probe built from the options alone would measure another glyph set and cell than
+the build. The ascent prefill is the merged argv's `--ascent` when it has one, else the report's `auto_ascent`.
+
 `--probe` means: after `measure_boxes` over the range, `A0 = max(1, -min_top)` and `cell_h = A0 + max(0, max_bottom)`;
 when `cell_h <= 255` bake with that cell, that ascent and the clip rule (no nudge; nothing is cut by construction) and
 write the report with `"probe": true`; when `cell_h > 255` (a size whose ink span does not fit a byte) write the report
 only (`"probe_face": false`) and exit 0. `--probe-cell H` is the user's effective cell height: the report then also
 carries `auto_ascent` = `fit_ascent(boxes, H, choose_ascent(font, H, latin))[0]`, mkfont's own choice for that cell
 (what `--clip-cell` without `--ascent` would use), the page's prefill. `--unicode` is exactly the step's value
-(`_mkfont_unicode(range_spec, paths)`: the named range or the copied list file), `--width` is always explicit (the
-effective `width`, else `cell`, else the size: `cell_w = width or cell_h` would otherwise make the tall cell wide and
-change `fit_counts`' width judgement), and the raster flags that change ink (`--latin`, `--mono-hint`) are the
-step's. The page then draws the probe face with `drawGlyphs` and strokes the user's cell `[baseline - ascent,
+(the merged argv's: the named range, the copied list file, or a preset's own list), `--width` is always explicit
+(`cell_w = width or cell_h` would otherwise make the tall cell wide and change `fit_counts`' width judgement), and
+the raster flags that change ink are the step's. The page then draws the probe face with `drawGlyphs` and strokes the user's cell `[baseline - ascent,
 baseline - ascent + cell_h)` over it; the rows outside the rectangle are the rows that would be cut. The probe's
 `.json` holds the numbers; the page computes `top_cut = max(0, -top - ascent)` and `bottom_cut = max(0, bottom +
 ascent - cell_h)` per glyph for the ascent typed, which is `fit_counts`'s rule, so the list, the counts and the overlay
@@ -535,8 +570,11 @@ or absent is omitted); `cut` only in clip mode (`clipped_ink`'s full/fringe per 
 `nudged` in default mode (the glyphs `render(... nudge=True)` moved); `size` after `--fit-cell`; `auto_ascent` present
 when `--probe-cell` was given, else equal to `ascent`. Keys are `"0x%X"`. The report is written beside the face in
 every mode, so the real build's step carries it too (`step["report"] = "work/sNN/report.json"` set by `plan_steps` for
-mkfont steps; the page reads it through `GET /api/jobs/<id>/report/<step>.json` and shows the counts in the step row:
-"cut 2,300 (368 top, 2,299 bottom)" instead of only the stdout tail). `--ascent`'s `default=0` stays (0 = choose) and
+mkfont steps, which adds `--report <that path>` to every mkfont argv; `jobs._clear_outputs` removes a stale
+`report.json` with the output, so a failed rerun cannot show the last run's counts; the page reads it through
+`GET /api/jobs/<id>/report/<step>.json` and shows the counts in the step row: "cut 2,300 (368 top, 2,299 bottom)"
+instead of only the stdout tail). This build-side half (the `plan_steps` change, the Step key, the endpoint, the row
+counts, and the mkfont argv and Step-shape test updates it entails) is slice C2's (section 12). `--ascent`'s `default=0` stays (0 = choose) and
 the maker never sends 0. `tools/test_mkfont.py` gains the report and probe tests (section 11); `docs/tools.md` gets
 the two flags (the builder adds a sentence to the mkfont section).
 
@@ -632,8 +670,9 @@ needed)". The run is never blocked by it.
 
 ### 9.4 Where it runs and what it writes
 
-In the worker, in `_read_back`, after `quality.measure` for `jamo` steps and only when `caps.recog`: the subprocess
-writes `work/sNN/identity.json` (`{"available": true, "model": "11-12", "thresholds": {...}, "bpp_note": ...,
+In the worker, in `_read_back`, after `quality.measure` for `jamo` steps and only when `caps.recog`: `_run_step`
+passes its `cancel` event into `_read_back` (today only `_execute` gets it), and the subprocess, run through
+`run_command(argv, cwd, 180, cancel)`, writes `work/sNN/identity.json` (`{"available": true, "model": "11-12", "thresholds": {...}, "bpp_note": ...,
 "face": {...}, "pieces": [{"piece": 161, "slot": "m", "jamo": "ㅏ", "set": 0, "users": 588, "read": 0.991,
 "nll": 0.03, "flag": "pass", "worst": [...]}, ...]}`), served by `GET /api/jobs/<id>/identity/<step>.json`;
 `step["identity"]` gets the face-level summary (small: it is in the job JSON the page polls). A non-zero exit, a
@@ -659,7 +698,11 @@ data, ops)` applied to the entry's `prep` plus the planned `instance` op (the sa
 into `settings.source_ops(font, eff)` so both use one function), written to `work/preview/<font id>/source.<ext>` under
 the font's preview lock, and that path given to `source_png` with `face_index` 0. `prepared_bytes` learns the
 `instance` op (`fontTools.varLib.instancer.instantiateVariableFont(TTFont, coords, inplace=False)`, the in-process
-twin of the CLI the step runs; the `PrepError` it raises today becomes the implementation). The `pcf-bdf` op produces a
+twin of the CLI the step runs; the `PrepError` it raises today becomes the implementation). The decision "does this
+font need preparing" lives in `settings.source_ops` and a server helper `_prepared_source(job, font)`, **not** as a
+`source_kind` test inside `_make_source_preview`: the drift test reads that function's source and counts every
+`source_kind == "..."` / `source_kind in (...)` literal as a baked kind, so a new literal there would make `outline`
+count as baked and fail the `PREVIEW_KINDS` check (review N7). The `pcf-bdf` op produces a
 BDF Pillow reads at its strike; a KSC/johab BDF still has no Unicode charmap and stays "none" (`PREVIEW_KINDS`
 unchanged). The probe (section 8) and the on-demand source bake use the same prepared path. The prepared file is
 dropped with the font's previews (the glob covers `<font id>/`; `instance` is already a key). Cost: the instancer on a
@@ -679,8 +722,8 @@ compares the two scripts' `svf.wasm` bytes), the MCU size gates (unchanged by co
 
 | Slice | Test (file) | Fixture | Proves |
 |---|---|---|---|
-| A exports | `tools/test_web_picker.py TestModule.test_glyph_metrics_pieces_cmap` | `svf/dos/NEODG16.SVF` (precomposed), `NEODG16A.SVF` (jamo), `MARUS20.SVF` (stored dy), a 2 bpp face from `ttf/` baked in the test | `svfw_glyph` == `jamoset.parse_svfn(...).glyphs[cp]` bytes and == `jamoset.compose` for a syllable; `svfw_metrics` == the parsed metrics (advance, bearing, ink_w, dy) and the JSET advance for a syllable; `svfw_pieces` == `jamoset.pieces_of` (numbers); `svfw_cmap_cp` lists the parsed code points in file order and -1 for -1 / count / 65536; `svfw_line_box` == `svfline.measure` |
-| A compositor | `TestModule.test_glyph_compositor_equals_line` (render.mjs gains a `glyphs` spec: the per-unit draws of 6.4) | `MARUS20.SVF` over `NEODG16.SVF` (two slots, stored dy), text with Latin, a syllable, a glyph only slot 1 has and U+0301; scales 1/1, 2/1, 3/2 | no overrides: byte-equal to `svfw_draw`; `ascentOverride = A + 2`: equal to `svfw_draw` of a copy with header byte 16 patched; `dy {0x67: 1, 0x41: -1}`: equal to `svfw_draw` of the face after `svfdy.apply`; both at once; the review's probe cases |
+| A exports | `tools/test_web_picker.py TestModule.test_glyph_metrics_pieces_cmap` | `svf/dos/NEODG16.SVF` (precomposed), `NEODG16A.SVF` (jamo), `MARUS20.SVF` (stored dy), a 2 bpp face from `ttf/` baked in the test | `svfw_glyph` == `jamoset.parse_svfn(...).glyphs[cp]` bytes and == `jamoset.compose` for a syllable; `svfw_metrics` == the parsed `f.metrics[cp]` 3-tuple (advance, bearing, ink_w) plus `f.dy.get(cp, 0)`, and the JSET advance for a syllable; `svfw_pieces` == `jamoset.pieces_of` (numbers); `svfw_cmap_cp` lists the parsed code points in file order and -1 for -1 / count / 65536; `svfw_line_box` == `svfline.measure` |
+| A compositor | `TestModule.test_glyph_compositor_equals_line` (render.mjs gains a `glyphs` spec: the per-code-point draws of 6.4) | `MARUS20.SVF` over `NEODG16.SVF` (two slots, stored dy), text with Latin, a syllable, a glyph only slot 1 has; scales 1/1, 2/1, 3/2. Marks: a face baked in the test by mkfont from `ttf/ebgaramond` with U+0300..0304 (`MARKS_AT_ORIGIN`) over NEODG16, text `Aéò̂ gy ¡` (the review's probe fixture; no `svf/` face draws a mark) | no overrides: byte-equal to `svfw_draw`; `ascentOverride = A + 2`: equal to `svfw_draw` of a copy with header byte 16 patched; `dy {0x67: 1, 0x41: -1}`: equal to `svfw_draw` of the face after `svfdy.apply`; both at once; dy on a base (`e`), on a mark (U+0301) and on both; a DOS raw face with `--symbols` under an ascent override: U+2026 stays on the baseline |
 | A endpoints | `maker/test/test_server.py` `FaceBytesTest` | a job with one done mkfont step (the existing `run_batch` helper) | `/face/<step>.svf` bytes == the step's output; ETag/304; 404 for `source`/`prepare` steps, another job's step, a path escape; a foreign `Host` is 403 on the new GETs; `/api/repo/face/dos/NEODG16.SVF` served, `../` and lowercase names refused; `/api/caps` keys are booleans and follow a monkeypatched environment |
 | A page | `test_server.py test_page_js_tables_match_python` (extended) and `test_page_wires_the_preview` (`node --check` on `svfview.js`, the import string present, no `preview.png` reference left in `maker.js`) | - | the mirror tables, the module path |
 | A browser | `maker/test/smoke_dom.py` (not in the unittest discovery; run by the plan's review gate; skipped without a browser): starts the server on port 0, uploads `ttf/neodgm/neodgm.ttf` + its OFL, runs, then polls `google-chrome` or `chromium-browser` `--headless=new --disable-gpu --dump-dom http://127.0.0.1:PORT/?job=ID` (up to 10 times, 2 s apart, `--virtual-time-budget` alone does not wait for the wasm fetch) until the DOM holds `<canvas data-step="s01" data-drawn="1">` with `data-ink > 0` and no `data-error` | OFL neodgm | the module loads and draws in a real browser |
@@ -708,33 +751,45 @@ rows and the test's `every`/`flags` updates in the same commit (never a Python-o
 
 1. **A1 glue exports + oracle tests** (`svf_web.c`, `render.mjs`, `test_web_picker.py`, `emcc-flags.sh`,
    `maker/build-wasm.sh`). No maker change. Risk: none to `c/src`; the review gate asserts the empty diff.
-2. **B1 schema + panel_argv + per-command extras + OPTION_VISIBLE + `mask_ok`/`jamo_route` keys** (settings, presets,
-   routes `VALUED`/`_with_extra`, `--mask-font none` on the fit, maker.js tables and panel inputs, the drift test).
-   Independent of A1. Risk: the biggest table change; one commit per tool group is fine as long as each is two-sided.
-3. **A2 face endpoints + caps + GET host check + invalidation keys** (`server.py`, `test_server.py`). Depends on B1
-   for the key names in the invalidation list.
+2. **B1 schema + panel_argv + per-command extras + the `jamo_route`/`dy` keys** (settings, presets, routes
+   `VALUED`/`_with_extra`, `--mask-font none` on the fit, maker.js `ADVANCED`/panel inputs and the `OPTION_VISIBLE`
+   rows **of the labels that exist today only** (`experimental fit`, `composite`, `bdfface`, ... with
+   `fit_baseline`, `clean`, `binarize`, the bdfface keys), the drift test's `every`/`flags`). The `mask fit` and
+   `vector fit` rows are **not** in B1: the drift test demands every route label and no other, so those rows land with
+   their routes (slice 8). B1 also moves every exact-argv assertion of the fit in `test_routes.py`/`test_plan_inputs.py`
+   (`--mask-font none`). Independent of A1. Risk: the biggest table change; one commit per tool group is fine as long
+   as each is two-sided.
+3. **A2 face endpoints + caps + GET host check + invalidation keys + `mask_ok` stamping on load** (`server.py`,
+   `test_server.py`). Depends on B1 for the key names in the invalidation list.
 4. **A3 `svfview.js` + the result preview in the page**, removing `preview.png` from the worker and rewriting the 7
    assertions named in 6.5 (`maker.js`, `svfview.js`, `jobs.py`, `settings._step`, `test_jobs.py`, `test_zipout.py`,
    `test_server.py`, `smoke_dom.py`). Depends on A1, A2. Risk: the page is the least tested layer; the node compositor
    test is the proof, and the compositor must be written from `walk_next`'s rules (6.4), not from `svfline.py`.
-5. **B2 dy step + named ranges** (`plan_steps`, `RANGE_FILES`, tests). Depends on B1.
+5. **B2 dy step + named ranges** (`plan_steps`, `RANGE_FILES`, tests). Depends on B1 and runs **after** 4 (both edit
+   `settings.py`: 4 changes `_step`, 5 changes `plan_steps`).
 6. **C1 `mkfont.py --report` and `--probe`** (tools + `tools/test_mkfont.py` + `docs/tools.md`). Independent.
-7. **C2 probe endpoint + clipping panel** (server, page). Depends on C1, A3, B1.
-8. **D1 `gsub_jamo` detect fact + `mask fit`/`vector fit` routes + `--pylib`** (detect, routes, jobs, maker.js
-   ROUTES/offeredRoutes, drift test fixtures). Depends on B1. Risk: `vector fit` run time on a real font is unknown;
-   the e2e test uses the 2-syllable fixture; the real-font run is env-gated and recorded in the commit body.
-9. **D2 `recog_score.py` CLI + worker subprocess + identity endpoint + panel**. Depends on A3 (the piece drawing).
-   Risk: the real recogniser's input contract is inferred from `jamomerge.Scorer` only; the stub test pins the CLI and
-   the arithmetic, and the first run against real weights is a manual step the plan records (what `SVF_RECOG_DIR`
-   was, the model's cell size).
-10. **E prepared source preview** (`srcprep.prepared_bytes` instance op, `settings.source_ops`, server). Depends on
-    nothing but edits `server.py`: run after 3.
+7. **C2 the build's `--report` + probe endpoint + clipping panel**: `plan_steps` adds `--report` to every mkfont argv
+   and `step["report"]`, `_clear_outputs` drops a stale `report.json`, `settings.face_argv` is factored out, the
+   `report/<step>.json` endpoint, the step-row counts, the probe endpoint, the page panel, and the mkfont argv and
+   Step-shape test updates these entail (server, settings, jobs, page). Depends on C1, A3, B1, and runs after 5.
+8. **D1 `gsub_jamo` detect fact + `mask fit`/`vector fit` routes + `--pylib` + their `ROUTES`/`OPTION_VISIBLE` rows,
+   `offeredRoutes` filter and canonical fonts** in one commit (detect, routes, jobs `_reference`, settings
+   `run_ready`, maker.js, drift test fixtures). Depends on B1 and 3. Risk: `vector fit` run time on a real font is
+   unknown; the e2e test uses the 2-syllable fixture; the real-font run is env-gated and recorded in the commit body.
+9. **D2 `recog_score.py` CLI + worker subprocess (with `cancel` plumbed into `_read_back`) + identity endpoint +
+   panel**. Depends on A3 (the piece drawing). Risk: the real recogniser's input contract is inferred from
+   `jamomerge.Scorer` only; the stub test pins the CLI and the arithmetic, and the first run against real weights is
+   a manual step the plan records (what `SVF_RECOG_DIR` was, the model's cell size).
+10. **E prepared source preview** (`srcprep.prepared_bytes` instance op, `settings.source_ops`,
+    `server._prepared_source`; no new `source_kind` literal inside `_make_source_preview`, or the drift test's
+    extraction changes in the same commit). Depends on nothing but edits `server.py`: run after 3.
 11. **F closing**: the full gates, the audit's section 3 and gap list rewritten to the new state, `maker/README.md`
     (still missing from T15) gets the build step for the module.
 
-Order: 1 and 6 in parallel with 2; then 3; then 4 and 5 (5 touches `settings.py`, 4 does not); then 7, 8, 10 in
-sequence (all touch `server.py` or `routes.py`); then 9; then 11. No two slices that edit `server.py`, `settings.py`
-or `routes.py` run at the same time.
+Order: 1 and 6 in parallel with 2; then 3; then 4; then 5; then 7, 8, 10 in sequence (all touch `server.py`,
+`settings.py` or `routes.py`); then 9; then 11. No two slices that edit `server.py`, `settings.py` or `routes.py` run
+at the same time, and the drift test is green after every commit by construction (every table change is two-sided
+and lands with its route).
 
 ## 13. Left to the builder
 
@@ -788,7 +843,7 @@ are merged. "Changed" names the section that now holds the fix.
 | Finding | Verified | Disposition |
 |---|---|---|
 | Opus C1: the ascent override previews a header patch, which only `dos raw`/`hanterm` build | yes (`build_from_source` vs `render(... ascent)`, the review's rebake rows) | Changed: 6.4 splits header ascent (pen shift, apply writes `jamo_ascent`) from frame ascent (clipping overlay only, apply writes the flag + `clip_cell`); D8 added |
-| Opus I1 / AGY 2: pen formula unscaled, dy additive, applied to every slot, marks | yes (`SCALE_LEN`, `svfdy.apply` sets, `face_for`, `draw_mark`) | Changed: 6.4 uses `S()` per term, absolute dy, slot 0 only, base+marks units; test uses MARUS20 over NEODG16 at 1/1, 2/1, 3/2 |
+| Opus I1 / AGY 2: pen formula unscaled, dy additive, applied to every slot, marks | yes (`SCALE_LEN`, `svfdy.apply` sets, `face_for`, `draw_mark`) | Changed: 6.4 uses `S()` per term, absolute dy, slot 0 only; test uses MARUS20 over NEODG16 at 1/1, 2/1, 3/2 (the "base+marks units" rule this round added was wrong and is replaced by per-code-point calls in round 1, N1) |
 | Opus I2 / AGY 6.1: dy on composed code points silently dropped; jamo faces | yes (`svfdy` counts `missing`, exits 0; AGY's "exit 2" is wrong) | Changed: 7.5 restricts dy to `precomposed` steps; jamo-only selection refused |
 | Opus I3 / AGY 6.2: the copy route's empty argv plus svfdy | yes (`_execute` copies only when `argv` is empty) | Changed: 7.5 the svfdy argv reads the source token and writes `out` |
 | AGY 6.3: 512-byte note line cap | the cap exists; the `--range` argv AGY quotes is not in this design (`--json dy.json` is) | Not applicable; 7.5 notes the argv stays short |
@@ -825,3 +880,27 @@ are merged. "Changed" names the section that now holds the fix.
 | Opus M11: packaging needs NEODG16 | yes | Changed: 6.1 |
 | Opus M12: a jamo face's grid has no syllables | yes (`svf_cmap_cp` lists the table) | Changed: 6.4 syllables view |
 | AGY "security already enforced by `_local_only`/`_safe_id`" | those names do not exist (`_check_same_origin`, the route regexes do) | Not applicable beyond M5 |
+
+Round 1 (Opus re-review of `69f6ffc`, `opus-report-r1.md`; AGY approved): the review built the proposed exports as a
+scratch glue (composed metrics, piece numbers, cmap index all as section 6.3 says), reran the pen formula (20/20),
+tested marks (per-code-point 6/6 and 9/9; the "units" rule 0/6 on dy) and matched the page's cut rule against
+mkfont's `--clip-cell` at 1 and 2 bpp (exact; 583 vs 105 cut glyphs between the bpps, so bpp belongs in the key).
+
+| Finding | Verified | Disposition |
+|---|---|---|
+| N1: base+marks units break dy; U+0301 on MARUS20/NEODG16 draws nothing | yes (`walk_next` places a mark at the pen) | Changed: 6.4 one `svfw_draw` per code point; 11 A compositor uses a mark face baked from `ttf/ebgaramond`, dy on base/mark/both |
+| N2: "never offsets a composed code point" could drop the ascent term | yes (probe 2 includes a composed syllable) | Changed: 6.4 "no dy term, the ascent term applies" |
+| N3: `--symbols` glyphs are framed by the ascent on DOS raw/hanterm | yes (`symbol_glyphs(w, h, ascent, adv)`) | Changed: 6.4 those two code points get no ascent term when `symbols` is set; test case added |
+| N4: the probe must take the step's merged preset+panel argv | yes (presets rewrite `--unicode`, `--cell`, `--width`, add `--clip-cell --ascent`) | Changed: 8.1 probe argv from `settings.face_argv` with `--cell/--ascent/--clip-cell/--fit-cell` replaced; prefill from the argv's `--ascent` |
+| N5: B1 shipping the final `OPTION_VISIBLE` fails the drift test; the fit's argv assertions move | yes (the test demands every label and no other) | Changed: 12 B1 ships today's labels only, D1 lands `mask fit`/`vector fit` rows with the routes; B1 owns the `--mask-font none` assertions |
+| N6: slices 4 and 5 both edit `settings.py` | yes | Changed: 12 runs 5 after 4 |
+| N7: a `source_kind` literal in `_make_source_preview` breaks the drift test's bake extraction | yes (the test regexes that function's source) | Changed: 10 keeps the decision in `settings.source_ops`/`_prepared_source`; slice 10 notes it |
+| N8: the build's `--report` had no slice; stale `report.json` | yes | Changed: 8.2 `_clear_outputs`; 12 C2 owns the build side and its test updates |
+| M-r1: `font["dos"]` holds no cell height | yes (`{"candidates", "faces"}`; `detect.layout_px`) | Changed: 7.1 uses the effective size |
+| M-r2: `--probe-cell`/`--json` in `VALUED` | yes | Changed: 7.4 drops them with the reason |
+| M-r3: `mask_ok` stale across a restart | yes | Changed: 7.2 re-stamped on every job load, `run_ready` re-checks |
+| M-r4: `_read_back` has no `cancel` | yes (`_run_step` passes it to `_execute` only) | Changed: 9.4 plumbs it; slice 9 |
+| M-r5: `jamo_route` vs `experimental` | yes (`route_for` returns non-native routes only with `experimental`) | Changed: 7.2 a non-native `jamo_route` requires `experimental` (message) |
+| M-r6: `f.metrics[cp]` is a 3-tuple, dy in `f.dy` | yes (`svfdy._write`) | Changed: 11 A exports wording |
+| M-r7: Electron must load the page from the sidecar origin | yes (`_check_same_origin` accepts http(s) on the bound host) | Changed: 6.1 |
+| Piece number 0 is a real piece | yes (NEODG16A) | Changed: 6.4 "trust the count" |
