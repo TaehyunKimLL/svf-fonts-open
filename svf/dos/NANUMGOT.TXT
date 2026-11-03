@@ -1,0 +1,50 @@
+NanumGothic Bold faces (NGOTB*.SVF, NGO*X?.SVF)
+===============================================
+
+Bitmap faces rasterised from NanumGothic Bold by mkfont.py: 2
+bpp anti-aliased from the Google Fonts build, and the 1 bpp NGOTB17 (and its
+supplements) from NHN's hinted original with FreeType's
+monochrome hinting (--mono-hint). Each is a Modified Version (a rasterised
+subset) of the font. Copyright (c) 2010, NHN Corporation
+(http://www.nhncorp.com). SIL Open Font License 1.1: OFLNANUM.TXT.
+
+  NGOTB14.SVF   14x14 2 bpp precomposed, 1216 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NGOTB15.SVF   16x16 2 bpp precomposed, 2446 glyphs; ASCII + the 2,350 KS X
+                1001 syllables
+  NGOTB15A.SVF  16x16 2 bpp precomposed, 942 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NGOTB15B.SVF  16x16 2 bpp precomposed, 1123 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NGOTB15C.SVF  16x16 2 bpp precomposed, 781 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NGOTB16.SVF   16x16 2 bpp precomposed, 2880 glyphs; ASCII + KS X 1001 (no
+                Hanja), the shared 16 px face
+  NGOTB16B.SVF  18x18 2 bpp precomposed, 2446 glyphs; ASCII + the 2,350
+                syllables
+  NGOTB16D.SVF  18x18 2 bpp precomposed, 781 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NGOTB16E.SVF  20x18 2 bpp precomposed, 1123 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NGOTB17.SVF   18x18 1 bpp precomposed, 2446 glyphs; 1 bpp hinted, ASCII +
+                the 2,350 syllables
+  NGOTB17A.SVF  18x24 2 bpp precomposed, 2446 glyphs; ASCII + the 2,350
+                syllables
+  NGOTB19.SVF   20x24 2 bpp precomposed, 2446 glyphs; ASCII + the 2,350
+                syllables
+  NGOTB21.SVF   22x22 2 bpp precomposed, 2446 glyphs; ASCII + the 2,350
+                syllables
+  NGOTB21A.SVF  22x24 2 bpp precomposed, 2446 glyphs; ASCII + the 2,350
+                syllables
+  NGOTB22.SVF   22x22 2 bpp precomposed, 1216 glyphs; subset: the characters of tools/build/cps/<face>.txt
+  NGO15X1.SVF   16x16 2 bpp precomposed, 3 glyphs; supplement of NGOTB15
+  NGO15X2.SVF   16x16 2 bpp precomposed, 4 glyphs; supplement of NGOTB15
+  NGO16BX1.SVF  18x18 2 bpp precomposed, 3 glyphs; supplement of NGOTB16B
+  NGO16BX2.SVF  18x18 2 bpp precomposed, 4 glyphs; supplement of NGOTB16B
+  NGO17X1.SVF   18x18 1 bpp precomposed, 2 glyphs; supplement of NGOTB17
+  NGO17X2.SVF   18x18 1 bpp precomposed, 3 glyphs; supplement of NGOTB17
+  NGO21AX1.SVF  22x24 2 bpp precomposed, 3 glyphs; supplement of NGOTB21A
+  NGO21AX2.SVF  22x24 2 bpp precomposed, 4 glyphs; supplement of NGOTB21A
+
+Names: <font><px>[variant].SVF. <px> is the size the face was drawn at; a
+letter after it tells apart faces of the same font and size (another cell,
+bit depth or character set). A name ending in X<n> is a supplement: the few
+characters a base face lacks, drawn to follow it in a chain. The file names
+are abbreviations, not a Reserved Font Name, and the faces carry no font name
+inside: they are Modified Versions under the SIL OFL 1.1 that do not use the
+Reserved Font Names of the original. How each face is made: tools/build/faces.tsv
+and docs/recipes.md.

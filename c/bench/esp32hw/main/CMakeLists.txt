@@ -1,0 +1,7 @@
+if(CMAKE_BUILD_EARLY_EXPANSION)
+  idf_component_register()
+  return()
+endif()
+# libbench.a is built by the build script with the pinned xtensa-esp-elf 16.1 (the compiler of the QEMU rows)
+idf_component_register(SRCS main.c)
+target_link_libraries(${COMPONENT_LIB} PRIVATE ${BENCH_LIB})

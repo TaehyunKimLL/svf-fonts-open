@@ -1,0 +1,76 @@
+/* Layout and colour tokens follow web/style.css (the house style): tokens on :root, dark by prefers-color-scheme. */
+:root {
+  --bg:#f3f4f1; --surface:#ffffff; --sunk:#e9ebe6; --fg:#1d211c; --muted:#5b6358; --line:#d3d7cf; --accent:#1f6f6b; --accent-fg:#ffffff;
+  --warn-bg:#fff4d6; --warn-fg:#7a4b00; --ok:#15803d; --bad:#dc2626;
+  --sans:"IBM Plex Sans KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg:#141714; --surface:#1c201c; --sunk:#111311; --fg:#e4e8e1; --muted:#9aa396; --line:#2f352e; --accent:#5ec4bd; --accent-fg:#0d1513;
+  --warn-bg:#3a2e10; --warn-fg:#ffd98a; --ok:#4ade80; --bad:#f87171; color-scheme:dark } }
+* { box-sizing:border-box }
+[hidden] { display:none!important }
+body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans); font-size:14px; line-height:1.5; padding:0 16px 48px }
+header.top { position:sticky; top:0; z-index:5; background:var(--bg); border-bottom:1px solid var(--line); margin:0 -16px; padding:10px 16px }
+.bar { max-width:1480px; margin:0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:8px 16px }
+h1 { font-size:1.15rem; margin:0; letter-spacing:-.01em }
+h2 { font-size:1rem; margin:0 }
+.sub { color:var(--muted); font-size:.85rem }
+.grow { flex:1 1 auto }
+select, input, textarea, button { font:inherit; color:var(--fg) }
+select, input[type=text], input[type=number], textarea { background:var(--surface); border:1px solid var(--line); border-radius:4px; padding:4px 8px }
+select { max-width:100% }                        /* a long option text must not push a panel or a cell out (Q2) */
+input[type=file] { max-width:100%; min-width:0 } /* the file picker must shrink inside its panel too (Q2) */
+input[type=text] { min-width:6em }
+textarea { width:100%; resize:vertical; font-size:13px }
+button, a.button { background:var(--surface); border:1px solid var(--line); border-radius:4px; padding:3px 9px; cursor:pointer; text-decoration:none }
+button:hover, a.button:hover { border-color:var(--accent) }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible, summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px }
+.status { font-family:var(--mono); font-size:.8rem; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap }
+.notice { max-width:1480px; margin:8px auto 0; padding:6px 10px; border-radius:4px; background:var(--warn-bg); color:var(--warn-fg); font-size:.88rem; font-family:var(--mono); white-space:pre-wrap; word-break:break-word }
+.refused { max-width:1480px; margin:6px auto 0; padding:6px 10px; border-radius:4px; background:var(--warn-bg); color:var(--warn-fg); font-size:.82rem; font-family:var(--mono); list-style:none; display:grid; gap:3px; word-break:break-word }
+.refused li::before { content:"refused: "; color:var(--bad) }
+bdi { unicode-bidi:isolate }
+.layout { max-width:1480px; margin:16px auto 0; display:grid; grid-template-columns:minmax(240px,320px) minmax(0,1fr); gap:16px; align-items:start }
+@media (max-width:1000px) { .layout { grid-template-columns:minmax(0,1fr) } }
+.panel { background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:12px; display:grid; gap:10px; min-width:0 }
+.panel.wide { max-width:1480px; margin:16px auto 0 }
+.panel.fonts { grid-column:1 / -1 }              /* I6: the 11-column font table is the work surface: span the layout */
+@media (max-width:1000px) { .panel.fonts { grid-column:auto } }
+#settings { min-width:0; display:grid; gap:10px }    /* Q2: the form and its selects shrink inside the panel */
+.row { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center }
+.label { display:inline-flex; gap:5px; align-items:center; font-size:.88rem; color:var(--muted); flex-wrap:wrap; min-width:0 }
+.label input, .label select { color:var(--fg) }
+.kind { border:0; padding:0; margin:0; display:inline-flex; gap:10px; align-items:center }
+.kind legend { float:left; padding:0; margin-right:6px; font-size:.88rem; color:var(--muted) }
+.kind label { display:inline-flex; gap:4px; align-items:center; font-size:.88rem }
+.jobs { list-style:none; margin:0; padding:0; display:grid; gap:2px; max-height:40vh; overflow:auto; font-family:var(--mono); font-size:.78rem }
+.jobs li { display:flex; gap:8px }
+.jobs a { color:var(--accent); text-decoration:none }
+.jobs a:hover { text-decoration:underline }
+.jobs a.current { font-weight:700 }
+.tablewrap { overflow:auto }
+table { border-collapse:collapse; width:100%; font-size:.85rem }
+th, td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--line); vertical-align:top }
+th { color:var(--muted); font-weight:600; white-space:nowrap }
+tr[data-font] td { border-bottom:0 }
+tr.override td { border-bottom:1px solid var(--line); background:var(--sunk) }
+.fid { font-family:var(--mono); color:var(--muted) }
+.nums { font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap }
+img.preview { max-width:140px; max-height:40px; image-rendering:pixelated; background:var(--sunk); border:1px solid var(--line); border-radius:3px; display:block }
+.override-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px 16px; align-items:start }
+.override-grid h3 { margin:0; font-size:.82rem; color:var(--muted); grid-column:1/-1 }
+.names { display:grid; gap:4px }
+.name-row { display:flex; gap:6px; align-items:center }
+.name-row code { font-family:var(--mono); font-size:.72rem; color:var(--muted); min-width:9em }
+input.name, .override-grid h3 { unicode-bidi:isolate }
+.licence-text { margin-top:4px }
+.licence-cell { display:grid; gap:4px; min-width:0; max-width:20em }
+.licence-cell select { width:100%; max-width:100% }  /* Q2: the select truncates to its cell, never over its neighbours */
+.reset-to-batch { padding:0 6px; color:var(--muted) }
+.stderr { font-family:var(--mono); font-size:.7rem; white-space:pre-wrap; word-break:break-word; max-width:22em; max-height:6em; overflow:auto; margin:0 }
+.mark { font-size:.72rem; padding:0 6px; border-radius:10px; border:1px solid var(--muted); color:var(--muted) }
+.mark.good { border-color:var(--ok); color:var(--ok) }
+.mark.bad { border-color:var(--bad); color:var(--bad) }
+p { margin:0 }
+@media (prefers-reduced-motion: reduce) { * { transition:none!important } }

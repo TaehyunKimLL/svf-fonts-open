@@ -1,0 +1,123 @@
+# face recipes: every face under svf/ has one row (tools/test_build_faces.py). tools/build/build_faces.py runs them.
+# face	method	source	args	codepoints	expect	note
+# method: mkfont (tools/mkfont.py SOURCE OUT ARGS --unicode <codepoints>, then tools/svf2to3.py --profile default),
+#   jamoset (mkfont.py with the args before "|" and --unicode <codepoints>, then tools/jamoset.py --from-svf with the args after "|"), none (no recipe: note says why).
+# source: a path in this repository, or ext:NAME for a font that is not in it (build_faces.py --ext NAME=PATH).
+# codepoints: a named set (mkfont.py --unicode syntax) or a file of hex code points / ranges under tools/build/.
+# expect: identical (byte for byte with svf/), differs (the note says how), none.
+dos/BHSAN28.SVF	mkfont	ttf/blackhansans/BlackHanSans-Regular.ttf	--size 28 --cell 28 --width 28 --bpp 2 --ascent 23 --clip-cell --only-listed	cps/BHSAN28.txt	identical	
+dos/COUSB24.SVF	mkfont	ttf/coustard/Coustard-Black.ttf	--size 24 --cell 28 --width 28 --bpp 2 --ascent 23 --clip-cell --only-listed	cps/COUSB24.txt	identical	
+dos/DIPHY36.SVF	none				none	Diphylleia Regular at 36 px, 1 bpp, rasterised by an external FreeType pipeline; mkfont.py gives other pixels (Diphylleia is not in ttf/)
+dos/GBA14X2.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 14 --cell 16 --width 16 --bpp 2 --ascent 13 --clip-cell --only-listed	cps/GBA14X2.txt	identical	
+dos/GBA17BX1.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 17 --cell 24 --width 26 --bpp 2 --ascent 19 --clip-cell --only-listed	cps/GBA17BX1.txt	identical	
+dos/GBA23AX2.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 23 --cell 24 --width 26 --bpp 2 --ascent 21 --clip-cell --only-listed	cps/GBA23AX2.txt	identical	
+dos/GBA23X2.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 23 --cell 24 --width 24 --bpp 2 --ascent 21 --clip-cell --only-listed	cps/GBA23X2.txt	identical	
+dos/GBATB14.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 14 --cell 16 --width 16 --bpp 2 --ascent 13 --clip-cell --only-listed	cps/GBATB14.txt	identical	
+dos/GBATB17.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 17 --cell 16 --width 16 --bpp 2 --ascent 15 --clip-cell --only-listed	cps/GBATB17.txt	identical	
+dos/GBATB17B.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 17 --cell 24 --width 26 --bpp 2 --ascent 19 --clip-cell --only-listed	cps/GBATB17B.txt	identical	
+dos/GBATB17O.SVF	none				none	outline face: the 17 px glyphs dilated by 2 px by a script that is not part of this repository
+dos/GBATB18.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 18 --cell 18 --width 18 --bpp 2 --ascent 16 --clip-cell --only-listed	cps/GBATB18.txt	identical	
+dos/GBATB18A.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 18 --cell 18 --width 18 --bpp 2 --ascent 16 --clip-cell --only-listed	cps/GBATB18A.txt	identical	
+dos/GBATB21.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 21 --cell 22 --width 22 --bpp 2 --ascent 19 --clip-cell --only-listed	cps/GBATB21.txt	identical	
+dos/GBATB23.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 23 --cell 24 --width 24 --bpp 2 --ascent 21 --clip-cell --only-listed	cps/GBATB23.txt	identical	
+dos/GBATB23A.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 23 --cell 24 --width 26 --bpp 2 --ascent 21 --clip-cell --only-listed	cps/GBATB23A.txt	identical	
+dos/GBATB31.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 31 --cell 32 --width 32 --bpp 2 --ascent 28 --clip-cell --only-listed	cps/GBATB31.txt	identical	
+dos/GBATB35.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 35 --cell 36 --width 36 --bpp 2 --ascent 31 --clip-cell --only-listed	cps/GBATB35.txt	identical	
+dos/GBATB47.SVF	mkfont	ttf/gowunbatang/GowunBatang-Bold.ttf	--size 47 --cell 54 --width 46 --bpp 2 --ascent 45 --clip-cell --only-listed	cps/GBATB47.txt	identical	
+dos/GOTHB18A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/MARUB20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/MARUB24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/MARUS20.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/MARUS24.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/MARUS24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/NEO16BX2.SVF	mkfont	ttf/neodgm/neodgm.ttf	--size 16 --cell 16 --width 16 --bpp 1 --ascent 12 --clip-cell --only-listed	cps/NEO16BX2.txt	identical	
+dos/NEODG16.SVF	mkfont	ttf/neodgm/neodgm.ttf	--size 16 --cell 16 --width 16 --bpp 1 --ascent 12 --only-listed	cps/NEODG16.txt	differs	the shipped face also has U+212B, which neodgm.ttf lacks (an earlier bake drew it from elsewhere); every other glyph is identical
+dos/NEODG16A.SVF	jamoset	ttf/neodgm/neodgm.ttf	--size 16 --cell 16 --width 16 --bpp 1 --ascent 12 --clip-cell | --layout 844	ascii,ksx1001-hangul	identical	
+dos/NEODG16B.SVF	none				none	844 jamo set of Neo Dunggeunmo 16 px plus U+2026, made by the original pipeline; jamoset.py --from-svf now fits other pieces (the composed syllables differ)
+dos/NEODG16C.SVF	none				none	844 jamo set of Neo Dunggeunmo 16 px plus Latin-1, symbols and compatibility jamo, made by the original pipeline; jamoset.py --from-svf now fits other pieces
+dos/NEODG16D.SVF	jamoset	ttf/neodgm/neodgm.ttf	--size 16 --cell 22 --width 22 --bpp 1 --ascent 15 --clip-cell | --layout 844	ascii,ksx1001-hangul	identical	
+dos/NEODG16E.SVF	jamoset	ttf/neodgm/neodgm.ttf	--size 16 --cell 24 --width 18 --bpp 1 --ascent 16 --clip-cell | --layout 844	ascii,ksx1001-hangul	identical	
+dos/NEODG16F.SVF	jamoset	ttf/neodgm/neodgm.ttf	--size 16 --cell 24 --width 20 --bpp 1 --ascent 16 --clip-cell | --layout 844	ascii,ksx1001-hangul	identical	
+dos/NEODG16G.SVF	jamoset	ttf/neodgm/neodgm.ttf	--size 16 --cell 16 --width 16 --bpp 1 | --layout 621 --advance 0 --check	ascii,ksx1001-hangul	identical	
+dos/NEODG16J.SVF	mkfont	ttf/neodgm/neodgm.ttf	--size 16 --cell 18 --width 18 --bpp 1 --ascent 13 --clip-cell --only-listed	cps/NEODG16J.txt	identical	
+dos/NEODG16K.SVF	mkfont	ttf/neodgm/neodgm.ttf	--size 16 --cell 18 --width 18 --bpp 1 --ascent 13 --clip-cell --only-listed	cps/NEODG16K.txt	identical	
+dos/NEODG16L.SVF	mkfont	ttf/neodgm/neodgm.ttf	--size 16 --cell 18 --width 20 --bpp 1 --ascent 13 --clip-cell --only-listed	cps/NEODG16L.txt	identical	
+dos/NEODG16O.SVF	none				none	outline face: the 16 px glyphs dilated by 2 px by a script that is not part of this repository
+dos/NEODG32.SVF	jamoset	ttf/neodgm/neodgm.ttf	--size 32 --cell 36 --width 36 --bpp 1 --ascent 26 --clip-cell | --layout 844	ascii,ksx1001-hangul	identical	
+dos/NEODG32A.SVF	jamoset	ttf/neodgm/neodgm.ttf	--size 32 --cell 54 --width 46 --bpp 1 --ascent 35 --clip-cell | --layout 844	ascii,ksx1001-hangul	identical	
+dos/NEODG32B.SVF	mkfont	ttf/neodgm/neodgm.ttf	--size 32 --cell 32 --width 32 --bpp 1 --ascent 24 --clip-cell --only-listed	cps/NEODG32B.txt	identical	
+dos/NGO15X1.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 15 --cell 16 --width 16 --bpp 2 --ascent 14 --clip-cell --only-listed	cps/NGO15X1.txt	identical	
+dos/NGO15X2.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 15 --cell 16 --width 16 --bpp 2 --ascent 14 --clip-cell --fallback-ttf ext:nanumgothic-nhn --only-listed	cps/NGO15X2.txt	identical	
+dos/NGO16BX1.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 16 --cell 18 --width 18 --bpp 2 --ascent 15 --clip-cell --only-listed	cps/NGO16BX1.txt	identical	
+dos/NGO16BX2.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 16 --cell 18 --width 18 --bpp 2 --ascent 15 --clip-cell --fallback-ttf ext:nanumgothic-nhn --only-listed	cps/NGO16BX2.txt	identical	
+dos/NGO17X1.SVF	mkfont	ext:nanumgothic-nhn	--size 17 --cell 18 --width 18 --bpp 1 --ascent 14 --clip-cell --mono-hint --only-listed	cps/NGO17X1.txt	identical	
+dos/NGO17X2.SVF	mkfont	ext:nanumgothic-nhn	--size 17 --cell 18 --width 18 --bpp 1 --ascent 14 --clip-cell --mono-hint --only-listed	cps/NGO17X2.txt	identical	
+dos/NGO21AX1.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 21 --cell 24 --width 22 --bpp 2 --ascent 19 --clip-cell --only-listed	cps/NGO21AX1.txt	identical	
+dos/NGO21AX2.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 21 --cell 24 --width 22 --bpp 2 --ascent 19 --clip-cell --fallback-ttf ext:nanumgothic-nhn --only-listed	cps/NGO21AX2.txt	identical	
+dos/NGOTB14.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 14 --cell 14 --width 14 --bpp 2 --ascent 12 --clip-cell --only-listed	cps/NGOTB14.txt	identical	
+dos/NGOTB15.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 15 --cell 16 --width 16 --bpp 2 --ascent 14 --clip-cell --only-listed	cps/NGOTB15.txt	identical	
+dos/NGOTB15A.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 15 --cell 16 --width 16 --bpp 2 --ascent 14 --clip-cell --only-listed	cps/NGOTB15A.txt	identical	
+dos/NGOTB15B.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 15 --cell 16 --width 16 --bpp 2 --ascent 14 --clip-cell --only-listed	cps/NGOTB15B.txt	identical	
+dos/NGOTB15C.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 15 --cell 16 --width 16 --bpp 2 --ascent 14 --clip-cell --only-listed	cps/NGOTB15C.txt	identical	
+dos/NGOTB16.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 16 --cell 16 --width 16 --bpp 2 --ascent 14 --clip-cell --only-listed	cps/NGOTB16.txt	differs	the shipped face also has U+3000, which this NanumGothic-Bold.ttf lacks; every other glyph is identical
+dos/NGOTB16B.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 16 --cell 18 --width 18 --bpp 2 --ascent 15 --clip-cell --only-listed	cps/NGOTB16B.txt	identical	
+dos/NGOTB16D.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 16 --cell 18 --width 18 --bpp 2 --ascent 15 --clip-cell --only-listed	cps/NGOTB16D.txt	identical	
+dos/NGOTB16E.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 16 --cell 18 --width 20 --bpp 2 --ascent 15 --clip-cell --only-listed	cps/NGOTB16E.txt	identical	
+dos/NGOTB17.SVF	mkfont	ext:nanumgothic-nhn	--size 17 --cell 18 --width 18 --bpp 1 --ascent 14 --clip-cell --mono-hint --only-listed	cps/NGOTB17.txt	identical	
+dos/NGOTB17A.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 17 --cell 24 --width 18 --bpp 2 --ascent 16 --clip-cell --only-listed	cps/NGOTB17A.txt	identical	
+dos/NGOTB19.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 19 --cell 24 --width 20 --bpp 2 --ascent 17 --clip-cell --only-listed	cps/NGOTB19.txt	identical	
+dos/NGOTB21.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 21 --cell 22 --width 22 --bpp 2 --ascent 19 --clip-cell --only-listed	cps/NGOTB21.txt	identical	
+dos/NGOTB21A.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 21 --cell 24 --width 22 --bpp 2 --ascent 19 --clip-cell --only-listed	cps/NGOTB21A.txt	identical	
+dos/NGOTB22.SVF	mkfont	ttf/nanumgothic/NanumGothic-Bold.ttf	--size 22 --cell 22 --width 22 --bpp 2 --ascent 19 --clip-cell --only-listed	cps/NGOTB22.txt	identical	
+dos/NSQRB36.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/NSQRB36A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/NSQRR16A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/NSQRR36.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/NSQRR36A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/PAPER16A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/PAPER18A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/PAPLB16A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/PAPLB18A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/PAPLB20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+dos/PAPLG16.SVF	none				none	Paperlogy 4 Regular 1.000 at 16 px (the mkfont.py command is in svf/dos/PAPLG.TXT); not in ttf/, and the 1.001 release gives other pixels
+dos/PAPLG18.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA16.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA16A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA18.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA18A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA20.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA24.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHA24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHB16.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHB16A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHB18.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHB20.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHB20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHB24.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/GOTHB24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NDGPR16.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NDGPR32.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB16.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB16A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB18.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB18A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB20.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB24.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRB24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRR16.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRR18.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRR18A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRR20.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRR20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRR24.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/NSQRR24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY16.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY16A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY18.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY18A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY20.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY24.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+jamo-extra/SGDAY24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository

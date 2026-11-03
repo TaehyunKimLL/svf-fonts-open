@@ -1,0 +1,25 @@
+# Face glob -> licence files, both relative to svf/ (web/mkindex.py). Hand-written: every face under svf/ must match
+# exactly one row and every file named must exist, or mkindex.py exits 2. The first non-OFL/LICENSE file is the face's
+# note; the page label comes from its first line. glob<TAB>licence[,licence]; fnmatch, case-sensitive.
+# svf/dos: the notes name their faces in their first lines.
+dos/GBATB*.SVF	dos/GOWUNBAT.TXT,dos/OFLGOWUN.TXT
+dos/GBA*X?.SVF	dos/GOWUNBAT.TXT,dos/OFLGOWUN.TXT
+dos/PAPLG1?.SVF	dos/PAPLG.TXT,dos/OFLPAPLG.TXT
+dos/PAPER*	dos/PAPMARU.TXT,dos/OFLPAPLG.TXT
+dos/PAPLB*	dos/PAPMARU.TXT,dos/OFLPAPLG.TXT
+dos/MARU*	dos/PAPMARU.TXT,dos/OFLMARU.TXT
+dos/NSQR*	dos/OFLNSQR.TXT
+dos/BHSAN28.SVF	dos/OFLBHS.TXT
+dos/COUSB24.SVF	dos/OFLCOUS.TXT
+dos/GOTHB18A.SVF	dos/OFLGOTHA.TXT
+dos/NEODG*	dos/NEODGM.TXT,dos/OFL.TXT
+dos/NEO*X?.SVF	dos/NEODGM.TXT,dos/OFL.TXT
+dos/NGOT*	dos/NANUMGOT.TXT,dos/OFLNANUM.TXT
+dos/NGO*X?.SVF	dos/NANUMGOT.TXT,dos/OFLNANUM.TXT
+dos/DIPHY36.SVF	dos/DIPHY.TXT,dos/OFLDIPHY.TXT
+# svf/jamo-extra: FACES.TSV column licence.
+jamo-extra/GOTHA*	jamo-extra/OFLGOTHA.TXT
+jamo-extra/GOTHB*	jamo-extra/OFLGOTHA.TXT
+jamo-extra/SGDAY*	jamo-extra/OFLSGDAY.TXT
+jamo-extra/NSQR*	jamo-extra/OFLNSQR.TXT
+jamo-extra/NDGPR*	jamo-extra/OFLNDGPR.TXT

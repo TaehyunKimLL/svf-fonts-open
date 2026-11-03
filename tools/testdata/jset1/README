@@ -1,0 +1,14 @@
+JSET version 1 test fixtures (byte copies of shipped faces; svf/ stays JSET version 1, spec amendment 3).
+They are frozen here so the converter and maker tests do not depend on a later regeneration of svf/.
+
+NEODG16G.SVF  = svf/dos/NEODG16G.SVF (Neo Dunggeunmo 16 px, 6x2x1 jamo set, 10,684 B), made from ttf/neodgm/neodgm.ttf
+              by tools/build/build_faces.py (tools/build/faces.tsv). Licence: SIL Open Font License 1.1, Copyright (c)
+              2017-2021, Eunbin Jeong (Dalgona.): svf/dos/OFL.TXT, svf/dos/NEODGM.TXT.
+NSQRB16.SVF   = svf/jamo-extra/NSQRB16.SVF (NanumSquareRound Bold 1.000, 16 px, 12x12 classes, 56,856 B).
+              Source font: NAVER Nanum Square Round (Copyright (c) 2017 NAVER Corporation, designed by Sandoll
+              Communications Inc.), SIL Open Font License 1.1, no Reserved Font Name: svf/jamo-extra/OFLNSQR.TXT;
+              the row of svf/jamo-extra/FACES.TSV names it.
+
+../v2/ holds SVFN version 2 copies (the retired format svf2to3.py reads): NEODG16A.SVF is svf/dos/NEODG16A.SVF before
+the v3 conversion (svf2to3.py turns it into the shipped file byte for byte), PAPLG16.SVF likewise for svf/dos/PAPLG16.SVF.
+Both are under the licences of their faces (svf/dos/OFL.TXT; svf/dos/OFLPAPLG.TXT).

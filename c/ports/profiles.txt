@@ -1,0 +1,4 @@
+# profile  kind       targets  faces (under svf/)                driver_pico  driver_esp32  bus_pico  bus_esp32
+colour     RGB565     0x08     dos/PAPLG16.SVF,dos/PAPLG18.SVF    st7789       ili9341       spi       spi
+grey       GRAY8      0x01     dos/PAPLG16.SVF,dos/PAPLG18.SVF    ssd1327      ssd1327       i2c       spi
+mono       MONO_PAGE  0x02     dos/NEODG16G.SVF                   ssd1306      ssd1306       i2c       spi

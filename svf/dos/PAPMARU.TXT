@@ -1,0 +1,23 @@
+Paperlogy and MaruBuri faces (PAPER*, PAPLB*, MARUS*, MARUB*.SVF)
+=================================================================
+
+Modified Versions (rasterised jamo sets) of
+  Paperlogy 4 Regular 1.000 and Paperlogy 7 Bold 1.000, (c) 2024 PT& (www.designptn.com), SIL OFL 1.1: OFLPAPLG.TXT
+  MaruBuri SemiBold 1.000 and MaruBuri Bold 1.000, (c) NAVER Corp. (c) NAVER Cultural Foundation Corp., designed by
+  Noh Eunyou, Noheul Lee, Ku Moa / AG Typography Institute, SIL OFL 1.1: OFLMARU.TXT
+No Reserved Font Name is claimed by the font files.
+
+  PAPER<px>.SVF   Paperlogy Regular, sans-serif     <px> 16 18 20 24 30 36
+  PAPLB<px>.SVF   Paperlogy Bold                    (the 8.3 stem of the Bold; PAPERB is one letter too long)
+  MARUS<px>.SVF   MaruBuri SemiBold, serif          <px> 16 18 20 24
+  MARUB<px>.SVF   MaruBuri Bold                     <px> 16 18 20 24 30 36
+  no letter: 1 bpp (8-bit screens, render_target=clut8); A: 2 bpp anti-aliased (true colour)
+
+Each is a jamo set (SVFN v3, header flag 0x2; 24 initial / 16 medial / 16 final sets, up to 12 lead and 12 tail
+classes, usage-weighted): all 11,172 syllables composed at draw time, plus the font's own ASCII drawn at the largest
+size that fits the cell without clipping, placed with a per-glyph dy (header bytes 17/18) so the Latin baseline is one
+row above the Hangul one. They need a reader with the 12 x 12 JSET limits and the per-glyph dy (the C renderer of this repository reads both).
+
+How they were made: glyph outlines separated into initial / medial / final pieces (runs/seg-night/F (Paperlogy
+Regular), runs/seg-paperbold (Bold), runs/seg-maru (MaruBuri)), rasterised and merged by the research pipeline (fontbuild2.py, not part of this repository) --sets
+24,16,16 --classes 12,12 --weights syllable-freq.tsv; Latin and dy by runs/dy-all/build.py.

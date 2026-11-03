@@ -1,0 +1,86 @@
+file	family	style	variant
+svf/dos/COUSB24.SVF	Coustard	Bold	
+svf/dos/DIPHY36.SVF	Diphylleia	Regular	
+svf/dos/GBATB14.SVF	Gowun Batang	Bold	2,350 syllables, ascent 13
+svf/dos/GBATB17.SVF	Gowun Batang	Bold	SCI charset, ascent 15
+svf/dos/GBATB17B.SVF	Gowun Batang	Bold	ascent 19
+svf/dos/GBATB23.SVF	Gowun Batang	Bold	
+svf/dos/GBATB23A.SVF	Gowun Batang	Bold	ascent 21
+svf/dos/GBATB35.SVF	Gowun Batang	Bold	
+svf/dos/GBATB47.SVF	Gowun Batang	Bold	
+svf/dos/GOTHB18A.SVF	Gothic A1	Bold	
+svf/dos/MARUB20A.SVF	MaruBuri	Bold	
+svf/dos/MARUB24A.SVF	MaruBuri	Bold	
+svf/dos/MARUS20.SVF	MaruBuri	SemiBold	
+svf/dos/MARUS24.SVF	MaruBuri	SemiBold	
+svf/dos/MARUS24A.SVF	MaruBuri	SemiBold	
+svf/dos/NEODG16.SVF	Neo Dunggeunmo		
+svf/dos/NEODG16A.SVF	Neo Dunggeunmo		base set
+svf/dos/NEODG16B.SVF	Neo Dunggeunmo		+ U+2026
+svf/dos/NEODG16C.SVF	Neo Dunggeunmo		+ Latin-1, symbols, compat jamo
+svf/dos/NEODG16D.SVF	Neo Dunggeunmo		
+svf/dos/NEODG16E.SVF	Neo Dunggeunmo		
+svf/dos/NEODG16F.SVF	Neo Dunggeunmo		
+svf/dos/NEODG16G.SVF	Neo Dunggeunmo		6x2x1 jamo set
+svf/dos/NEODG32.SVF	Neo Dunggeunmo		
+svf/dos/NEODG32A.SVF	Neo Dunggeunmo		
+svf/dos/NGOTB15.SVF	NanumGothic	Bold	2,350 syllables
+svf/dos/NGOTB16.SVF	NanumGothic	Bold	KS X 1001 symbols
+svf/dos/NGOTB16B.SVF	NanumGothic	Bold	
+svf/dos/NGOTB17.SVF	NanumGothic	Bold	
+svf/dos/NGOTB17A.SVF	NanumGothic	Bold	
+svf/dos/NGOTB19.SVF	NanumGothic	Bold	
+svf/dos/NGOTB21.SVF	NanumGothic	Bold	
+svf/dos/NGOTB21A.SVF	NanumGothic	Bold	
+svf/dos/NSQRB36.SVF	NanumSquareRound	Bold	
+svf/dos/NSQRB36A.SVF	NanumSquareRound	Bold	
+svf/dos/NSQRR16A.SVF	NanumSquareRound	Regular	
+svf/dos/NSQRR36.SVF	NanumSquareRound	Regular	
+svf/dos/NSQRR36A.SVF	NanumSquareRound	Regular	
+svf/dos/PAPER16A.SVF	Paperlogy	Regular	
+svf/dos/PAPER18A.SVF	Paperlogy	Regular	own Latin, dy
+svf/dos/PAPLB16A.SVF	Paperlogy	Bold	
+svf/dos/PAPLB18A.SVF	Paperlogy	Bold	
+svf/dos/PAPLB20A.SVF	Paperlogy	Bold	
+svf/dos/PAPLG16.SVF	Paperlogy	Regular	Latin companion of PAPLG18
+svf/dos/PAPLG18.SVF	Paperlogy	Regular	first build, no Latin
+svf/jamo-extra/GOTHA16.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHA16A.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHA18.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHA18A.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHA20.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHA20A.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHA24.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHA24A.SVF	Gothic A1	Regular	
+svf/jamo-extra/GOTHB16.SVF	Gothic A1	Bold	
+svf/jamo-extra/GOTHB16A.SVF	Gothic A1	Bold	
+svf/jamo-extra/GOTHB18.SVF	Gothic A1	Bold	
+svf/jamo-extra/GOTHB20.SVF	Gothic A1	Bold	
+svf/jamo-extra/GOTHB20A.SVF	Gothic A1	Bold	
+svf/jamo-extra/GOTHB24.SVF	Gothic A1	Bold	
+svf/jamo-extra/GOTHB24A.SVF	Gothic A1	Bold	
+svf/jamo-extra/NDGPR16.SVF	Neo Dunggeunmo Pro		
+svf/jamo-extra/NDGPR32.SVF	Neo Dunggeunmo Pro		
+svf/jamo-extra/NSQRB16.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRB16A.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRB18.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRB18A.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRB20.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRB20A.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRB24.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRB24A.SVF	NanumSquareRound	Bold	
+svf/jamo-extra/NSQRR16.SVF	NanumSquareRound	Regular	
+svf/jamo-extra/NSQRR18.SVF	NanumSquareRound	Regular	
+svf/jamo-extra/NSQRR18A.SVF	NanumSquareRound	Regular	
+svf/jamo-extra/NSQRR20.SVF	NanumSquareRound	Regular	
+svf/jamo-extra/NSQRR20A.SVF	NanumSquareRound	Regular	
+svf/jamo-extra/NSQRR24.SVF	NanumSquareRound	Regular	
+svf/jamo-extra/NSQRR24A.SVF	NanumSquareRound	Regular	
+svf/jamo-extra/SGDAY16.SVF	Single Day	Regular	
+svf/jamo-extra/SGDAY16A.SVF	Single Day	Regular	
+svf/jamo-extra/SGDAY18.SVF	Single Day	Regular	
+svf/jamo-extra/SGDAY18A.SVF	Single Day	Regular	
+svf/jamo-extra/SGDAY20.SVF	Single Day	Regular	
+svf/jamo-extra/SGDAY20A.SVF	Single Day	Regular	
+svf/jamo-extra/SGDAY24.SVF	Single Day	Regular	
+svf/jamo-extra/SGDAY24A.SVF	Single Day	Regular	

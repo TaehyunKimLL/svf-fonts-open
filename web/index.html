@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SVF font picker</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <h1>SVF font picker</h1>
+    <span class="sub">the C renderer compiled to WebAssembly draws every pixel</span>
+    <span class="grow"></span>
+    <div class="status" id="status" role="status" aria-live="polite"><span>loading...</span></div>
+  </div>
+</header>
+<p class="notice" id="notice" role="status" hidden></p>
+
+<main class="layout">
+  <section class="panel list" aria-label="Faces">
+    <div class="row"><h2 class="grow">Faces</h2><span class="counter" id="count"></span></div>
+    <div class="filters">
+      <input type="text" id="f-name" placeholder="search family, style, variant or file" aria-label="Search faces">
+    </div>
+    <div id="sizes" class="chips sizes" role="radiogroup" aria-label="Size (face file height)"></div>
+    <p class="sub">A face that lacks code points of the sample text shows <b>-n</b> once it is loaded (faces are fetched when first used).</p>
+    <ul id="faces" class="faces" role="listbox" aria-label="Families" tabindex="0"></ul>
+    <div id="variants" class="chips variants" role="radiogroup" hidden></div>
+    <span id="variants-of" hidden>Variant of</span><span id="variants-at" hidden></span>
+    <p class="sub" id="variants-sub" hidden></p>
+    <p class="sub also" id="also" hidden></p>
+  </section>
+
+  <section class="panel preview" aria-label="Preview">
+    <div class="row"><h2 class="grow">Preview</h2><span class="counter" id="measure"></span></div>
+    <div class="row chain">
+      <div class="slot">
+        <label class="tg">Latin <select id="latin" aria-label="Latin face"></select></label>
+        <span class="badge same" id="latin-badge" hidden>= list</span>
+        <p class="sub note" id="latin-note"></p>
+      </div>
+      <div class="slot">
+        <label class="tg">Hangul <select id="hangul" aria-label="Hangul face"></select></label>
+        <span class="badge same" id="hangul-badge" hidden>= list</span>
+        <p class="sub note" id="hangul-note"></p>
+      </div>
+    </div>
+    <textarea id="text" rows="3" aria-label="Sample text"></textarea>
+    <div class="chips" id="presets"></div>
+    <div class="row">
+      <label class="tg">Scale
+        <select id="ratio" aria-label="Scale ratio"></select>
+      </label>
+      <input type="number" id="num" min="1" max="16" value="1" aria-label="Scale numerator"> /
+      <input type="number" id="den" min="1" max="16" value="1" aria-label="Scale denominator">
+      <span class="sub" id="px"></span>
+      <label class="tg">Zoom <input type="number" id="zoom" min="1" max="8" value="2"></label>
+      <label class="tg"><input type="checkbox" id="grid"> pixel grid</label>
+    </div>
+    <div class="row">
+      <fieldset class="tg kind"><legend>Target</legend>
+        <label class="tg"><input type="radio" name="kind" value="gray8" checked> GRAY8</label>
+        <label class="tg"><input type="radio" name="kind" value="mono"> MONO</label>
+        <label class="tg"><input type="radio" name="kind" value="rgb565"> RGB565</label>
+      </fieldset>
+      <label class="tg">Ink <input type="color" id="fg" value="#1d211c"></label>
+      <label class="tg">Paper <input type="color" id="bg" value="#ffffff"></label>
+      <span class="sub" id="q565" hidden></span>
+      <label class="tg" id="thr-wrap" hidden>Threshold <input type="range" id="threshold" min="1" max="255" value="128"></label>
+    </div>
+    <div class="stage" id="stage">
+      <div class="canvaswrap" id="canvaswrap"><canvas id="preview" width="1" height="1" aria-label="Rendered text"></canvas><div id="gridlines" class="gridlines" hidden></div></div>
+    </div>
+  </section>
+
+  <section class="panel card" aria-label="Face card">
+    <h2 id="card-title">Face card</h2>
+    <p class="sub" id="card-empty">Pick a face in the list.</p>
+    <div id="cards"></div>
+  </section>
+  <section class="panel choices" id="choices" aria-label="Choices">
+    <div class="row"><h2 class="grow">Choices</h2><span class="counter" id="choice-count"></span></div>
+    <p class="sub">A choice pairs one original game font with the open chain and scale. Choices are kept in this browser.</p>
+    <form class="row" id="choice-form">
+      <label class="tg">Game <input type="text" id="choice-game" list="choice-games" size="26" autocomplete="off" maxlength="256" required></label>
+      <datalist id="choice-games"></datalist>
+      <label class="tg">Font id <input type="text" id="choice-id" size="8" autocomplete="off" maxlength="256" required></label>
+      <label class="tg">Line height <input type="number" id="choice-lineh" min="1" max="65535" placeholder="optional"></label>
+      <button type="submit" id="choice-add">Add choice</button>
+    </form>
+    <p class="sub" id="choice-empty">No choices yet.</p>
+    <div class="tablewrap"><table class="choicetable" id="choice-table" hidden>
+      <thead><tr><th>Game</th><th>Font id</th><th>Line h</th><th>Hangul</th><th>Latin</th><th>Scale</th><th>px</th><th></th></tr></thead>
+      <tbody id="choice-rows"></tbody>
+    </table></div>
+    <textarea id="export" rows="10" readonly aria-label="Export (selection.json)" spellcheck="false"></textarea>
+    <div class="row"><button type="button" id="choice-copy">Copy</button><button type="button" id="choice-download">Download selection.json</button></div>
+  </section>
+</main>
+<script type="module" src="picker.js"></script>
+</body>
+</html>

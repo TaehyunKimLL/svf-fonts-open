@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SVF maker</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/style.css">
+<script type="module" src="/static/maker.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="bar">
+    <h1>SVF maker</h1>
+    <span class="status">
+      <span id="state">no job</span>
+      <span id="position" hidden></span>
+    </span>
+    <span class="grow"></span>
+    <a id="download" class="button" href="#" hidden>download zip</a>
+    <button id="save" type="button" hidden>save settings</button>
+    <button id="run" type="button" hidden>run</button>
+    <button id="detect" type="button" hidden>edit and re-run</button>
+    <button id="cancel" type="button" hidden>cancel</button>
+  </div>
+</header>
+
+<p id="notice" class="notice" role="status" hidden></p>
+<ul id="refused" class="refused" hidden></ul>
+
+<main class="layout">
+  <aside class="panel">
+    <h2>upload</h2>
+    <div class="row">
+      <label class="label">files <input id="files" type="file" multiple></label>
+    </div>
+    <div class="row">
+      <label class="label">folder <input id="folder" type="file" webkitdirectory multiple></label>
+    </div>
+    <div class="row">
+      <button id="upload" type="button">upload</button>
+      <span class="sub" id="upload-count"></span>
+    </div>
+    <p class="sub">the chosen files are PUT one by one with their folder path, then the batch is detected.</p>
+    <h2>jobs</h2>
+    <ul id="jobs" class="jobs"></ul>
+  </aside>
+
+  <section class="panel">
+    <form id="settings" autocomplete="off">
+      <h2>batch settings</h2>
+      <div class="row">
+        <label class="label">dest <select id="dest"></select></label>
+        <label class="label">new <input id="dest-new" type="text" placeholder="new/name" disabled></label>
+      </div>
+      <div class="row">
+        <fieldset id="kinds" class="kind">
+          <legend>kinds</legend>
+          <label><input type="checkbox" value="precomposed"> precomposed <span class="sub">variable width (v3)</span></label>
+          <label><input type="checkbox" value="jamo"> jamo</label>
+        </fieldset>
+        <label class="label">layout <select id="layout"></select></label>
+        <label class="label">sizes <input id="sizes" type="text" placeholder="16, 20"></label>
+        <fieldset id="bpp" class="kind">
+          <legend>bpp</legend>
+          <label><input type="checkbox" value="1"> 1</label>
+          <label><input type="checkbox" value="2"> 2</label>
+        </fieldset>
+        <label class="label">range <select id="range"></select></label>
+        <label class="label">preset <select id="preset"></select></label>
+      </div>
+      <details id="advanced">
+        <summary>advanced panel</summary>
+        <div class="row" id="advanced-fields">
+          <label class="label" data-field="cell">cell
+            <input id="opt-cell" data-option="cell" data-group="mkfont" data-label="cell" type="text" inputmode="numeric" size="4"></label>
+          <label class="label" data-field="ascent">ascent
+            <input id="opt-ascent" data-option="ascent" data-group="mkfont" data-label="ascent" type="text" inputmode="numeric" size="4"></label>
+          <label class="label" data-field="space_advance">space advance
+            <input id="opt-space-advance" data-option="space_advance" data-group="mkfont" data-label="space advance" type="text" inputmode="numeric" size="4"></label>
+          <label data-field="mono_hint"><input id="opt-mono-hint" data-option="mono_hint" data-group="mkfont" data-label="mono hint" type="checkbox"> mono hint</label>
+          <label data-field="clip_cell"><input id="opt-clip-cell" data-option="clip_cell" data-group="mkfont" data-label="clip cell" type="checkbox"> clip cell</label>
+          <label data-field="embolden"><input id="opt-embolden" data-option="embolden" data-group="jamoset" data-label="embolden" type="checkbox"> embolden</label>
+          <label data-field="symbols"><input id="opt-symbols" data-option="symbols" data-group="jamoset" data-label="symbols" type="checkbox"> symbols</label>
+          <label class="label" data-field="jset_version" title="JSET block version (1 or 2). Empty: version 1 for a new face; an SVF upload keeps its own. 2 is for memory-constrained targets only.">JSET version
+            <input id="opt-jset-version" data-option="jset_version" data-group="jamoset" data-label="JSET version" type="text" inputmode="numeric" size="2" placeholder="1"></label>
+        </div>
+      </details>
+    </form>
+  </section>
+
+  <section class="panel fonts">
+    <h2>fonts</h2>
+    <div class="tablewrap">
+      <table id="fonts"></table>
+    </div>
+  </section>
+</main>
+
+<section class="panel wide">
+  <h2>steps</h2>
+  <div class="tablewrap">
+    <table id="steps"></table>
+  </div>
+</section>
+</body>
+</html>

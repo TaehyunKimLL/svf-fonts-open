@@ -1,0 +1,13 @@
+[colours]
+# name       | rgb565 | rgb555 | rgb888   | index_base | index_levels   (rgb888 also gives the palette colour)
+background   | 0x0010 | 0x0010 | 0x000084 | 0          | 0
+white        | 0xFFFF | 0x7FFF | 0xFFFFFF | 16         | 3
+yellow       | 0xFFE0 | 0x7FE0 | 0xFFFF00 | 32         | 3
+scaled       | 0xFFFF | 0x7FFF | 0xFFFFFF | 64         | 63
+[lines]
+# faces                 | scale | x  | baseline | colour | text
+PAPLG16.SVF+PAPLG18.SVF | 1/1   | 16 |  40      | white  | SVF VESA 2.0 예제 {W}x{H} {BPP} bpp
+MARUS24A.SVF            | 1/1   | 16 |  90      | white  | 다람쥐 헌 쳇바퀴에 타고파! MARUS24A
+MARUS24.SVF             | 1/1   | 16 | 130      | white  | 키스의 고유조건은 입술끼리 MARUS24
+PAPLG16.SVF+PAPLG18.SVF | 3/2   | 16 | 180      | scaled | 스케일 3/2: 가나다 Score 120 점
+PAPLG16.SVF+PAPLG18.SVF | 1/1   | 16 | 220      | yellow | 노란 줄: 만나야 하고 특별한 기술은

@@ -1,0 +1,54 @@
+# quality: 1 bpp = mean pixel IoU of the composed syllable vs the font's own glyph at that px (1.0 = identical);
+# 2 bpp = mean absolute level difference / 3 (0 = identical). 'all' = every syllable the font draws, ks2350 = the KS X 1001 ones,
+# freq = weighted by how often each syllable occurs in a corpus of Korean game translations (1.6 M syllables),
+# top500 = mean over the 500 most frequent ones.
+# Built 2026-10 at up to 12 lead x 12 tail classes, the pieces chosen with usage weights (sqrt(16 + count) for a KS X 1001
+# syllable, sqrt(1 + count) otherwise), so common syllables are drawn closest to the font; they need an engine built
+# with 12x12 JSET limits (2026-10 or later): an older one rejects them (more than 8 classes) and falls back to the next face.
+# Exception: Single Day (SGDAY) and Neo Dunggeunmo Pro (NDGPR) stay the first 8x8 build with equal weights (12x12 and
+# weights gained nothing on them, quality 0.998+), so they also load in older engines; their freq/top500 columns are of that build.
+# Latin: every face carries its own Latin, rebuilt with the per-glyph dy (SVFN header bytes 17/18, metrics byte 3;
+# graphics/hires_text/README.md, "Per-glyph dy"): drawn at the largest size that fits the cell, the bottom of x z v w u on
+# latin_baseline_row = the Hangul no-final bottom row - 1, dy only on the descender letters (g j p q y and the like). An engine
+# without dy (before 2026-10-16) draws those glyphs dy rows higher; the Hangul are unchanged.
+file	family	px	bpp	cell	sets_ini_med_fin	classes_lead_tail	bytes	quality_all	quality_ks2350	quality_freq	quality_top500	syllables_compared	licence	hangul_baseline_row	latin_baseline_row
+GOTHA16.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	16	1	16x16	24/16/16	12x12	69797	0.9411	0.9521	0.9769	0.9744	11172	OFLGOTHA.TXT	14	14
+GOTHA16A.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	16	2	16x16	24/16/16	12x12	112037	0.0297	0.026	0.0098	0.0147	11172	OFLGOTHA.TXT	14	14
+GOTHA18.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	18	1	18x18	24/16/16	12x12	98837	0.9368	0.9478	0.9834	0.9695	11172	OFLGOTHA.TXT	15	15
+GOTHA18A.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	18	2	18x18	24/16/16	12x12	146357	0.0281	0.0243	0.008	0.0154	11172	OFLGOTHA.TXT	15	15
+GOTHA20.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	20	1	20x20	24/16/16	12x12	106757	0.94	0.9484	0.9849	0.9712	11172	OFLGOTHA.TXT	17	17
+GOTHA20A.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	20	2	20x20	24/16/16	12x12	159557	0.0278	0.0247	0.0085	0.0141	11172	OFLGOTHA.TXT	17	17
+GOTHA24.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	24	1	24x24	24/16/16	12x12	122597	0.9396	0.947	0.9862	0.9744	11172	OFLGOTHA.TXT	20	20
+GOTHA24A.SVF	Gothic A1 Regular 2.50 (HanYang I&C)	24	2	24x24	24/16/16	12x12	217637	0.0301	0.0282	0.0098	0.0173	11172	OFLGOTHA.TXT	20	21
+GOTHB16.SVF	Gothic A1 Bold 2.50 (HanYang I&C)	16	1	16x16	24/16/16	12x12	69797	0.9595	0.968	0.9921	0.9847	11172	OFLGOTHA.TXT	14	14
+GOTHB16A.SVF	Gothic A1 Bold 2.50 (HanYang I&C)	16	2	16x16	24/16/16	12x12	112037	0.0316	0.0271	0.0105	0.0155	11172	OFLGOTHA.TXT	14	14
+GOTHB18.SVF	Gothic A1 Bold 2.50 (HanYang I&C)	18	1	18x18	24/16/16	12x12	98837	0.9594	0.9654	0.9902	0.9809	11172	OFLGOTHA.TXT	15	15
+GOTHB20.SVF	Gothic A1 Bold 2.50 (HanYang I&C)	20	1	20x20	24/16/16	12x12	106757	0.9616	0.9677	0.987	0.9827	11172	OFLGOTHA.TXT	17	17
+GOTHB20A.SVF	Gothic A1 Bold 2.50 (HanYang I&C)	20	2	20x20	24/16/16	12x12	159557	0.0287	0.026	0.0094	0.015	11172	OFLGOTHA.TXT	17	17
+GOTHB24.SVF	Gothic A1 Bold 2.50 (HanYang I&C)	24	1	24x24	24/16/16	12x12	122597	0.9561	0.9646	0.9906	0.9826	11172	OFLGOTHA.TXT	21	21
+GOTHB24A.SVF	Gothic A1 Bold 2.50 (HanYang I&C)	24	2	24x24	24/16/16	12x12	217637	0.0306	0.0284	0.0091	0.0164	11172	OFLGOTHA.TXT	21	22
+SGDAY16.SVF	Single Day Regular 1.00 (DXKorea)	16	1	16x16	24/16/16	8x8	51953	0.9977	0.9976	0.9989	0.9981	11172	OFLSGDAY.TXT	12	11
+SGDAY16A.SVF	Single Day Regular 1.00 (DXKorea)	16	2	16x16	24/16/16	8x8	84881	0.0012	0.0009	0.0004	0.0006	11172	OFLSGDAY.TXT	12	11
+SGDAY18.SVF	Single Day Regular 1.00 (DXKorea)	18	1	18x18	24/14/14	8x8	73277	0.9984	0.9984	0.9993	0.9984	11172	OFLSGDAY.TXT	13	12
+SGDAY18A.SVF	Single Day Regular 1.00 (DXKorea)	18	2	18x18	24/14/14	8x8	109709	0.001	0.0007	0.0002	0.0005	11172	OFLSGDAY.TXT	13	12
+SGDAY20.SVF	Single Day Regular 1.00 (DXKorea)	20	1	20x20	24/15/10	8x8	73055	0.9983	0.9992	0.9994	0.9998	11172	OFLSGDAY.TXT	15	14
+SGDAY20A.SVF	Single Day Regular 1.00 (DXKorea)	20	2	20x20	24/15/10	8x8	110135	0.001	0.0006	0.0001	0.0002	11172	OFLSGDAY.TXT	15	14
+SGDAY24.SVF	Single Day Regular 1.00 (DXKorea)	24	1	24x24	24/16/12	8x8	84413	0.9987	0.9989	0.9997	0.9996	11172	OFLSGDAY.TXT	18	17
+SGDAY24A.SVF	Single Day Regular 1.00 (DXKorea)	24	2	24x24	24/16/12	8x8	151229	0.0007	0.0004	0.0001	0.0002	11172	OFLSGDAY.TXT	18	18
+NSQRR16.SVF	NanumSquareRound Regular 1.000 (NAVER)	16	1	16x16	24/16/16	12x12	63065	0.9716	0.9729	0.9946	0.9901	2479	OFLNSQR.TXT	13	12
+NSQRR18.SVF	NanumSquareRound Regular 1.000 (NAVER)	18	1	18x18	24/16/16	12x12	89729	0.9674	0.969	0.9933	0.986	2479	OFLNSQR.TXT	14	14
+NSQRR18A.SVF	NanumSquareRound Regular 1.000 (NAVER)	18	2	18x18	24/16/16	12x12	132281	0.0167	0.016	0.0035	0.0071	2479	OFLNSQR.TXT	14	14
+NSQRR20.SVF	NanumSquareRound Regular 1.000 (NAVER)	20	1	20x20	24/16/16	12x12	95957	0.9675	0.9688	0.9927	0.9868	2479	OFLNSQR.TXT	16	16
+NSQRR20A.SVF	NanumSquareRound Regular 1.000 (NAVER)	20	2	20x20	24/16/16	12x12	142757	0.0163	0.0156	0.0037	0.0073	2479	OFLNSQR.TXT	16	16
+NSQRR24.SVF	NanumSquareRound Regular 1.000 (NAVER)	24	1	24x24	24/16/16	12x12	110753	0.9656	0.9673	0.9927	0.9865	2479	OFLNSQR.TXT	19	19
+NSQRR24A.SVF	NanumSquareRound Regular 1.000 (NAVER)	24	2	24x24	24/16/16	12x12	195641	0.0185	0.0177	0.0037	0.0075	2479	OFLNSQR.TXT	19	19
+NSQRB16.SVF	NanumSquareRound Bold 1.000 (NAVER)	16	1	16x16	24/16/16	12x12	63153	0.976	0.9771	0.9953	0.9912	2479	OFLNSQR.TXT	13	12
+NSQRB16A.SVF	NanumSquareRound Bold 1.000 (NAVER)	16	2	16x16	24/16/16	12x12	100561	0.017	0.0163	0.0038	0.007	2479	OFLNSQR.TXT	13	13
+NSQRB18.SVF	NanumSquareRound Bold 1.000 (NAVER)	18	1	18x18	24/16/16	12x12	88739	0.9745	0.9753	0.995	0.9907	2479	OFLNSQR.TXT	14	14
+NSQRB18A.SVF	NanumSquareRound Bold 1.000 (NAVER)	18	2	18x18	24/16/16	12x12	130751	0.0183	0.0177	0.0038	0.0076	2479	OFLNSQR.TXT	14	14
+NSQRB20.SVF	NanumSquareRound Bold 1.000 (NAVER)	20	1	20x20	24/16/16	12x12	96677	0.973	0.974	0.9952	0.9897	2479	OFLNSQR.TXT	16	16
+NSQRB20A.SVF	NanumSquareRound Bold 1.000 (NAVER)	20	2	20x20	24/16/16	12x12	143877	0.0183	0.0176	0.0036	0.0079	2479	OFLNSQR.TXT	16	16
+NSQRB24.SVF	NanumSquareRound Bold 1.000 (NAVER)	24	1	24x24	24/16/16	12x12	108401	0.9717	0.973	0.9948	0.9889	2479	OFLNSQR.TXT	19	19
+NSQRB24A.SVF	NanumSquareRound Bold 1.000 (NAVER)	24	2	24x24	24/16/16	12x12	191273	0.0161	0.0154	0.0032	0.0065	2479	OFLNSQR.TXT	19	20
+NDGPR16.SVF	Neo Dunggeunmo Pro 1.020 (Dalgona), pixel face	16	1	16x16	21/8/6	8x8	32791	0.9924	0.9943	0.9969	0.9954	11172	OFLNDGPR.TXT	12	12
+NDGPR32.SVF	Neo Dunggeunmo Pro 1.020 (Dalgona), pixel face	32	1	32x32	20/8/6	8x8	92169	0.9975	0.9982	0.9991	0.9986	11172	OFLNDGPR.TXT	25	27

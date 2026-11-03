@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+web/dist/
+web/test/node_modules/
+web/test/out/

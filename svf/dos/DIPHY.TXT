@@ -1,0 +1,6 @@
+Diphylleia 36 px (DIPHY36.SVF)
+==============================
+
+Diphylleia Regular (Diphylleia Project Authors, SIL OFL 1.1: OFLDIPHY.TXT), rendered at 36 px, 1 bpp
+(FreeType, no anti-aliasing), 36x36 cell, ascent 29. Precomposed:
+the 2,350 KS X 1001 syllables and a few symbols, no ASCII.

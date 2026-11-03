@@ -1,0 +1,28 @@
+Paperlogy faces (PAPLG18.SVF, PAPLG16.SVF)
+==========================================
+
+Both are Modified Versions (rasterised / re-composed) of Paperlogy 4 Regular 1.000, (c) 2024 PT& (www.designptn.com),
+SIL OFL 1.1: OFLPAPLG.TXT. No Reserved Font Name is claimed by the font file.
+
+  PAPLG18.SVF  18x18 2 bpp jamo set (SVFN v3, header flag 0x2; 24 initial / 16 medial / 16 final sets, 12 lead and
+               12 tail classes, ascent 17), 11,172 syllables composed; needs a reader with the 12 x 12 JSET
+               limits;
+               drawn for the 2,780 syllables Paperlogy has
+               (every KS X 1001 syllable; the rest compose from the nearest pieces).
+  PAPLG16.SVF  18x18 2 bpp precomposed, 149 glyphs: ASCII, U+2026, U+2122, the compatibility jamo that Paperlogy has;
+               Paperlogy drawn at 16 px with the baseline at row 14 (nothing but $ / \ ` clipped, one pixel at the top;
+               a chain moves it onto PAPLG18's baseline), space advance 6 px, . , : ; ! ? ' ... advance +1.
+
+How they were made:
+  PAPLG16: mkfont.py Paperlogy-4Regular.ttf --size 16 --cell 18 --width 18 --bpp 2 --clip-cell --ascent 14
+           --unicode ascii,2026,2122,3131-318e --only-listed --space-advance 6 --punct-extra 1
+  PAPLG18: Paperlogy's glyph outlines were separated into initial / medial / final pieces (vector pieces, 2,780
+           syllables; runs/seg-night/F: pieces.pkl sha256 19a4ff78953978f7..., llm-decisions.json 1f03f09c699b5b40...),
+           rasterised at 18 px (4x4 supersampled exact area, 2 bpp = 3 levels + 0) and merged to the engine's limits
+           by composed-syllable IoU weighted by usage (runs/seg-night/F/scripts/fontbuild2.py paper 18 --sets
+           24,16,16 --classes 12,12 --weights syllable-freq.tsv: a syllable weighs sqrt(base + its count in the
+           a corpus of Korean game translations), base 16 for KS X 1001, 1 otherwise; composed IoU 0.9669 over the
+           2,780 syllables, 0.9927 weighted by usage, 0.9867 over the 500 most frequent; compose check: 0
+           mismatches). The 8 x 8 face before it (2026-10-16 morning): 0.9665 / 0.9712 / 0.9685.
+           The pieces and the script are research output outside the source tree; the face stays as built, the
+           way the other derived jamo sets are stored.
