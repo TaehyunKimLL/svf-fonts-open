@@ -156,8 +156,211 @@ def prepared_bytes(data, ops):
     return data
 
 
+# ---- PCF -------------------------------------------------------------------------------------------------------
+
+_PCF_PROPERTIES, _PCF_METRICS, _PCF_BITMAPS, _PCF_ENCODINGS = 1, 4, 8, 0x20
+
+
+def _inflate(data):
+    """@p data, gunzipped when it starts with the gzip magic (1 MiB chunks up to MAX_BYTES)."""
+    if data[:2] != b"\x1f\x8b":
+        return data
+    import gzip
+    parts, size = [], 0
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as fh:
+            while True:
+                chunk = fh.read(1 << 20)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    raise PrepError("too large")
+                parts.append(chunk)
+    except (OSError, EOFError) as e:
+        raise PrepError("bad gzip (%s)" % e)
+    return b"".join(parts)
+
+
+def _pcf_tables(data):
+    """{type: (format, offset, size)} of a PCF's table of contents; PrepError when it is not a PCF or runs past the data."""
+    if data[:4] != b"\x01fcp" or len(data) < 8:
+        raise PrepError("not a PCF font")
+    count = struct.unpack_from("<I", data, 4)[0]
+    if count > 64 or 8 + 16 * count > len(data):
+        raise PrepError("PCF table of contents runs past the data")
+    out = {}
+    for i in range(count):
+        typ, fmt, size, off = struct.unpack_from("<IIII", data, 8 + 16 * i)
+        out.setdefault(typ, (fmt, off, size))
+    return out
+
+
+def _need(data, tables, typ, what):
+    """(offset, size) of table @p typ, PrepError when it is missing or runs past the data (a table the reader does not
+    use may be truncated: real files are)."""
+    if typ not in tables:
+        raise PrepError("PCF without a %s table" % what)
+    _fmt, off, size = tables[typ]
+    if size < 8 or off + size > len(data):
+        raise PrepError("PCF %s table runs past the data" % what)
+    return off, size
+
+
+def _pcf_properties(data, tables):
+    off, size = _need(data, tables, _PCF_PROPERTIES, "properties")
+    fmt = struct.unpack_from("<I", data, off)[0]
+    en = ">" if fmt & 4 else "<"
+    n = struct.unpack_from(en + "I", data, off + 4)[0]
+    rec = off + 8
+    if n > 4096 or rec + 9 * n > off + size:
+        raise PrepError("PCF properties run past the table")
+    base = rec + ((9 * n + 3) & ~3) + 4
+    if base > off + size:
+        raise PrepError("PCF properties run past the table")
+
+    def text(o):
+        start = base + o
+        end = data.find(b"\0", start, off + size)
+        if start >= off + size or end < 0:
+            raise PrepError("PCF property string runs past the table")
+        return data[start:end].decode("latin-1")
+
+    out = {}
+    for i in range(n):
+        name_off, is_str = struct.unpack_from(en + "IB", data, rec + 9 * i)
+        value = struct.unpack_from(en + "i", data, rec + 9 * i + 5)[0]
+        out[text(name_off)] = text(value) if is_str else value
+    return out
+
+
+def pcf_properties(data):
+    """The PCF properties table (type 1) as {name: str | int}; @p data may be gzip."""
+    data = _inflate(data)
+    try:
+        return _pcf_properties(data, _pcf_tables(data))
+    except (struct.error, IndexError, ValueError) as e:
+        raise PrepError("bad PCF (%s)" % e)
+
+
+def _pcf_metrics(data, tables):
+    """[(lsb, rsb, width, ascent, descent)] of the metrics table (compressed or not)."""
+    off, size = _need(data, tables, _PCF_METRICS, "metrics")
+    fmt = struct.unpack_from("<I", data, off)[0]
+    en = ">" if fmt & 4 else "<"
+    out = []
+    if fmt & 0x100:
+        n = struct.unpack_from(en + "H", data, off + 4)[0]
+        if off + 6 + 5 * n > off + size:
+            raise PrepError("PCF metrics run past the table")
+        for i in range(n):
+            out.append(tuple(b - 0x80 for b in data[off + 6 + 5 * i:off + 11 + 5 * i]))
+    else:
+        n = struct.unpack_from(en + "I", data, off + 4)[0]
+        if n > 1 << 20 or off + 8 + 12 * n > off + size:
+            raise PrepError("PCF metrics run past the table")
+        for i in range(n):
+            out.append(struct.unpack_from(en + "5h", data, off + 8 + 12 * i))
+    return out
+
+
+def _pcf_bitmaps(data, tables, metrics):
+    """[bytes] one glyph's rows (MSBit-first, rows padded to the table's row pad) per glyph, bit/byte order undone."""
+    off, size = _need(data, tables, _PCF_BITMAPS, "bitmaps")
+    fmt = struct.unpack_from("<I", data, off)[0]
+    en = ">" if fmt & 4 else "<"
+    n = struct.unpack_from(en + "I", data, off + 4)[0]
+    if n != len(metrics) or n > 1 << 20 or off + 8 + 4 * n + 16 > off + size:
+        raise PrepError("PCF bitmaps do not match the metrics")
+    offsets = struct.unpack_from(en + "%dI" % n, data, off + 8)
+    sizes = struct.unpack_from(en + "4I", data, off + 8 + 4 * n)
+    start = off + 8 + 4 * n + 16
+    total = sizes[fmt & 3]
+    if start + total > off + size:
+        raise PrepError("PCF bitmaps run past the table")
+    block = bytearray(data[start:start + total])
+    if not fmt & 8:                                   # LSBit first: reverse the bits of each byte
+        table = bytes(int("{:08b}".format(b)[::-1], 2) for b in range(256))
+        block = bytearray(block.translate(table))
+    if bool(fmt & 4) != bool(fmt & 8):                # byte order differs from bit order: swap inside each scan unit
+        unit = 1 << ((fmt >> 4) & 3)
+        if unit > 1:
+            for i in range(0, len(block) - unit + 1, unit):
+                block[i:i + unit] = block[i:i + unit][::-1]
+    pad = 1 << (fmt & 3)
+    out = []
+    for i, (lsb, rsb, _w, ascent, descent) in enumerate(metrics):
+        rows = ascent + descent
+        row_bytes = (max(0, rsb - lsb) + 7) // 8
+        stride = (row_bytes + pad - 1) // pad * pad
+        if rows < 0 or offsets[i] + rows * stride > len(block):
+            raise PrepError("PCF glyph %d runs past the bitmaps" % i)
+        out.append(b"".join(bytes(block[offsets[i] + r * stride:offsets[i] + r * stride + row_bytes])
+                            for r in range(rows)))
+    return out
+
+
+def _pcf_encodings(data, tables):
+    """{code: glyph index} of the BDF encodings table; code = (byte1 << 8) | byte2."""
+    off, size = _need(data, tables, _PCF_ENCODINGS, "encodings")
+    fmt = struct.unpack_from("<I", data, off)[0]
+    en = ">" if fmt & 4 else "<"
+    min2, max2, min1, max1, _default = struct.unpack_from(en + "5h", data, off + 4)
+    w, h = max2 - min2 + 1, max1 - min1 + 1
+    if w <= 0 or h <= 0 or off + 14 + 2 * w * h > off + size:
+        raise PrepError("PCF encodings run past the table")
+    idx = struct.unpack_from(en + "%dH" % (w * h), data, off + 14)
+    out = {}
+    for i, g in enumerate(idx):
+        if g != 0xFFFF:
+            out[((min1 + i // w) << 8) | (min2 + i % w)] = g
+    return out
+
+
 def pcf_to_bdf(data):
-    raise PrepError("PCF reader not available")
+    """A BDF 2.1 text (latin-1 bytes) of every encoded glyph of a PCF (or .pcf.gz)."""
+    data = _inflate(data)
+    try:
+        tables = _pcf_tables(data)
+        props = _pcf_properties(data, tables)
+        metrics = _pcf_metrics(data, tables)
+        bitmaps = _pcf_bitmaps(data, tables, metrics)
+        enc = _pcf_encodings(data, tables)
+    except (struct.error, IndexError, ValueError) as e:
+        raise PrepError("bad PCF (%s)" % e)
+    if any(g >= len(metrics) for g in enc.values()):
+        raise PrepError("PCF encodings name a glyph it does not have")
+    inked = [metrics[g] for g in enc.values() if metrics[g][1] > metrics[g][0] and metrics[g][3] + metrics[g][4] > 0]
+    if inked:
+        x0, x1 = min(m[0] for m in inked), max(m[1] for m in inked)
+        y0, y1 = min(-m[4] for m in inked), max(m[3] for m in inked)
+    else:
+        x0 = x1 = y0 = y1 = 0
+    px = props.get("PIXEL_SIZE")
+    if not isinstance(px, int) or px <= 0:
+        px = (y1 - y0) or 16
+    props = dict(props)
+    props.setdefault("FONT_ASCENT", max([m[3] for m in metrics] or [0]))
+    props.setdefault("FONT_DESCENT", max([m[4] for m in metrics] or [0]))
+    name = props.pop("FONT", None) or "-pcf-%s" % (props.get("FAMILY_NAME") or "font")
+    out = ["STARTFONT 2.1", "FONT %s" % name, "SIZE %d 75 75" % px,
+           "FONTBOUNDINGBOX %d %d %d %d" % (x1 - x0, y1 - y0, x0, y0), "STARTPROPERTIES %d" % len(props)]
+    for k, v in props.items():
+        out.append('%s "%s"' % (k, v) if isinstance(v, str) else "%s %d" % (k, v))
+    out += ["ENDPROPERTIES", "CHARS %d" % len(enc)]
+    for code in sorted(enc):
+        g = enc[code]
+        lsb, rsb, width, ascent, descent = metrics[g]
+        w, h = max(0, rsb - lsb), ascent + descent
+        out += ["STARTCHAR g%04X" % code, "ENCODING %d" % code,
+                "SWIDTH %d 0" % round(width * 72000 / (px * 75)), "DWIDTH %d 0" % width,
+                "BBX %d %d %d %d" % (w, h, lsb, -descent), "BITMAP"]
+        nb = (w + 7) // 8
+        if w and h > 0:
+            out += [bitmaps[g][r * nb:(r + 1) * nb].hex().upper() for r in range(h)]
+        out.append("ENDCHAR")
+    out += ["ENDFONT", ""]
+    return "\n".join(out).encode("latin-1", "replace")
 
 
 # ---- CLI -------------------------------------------------------------------------------------------------------

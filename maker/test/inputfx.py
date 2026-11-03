@@ -164,3 +164,89 @@ def bitmap_only_ttf(ppems=(12, 16)):
     buf = io.BytesIO()
     font.save(buf)
     return buf.getvalue()
+
+
+def pcf(glyphs, registry, encoding, px, ascent, descent, family="Fixture", fmt=0x0000000C):
+    """A PCF with tables properties (1), accelerators (2), metrics (4, uncompressed), bitmaps (8) and BDF encodings
+    (0x20). @p glyphs is [(code, rows, width)], every glyph @p px high (rows are ints, MSB left); @p fmt is the format
+    word of the bitmaps table (default MSByte, MSBit, glyph pad 1, scan unit 1), the other tables use 0x0000000C."""
+    std = 0x0000000C
+
+    def en_of(f):
+        return ">" if f & 4 else "<"
+
+    def table(f, body):
+        return struct.pack("<I", f) + body
+
+    props = [("FONT", "-fixture-%s-medium-r-normal--%d-%s-%s" % (family, px, registry, encoding)),
+             ("FAMILY_NAME", family), ("PIXEL_SIZE", px), ("FONT_ASCENT", ascent), ("FONT_DESCENT", descent),
+             ("CHARSET_REGISTRY", registry), ("CHARSET_ENCODING", encoding)]
+    strings = bytearray()
+    recs = bytearray()
+    e = en_of(std)
+
+    def add(s):
+        o = len(strings)
+        strings.extend(s.encode("latin-1") + b"\0")
+        return o
+
+    for k, v in props:
+        if isinstance(v, str):
+            recs += struct.pack(e + "IBI", add(k), 1, add(v))
+        else:
+            recs += struct.pack(e + "IBi", add(k), 0, v)
+    recs += bytes((-len(recs)) % 4)
+    t_props = table(std, struct.pack(e + "I", len(props)) + bytes(recs) + struct.pack(e + "I", len(strings)) +
+                    bytes(strings) + bytes((-len(strings)) % 4))
+
+    def metric(w):
+        return struct.pack(e + "6h", 0, w, w, ascent, descent, 0)
+
+    wmax = max(w for _c, _r, w in glyphs)
+    t_acc = table(std, bytes([0, 1, 0, 1, 0, 0, 0, 0]) + struct.pack(e + "3i", ascent, descent, 0) +
+                  metric(0) + metric(wmax))
+    t_met = table(std, struct.pack(e + "I", len(glyphs)) + b"".join(metric(w) for _c, _r, w in glyphs))
+
+    eb = en_of(fmt)
+    pad = 1 << (fmt & 3)
+    unit = 1 << ((fmt >> 4) & 3)
+    rev = bytes(int("{:08b}".format(b)[::-1], 2) for b in range(256))
+    datas = []
+    for _c, rows, w in glyphs:
+        nb = (w + 7) // 8
+        d = bytearray()
+        for r in rows:
+            d += r.to_bytes(nb, "big") if w % 8 == 0 else (r << (nb * 8 - w)).to_bytes(nb, "big")
+            d += bytes((-nb) % pad)
+        datas.append(d)
+    body = bytearray()
+    offsets = []
+    for d in datas:
+        offsets.append(len(body))
+        body += d
+    body += bytes((-len(body)) % max(pad, unit))
+    if not fmt & 8:
+        body = bytearray(bytes(body).translate(rev))
+    if bool(fmt & 4) != bool(fmt & 8) and unit > 1:
+        for i in range(0, len(body) - unit + 1, unit):
+            body[i:i + unit] = body[i:i + unit][::-1]
+    sizes = [len(body)] * 4
+    t_bmp = table(fmt, struct.pack(eb + "I", len(glyphs)) + struct.pack(eb + "%dI" % len(glyphs), *offsets) +
+                  struct.pack(eb + "4I", *sizes) + bytes(body))
+
+    codes = sorted(c for c, _r, _w in glyphs)
+    min1, max1 = min(c >> 8 for c in codes), max(c >> 8 for c in codes)
+    min2, max2 = min(c & 0xFF for c in codes), max(c & 0xFF for c in codes)
+    index = {c: i for i, (c, _r, _w) in enumerate(glyphs)}
+    arr = [index.get((b1 << 8) | b2, 0xFFFF) for b1 in range(min1, max1 + 1) for b2 in range(min2, max2 + 1)]
+    t_enc = table(std, struct.pack(e + "5h", min2, max2, min1, max1, 0) + struct.pack(e + "%dH" % len(arr), *arr))
+
+    tables = [(1, std, t_props), (2, std, t_acc), (4, std, t_met), (8, fmt, t_bmp), (0x20, std, t_enc)]
+    toc = struct.pack("<4sI", b"\x01fcp", len(tables))
+    off = 8 + 16 * len(tables)
+    blobs = b""
+    for typ, f, t in tables:
+        toc += struct.pack("<IIII", typ, f, len(t), off + len(blobs))
+        blobs += t
+        blobs += bytes((-len(blobs)) % 4)
+    return toc + blobs

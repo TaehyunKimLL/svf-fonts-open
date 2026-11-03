@@ -97,5 +97,66 @@ class SrcprepTest(TmpCase):
         self.assertIn("face", r.stderr)
 
 
+GLYPHS = [(0x3021, [0x8001 | (y << 3) for y in range(16)], 16),
+          (0x3022, [0xFFFF if y == 8 else 0 for y in range(16)], 16)]
+
+
+class PcfTest(TmpCase):
+    def test_properties_and_gzip(self):
+        data = inputfx.pcf(GLYPHS, "KSC5601.1987", "0", 16, 14, 2)
+        for blob in (data, gzip.compress(data)):
+            p = srcprep.pcf_properties(blob)
+            self.assertEqual((p["CHARSET_REGISTRY"], p["CHARSET_ENCODING"], p["PIXEL_SIZE"]),
+                             ("KSC5601.1987", "0", 16))
+
+    def test_pcf_to_bdf_round_trips_through_bdfface(self):
+        bdf = srcprep.pcf_to_bdf(inputfx.pcf(GLYPHS, "KSC5601.1987", "0", 16, 14, 2))
+        path = self.write("k.bdf", bdf)
+        glyphs = bdfface.read_bdf(path)[1]
+        self.assertEqual(sorted(glyphs), [0xAC00, 0xAC01])        # bdfface reads KSC GL codes 0x3021/0x3022 as U+AC00/AC01
+        self.assertEqual(glyphs[0xAC01][4][8], 0xFFFF)            # bdfface's row ints, row 8
+        self.assertEqual(glyphs[0xAC00][4], GLYPHS[0][1])
+        raw = bdfface.read_bdf(path, unicode_enc=True)[1]
+        self.assertEqual(sorted(raw), [0x3021, 0x3022])
+        self.assertIn(b"FONTBOUNDINGBOX 16 16 0 -2", bdf)
+
+    def test_lsbit_and_lsbyte_tables_read_the_same(self):
+        want = srcprep.pcf_to_bdf(inputfx.pcf(GLYPHS, "KSC5601.1987", "0", 16, 14, 2))
+        for fmt in (0x00000010 | 0x1,            # LSByte, LSBit, pad 2, scan unit 2
+                    0x00000004 | 0x10 | 0x1,     # MSByte, LSBit, pad 2, scan unit 2: the bytes swap inside a unit
+                    0x00000008 | 0x2 | 0x20):    # LSByte, MSBit, pad 4, scan unit 4
+            with self.subTest(fmt=fmt):
+                got = srcprep.pcf_to_bdf(inputfx.pcf(GLYPHS, "KSC5601.1987", "0", 16, 14, 2, fmt=fmt))
+                self.assertEqual(got, want)
+
+    def test_pillow_opens_the_fixture_pcf(self):
+        data = inputfx.pcf([(0x41, [0x8001] * 16, 16)], "ISO10646", "1", 16, 14, 2)
+        font = ImageFont.truetype(self.write("a.pcf", data), 16)
+        self.assertIsNotNone(font.getmask("A").getbbox())
+
+    def test_truncated_pcf_is_a_prep_error(self):
+        with self.assertRaises(srcprep.PrepError):
+            srcprep.pcf_to_bdf(inputfx.pcf(GLYPHS, "KSC5601.1987", "0", 16, 14, 2)[:200])
+        with self.assertRaises(srcprep.PrepError):
+            srcprep.pcf_to_bdf(b"not a pcf at all")
+
+    def test_the_pcf_bdf_op_and_cli(self):
+        data = inputfx.pcf(GLYPHS, "KSC5601.1987", "0", 16, 14, 2)
+        self.assertEqual(srcprep.prepared_bytes(data, [{"op": "pcf-bdf"}]), srcprep.pcf_to_bdf(data))
+        out = os.path.join(self.dir, "o.bdf")
+        r = subprocess.run([sys.executable, "-P", os.path.join(MAKER_DIR, "srcprep.py"), "pcf-bdf",
+                            self.write("k.pcf.gz", gzip.compress(data)), out], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, "rb") as fh:
+            self.assertEqual(fh.read(), srcprep.pcf_to_bdf(data))
+
+    @unittest.skipUnless(os.path.isfile(fixtures.PCF_SRC), "no 18x18ko.pcf.gz on this host")
+    def test_the_host_pcf_converts(self):
+        with open(fixtures.PCF_SRC, "rb") as fh:
+            raw = fh.read()
+        glyphs = bdfface.read_bdf(self.write("h.bdf", srcprep.pcf_to_bdf(raw)), unicode_enc=True)[1]
+        self.assertGreater(len([cp for cp in glyphs if 0xAC00 <= cp <= 0xD7A3]), 2000)
+
+
 if __name__ == "__main__":
     unittest.main()
