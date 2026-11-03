@@ -159,5 +159,81 @@ class MacContainerTest(DirCase):
         self.assertEqual((e["format"], e["gzip"], e["coverage"]["all"]), ("mac-rsrc", True, 1))
 
 
+PCF_KSC_GLYPHS = [(0x3021, [0x8001 | (y << 3) for y in range(16)], 16),
+                  (0x3022, [0xFFFF if y == 8 else 0 for y in range(16)], 16)]
+JOHAB_529 = [(code, rows, 16) for code, _w, _h, _x, _y, rows in fixtures._johab_glyphs()]
+
+
+class EngTest(DirCase):
+    def test_pft_is_a_12x24_eng(self):
+        e = detect.detect_file(self.put("ASCII.PFT", inputfx.pft_eng()), "ASCII.PFT")[0]
+        self.assertEqual((e["format"], e["label"], e["eng"]), ("eng", "Latin companion (--eng, 12x24)",
+                                                               {"bytes": 12288, "cell": "12x24"}))
+
+    def test_the_8x16_eng_label_is_unchanged_and_carries_its_size(self):
+        e = detect.detect_file(self.put("ENG.FNT", bytes(2048)), "ENG.FNT")[0]
+        self.assertEqual((e["label"], e["eng"]), ("Latin companion (--eng)", {"bytes": 2048, "cell": "8x16"}))
+
+    def test_hbios_english_is_an_eng_not_a_dokkaebi_face(self):
+        e, = detect.detect_file(self.put("ROMAN24.FNT", inputfx.hbios_eng()), "ROMAN24.FNT")
+        self.assertEqual((e["format"], e["source_kind"], e["label"]), ("eng", "other", "HBIOS 12x24 English (--eng)"))
+        self.assertEqual(e["eng"], {"bytes": 15360, "cell": "12x24"})
+
+    def test_a_dokkaebi_face_with_margin_ink_stays_dos_raw(self):
+        out = detect.detect_file(self.put("HANGUL16.FNT", inputfx.dkb_like()), "HANGUL16.FNT")
+        self.assertEqual([e["source_kind"] for e in out], ["dos-raw", "dos-raw"])
+        self.assertTrue(all(e["dos_bytes"] == 15360 for e in out))
+
+    def test_a_12x24_eng_is_a_companion_of_a_dos_font_beside_it(self):
+        fixtures._dos_raw(self.path("d/HAN.FNT"))                 # 11,520 bytes, 8x4x4
+        self.put("d/ASCII.PFT", inputfx.pft_eng())
+        fonts = detect.scan(self.dir("d"))
+        dos = [e for e in fonts if e["source_kind"] == "dos-raw"][0]
+        self.assertEqual((dos["dos_bytes"], len(dos["companions"])), (11520, 1))
+
+    def test_a_12x24_eng_alone_is_unknown(self):
+        self.put("e/ASCII.PFT", inputfx.pft_eng())
+        e, = detect.scan(self.dir("e"))
+        self.assertEqual(e["format"], "unknown")
+
+    def test_an_all_zero_15360_file_is_not_hbios_eng(self):
+        self.assertFalse(detect.hbios_eng_like(bytes(15360)))
+        self.assertFalse(detect.hbios_eng_like(bytes(15359)))
+        self.assertTrue(detect.hbios_eng_like(inputfx.hbios_eng()))
+
+
+class PcfDetectTest(DirCase):
+    def test_ksc_pcf_is_a_ksc_bdf_source(self):
+        self.put("p/k.pcf", inputfx.pcf(PCF_KSC_GLYPHS, "KSC5601.1987", "0", 16, 14, 2))
+        e = detect.scan(self.dir("p"))[0]
+        self.assertEqual((e["format"], e["source_kind"], e["bdf"], e["sizes"], e["prep"]),
+                         ("pcf", "bdf-ksc5601", {"registry": "ksc5601.1987-0", "box": [16, 16]}, [16],
+                          [{"op": "pcf-bdf"}]))
+        self.assertEqual(e["label"], "PCF (ksc5601.1987)")
+        self.assertEqual(e["coverage"]["ks2350"], 2)
+
+    def test_a_gz_ksc_pcf_is_read_through_its_decompressed_bytes(self):
+        import gzip
+        self.put("g/k.pcf.gz", gzip.compress(inputfx.pcf(PCF_KSC_GLYPHS, "KSC5601.1987", "0", 16, 14, 2)))
+        e, = detect.scan(self.dir("g"))
+        self.assertEqual((e["source_kind"], e["prep"], e["coverage"]["ks2350"]), ("bdf-ksc5601", [{"op": "pcf-bdf"}], 2))
+        self.assertNotIn("gzip", e)
+
+    def test_johab_pcf_is_a_hanterm_source(self):
+        e = detect.detect_file(self.put("j.pcf", inputfx.pcf(JOHAB_529, "johab", "1", 16, 13, 3)), "j.pcf")[0]
+        self.assertEqual((e["source_kind"], e["prep"]), ("bdf-johab", [{"op": "pcf-bdf"}]))
+
+    def test_an_iso10646_pcf_stays_bitmap(self):
+        e = detect.detect_file(self.put("u.pcf", inputfx.pcf([(0x41, [0x8001] * 16, 16)], "ISO10646", "1", 16, 14, 2)),
+                               "u.pcf")[0]
+        self.assertEqual((e["source_kind"], e.get("prep")), ("bitmap", None))
+
+    def test_a_truncated_pcf_still_gets_one_entry(self):
+        data = inputfx.pcf(PCF_KSC_GLYPHS, "KSC5601.1987", "0", 16, 14, 2)[:200]
+        out = detect.detect_file(self.put("t.pcf", data), "t.pcf")
+        self.assertEqual(len(out), 1)
+        self.assertNotIn("prep", out[0])
+
+
 if __name__ == "__main__":
     unittest.main()

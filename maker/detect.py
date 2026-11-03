@@ -32,6 +32,10 @@ DOS_SIZES = {11520: ["844", "844-ihnm"], 11522: ["844"], 25920: ["844"], 72000: 
              15360: ["dkb-printer-7x2x2", "none"], 34560: ["dkb-printer-7x2x2"], 176000: ["dkb-printer-12x4x4"],
              253440: ["dkb-printer-12x4x4"]}
 
+# A Latin companion (`--eng`) is recognised by its byte size: the 8x16 DOS fonts and the 12x24 ones (HWP `ASCII.PFT`;
+# the HBIOS 15,360-byte file is told from a Dokkaebi face by `hbios_eng_like`).
+ENG_SIZES = {2048: "8x16", 4096: "8x16", 12288: "12x24", 15360: "12x24"}
+
 # The Dokkaebi printer layouts hold two faces in one file (HANGUL16/24.FNT, HANGUL40/48.FNT).
 DKB_LAYOUTS = ("dkb-printer-7x2x2", "dkb-printer-12x4x4")
 
@@ -113,7 +117,7 @@ def sniff(data, size=None):
         return "fnt"
     if size in DOS_SIZES:
         return "dos-raw"
-    if size in (2048, 4096):
+    if size in (2048, 4096, 12288):
         return "eng"
     if _mac_head(data, size):
         return "mac-rsrc"
@@ -262,6 +266,24 @@ def bitmap_strikes(path, hint=None, data=None):
             continue
         out.append(s)
     return out
+
+
+def hbios_eng_like(data):
+    """True for an HBIOS 12x24 English font: 256 glyphs of 60 bytes (16x30, two bytes a row) whose top three and bottom
+    three rows are blank and whose second byte of every row has its low nibble clear (a 12 px cell), with ink in `A`.
+
+    The Dokkaebi 7x2x2 opener accepts any 15,360 bytes, so this is the only thing that tells the two apart. A Dokkaebi
+    face with ink in a margin row stays `dos-raw`; the all-zero file has no ink in `A` and stays as it was.
+    """
+    if len(data) != 15360:
+        return False
+    for g in range(256):
+        glyph = data[g * 60:(g + 1) * 60]
+        if any(glyph[0:6]) or any(glyph[54:60]):
+            return False
+        if any(glyph[row * 2 + 1] & 0x0F for row in range(30)):
+            return False
+    return any(data[0x41 * 60:0x42 * 60])
 
 
 def dos_candidates(data):
@@ -482,6 +504,9 @@ def _detect_file(abs_path, rel):
                        sizes=[box[1]] if box else [], sizes_fixed=True, gz=zipped)]
 
     if fmt == "pcf":
+        ksc = _ksc_pcf_entry(abs_path, rel, gz)
+        if ksc is not None:
+            return [ksc]
         sizes = bitmap_strikes(abs_path, hint=_pcf_pixel_hint(_head_bytes(abs_path, gz)))
         family, style = _pillow_name(abs_path, sizes[0]) if sizes else ("", "")
         label = "PCF" + ("" if sizes else "; no openable size")
@@ -515,6 +540,9 @@ def _detect_file(abs_path, rel):
 
     if fmt == "dos-raw":
         data = _read_bytes(abs_path, gz)
+        if hbios_eng_like(data):      # a 15,360 byte HBIOS English font, not a Dokkaebi face: a companion only
+            return [_entry(rel, 0, "eng", "HBIOS 12x24 English (--eng)", "other", family=_stem(rel),
+                           eng={"bytes": len(data), "cell": ENG_SIZES[len(data)]}, gz=zipped)]
         cands = dos_candidates(data)
         real = [c for c in cands if c != "none"]
         if not real:                  # no layout survives: the entry must not claim a route it has not got
@@ -531,7 +559,7 @@ def _detect_file(abs_path, rel):
             px = layout_px(first, data, i)
             out.append(_entry(rel, i, "dos-raw", label, "dos-raw", family=_stem(rel),
                               sizes=[px] if px is not None else [], sizes_fixed=True,
-                              dos={"candidates": cands, "faces": faces}, gz=zipped))
+                              dos={"candidates": cands, "faces": faces}, gz=zipped, dos_bytes=len(data)))
         return out
 
     if fmt in ("svf", "svf2", "svf1"):
@@ -550,7 +578,10 @@ def _detect_file(abs_path, rel):
                        gz=zipped)]
 
     if fmt == "eng":
-        return [_entry(rel, 0, "eng", "Latin companion (--eng)", "other", family=_stem(rel), gz=zipped)]
+        cell = ENG_SIZES[size]
+        label = "Latin companion (--eng%s)" % (", 12x24" if cell == "12x24" else "")
+        return [_entry(rel, 0, "eng", label, "other", family=_stem(rel), eng={"bytes": size, "cell": cell},
+                       gz=zipped)]
 
     if fmt == "archive":
         return [_entry(rel, 0, "archive", "archive", "other", family=_stem(rel))]
@@ -586,6 +617,30 @@ def _ttc_entries(abs_path, rel, gz, zipped):
         e["label"] += more
         out.append(e)
     return out
+
+
+def _ksc_pcf_entry(abs_path, rel, gz):
+    """The entry of a PCF whose charset is KS X 1001 or johab (a source for bdfface.py / hanterm), else None.
+
+    The conversion to BDF is srcprep's (`pcf-bdf` prep op); the box is the converted BDF's FONTBOUNDINGBOX. Any other
+    PCF, and one the reader cannot read, keeps the `bitmap` path (FreeType opens it).
+    """
+    try:
+        data = _read_bytes(abs_path, gz)
+        props = srcprep.pcf_properties(data)
+        reg = str(props.get("CHARSET_REGISTRY", "")).strip().lower()
+        enc = str(props.get("CHARSET_ENCODING", "")).strip().lower()
+        kind = _bdf_kind(reg)
+        if kind not in ("bdf-ksc5601", "bdf-johab"):
+            return None
+        text = srcprep.pcf_to_bdf(data).decode("latin-1")
+    except (srcprep.PrepError, OSError):
+        return None
+    box = _bdf_box(text)
+    family = str(props.get("FAMILY_NAME", "")).strip() or _stem(rel)
+    bdf = {"registry": ("%s-%s" % (reg, enc)) if enc else reg, "box": box}
+    return _entry(rel, 0, "pcf", "PCF (%s)" % reg, kind, family, sizes=[box[1]] if box else [], sizes_fixed=True,
+                  bdf=bdf, prep=[{"op": "pcf-bdf"}])
 
 
 MAC_BITMAP_TYPES = (b"NFNT", b"FONT", b"fbit")

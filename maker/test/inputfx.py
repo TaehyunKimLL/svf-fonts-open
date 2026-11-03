@@ -250,3 +250,27 @@ def pcf(glyphs, registry, encoding, px, ascent, descent, family="Fixture", fmt=0
         blobs += t
         blobs += bytes((-len(blobs)) % 4)
     return toc + blobs
+
+
+def pft_eng():
+    """12,288 bytes: 256 glyphs of 12x24 (48 bytes), row 12 of each 0xFF 0xF0 (an HWP ASCII.PFT)."""
+    data = bytearray(12288)
+    for g in range(256):
+        data[g * 48 + 12 * 2:g * 48 + 12 * 2 + 2] = b"\xFF\xF0"
+    return bytes(data)
+
+
+def hbios_eng():
+    """15,360 bytes: 256 glyphs of 12x24 in a 16x30 cell (60 bytes), row 14 of each 0xFF 0xF0, margins blank."""
+    data = bytearray(15360)
+    for g in range(256):
+        data[g * 60 + 14 * 2:g * 60 + 14 * 2 + 2] = b"\xFF\xF0"
+    return bytes(data)
+
+
+def dkb_like():
+    """15,360 bytes with byte 0 of every 60-byte block 0xFF: ink in an HBIOS margin row, so a Dokkaebi 7x2x2 face."""
+    data = bytearray(15360)
+    for g in range(256):
+        data[g * 60] = 0xFF
+    return bytes(data)
