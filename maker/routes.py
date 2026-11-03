@@ -276,7 +276,7 @@ def source_commands(ops, src, work, tools_dir):
             pins = ["%s=%g" % (tag, value) for tag, value in sorted(op["coords"].items())]
             argv = PY + ["-m", "fontTools.varLib.instancer", current] + pins + ["-o", out]
         elif kind == "pcf-bdf":
-            raise ValueError("pcf-bdf lands in Task B3")
+            argv = PY + [SRCPREP, "pcf-bdf", current, out]
         else:
             raise ValueError("unknown source op %r" % (kind,))
         argvs.append(argv)

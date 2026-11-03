@@ -296,3 +296,38 @@ def dkb_like():
     for g in range(256):
         data[g * 60] = 0xFF
     return bytes(data)
+
+
+def _neodg_face():
+    import jamoset
+    with open(os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"), "rb") as fh:
+        return jamoset.parse_svfn(fh.read())
+
+
+def ksc_glyphs_from_neodg(limit=None):
+    """[(GL code, rows, 16)] of the KS X 1001 syllables of the repository's OFL face svf/dos/NEODG16.SVF (16x16 1 bpp).
+
+    The GL code is the syllable's EUC-KR code & 0x7F7F; rows are the cell's 16 row words (MSB left). `limit` keeps the
+    first N syllables of the 2,350 (in code point order).
+    """
+    import mkfont
+    face = _neodg_face()
+    out = []
+    for cp in sorted(mkfont.NAMED_RANGES["ksx1001-hangul"]()):
+        cell = bytes(face.glyphs[cp])
+        gl = int.from_bytes(chr(cp).encode("euc_kr"), "big") & 0x7F7F
+        out.append((gl, [int.from_bytes(cell[2 * y:2 * y + 2], "big") for y in range(16)], 16))
+        if limit is not None and len(out) >= limit:
+            break
+    return out
+
+
+def latin_bdf_from_neodg(path):
+    """Write an ISO10646 8x16 BDF of U+0021..U+007E at @p path: the left byte of each NEODG16 row."""
+    face = _neodg_face()
+    glyphs = []
+    for cp in range(0x21, 0x7F):
+        cell = bytes(face.glyphs[cp])
+        glyphs.append((cp, 8, 16, 0, -3, [cell[2 * y] for y in range(16)]))
+    fixtures._bdf(path, glyphs, 16, 13, 3, "ISO10646", (8, 16))
+    return path

@@ -63,6 +63,11 @@ class SourceCommandsTest(unittest.TestCase):
         argvs, out = routes.source_commands([{"op": "ttc-face", "index": 1}], "/u/t.ttc", "/w", "/T")
         self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "ttc-face", "/u/t.ttc", "/w/source.ttf", "--index", "1"]])
 
+    def test_pcf_bdf_writes_a_bdf(self):
+        argvs, out = routes.source_commands([{"op": "pcf-bdf"}], "/u/k.pcf.gz", "/w", "/T")
+        self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "pcf-bdf", "/u/k.pcf.gz", "/w/source.bdf"]])
+        self.assertEqual(out, "/w/source.bdf")
+
     def test_no_ops_no_argv(self):
         self.assertEqual(routes.source_commands([], "/u/a.ttf", "/w", "/T"), ([], "/u/a.ttf"))
 
@@ -234,6 +239,45 @@ class InstanceE2ETest(Case):
         self.assertEqual([st["state"] for st in bold["steps"]], ["done", "done"])
         inputkinds.assert_facecheck(self, z2)
         self.assertNotEqual(ga(z1), ga(z2))
+
+
+PCF_JOHAB = [(code, rows, 16) for code, _w, _h, _x, _y, rows in fixtures._johab_glyphs()]
+
+
+class PcfE2ETest(Case):
+    def latin(self):
+        path = inputfx.latin_bdf_from_neodg(os.path.join(self.tmp, "latin.bdf"))
+        with open(path, "rb") as fh:
+            return fh.read()
+
+    def files(self, name):
+        pcf = inputfx.pcf(inputfx.ksc_glyphs_from_neodg(limit=10), "KSC5601.1987", "0", 16, 14, 2)
+        return {"k/" + name: gzip.compress(pcf) if name.endswith(".gz") else pcf, "k/latin.bdf": self.latin(),
+                "k/chars.txt": "가각간\n".encode()}
+
+    def check(self, name):
+        job, z = self.run_batch(self.files(name), lambda f, s: select(
+            s, fid_of(f, kind="bdf-ksc5601"), range="k/chars.txt"))
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py pcf-bdf"], ["bdfface.py"]])
+        self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
+        inputkinds.assert_facecheck(self, z)
+        self.assertEqual(sorted(cp for cp in inputkinds.zip_face(z).glyphs if cp >= 0xAC00), [0xAC00, 0xAC01, 0xAC04])
+
+    def test_ksc_pcf_precomposed(self):
+        self.check("ksc.pcf")
+
+    def test_a_gz_ksc_pcf_converts(self):
+        self.check("ksc.pcf.gz")
+
+    def test_johab_pcf_jamo(self):
+        job, z = self.run_batch({"j/johab.pcf": inputfx.pcf(PCF_JOHAB, "johab", "1", 16, 13, 3)},
+                                lambda f, s: select(s, fid_of(f, kind="bdf-johab")))
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py pcf-bdf"], ["jamoset.py"]])
+        argv = job["steps"][1]["argv"][0]
+        self.assertEqual(argv[argv.index("--layout") + 1], "hanterm-johab")
+        self.assertIn(True, [a.endswith("/source.bdf") for a in argv])
+        self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
+        inputkinds.assert_facecheck(self, z)
 
 
 class ZipoutSourceTitleTest(unittest.TestCase):

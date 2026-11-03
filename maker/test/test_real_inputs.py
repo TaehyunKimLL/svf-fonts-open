@@ -21,6 +21,7 @@ import tempfile
 import unittest
 
 import inputkinds
+import inputfx  # noqa: F401
 from inputkinds import fid_of, select
 
 
@@ -68,6 +69,21 @@ class RealInputsTest(unittest.TestCase):
             first = font["variable"]["instances"][0]["coords"] if font["variable"]["instances"] else {}
             select(s, fid, kinds=["precomposed"], sizes=[16], instance=first)
         self.run_file("SVF_MAKER_REAL_VF", choose)
+
+    @real("SVF_MAKER_REAL_PCF_KSC")
+    def test_real_pcf_ksc(self):
+        path = os.environ["SVF_MAKER_REAL_PCF_KSC"]
+        with open(path, "rb") as fh:
+            data = fh.read()
+        latin = inputfx.latin_bdf_from_neodg(os.path.join(self.tmp, "latin.bdf"))
+        with open(latin, "rb") as fh:
+            latin_data = fh.read()
+        job, z = inputkinds.run_batch(
+            self, os.path.join(self.tmp, "job"),
+            {"r/" + os.path.basename(path): data, "r/latin.bdf": latin_data},
+            lambda f, s: select(s, fid_of(f, kind="bdf-ksc5601"), range="2350"))
+        self.assertEqual(job["state"], "done", job.get("error"))
+        inputkinds.assert_facecheck(self, z)
 
     @real("SVF_MAKER_REAL_EBDT")
     def test_real_ebdt(self):
