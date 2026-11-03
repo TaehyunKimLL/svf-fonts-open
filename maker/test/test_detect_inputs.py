@@ -130,9 +130,12 @@ class SfntDetectTest(DirCase):
         self.assertIn("cannot prepare", bad_e["label"])
         self.assertIsNone(bad_e["coverage"])
 
-    def test_a_prepped_font_offers_no_route_yet(self):
+    def test_a_prepped_font_offers_the_routes_of_its_kind(self):
         e = detect.detect_file(self.put("Mac.ttf", inputfx.mac_cmap_ttf()), "Mac.ttf")[0]
-        self.assertEqual(routes.routes(e), [])
+        self.assertEqual([r.label for r in routes.routes(e)], ["mkfont", "experimental fit"])
+        two = detect.detect_file(self.put("t.ttc", inputfx.ttc([inputfx.ttf("One", BOX1), inputfx.ttf("Two", BOX2)])),
+                                 "t.ttc")
+        self.assertEqual([len(routes.routes(e)) for e in two], [2, 2])       # face 1 has prep: a source like face 0
 
 
 class MacContainerTest(DirCase):

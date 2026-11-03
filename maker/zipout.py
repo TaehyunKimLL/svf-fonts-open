@@ -146,9 +146,9 @@ def log_header(job, repo_head_value):
 
 
 def _step_title(step):
-    """The step's heading: a `prepare` step has no size, bpp or face name."""
-    if step.get("kind") == "prepare":
-        return "## %s %s prepare" % (step.get("id"), step.get("font"))
+    """The step's heading: a `prepare` or `source` step has no size, bpp or face name."""
+    if step.get("kind") in ("prepare", "source"):
+        return "## %s %s %s" % (step.get("id"), step.get("font"), step.get("kind"))
     return "## %s %s %s %spx %sbpp %s" % (step.get("id"), step.get("font"), step.get("kind"),
                                           step.get("size"), step.get("bpp"), step.get("name"))
 

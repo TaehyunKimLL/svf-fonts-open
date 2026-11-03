@@ -1076,6 +1076,16 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                 range_files = write_range_files(work_root)
             range_file = range_files[rkind]
             range_arg = (rkind, None)
+        ops = list(font.get("prep") or [])
+        if ops:                                          # the font's source step: every later step reads its file
+            counter += 1
+            sid = "s%02d" % counter
+            step_dir = os.path.join(work_root, sid)
+            os.makedirs(step_dir, exist_ok=True)
+            argvs, prepared = routes.source_commands(ops, src, step_dir, tools_dir)
+            steps.append(_step(sid, fid, "source", None, None, None, None, argvs,
+                               "work/%s/%s" % (sid, os.path.basename(prepared))))
+            src = prepared
         companion = eff.get("latin_companion")
         if font.get("source_kind") == "bdf-ksc5601" and companion is None:
             raise ValueError("%s: needs a Latin companion" % fid)

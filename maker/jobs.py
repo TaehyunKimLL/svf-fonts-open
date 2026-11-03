@@ -573,6 +573,10 @@ class Worker(threading.Thread):
                 job["error"] = job.get("error") or "job timeout"   # the first error wins (M4/V7)
                 break
             self._run_step(job, job_dir, upload_dir, gz_upload, plain, fonts_by_id, step, cancel)
+            if step.get("state") == "failed" and step.get("kind") == "source":
+                for later in steps[index + 1:]:
+                    if later.get("state") != "failed" and later.get("font") == step.get("font"):
+                        self._fail_step(job, job_dir, later, "source failed")
             if step.get("state") == "failed" and step.get("kind") == "prepare":
                 for later in steps[index + 1:]:
                     if (later.get("state") != "failed" and later.get("font") == step.get("font")
@@ -619,7 +623,7 @@ class Worker(threading.Thread):
         self.store.save(job)
         font = fonts_by_id.get(step.get("font")) or {}
         stdout, stderr, error = self._execute(job_dir, upload_dir, gz_upload, plain, step, font, cancel)
-        if error is None and step.get("kind") != "prepare":
+        if error is None and step.get("kind") not in ("prepare", "source"):
             error = self._read_back(job, job_dir, upload_dir, plain, step, font)
         if error is not None:
             step["state"] = "failed"
@@ -688,7 +692,8 @@ class Worker(threading.Thread):
             step["facts"] = quality.face_facts(data)
             reference = self._reference(job, font, step)
             if step.get("kind") == "jamo" and reference:
-                source = self._plain_source(font, job_dir, upload_dir, plain)
+                source = (self._prepared_source(job, job_dir, font.get("id"))
+                          or self._plain_source(font, job_dir, upload_dir, plain))
                 step["quality"] = quality.measure(data, reference, source, step.get("size"))
         except ValueError as exc:
             return str(exc)
@@ -727,6 +732,14 @@ class Worker(threading.Thread):
                     and other.get("kind") == "precomposed" and other.get("size") == step.get("size")
                     and other.get("state") == "done"):
                 return os.path.join(job_dir, other.get("output") or "")
+        return None
+
+    @staticmethod
+    def _prepared_source(job, job_dir, font_id):
+        """The file a `done` `source` step of @p font_id wrote (the font as the tools read it), else `None`."""
+        for step in job.get("steps") or []:
+            if step.get("font") == font_id and step.get("kind") == "source" and step.get("state") == "done":
+                return os.path.join(job_dir, step.get("output") or "")
         return None
 
     def _plain_source(self, font, job_dir, upload_dir, plain):

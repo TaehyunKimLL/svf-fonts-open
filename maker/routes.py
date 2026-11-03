@@ -19,6 +19,9 @@ import detect
 
 PY = [sys.executable, "-P"]
 
+# The maker's own source-conversion CLI (a TTC face, a PCF as BDF): tools/ has no tool for those two.
+SRCPREP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "srcprep.py")
+
 # A flag whose next token is its value: `apply_flags` removes the old value with the old flag.
 VALUED = frozenset({"--cell", "--ascent", "--space-advance", "--unicode", "--width", "--punct-extra", "--eng",
                     "--size", "--bpp", "--layout", "--binarize", "--face", "--threshold", "--jset-version"})
@@ -250,6 +253,37 @@ def _copy_commands(font, size, bpp, layout, range_spec, paths, extra):
     return svf_commands(font, paths, extra)     # [] = the worker copies paths["src"] to paths["out"]
 
 
+def source_commands(ops, src, work, tools_dir):
+    """The argvs that turn @p src into the file the tools read, one per op in @p ops, and that file's path.
+
+    Op i writes `work/source-<i+1>.<ext>` and the last op `work/source.<ext>` (`ext` is `bdf` after `pcf-bdf`, else
+    `ttf`), each reading the one before: `rsrc-sfnt` and `mac-cmap` are tools/macsfnt.py, `ttc-face` and `pcf-bdf` are
+    the maker's srcprep.py, `instance` is fontTools' instancer. No ops: no argv and @p src itself.
+    """
+    argvs = []
+    current = src
+    for i, op in enumerate(ops):
+        kind = op.get("op")
+        last = i == len(ops) - 1
+        out = os.path.join(work, ("source" if last else "source-%d" % (i + 1)) + (".bdf" if kind == "pcf-bdf" else ".ttf"))
+        if kind == "rsrc-sfnt":
+            argv = PY + [os.path.join(tools_dir, "macsfnt.py"), "extract", current, out, "--id", str(op["id"])]
+        elif kind == "ttc-face":
+            argv = PY + [SRCPREP, "ttc-face", current, out, "--index", str(op["index"])]
+        elif kind == "mac-cmap":
+            argv = PY + [os.path.join(tools_dir, "macsfnt.py"), "unicode", current, out]
+        elif kind == "instance":
+            pins = ["%s=%g" % (tag, value) for tag, value in sorted(op["coords"].items())]
+            argv = PY + ["-m", "fontTools.varLib.instancer", current] + pins + ["-o", out]
+        elif kind == "pcf-bdf":
+            raise ValueError("pcf-bdf lands in Task B3")
+        else:
+            raise ValueError("unknown source op %r" % (kind,))
+        argvs.append(argv)
+        current = out
+    return argvs, current
+
+
 def routes(font):
     """The `Route`s one font entry offers, in page order (Shared data shapes).
 
@@ -259,11 +293,9 @@ def routes(font):
     kind = font.get("source_kind")
     sizes = list(font.get("sizes") or [])
     face_index = font.get("face_index", 0)
-    if font.get("prep"):                         # until the source step exists (Task B1)
-        return []
     out = []
     if kind in ("outline", "outline-composite"):
-        if face_index > 0:                       # only a TTC/FON's first face is a source
+        if face_index > 0 and not font.get("prep"):   # a FON's later face is not a source; a TTC / Mac face is, via prep
             return []
         out.append(Route("precomposed", "mkfont", True, [], [1, 2], None, None, None, _mkfont_commands))
         if kind == "outline-composite":
@@ -273,7 +305,7 @@ def routes(font):
             out.append(Route("jamo", "experimental fit", False, ["844", "adaptive"], [1, 2], None, "outline",
                              None, _fit_commands))
     elif kind in ("bitmap", "bdf-iso10646"):
-        if face_index > 0 or not sizes:          # a bare FNT header or a BDF Pillow opens at no size has no face
+        if (face_index > 0 and not font.get("prep")) or not sizes:   # a bare FNT header or a BDF Pillow opens at no size has no face
             return []
         out.append(Route("precomposed", "mkfont", True, [], [1], sizes, None, None, _mkfont_commands))
     elif kind == "dos-raw":
