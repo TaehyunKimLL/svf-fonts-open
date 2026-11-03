@@ -2,7 +2,7 @@
 
 Card t_c3d8c80b. A read-only audit of `maker/` (detect.py, jobs.py, routes.py, presets.py, settings.py, naming.py,
 preview.py, server.py, static/*) against [recipes.md](recipes.md), run on 2026-11-03 at `ec5c6b3` (the curated OFL-only
-repository). Evidence is `file:line` at that commit. "Not verified" marks what was read but not run.
+repository). Evidence is `file:line` at that commit (rows rewritten for this branch cite symbol names, because line numbers drift). "Not verified" marks what was read but not run.
 
 How the maker works, in one paragraph: `detect.sniff` (maker/detect.py:84) tags a file by magic and size,
 `_detect_file` (detect.py:331) turns it into font entries with a `source_kind`, `routes.routes` (maker/routes.py:253)
@@ -20,7 +20,7 @@ preview (the result preview of any produced face is always `svfline` via `result
 |---|---|---|---|---|
 | TTF (static) | yes: `ttf` -> `outline`; composite syllables -> `outline-composite` | precomposed: `mkfont.py SRC OUT --size S --bpp B --unicode ascii,ksx1001-hangul` (or `ascii,hangul`, or a list file). Jamo: composite -> `jamovec.py master --components [--adaptive]` then `jamovec.py render --binarize threshold --check`; non-composite -> "experimental fit" `jamoset.py --layout 844\|adaptive --from-ttf --binarize threshold\|--bpp 2 --check` | yes, Pillow `source_png` at the first size | detect.py:91, 346-350, 851, 1108; routes.py:113-117, 119-130, 132-141, 263-272; preview.py:118 |
 | OTF (CFF) | yes: `otf` -> `outline` (never composite: CFF has none) | same as TTF: mkfont; jamo only via the experimental fit | yes (Pillow/FreeType) | detect.py:93, 346; routes.py:263-272 |
-| TTC / OTC | yes: every face (up to 64) is listed; a face after the first, or a face with a Mac-only cmap, carries a `prep` list (`ttc-face`) | a `source` step first: `maker/srcprep.py ttc-face SRC OUT --index N` saves the face as a plain sfnt (`.otf` for CFF), then the TTF/OTF routes read it | no (see Known gap below) | maker/detect.py `_ttc_entries`; maker/srcprep.py; routes.py `source_commands`; branch maker-inputs, A3/B1 |
+| TTC / OTC | yes: every face (up to 64) is listed; a face after the first, or a face with a Mac-only cmap, carries a `prep` list (`ttc-face`) | a `source` step first: `maker/srcprep.py ttc-face SRC OUT --index N` saves the face as a plain sfnt (`.otf` for CFF), then the TTF/OTF routes read it | yes for every face (`preview.source_png` takes the face index); a chosen variable instance is not shown (Known gap below) | maker/detect.py `_ttc_entries`; maker/srcprep.py; routes.py `source_commands`; branch maker-inputs, A3/B1 |
 | Variable font | yes: `fvar` axes and named instances are read (`variable` on the entry, label `; variable (wght 100..900)`) | one instance per font per job: setting `instance` adds a `fontTools.varLib.instancer` source op pinning every axis (default overlaid by the choice); the page has an instance select | no: the source preview draws the default instance (Known gap below) | settings.py `instance`, `instance_coords`; routes.py `source_commands`; maker.js `perFontInstance`; B2/C1 |
 | GSUB-decomposable outline (`ljmo`/`vjmo`/`tjmo`) | no: not tested for; such a font is `outline` | no `--mask-font` route. The fit runs `jamoset.py --from-ttf` without `--mask-font`; jamoset then auto-uses `$JAMOSET_MASK_FONT` or a NotoSansKR beside the tree only when freetype-py and uharfbuzz import. The worker's `ENV` (jobs.py:66) drops `JAMOSET_MASK_FONT` and `JAMOSET_PYLIB`, and neither module is installed here, so the mask path never runs from the maker (not verified on a host that has them) | as TTF | routes.py:132-141; jobs.py:66; tools/jamoset.py:2297-2302, 2855 |
 | BDF ISO 10646 (Unicode) | yes: `bdf-iso10646`, sizes = the strike FreeType opens | precomposed: mkfont at the strike, 1 bpp only | yes (Pillow) | detect.py:355-373, 516; routes.py:273-276 |
@@ -53,7 +53,7 @@ hanterm, KS X 1001 BDF (precomposed, and an experimental `--from-svf` jamo route
 generations) and HWP Hangul `.PFT`.
 
 Known gap (card t_9acea7ab): the source preview still draws the uploaded file's default face, so it does not show a
-chosen variable instance, a TTC face after the first, or a prepared Mac font.
+chosen variable instance or a prepared Mac font.
 
 ## 2. Controls missing compared with the recipes
 
