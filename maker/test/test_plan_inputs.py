@@ -63,6 +63,15 @@ class SourceCommandsTest(unittest.TestCase):
         argvs, out = routes.source_commands([{"op": "ttc-face", "index": 1}], "/u/t.ttc", "/w", "/T")
         self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "ttc-face", "/u/t.ttc", "/w/source.ttf", "--index", "1"]])
 
+    def test_instance_values_are_not_rounded(self):
+        argvs, _ = routes.source_commands([{"op": "instance", "coords": {"XHGT": 123456.7, "wght": 899.99999}}],
+                                          "/u/V.ttf", "/w", "/T")
+        self.assertEqual(argvs[0][5:7], ["XHGT=123456.7", "wght=899.99999"])
+
+    def test_a_cff_face_is_saved_as_otf(self):
+        argvs, out = routes.source_commands([{"op": "ttc-face", "index": 1}], "/u/c.otc", "/w", "/T", "otf")
+        self.assertEqual(out, "/w/source.otf")
+
     def test_pcf_bdf_writes_a_bdf(self):
         argvs, out = routes.source_commands([{"op": "pcf-bdf"}], "/u/k.pcf.gz", "/w", "/T")
         self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "pcf-bdf", "/u/k.pcf.gz", "/w/source.bdf"]])
@@ -109,6 +118,7 @@ class SourceStepE2ETest(Case):
                                 self.face_1)
         self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py"]])
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
+        self.assertTrue(job["steps"][0]["output"].endswith("/source.otf"))
         inputkinds.assert_facecheck(self, z)
 
     def test_mac_cmap_ttf_converts(self):
@@ -138,14 +148,15 @@ class SourceStepE2ETest(Case):
         self.assertEqual([st["kind"] for st in job["steps"]], ["source", "prepare", "jamo"])
         self.assertTrue(any(a.endswith("/source.ttf") for a in job["steps"][1]["argv"][0]))
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done", "done"])
-        self.assertIsNotNone(job["steps"][2]["quality"])
+        self.assertEqual(job["steps"][2]["quality"]["compared"], 66)     # the converted face 1; the raw TTC gives 1
 
     def test_a_failed_source_step_fails_the_font(self):
         self.n += 1
         tmp = os.path.join(self.tmp, "j%d" % self.n)
 
         def corrupt_after_detection(fonts, s):
-            select(s, fid_of(fonts, face=1))
+            select(s, fid_of(fonts, face=1, path="t/two.ttc"))
+            select(s, fid_of(fonts, path="m/Mac.ttf"))
             for root, _d, names in os.walk(tmp):
                 for name in names:
                     if name == "two.ttc":
@@ -154,10 +165,18 @@ class SourceStepE2ETest(Case):
                             data = fh.read()
                         with open(path, "wb") as fh:
                             fh.write(data[:40])
-        job, z = inputkinds.run_batch(self, tmp, {"t/two.ttc": _two()}, corrupt_after_detection)
-        self.assertEqual([st["state"] for st in job["steps"]], ["failed", "failed"])
-        self.assertEqual(job["steps"][1]["error"], "source failed")
-        self.assertEqual(job["state"], "failed")
+        job, z = inputkinds.run_batch(self, tmp, {"t/two.ttc": _two(), "m/Mac.ttf": inputfx.mac_cmap_ttf()},
+                                      corrupt_after_detection)
+        by_font = {}
+        for st in job["steps"]:
+            by_font.setdefault(st["font"], []).append(st)
+        broken = [sts for sts in by_font.values() if sts[0]["state"] == "failed"]
+        fine = [sts for sts in by_font.values() if sts[0]["state"] == "done"]
+        self.assertEqual((len(broken), len(fine)), (1, 1))
+        self.assertEqual([st["state"] for st in broken[0]], ["failed", "failed"])
+        self.assertEqual(broken[0][1]["error"], "source failed")
+        self.assertEqual([st["state"] for st in fine[0]], ["done", "done"])      # the other font is untouched
+        self.assertEqual(job["state"], "done")
 
 
 class StrikeRouteTest(Case):
@@ -353,7 +372,9 @@ class Johab844Test(Case):
         s["fonts"][fid].update(selected=True, kinds=["precomposed"], dos_layout="844-ihnm", bpp=[1])
         self.assertIn("%s: johab844 needs layout 844" % fid, settings.validate(fonts, s))
         s["fonts"][fid]["dos_layout"] = "844"
-        self.assertIn("%s: johab844 takes an 8x16 English font" % fid, settings.validate(fonts, s))
+        errors = settings.validate(fonts, s)
+        self.assertIn("%s: johab844 takes an 8x16 English font" % fid, errors)
+        self.assertNotIn("%s: a 12x24 English font needs a face of 24 px or more" % fid, errors)   # no double message
 
     def test_johab844_end_to_end(self):
         import johab844
@@ -372,6 +393,10 @@ class Johab844Test(Case):
         inputkinds.assert_facecheck(self, z)
         raw = files["h/HAN.FNT"]
         self.assertEqual(bytes(inputkinds.zip_face(z).glyphs[0xAC00]), johab844.compose(raw, 0xAC00))
+        import zipfile
+        with zipfile.ZipFile(z) as zf:
+            notes = [zf.read(n).decode() for n in zf.namelist() if n.lower().endswith(".txt") and "LIC" not in n.upper()]
+        self.assertTrue(any("svf/dos/NEODG16.SVF" in n and "range is ignored" in n and "ENG.FNT" in n for n in notes), notes)
 
 
 class Eng12x24Test(Case):
@@ -393,6 +418,26 @@ class Eng12x24Test(Case):
         s = settings.defaults(fonts)
         s["fonts"][fid].update(selected=True, dos_layout="844")
         self.assertIn("%s: a 12x24 English font needs a face of 24 px or more" % fid, settings.validate(fonts, s))
+
+    def test_the_default_companion_is_the_8x16_one_for_a_16px_face(self):
+        raw = os.path.join(self.tmp, "r.fnt")
+        fixtures._dos_raw(raw)
+        eng = os.path.join(self.tmp, "e.fnt")
+        fixtures._eng(eng)
+        d = os.path.join(self.tmp, "both")
+        os.makedirs(d)
+        for name, path in (("HAN.FNT", raw), ("ENG.FNT", eng)):
+            shutil.copyfile(path, os.path.join(d, name))
+        with open(os.path.join(d, "ASCII.PFT"), "wb") as fh:                # sorts before ENG.FNT
+            fh.write(inputfx.pft_eng())
+        with open(os.path.join(d, "LICENSE.txt"), "w") as fh:
+            fh.write(inputkinds.LICENCE)
+        fonts = detect.scan(d)
+        fid = fid_of(fonts, kind="dos-raw")
+        s = settings.defaults(fonts)
+        self.assertEqual(s["fonts"][fid]["latin_companion"], fid_of(fonts, path="ENG.FNT"))
+        s["fonts"][fid].update(selected=True, dos_layout="844")
+        self.assertEqual(settings.validate(fonts, s), [])
 
     def test_pft_and_hbios_eng_on_a_24px_face(self):
         for name, eng in (("pft", inputfx.pft_eng()), ("hbios", inputfx.hbios_eng())):

@@ -385,8 +385,22 @@ def note_commands(steps, font):
     src = "upload/%s" % path if path else "<src>"
     commands = []
     for step in steps:
+        for argv in step.get("argv") or []:
+            if any(os.path.basename(token) == "johab844.py" for token in argv[:4] if isinstance(token, str)):
+                commands.append(_johab844_comment(argv))
         commands += _command_lines(step, src=src)
     return commands
+
+
+def _johab844_comment(argv):
+    """The note line before a johab844 command: its Hangul are redrawn on the repository's base face, the Latin and
+    symbols stay the base's unless an English font is named, and the batch's chosen range does not apply."""
+    base = argv[4] if len(argv) > 4 else "svf/dos/NEODG16.SVF"
+    base = base[base.rfind("svf/"):] if "svf/" in base else os.path.basename(base)
+    text = "# johab844: Hangul redrawn on the base face %s (OFL); the chosen range is ignored" % base
+    if "--eng" in argv and argv.index("--eng") + 1 < len(argv):
+        text += "; ASCII from %s" % os.path.basename(argv[argv.index("--eng") + 1])
+    return text
 
 
 def _lines_bytes(rows):

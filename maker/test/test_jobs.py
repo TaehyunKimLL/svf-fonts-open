@@ -286,6 +286,16 @@ class WorkerTest(unittest.TestCase):
         wait_until(lambda: self.store.load(job_id)["state"] in ("done", "failed"))
         return self.store.load(job_id)
 
+    def test_a_tool_that_writes_nothing_does_not_pass_on_an_old_output(self):
+        j = self.job_with_steps(["pass"])
+        old = self.store.path(j["id"], "work", "s01", "NEWONE.SVF")
+        with open(old, "wb") as fh:
+            fh.write(read(NEODG))                           # what an earlier run of this job left behind
+        self.worker.enqueue(j["id"])
+        j = self.wait_for(j["id"])
+        self.assertEqual(j["steps"][0]["state"], "failed")
+        self.assertEqual(j["steps"][0]["error"], "no output")
+
     def test_runs_fifo_fails_step_not_job_and_zips(self):
         j = self.job_with_steps(["open(sys.argv[1],'wb').write(open(NEODG,'rb').read()[:-1]+b'\\x01')",
                                  "sys.exit(2)"])

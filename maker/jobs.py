@@ -661,6 +661,7 @@ class Worker(threading.Thread):
             return "", "", str(exc) or exc.__class__.__name__
         stdout, stderr, seconds = [], [], 0.0
         cwd = os.path.dirname(out_abs)
+        self._clear_outputs(cwd, out_abs, step)
         for argv in step["argv"]:
             result = run_command(argv, cwd, STEP_TIMEOUT, cancel)
             stdout.append(result["stdout"])
@@ -675,6 +676,22 @@ class Worker(threading.Thread):
         if not os.path.exists(out_abs):
             return "".join(stdout), "".join(stderr), "no output"
         return "".join(stdout), "".join(stderr), None
+
+    @staticmethod
+    def _clear_outputs(cwd, out_abs, step):
+        """Remove what an earlier run left where this step writes: a tool that exits 0 without writing must fail "no
+        output", not pass on the old file (a re-detected job reuses `work/sNN/`)."""
+        stale = [out_abs]
+        if step.get("kind") == "source":
+            stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith("source-")] \
+                if os.path.isdir(cwd) else []
+        for path in stale:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                shutil.rmtree(path, ignore_errors=True)
 
     def _read_back(self, job, job_dir, upload_dir, plain, step, font):
         """Read a produced face back: its facts, its quality numbers and its preview; return an error or None.
@@ -692,7 +709,7 @@ class Worker(threading.Thread):
             step["facts"] = quality.face_facts(data)
             reference = self._reference(job, font, step)
             if step.get("kind") == "jamo" and reference:
-                source = (self._prepared_source(job, job_dir, font.get("id"))
+                source = (self._prepared_source(job, job_dir, step.get("font"))
                           or self._plain_source(font, job_dir, upload_dir, plain))
                 step["quality"] = quality.measure(data, reference, source, step.get("size"))
         except ValueError as exc:

@@ -272,11 +272,16 @@ def _copy_commands(font, size, bpp, layout, range_spec, paths, extra):
     return svf_commands(font, paths, extra)     # [] = the worker copies paths["src"] to paths["out"]
 
 
-def source_commands(ops, src, work, tools_dir):
+def fmt_num(value):
+    """A number for an argv or a message: an integral value without `.0`, else repr (no six-digit rounding)."""
+    return str(int(value)) if float(value).is_integer() else repr(float(value))
+
+
+def source_commands(ops, src, work, tools_dir, sfnt_ext="ttf"):
     """The argvs that turn @p src into the file the tools read, one per op in @p ops, and that file's path.
 
     Op i writes `work/source-<i+1>.<ext>` and the last op `work/source.<ext>` (`ext` is `bdf` after `pcf-bdf`, else
-    `ttf`), each reading the one before: `rsrc-sfnt` and `mac-cmap` are tools/macsfnt.py, `ttc-face` and `pcf-bdf` are
+    @p sfnt_ext, `ttf` or `otf` for a CFF face), each reading the one before: `rsrc-sfnt` and `mac-cmap` are tools/macsfnt.py, `ttc-face` and `pcf-bdf` are
     the maker's srcprep.py, `instance` is fontTools' instancer. No ops: no argv and @p src itself.
     """
     argvs = []
@@ -284,7 +289,7 @@ def source_commands(ops, src, work, tools_dir):
     for i, op in enumerate(ops):
         kind = op.get("op")
         last = i == len(ops) - 1
-        out = os.path.join(work, ("source" if last else "source-%d" % (i + 1)) + (".bdf" if kind == "pcf-bdf" else ".ttf"))
+        out = os.path.join(work, ("source" if last else "source-%d" % (i + 1)) + (".bdf" if kind == "pcf-bdf" else "." + sfnt_ext))
         if kind == "rsrc-sfnt":
             argv = PY + [os.path.join(tools_dir, "macsfnt.py"), "extract", current, out, "--id", str(op["id"])]
         elif kind == "ttc-face":
@@ -292,7 +297,7 @@ def source_commands(ops, src, work, tools_dir):
         elif kind == "mac-cmap":
             argv = PY + [os.path.join(tools_dir, "macsfnt.py"), "unicode", current, out]
         elif kind == "instance":
-            pins = ["%s=%g" % (tag, value) for tag, value in sorted(op["coords"].items())]
+            pins = ["%s=%s" % (tag, fmt_num(value)) for tag, value in sorted(op["coords"].items())]
             argv = PY + ["-m", "fontTools.varLib.instancer", current] + pins + ["-o", out]
         elif kind == "pcf-bdf":
             argv = PY + [SRCPREP, "pcf-bdf", current, out]

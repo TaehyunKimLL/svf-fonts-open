@@ -330,7 +330,7 @@ def detect_file(abs_path, rel):
 
 def _entry(rel, face_index, fmt, label, source_kind, family="", style="", version="", sizes=None, sizes_fixed=False,
            dos=None, bdf=None, svf=None, error=None, gz=False, prep=None, variable=None, strikes=None, eng=None,
-           dos_bytes=None):
+           dos_bytes=None, cff=False):
     e = {"path": rel, "face_index": face_index, "format": fmt, "label": label, "source_kind": source_kind,
          "family": family, "style": style, "version": version, "sizes": sizes or [], "sizes_fixed": sizes_fixed,
          "coverage": None, "jamo": "none", "dos": dos, "bdf": bdf, "svf": svf, "error": error}
@@ -346,6 +346,8 @@ def _entry(rel, face_index, fmt, label, source_kind, family="", style="", versio
         e["eng"] = eng
     if dos_bytes:
         e["dos_bytes"] = dos_bytes
+    if cff:                           # CFF outlines: a converted copy is an .otf, not a .ttf
+        e["cff"] = True
     return e
 
 
@@ -382,7 +384,8 @@ def _sfnt_entry(rel, face_index, fmt, label, font, prep, gz):
         suffix += "; bitmap strikes %s" % ", ".join(str(n) for n in strikes)
     if facts["mac_cmap"]:
         suffix += "; Mac Korean cmap"
-    kw = dict(prep=prep, variable=facts["variable"], strikes=strikes, gz=gz)
+    kw = dict(prep=prep, variable=facts["variable"], strikes=strikes, gz=gz,
+              cff="CFF " in font or "CFF2" in font)
     if facts["outlines"]:
         return _entry(rel, face_index, fmt, label + suffix, "outline", family, style, version, [16], False, **kw)
     if strikes:

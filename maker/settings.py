@@ -150,7 +150,19 @@ def _licence_name(family, licence):
     return naming.suggest_licence_name(family or "", text)
 
 
-def _font_defaults(font, batch):
+def _default_companion(font, fmap):
+    """The default English companion: the first one the face can take. A 12x24 font needs a face of 24 px or more, so
+    a smaller DOS face skips it when another companion sits beside it (the defaults must validate)."""
+    companions = font.get("companions") or []
+    px = (font.get("sizes") or [None])[0]
+    if font.get("source_kind") == "dos-raw" and isinstance(px, int) and px < 24 and fmap:
+        for fid in companions:
+            if ((fmap.get(fid) or {}).get("eng") or {}).get("cell") != "12x24":
+                return fid
+    return companions[0] if companions else None
+
+
+def _font_defaults(font, batch, fmap=None):
     """One font's per-font settings: the font-only keys plus only the batch keys that differ from the batch default."""
     per = {}
     kinds = _font_kinds(font)
@@ -163,7 +175,7 @@ def _font_defaults(font, batch):
         "selected": bool(licences) and font.get("source_kind") != "dos-raw",
         "experimental": False,
         "dos_layout": None,
-        "latin_companion": (font.get("companions") or [None])[0],
+        "latin_companion": _default_companion(font, fmap),
         "licence": {"kind": "upload", "path": licences[0]["path"]} if licences else None,
         "names": {},
         "licence_name": _licence_name(font.get("family", ""), licences[0] if licences else None),
@@ -190,10 +202,11 @@ def defaults(fonts):
     """
     batch = _batch_defaults()
     settings = {"batch": batch, "fonts": {}}
+    fmap = _font_map(fonts)
     for font in fonts:
         if not routes.routes(font):
             continue
-        settings["fonts"][font["id"]] = _font_defaults(font, batch)
+        settings["fonts"][font["id"]] = _font_defaults(font, batch, fmap)
     return settings
 
 
@@ -726,7 +739,10 @@ def _route_errors(fid, font, eff, fmap=None):
     if font.get("source_kind") == "dos-raw":
         companion = (fmap or {}).get(eff.get("latin_companion")) if isinstance(eff.get("latin_companion"), str) else None
         px = (font.get("sizes") or [None])[0]
-        if companion and (companion.get("eng") or {}).get("cell") == "12x24" and isinstance(px, int) and px < 24:
+        johab = routes.route_for(font, "precomposed", False)
+        only_johab = (kinds == ["precomposed"] and johab is not None and johab.label == "johab844")
+        if (companion and (companion.get("eng") or {}).get("cell") == "12x24" and isinstance(px, int) and px < 24
+                and not only_johab):                    # johab844's own, more specific message covers that job
             errors.append("%s: a 12x24 English font needs a face of 24 px or more" % fid)
     if font.get("source_kind") == "dos-raw" and "precomposed" in kinds:
         route = routes.route_for(font, "precomposed", False)
@@ -745,7 +761,9 @@ def _route_errors(fid, font, eff, fmap=None):
             if axes and tag not in axes:
                 errors.append("%s: instance axis %s is not in the font" % (fid, tag))
             elif axes and not axes[tag]["min"] <= value <= axes[tag]["max"]:
-                errors.append("%s: instance %s=%g is outside %g..%g" % (fid, tag, value, axes[tag]["min"], axes[tag]["max"]))
+                errors.append("%s: instance %s=%s is outside %s..%s" % (fid, tag, routes.fmt_num(value),
+                                                                                routes.fmt_num(axes[tag]["min"]),
+                                                                                routes.fmt_num(axes[tag]["max"])))
     preset_name = eff.get("preset")
     preset = presets.PRESETS.get(preset_name) if isinstance(preset_name, str) else None
     if preset is not None:
@@ -1122,7 +1140,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
             sid = "s%02d" % counter
             step_dir = os.path.join(work_root, sid)
             os.makedirs(step_dir, exist_ok=True)
-            argvs, prepared = routes.source_commands(ops, src, step_dir, tools_dir)
+            argvs, prepared = routes.source_commands(ops, src, step_dir, tools_dir, "otf" if font.get("cff") else "ttf")
             steps.append(_step(sid, fid, "source", None, None, None, None, argvs,
                                "work/%s/%s" % (sid, os.path.basename(prepared))))
             src = prepared
@@ -1131,7 +1149,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
             raise ValueError("%s: needs a Latin companion" % fid)
         companion_abs = _upload_path(fid, fmap[companion].get("path"), upload_dir) if companion in fmap else None
         master = None
-        prepared = set()
+        prepared_layouts = set()
         for kind in ("precomposed", "jamo"):
             if kind not in (eff.get("kinds") or []):
                 continue
@@ -1139,8 +1157,8 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
             if route is None:
                 continue
             layout = eff.get("dos_layout") if font.get("source_kind") == "dos-raw" else eff.get("layout")
-            if kind == "jamo" and route.prepare is not None and layout not in prepared:
-                prepared.add(layout)
+            if kind == "jamo" and route.prepare is not None and layout not in prepared_layouts:
+                prepared_layouts.add(layout)
                 counter += 1
                 sid = "s%02d" % counter
                 step_dir = os.path.join(work_root, sid)
