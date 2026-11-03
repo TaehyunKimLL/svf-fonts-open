@@ -97,12 +97,8 @@ class SrcprepTest(TmpCase):
         self.assertIn("face", r.stderr)
 
     def test_a_damaged_cmap_body_is_a_prep_error_not_an_index_error(self):
-        from fontTools.ttLib import TTFont as _F
-        base = inputfx.mac_cmap_ttf()
-        bad = bytearray(base)
-        bad[_F(io.BytesIO(base)).reader.tables["cmap"].offset + 553] = 0xFF     # a format-2 subheader key out of range
         with self.assertRaises(srcprep.PrepError):
-            srcprep.prepared_bytes(bytes(bad), [{"op": "mac-cmap"}])
+            srcprep.prepared_bytes(inputfx.damaged_mac_cmap_ttf(), [{"op": "mac-cmap"}])
 
     def test_a_large_ttc_header_opens_only_the_face_asked_for(self):
         import struct
@@ -222,6 +218,19 @@ class PcfTest(TmpCase):
         with self.assertRaises(srcprep.PrepError):
             srcprep.pcf_to_bdf(pcf)
         self.assertLess(time.time() - t0, 5.0)
+
+    def test_many_small_glyphs_are_refused_before_their_rows_are_built(self):
+        import resource
+        import time
+        glyphs = [(0x3021 + 0x100 * (i // 94) + i % 94, [1] * 16, 16) for i in range(900)]
+        self.assertTrue(srcprep.pcf_to_bdf(inputfx.pcf(glyphs, "KSC5601.1987", "0", 16, 14, 2)))   # sane sizes convert
+        saved = srcprep.MAX_ROWS
+        srcprep.MAX_ROWS = 5000
+        self.addCleanup(setattr, srcprep, "MAX_ROWS", saved)
+        t0 = time.time()
+        with self.assertRaises(srcprep.PrepError):
+            srcprep.pcf_to_bdf(inputfx.pcf(glyphs, "KSC5601.1987", "0", 16, 14, 2))
+        self.assertLess(time.time() - t0, 2.0)
 
     def test_pcf_box_reads_the_metrics_only(self):
         self.assertEqual(srcprep.pcf_box(inputfx.pcf(GLYPHS, "KSC5601.1987", "0", 16, 14, 2)), [16, 16])

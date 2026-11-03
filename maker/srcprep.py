@@ -26,6 +26,7 @@ import zlib
 import macsfnt
 from fontTools.ttLib import TTFont, TTLibError
 
+MAX_ROWS = 1 << 20            # glyph rows one PCF may convert to BDF (a CJK 24 px face is about 270,000)
 MAX_BYTES = 128 << 20          # the same cap as detect.MAX_DECOMPRESSED (srcprep does not import detect)
 
 
@@ -427,11 +428,15 @@ def pcf_to_bdf(data):
         out.append('%s "%s"' % (k, v) if isinstance(v, str) else "%s %d" % (k, v))
     out += ["ENDPROPERTIES", "CHARS %d" % len(enc)]
     size = sum(len(x) + 1 for x in out)
+    rows_total = 0
     for code in sorted(enc):
         g = enc[code]
         start = len(out)
         lsb, rsb, width, ascent, descent = metrics[g]
         w, h = max(0, rsb - lsb), ascent + descent
+        rows_total += max(h, 0)                       # refuse before the glyph's row strings are built
+        if rows_total > MAX_ROWS or size + 80 + max(h, 0) * ((w + 7) // 8 * 2 + 1) > MAX_BYTES:
+            raise PrepError("PCF converts to too large a BDF")
         out += ["STARTCHAR g%04X" % code, "ENCODING %d" % code,
                 "SWIDTH %d 0" % round(width * 72000 / (px * 75)), "DWIDTH %d 0" % width,
                 "BBX %d %d %d %d" % (w, h, lsb, -descent), "BITMAP"]

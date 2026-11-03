@@ -121,13 +121,9 @@ class SfntDetectTest(DirCase):
         self.assertEqual([e["coverage"]["all"] for e in out], [1, 1])
 
     def test_a_damaged_mac_cmap_font_does_not_take_the_scan_down(self):
-        from fontTools.ttLib import TTFont
-        import io
-        base = inputfx.mac_cmap_ttf()
-        bad = bytearray(base)
-        bad[TTFont(io.BytesIO(base)).reader.tables["cmap"].offset + 553] = 0xFF
+        bad = inputfx.damaged_mac_cmap_ttf()
         self.put("u/Good.ttf", inputfx.ttf("Good", BOX1))
-        self.put("u/Bad.ttf", bytes(bad))
+        self.put("u/Bad.ttf", bad)
         out = detect.scan(self.dir("u"))
         self.assertEqual(len(out), 2)
         bad_e = [e for e in out if e["path"] == "Bad.ttf"][0]

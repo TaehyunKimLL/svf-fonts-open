@@ -120,6 +120,27 @@ def both_cmaps_ttf():
     return _save(font)
 
 
+def damaged_mac_cmap_ttf():
+    """mac_cmap_ttf() with one word of its format-2 cmap subtable (after the 256 subheader keys) set out of range, so
+    that decoding the subtable (what macsfnt.add_unicode does) raises IndexError while the subtable header still
+    reads fine. The position is searched in the subtable, not hard-coded."""
+    import macsfnt
+    base = mac_cmap_ttf()
+    off = TTFont(io.BytesIO(base)).reader.tables["cmap"].offset
+    sub = off + struct.unpack_from(">I", base, off + 8)[0]
+    length = struct.unpack_from(">H", base, sub + 2)[0]
+    for pos in range(sub + 6 + 512, sub + length - 1, 2):
+        bad = bytearray(base)
+        struct.pack_into(">H", bad, pos, 0x7FFF)
+        try:
+            macsfnt.add_unicode(TTFont(io.BytesIO(bytes(bad))))
+        except IndexError:
+            return bytes(bad)
+        except Exception:
+            continue
+    raise AssertionError("no glyph index of the fixture's format-2 subtable raises IndexError")
+
+
 def fork(entries):
     return test_macsfnt.resource_fork(entries)
 
