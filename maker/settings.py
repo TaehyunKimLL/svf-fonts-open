@@ -764,6 +764,37 @@ def _batch_shape_errors(batch, fonts, upload_dir):
     return errors
 
 
+def _merged_flag_errors(fid, font, eff, route, sizes, bpps):
+    """The rules on the flags a step really gets: the preset's fragment with the panel's applied over it
+    (`plan_steps`' merge), for every selected size and bpp the route offers. A preset can carry `--clip-cell`
+    (`dos-u-2bpp`), so `fit_cell` is checked against the merged flags; `binarize mono` needs the mask libraries
+    (`font["mask_ok"]`) and is not a jamovec choice."""
+    errors = []
+    preset = eff.get("preset") if isinstance(eff.get("preset"), str) else None
+    if preset not in presets.PRESETS:
+        return errors
+    for size in sizes:
+        if not _is_int(size) or (route.sizes is not None and size not in route.sizes):
+            continue
+        for bpp in bpps:
+            if not _is_int(bpp) or bpp not in route.bpps:
+                continue
+            try:
+                panel = presets.panel_argv(eff.get("options") or {}, route.kind, route.label, bpp)
+                merged = routes.apply_flags(presets.argv_for(preset, route.kind, size), panel[-1])
+            except (ValueError, AttributeError, TypeError):
+                continue
+            if "--fit-cell" in merged and "--clip-cell" in merged:
+                errors.append("%s: fit_cell and clip_cell: choose one" % fid)
+            for i, token in enumerate(merged):
+                if token == "--binarize" and merged[i + 1:i + 2] == ["mono"]:
+                    if route.label in routes.JAMOVEC_LABELS:
+                        errors.append("%s: binarize mono is not a jamovec choice" % fid)
+                    elif not font.get("mask_ok"):
+                        errors.append("%s: binarize mono needs freetype-py" % fid)
+    return errors
+
+
 def _dy_errors(fid, eff, kinds, sizes):
     """The `dy` rules (spec 7.1): no jamo piece code point, each value within the cell, a precomposed kind selected."""
     dy = eff.get("dy")
@@ -828,6 +859,7 @@ def _route_errors(fid, font, eff, fmap=None):
         for bpp in bpps:
             if bpp not in route.bpps:
                 errors.append("%s: bpp %s is not offered for %s source" % (fid, bpp, _source_phrase(font.get("source_kind"))))
+        errors += _merged_flag_errors(fid, font, eff, route, sizes, bpps)
         if kind == "jamo" and font.get("source_kind") != "dos-raw" and route.layouts and eff.get("layout") not in route.layouts:
             errors.append("%s: layout %s is not offered for %s" % (fid, eff.get("layout"), kind))   # F7: dos_layout covers dos-raw
     if font.get("source_kind") == "dos-raw":
@@ -1290,10 +1322,10 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                     paths = {"tools": tools_dir, "src": src, "out": out,
                              "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
                              "range_file": range_file, "base": base}
-                    extra = routes.apply_flags(presets.argv_for(eff.get("preset"), kind, size),
-                                               presets.panel_argv(eff.get("options"), kind, route.label, bpp))
+                    panel = presets.panel_argv(eff.get("options"), kind, route.label, bpp)
+                    panel[-1] = routes.apply_flags(presets.argv_for(eff.get("preset"), kind, size), panel[-1])
                     try:
-                        argv = route.commands(font, size, bpp, step_layout, range_arg, paths, extra)
+                        argv = route.commands(font, size, bpp, step_layout, range_arg, paths, panel)
                     except ValueError as exc:
                         raise ValueError("%s: %s" % (fid, exc))
                     steps.append(_step(sid, fid, kind, size, bpp, step_layout, name, argv,

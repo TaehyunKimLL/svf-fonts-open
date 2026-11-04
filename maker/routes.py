@@ -27,7 +27,12 @@ SRCPREP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "srcprep.py")
 
 # A flag whose next token is its value: `apply_flags` removes the old value with the old flag.
 VALUED = frozenset({"--cell", "--ascent", "--space-advance", "--unicode", "--width", "--punct-extra", "--eng",
-                    "--size", "--bpp", "--layout", "--binarize", "--face", "--threshold", "--jset-version"})
+                    "--size", "--bpp", "--layout", "--binarize", "--face", "--threshold", "--jset-version",
+                    "--baseline", "--aa-refine", "--mask-font", "--mask-radius", "--hangul-ascent", "--pylib",
+                    "--report"})
+
+# The routes whose fit is jamovec.py (its --binarize takes threshold and ridge only).
+JAMOVEC_LABELS = frozenset({"composite", "vector fit"})
 
 
 def apply_flags(argv, extra):
@@ -95,11 +100,21 @@ def _tool(paths, name):
     return os.path.join(paths["tools"], name)
 
 
-def _with_extra(commands, extra):
-    """@p extra applied to the last command of @p commands (the one that writes the face)."""
-    if commands and extra:
-        commands[-1] = apply_flags(commands[-1], extra)
+def _with_extra(commands, extras):
+    """@p extras (one flag list per command, as `presets.panel_argv` gives them) applied to the last `len(extras)`
+    commands of @p commands; `[]` leaves them as they are. The last command is the one that writes the face."""
+    extras = list(extras or [])
+    if len(extras) > len(commands):
+        extras = extras[len(extras) - len(commands):]
+    for i, extra in enumerate(extras, start=len(commands) - len(extras)):
+        if extra:
+            commands[i] = apply_flags(commands[i], extra)
     return commands
+
+
+def _flat(extras):
+    """The fragments of @p extras as one flag list (a route that reads a flag's value, not only appends it)."""
+    return [token for fragment in (extras or []) for token in fragment]
 
 
 def _mkfont_unicode(range_spec, paths):
@@ -144,6 +159,8 @@ def _fit_commands(font, size, bpp, layout, range_spec, paths, extra):
     argv += ["--check", "-o", paths["out"]]
     if bpp == 1 and paths.get("eng"):           # the panel shows --eng for a 1 bpp fit only
         argv += ["--eng", paths["eng"]]
+    if bpp == 1:
+        argv += ["--mask-font", "none"]         # the free fit whatever the worker's environment holds (2 bpp never reads it)
     return _with_extra([argv], extra)
 
 
@@ -246,7 +263,7 @@ def _svf2to3_version(font, extra, strict=True):
 def _from_svf_commands(font, size, bpp, layout, range_spec, paths, extra):
     src = paths["src"]
     commands = []
-    version = _svf2to3_version(font, extra, strict=False)
+    version = _svf2to3_version(font, _flat(extra), strict=False)
     if version is not None:                     # jamoset.py reads v3: convert the source in the step's work dir
         src = os.path.join(paths["work"], "source-v3.svf")
         commands.append(_svf2to3_argv(paths, paths["src"], src, version))
@@ -269,7 +286,7 @@ def svf_commands(font, paths, extra=()):
 
 
 def _copy_commands(font, size, bpp, layout, range_spec, paths, extra):
-    return svf_commands(font, paths, extra)     # [] = the worker copies paths["src"] to paths["out"]
+    return svf_commands(font, paths, _flat(extra))     # [] = the worker copies paths["src"] to paths["out"]
 
 
 def fmt_num(value):

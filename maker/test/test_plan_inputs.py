@@ -318,7 +318,7 @@ class KscJamoTest(Case):
 
     def test_extra_flags_reach_the_jamoset_command_only(self):
         argvs = routes.route_for(FONT_KSC, "jamo", True).commands(FONT_KSC, 16, 1, "844", ("file", "/u/c.txt"),
-                                                                  PATHS, ["--jset-version", "2"])
+                                                                  PATHS, [[], ["--jset-version", "2"]])
         self.assertNotIn("--jset-version", argvs[0])
         self.assertIn("--jset-version", argvs[1])
 

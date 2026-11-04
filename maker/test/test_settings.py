@@ -28,6 +28,7 @@ from test_routes import FONT_COMPOSITE, FONT_DOS, FONT_JOHAB, FONT_KSC, FONT_TTF
 
 ROOT = None
 FONTS = []
+REPO_TOOLS = os.path.join(REPO_DIR, "tools")
 
 
 def setUpModule():
@@ -434,6 +435,42 @@ class ControlsTest(unittest.TestCase):
         self.assertIsNone(routes.route_for(FONT_TTF, "jamo", True, "hanterm"))
         self.assertEqual(routes.route_for(FONT_TTF, "jamo", True).label, "experimental fit")          # no label: today's rule
         self.assertEqual(routes.route_for(FONT_TTF, "precomposed", False, "composite").label, "mkfont")   # only for jamo
+
+    def test_fit_cell_against_the_merged_clip_cell(self):
+        self.assertIn("f01: fit_cell and clip_cell: choose one",
+                      self.errors(options={"mkfont": {"fit_cell": True, "clip_cell": True}}))
+        self.assertIn("f01: fit_cell and clip_cell: choose one",
+                      self.errors(preset="dos-u-2bpp", bpp=[2], options={"mkfont": {"fit_cell": True}}))
+        self.assertEqual(self.errors(options={"mkfont": {"fit_cell": True}}), [])
+
+    def test_binarize_mono_refusals(self):
+        self.assertIn("f01: binarize mono needs freetype-py",
+                      self.errors(kinds=["jamo"], experimental=True, bpp=[1], options={"jamoset": {"binarize": "mono"}}))
+        self.assertIn("f01: binarize mono is not a jamovec choice",
+                      self.errors(font=FONT_COMPOSITE, kinds=["jamo"], bpp=[1], options={"jamoset": {"binarize": "mono"}}))
+        # a font the libraries are there for takes it; 2 bpp has no binarize
+        masked = dict(FONT_TTF, mask_ok=True)
+        self.assertEqual(self.errors(font=masked, kinds=["jamo"], experimental=True, bpp=[1],
+                                     options={"jamoset": {"binarize": "mono"}}), [])
+        self.assertEqual([e for e in self.errors(kinds=["jamo"], experimental=True, bpp=[2],
+                                                 options={"jamoset": {"binarize": "mono"}}) if "binarize" in e], [])
+
+    def test_plan_steps_carry_the_panel_flags(self):
+        font = dict(copy.deepcopy(FONT_TTF), id="f01", path="in.ttf")
+        s = settings.defaults([font])
+        s["fonts"]["f01"].update(selected=True, experimental=True, kinds=["precomposed", "jamo"], bpp=[1],
+                                 options={"mkfont": {"width": 20, "latin": True}, "jamoset": {"binarize": "ridge", "fit_baseline": 11}})
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "up"))
+            job = {"fonts": [font], "settings": s}
+            steps = settings.plan_steps(job, os.path.join(d, "job"), os.path.join(REPO_TOOLS), os.path.join(d, "up"))
+        by_kind = {step["kind"]: step["argv"][0] for step in steps}
+        self.assertEqual(by_kind["precomposed"][by_kind["precomposed"].index("--width") + 1], "20")
+        self.assertIn("--latin", by_kind["precomposed"])
+        jamo = by_kind["jamo"]
+        self.assertEqual(jamo[jamo.index("--binarize") + 1], "ridge")
+        self.assertEqual(jamo[jamo.index("--baseline") + 1], "11")
+        self.assertEqual(jamo.count("--binarize"), 1)
 
 
 class RunReadyTest(unittest.TestCase):

@@ -133,36 +133,105 @@ class PresetTest(unittest.TestCase):
 
     def test_panel_argv_respects_modes(self):
         o = {"mkfont": {"cell": 16, "ascent": 14, "mono_hint": True, "clip_cell": True, "space_advance": None}, "jamoset": {"embolden": True, "symbols": True}}
-        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 1), ["--cell", "16", "--ascent", "14", "--mono-hint", "--clip-cell"])
-        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 2), ["--cell", "16", "--ascent", "14", "--clip-cell"])
-        self.assertEqual(presets.panel_argv(o, "jamo", "dos raw", 1), ["--embolden", "--symbols"])
-        self.assertEqual(presets.panel_argv(o, "jamo", "experimental fit", 1), [])
-        self.assertEqual(presets.panel_argv(o, "jamo", "experimental fit", 2), ["--symbols"])
-        self.assertEqual(presets.panel_argv(o, "jamo", "composite", 2), ["--symbols"])
+        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 1), [["--cell", "16", "--ascent", "14", "--mono-hint", "--clip-cell"]])
+        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 2), [["--cell", "16", "--ascent", "14", "--clip-cell"]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "dos raw", 1), [["--embolden", "--symbols"]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "experimental fit", 1), [[]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "experimental fit", 2), [["--symbols"]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "composite", 2), [["--symbols"]])
 
     def test_panel_argv_null_values_are_absent(self):
         o = {"mkfont": {"cell": None, "ascent": None, "mono_hint": False, "clip_cell": False, "space_advance": None},
              "jamoset": {"embolden": False, "symbols": False}}
-        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 1), [])
-        self.assertEqual(presets.panel_argv(o, "jamo", "dos raw", 1), [])
+        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 1), [[]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "dos raw", 1), [[]])
 
     def test_panel_argv_on_the_other_route_labels(self):
         """M5: hanterm and from-svf take the jamoset flags; bdfface and copy take none of them."""
         o = {"mkfont": {"cell": 16, "ascent": 14, "mono_hint": True, "clip_cell": True, "space_advance": 5},
              "jamoset": {"embolden": True, "symbols": True}}
-        self.assertEqual(presets.panel_argv(o, "jamo", "hanterm", 1), ["--embolden", "--symbols"])
-        self.assertEqual(presets.panel_argv(o, "jamo", "from-svf fit", 1), [])
-        self.assertEqual(presets.panel_argv(o, "jamo", "from-svf fit", 2), [])
-        self.assertEqual(presets.panel_argv(o, "precomposed", "bdfface", 1), [])
-        self.assertEqual(presets.panel_argv(o, "precomposed", "copy", 1), [])
-        self.assertEqual(presets.panel_argv(o, "jamo", "copy", 1), [])
+        self.assertEqual(presets.panel_argv(o, "jamo", "hanterm", 1), [["--embolden", "--symbols"]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "from-svf fit", 1), [[]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "from-svf fit", 2), [[]])
+        self.assertEqual(presets.panel_argv(o, "precomposed", "bdfface", 1), [[]])
+        self.assertEqual(presets.panel_argv(o, "precomposed", "copy", 1), [[]])
+        self.assertEqual(presets.panel_argv(o, "jamo", "copy", 1), [[]])
+
+
+EVERY = {"mkfont": {"cell": 18, "ascent": 12, "width": 18, "mono_hint": True, "clip_cell": True, "fit_cell": False,
+                    "latin": True, "space_advance": 5},
+         "jamoset": {"embolden": True, "symbols": True, "jset_version": 2, "jamo_ascent": 12, "fit_baseline": 12,
+                     "aa_refine": 3, "clean": False, "binarize": "ridge"},
+         "bdfface": {"latin_ascent": 12, "hangul_ascent": 13}}
+
+
+class PanelArgvTest(unittest.TestCase):
+    def test_per_command_fragments(self):
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "bdfface + from-svf fit", 1),
+                         [["--ascent", "12", "--hangul-ascent", "13"], ["--jset-version", "2"]])
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "experimental fit", 2),
+                         [["--symbols", "--jset-version", "2", "--baseline", "12", "--aa-refine", "3", "--no-clean"]])
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "dos raw", 1),
+                         [["--embolden", "--symbols", "--jset-version", "2", "--ascent", "12"]])
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "experimental fit", 1),
+                         [["--jset-version", "2", "--baseline", "12", "--binarize", "ridge", "--no-clean"]])
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "composite", 1),
+                         [["--symbols", "--jset-version", "2", "--baseline", "12", "--binarize", "ridge"]])
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "composite", 2),
+                         [["--symbols", "--jset-version", "2", "--baseline", "12"]])
+        self.assertEqual(presets.panel_argv(EVERY, "precomposed", "mkfont", 1),
+                         [["--cell", "18", "--ascent", "12", "--width", "18", "--mono-hint", "--clip-cell", "--latin",
+                           "--space-advance", "5"]])
+        self.assertEqual(presets.panel_argv(EVERY, "precomposed", "bdfface", 1),
+                         [["--ascent", "12", "--hangul-ascent", "13"]])
+        self.assertEqual(presets.panel_argv(dict(EVERY, mkfont=dict(EVERY["mkfont"], clip_cell=False, fit_cell=True)),
+                                            "precomposed", "mkfont", 2),
+                         [["--cell", "18", "--ascent", "12", "--width", "18", "--fit-cell", "--latin",
+                           "--space-advance", "5"]])
+
+    def test_default_panel_changes_no_argv(self):
+        import settings
+        for label, kind in (("mkfont", "precomposed"), ("experimental fit", "jamo"), ("composite", "jamo"),
+                            ("dos raw", "jamo"), ("bdfface", "precomposed")):
+            for bpp in (1, 2):
+                self.assertEqual(presets.panel_argv(settings.DEFAULT_OPTIONS, kind, label, bpp), [[]], (label, bpp))
+
+    def test_bdfface_flags_land_on_argv_0(self):
+        cmds = routes.route_for(FONT_KSC, "jamo", True).commands(
+            FONT_KSC, 24, 1, "844", ("file", "/u/c.txt"), dict(P, latin="/u/latin.bdf"),
+            presets.panel_argv(EVERY, "jamo", "bdfface + from-svf fit", 1))
+        self.assertIn("--hangul-ascent", cmds[0])
+        self.assertNotIn("--hangul-ascent", cmds[1])
+        self.assertEqual(cmds[1][-2:], ["--jset-version", "2"])
+
+    def test_with_extra_aligns_with_the_last_commands(self):
+        cmds = [["a"], ["b"], ["c"]]
+        self.assertEqual(routes._with_extra([list(c) for c in cmds], [["--x"]]), [["a"], ["b"], ["c", "--x"]])
+        self.assertEqual(routes._with_extra([list(c) for c in cmds], [["--x"], ["--y"]]), [["a"], ["b", "--x"], ["c", "--y"]])
+        self.assertEqual(routes._with_extra([list(c) for c in cmds], []), cmds)
+
+    def test_binarize_replaces_the_default(self):
+        argv = routes.route_for(FONT_TTF, "jamo", True).commands(FONT_TTF, 16, 1, "844", ("2350", None), P,
+                                                                 [["--binarize", "ridge"]])[0]
+        self.assertEqual(argv.count("--binarize"), 1)
+        self.assertEqual(argv[argv.index("--binarize") + 1], "ridge")
+
+    def test_valued_holds_the_new_flags(self):
+        self.assertTrue({"--baseline", "--width", "--aa-refine", "--mask-font", "--mask-radius", "--hangul-ascent",
+                         "--pylib", "--report"} <= routes.VALUED)
+
+    def test_fit_passes_mask_font_none_at_1_bpp(self):
+        one = routes.route_for(FONT_TTF, "jamo", True).commands(FONT_TTF, 16, 1, "844", ("2350", None), P, [])[0]
+        two = routes.route_for(FONT_TTF, "jamo", True).commands(FONT_TTF, 16, 2, "844", ("2350", None), P, [])[0]
+        self.assertEqual(one[one.index("--mask-font") + 1], "none")
+        self.assertNotIn("--mask-font", two)
 
 
 class RoutesTest(unittest.TestCase):
     def test_panel_argv_on_the_new_labels(self):
         every = {"mkfont": {}, "jamoset": {"jset_version": 2, "symbols": True, "embolden": True}}
-        self.assertEqual(presets.panel_argv(every, "jamo", "bdfface + from-svf fit", 1), ["--jset-version", "2"])
-        self.assertEqual(presets.panel_argv(every, "precomposed", "johab844", 1), [])
+        self.assertEqual(presets.panel_argv(every, "jamo", "bdfface + from-svf fit", 1), [[], ["--jset-version", "2"]])
+        self.assertEqual(presets.panel_argv(every, "precomposed", "johab844", 1), [[]])
 
     def test_outline_precomposed(self):
         r = routes.routes(FONT_TTF)
@@ -180,7 +249,7 @@ class RoutesTest(unittest.TestCase):
 
     def test_preset_fragment_replaces_route_flags(self):
         r = routes.routes(FONT_TTF)[0]
-        cmd = r.commands(FONT_TTF, 17, 2, None, ("2350", None), P, presets.argv_for("dos-u-2bpp", "precomposed", 17))[0]
+        cmd = r.commands(FONT_TTF, 17, 2, None, ("2350", None), P, [presets.argv_for("dos-u-2bpp", "precomposed", 17)])[0]
         self.assertEqual(cmd[5:], ["--size", "17", "--cell", "16", "--clip-cell", "--ascent", "15", "--bpp", "2", "--unicode", "ascii,ksx1001-nohanja,AC37,B2CF,B584,C125,C2BA,D14A,D59D"])
 
     def test_composite_jamo(self):
@@ -193,7 +262,7 @@ class RoutesTest(unittest.TestCase):
 
     def test_experimental_fit(self):
         r = routes.route_for(FONT_TTF, "jamo", True)
-        self.assertEqual(r.commands(FONT_TTF, 16, 1, "844", ("2350", None), P, [])[0][3:], ["--layout", "844", "--from-ttf", "/u/in.ttf", "--size", "16", "--binarize", "threshold", "--check", "-o", "/w/OUT.SVF"])
+        self.assertEqual(r.commands(FONT_TTF, 16, 1, "844", ("2350", None), P, [])[0][3:], ["--layout", "844", "--from-ttf", "/u/in.ttf", "--size", "16", "--binarize", "threshold", "--check", "-o", "/w/OUT.SVF", "--mask-font", "none"])
         self.assertNotIn("--binarize", r.commands(FONT_TTF, 16, 2, "844", ("2350", None), P, [])[0])
         self.assertIsNone(routes.route_for(FONT_TTF, "jamo", False))
 
@@ -202,7 +271,7 @@ class RoutesTest(unittest.TestCase):
         fit = routes.route_for(FONT_TTF, "jamo", True)
         svf = routes.routes(FONT_SVF_PRE)[1]
         p = dict(P, eng="/u/ENG.FNT")
-        self.assertEqual(fit.commands(FONT_TTF, 16, 1, "844", ("2350", None), p, [])[0][-2:], ["--eng", "/u/ENG.FNT"])
+        self.assertEqual(fit.commands(FONT_TTF, 16, 1, "844", ("2350", None), p, [])[0][-4:], ["--eng", "/u/ENG.FNT", "--mask-font", "none"])
         self.assertNotIn("--eng", fit.commands(FONT_TTF, 16, 2, "844", ("2350", None), p, [])[0])
         self.assertEqual(svf.commands(FONT_SVF_PRE, 16, 1, "844", ("2350", None), p, [])[0][-2:], ["--eng", "/u/ENG.FNT"])
         self.assertNotIn("--eng", svf.commands(FONT_SVF_PRE, 16, 1, "844", ("2350", None), P, [])[0])
@@ -288,7 +357,7 @@ class RoutesTest(unittest.TestCase):
     def test_jset_version_flag_converts(self):
         conv = lambda v: PY + ["/T/svf2to3.py", "/u/in.ttf", "/w/OUT.SVF", "--jset-version", v, "--check"]
         f = self._jf(1)
-        self.assertEqual(routes.routes(f)[0].commands(f, 16, 1, None, ("2350", None), P, ["--jset-version", "2"]),
+        self.assertEqual(routes.routes(f)[0].commands(f, 16, 1, None, ("2350", None), P, [["--jset-version", "2"]]),
                          [conv("2")])
         self.assertEqual(routes.svf_commands(f, P, ["--jset-version", "1"]), [])       # already v1
         f2 = self._jf(2)
@@ -308,14 +377,14 @@ class RoutesTest(unittest.TestCase):
 
     def test_from_svf_fit_of_a_jmap_source_skips_the_svf2to3_flag(self):
         f = dict(FONT_SVF_PRE, svf=dict(FONT_SVF_PRE["svf"], jset_version=3))
-        cmds = routes.routes(f)[1].commands(f, 16, 1, "844", ("2350", None), P, ["--jset-version", "2"])
+        cmds = routes.routes(f)[1].commands(f, 16, 1, "844", ("2350", None), P, [["--jset-version", "2"]])
         self.assertEqual(len(cmds), 1)
         self.assertIn("jamoset.py", cmds[0][2])
         self.assertEqual(cmds[0][cmds[0].index("--jset-version") + 1], "2")
 
     def test_from_svf_passes_the_jset_flag_to_the_writer(self):
         cmds = routes.routes(FONT_SVF_PRE)[1].commands(FONT_SVF_PRE, 16, 1, "844", ("2350", None), P,
-                                                       ["--jset-version", "2", "--threshold", "5"])
+                                                       [["--jset-version", "2", "--threshold", "5"]])
         self.assertEqual(len(cmds), 1)          # a v3 source needs no svf2to3 step; jamoset.py writes the version asked
         self.assertIn("jamoset.py", cmds[0][2])
         self.assertEqual(cmds[0][cmds[0].index("--jset-version") + 1], "2")
@@ -324,11 +393,11 @@ class RoutesTest(unittest.TestCase):
     def test_panel_argv_jset_version(self):
         o = {"mkfont": {}, "jamoset": {"embolden": False, "symbols": False, "jset_version": 2}}
         for label in ("dos raw", "hanterm", "composite", "experimental fit", "from-svf fit", "copy"):
-            self.assertEqual(presets.panel_argv(o, "jamo", label, 1), ["--jset-version", "2"], label)
-        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 1), [])
-        self.assertEqual(presets.panel_argv(o, "precomposed", "copy", 1), [])
+            self.assertEqual(presets.panel_argv(o, "jamo", label, 1), [["--jset-version", "2"]], label)
+        self.assertEqual(presets.panel_argv(o, "precomposed", "mkfont", 1), [[]])
+        self.assertEqual(presets.panel_argv(o, "precomposed", "copy", 1), [[]])
         o["jamoset"]["jset_version"] = None
-        self.assertEqual(presets.panel_argv(o, "jamo", "dos raw", 1), [])
+        self.assertEqual(presets.panel_argv(o, "jamo", "dos raw", 1), [[]])
 
     def test_commands_is_required(self):
         """M6: a Route with no `commands` must not be constructible (the brief has it required)."""

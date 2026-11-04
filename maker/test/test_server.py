@@ -899,19 +899,33 @@ class ApiTest(unittest.TestCase):
         # The advanced panel's visibility (the page's `OPTION_VISIBLE`) is which flags `presets.panel_argv` emits for
         # a route label and bpp: every option carries a value that emits its flag, so the emitted flags name the keys
         # the page must show for that route and bpp. A new route label or a changed panel rule fails here.
-        flags = {"--cell": "cell", "--ascent": "ascent", "--space-advance": "space_advance",
-                 "--mono-hint": "mono_hint", "--clip-cell": "clip_cell",
-                 "--embolden": "embolden", "--symbols": "symbols", "--jset-version": "jset_version"}
-        every = {"mkfont": {"cell": 18, "ascent": 12, "space_advance": 5, "mono_hint": True, "clip_cell": True},
-                 "jamoset": {"embolden": True, "symbols": True, "jset_version": 2}}
+        # A flag names a key by the label's tool (TOOL_OF_LABEL): --ascent is the mkfont `ascent`, the jamoset
+        # `jamo_ascent` or the bdfface `latin_ascent`; every other flag is one key.
+        flags = {"--cell": "cell", "--width": "width", "--space-advance": "space_advance",
+                 "--mono-hint": "mono_hint", "--clip-cell": "clip_cell", "--fit-cell": "fit_cell", "--latin": "latin",
+                 "--embolden": "embolden", "--symbols": "symbols", "--jset-version": "jset_version",
+                 "--baseline": "fit_baseline", "--binarize": "binarize", "--aa-refine": "aa_refine",
+                 "--no-clean": "clean", "--hangul-ascent": "hangul_ascent"}
+        TOOL_OF_LABEL = {"mkfont": "ascent", "dos raw": "jamo_ascent", "hanterm": "jamo_ascent",
+                         "bdfface": "latin_ascent", "bdfface + from-svf fit": "latin_ascent"}
+        every = {"mkfont": {"cell": 18, "ascent": 12, "width": 18, "mono_hint": True, "clip_cell": True,
+                            "fit_cell": False, "latin": True, "space_advance": 5},
+                 "jamoset": {"embolden": True, "symbols": True, "jset_version": 2, "jamo_ascent": 12,
+                             "fit_baseline": 12, "aa_refine": 3, "clean": False, "binarize": "ridge"},
+                 "bdfface": {"latin_ascent": 12, "hangul_ascent": 13}}
+        # clip_cell and fit_cell are exclusive in a real run: two passes, the union per (label, bpp)
+        passes = [every, dict(every, mkfont=dict(every["mkfont"], clip_cell=False, fit_cell=True))]
         want = {}
         for font in canonical_fonts():
             for route in routes.routes(font):
                 for bpp in route.bpps:
-                    argv = presets.panel_argv(every, route.kind, route.label, bpp)
-                    keys = [flags[token] for token in argv if token in flags]
-                    self.assertEqual(len(set(keys)), len(keys), (route.label, bpp, argv))     # one flag per key
-                    want.setdefault(route.label, {}).setdefault(str(bpp), set()).update(keys)
+                    for opts in passes:
+                        argv = [token for fragment in presets.panel_argv(opts, route.kind, route.label, bpp)
+                                for token in fragment]
+                        keys = [flags[token] if token != "--ascent" else TOOL_OF_LABEL[route.label]
+                                for token in argv if token in flags or token == "--ascent"]
+                        self.assertEqual(len(set(keys)), len(keys), (route.label, bpp, argv))     # one flag per key
+                        want.setdefault(route.label, {}).setdefault(str(bpp), set()).update(keys)
         visible_js = js_json_block(js, "OPTION_VISIBLE")
         self.assertEqual(sorted(visible_js), sorted(want))                    # every route label, and no other
         for label, by_bpp in want.items():

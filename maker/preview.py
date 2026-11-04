@@ -185,7 +185,7 @@ def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=
             if route is None:
                 return False
             size = (font.get("sizes") or [None])[0]
-            commands = route.commands(font, size, 1, layout, ("2350", None), paths, list(extra))
+            commands = route.commands(font, size, 1, layout, ("2350", None), paths, [list(extra)])
         for argv in commands:
             done = subprocess.run(argv, cwd=work, env=ENV, timeout=TIMEOUT_S,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -60,31 +60,65 @@ def argv_for(name, kind, size):
     return [str(size - 2) if token == "{size-2}" else token for token in fragment]
 
 
+def _num(out, flag, value):
+    if value is not None:
+        out += [flag, str(value)]
+
+
 def panel_argv(options, kind, route_label, bpp):
-    """The advanced panel's values as an argv fragment for one route and bpp; null/false values are absent."""
+    """The advanced panel's values as one argv fragment per command the panel addresses, for one route and bpp.
+
+    `[[...]]` for every route but `bdfface + from-svf fit`, which is two commands and gets `[argv0 flags, argv1
+    flags]` (the bdfface flags on the face writer, `--jset-version` on the jamo fit). Null and false values are absent;
+    `--binarize` is emitted only when it is not the routes' own default, `threshold`, so a default panel changes no
+    argv. The rows are the spec's 7.1/7.3 for today's route labels.
+    """
+    mkfont = options.get("mkfont", {})
+    jamoset = options.get("jamoset", {})
+    bdfface = options.get("bdfface", {})
     out = []
     if kind == "precomposed":
-        if route_label != "mkfont":      # the panel's mkfont values say nothing about bdfface's or copy's flags
-            return out
-        mkfont = options.get("mkfont", {})
-        if mkfont.get("cell") is not None:
-            out += ["--cell", str(mkfont["cell"])]
-        if mkfont.get("ascent") is not None:
-            out += ["--ascent", str(mkfont["ascent"])]
-        if mkfont.get("mono_hint") and bpp == 1:   # mkfont.py refuses --mono-hint for 2 bpp
-            out.append("--mono-hint")
-        if mkfont.get("clip_cell"):
-            out.append("--clip-cell")
-        if mkfont.get("space_advance") is not None:
-            out += ["--space-advance", str(mkfont["space_advance"])]
-        return out
-    jamoset = options.get("jamoset", {})
+        if route_label == "mkfont":
+            _num(out, "--cell", mkfont.get("cell"))
+            _num(out, "--ascent", mkfont.get("ascent"))
+            _num(out, "--width", mkfont.get("width"))
+            if mkfont.get("mono_hint") and bpp == 1:   # mkfont.py refuses --mono-hint for 2 bpp
+                out.append("--mono-hint")
+            if mkfont.get("clip_cell"):
+                out.append("--clip-cell")
+            if mkfont.get("fit_cell"):
+                out.append("--fit-cell")
+            if mkfont.get("latin"):
+                out.append("--latin")
+            _num(out, "--space-advance", mkfont.get("space_advance"))
+        elif route_label == "bdfface":
+            _num(out, "--ascent", bdfface.get("latin_ascent"))
+            _num(out, "--hangul-ascent", bdfface.get("hangul_ascent"))
+        return [out]       # johab844 and copy take no panel flag (a precomposed copy has no JSET block)
+    if route_label == "bdfface + from-svf fit":
+        first = []
+        _num(first, "--ascent", bdfface.get("latin_ascent"))
+        _num(first, "--hangul-ascent", bdfface.get("hangul_ascent"))
+        second = []
+        _num(second, "--jset-version", jamoset.get("jset_version"))
+        return [first, second]
     if jamoset.get("embolden") and route_label in ("dos raw", "hanterm"):
         out.append("--embolden")
     if jamoset.get("symbols") and (route_label in ("dos raw", "hanterm", "composite")
                                    or (route_label == "experimental fit" and bpp == 2)):
         out.append("--symbols")
     if jamoset.get("jset_version") is not None and route_label in ("dos raw", "hanterm", "composite", "experimental fit",
-                                                                   "from-svf fit", "copy", "bdfface + from-svf fit"):
+                                                                   "from-svf fit", "copy"):
         out += ["--jset-version", str(jamoset["jset_version"])]   # unset: a writer's own 1, an SVF upload keeps its block
-    return out
+    if route_label in ("dos raw", "hanterm"):
+        _num(out, "--ascent", jamoset.get("jamo_ascent"))
+    if route_label in ("composite", "experimental fit"):
+        _num(out, "--baseline", jamoset.get("fit_baseline"))
+        binarize = jamoset.get("binarize")
+        if bpp == 1 and binarize not in (None, "threshold"):
+            out += ["--binarize", binarize]
+    if route_label == "experimental fit":
+        _num(out, "--aa-refine", jamoset.get("aa_refine") if bpp == 2 else None)
+        if jamoset.get("clean") is False:
+            out.append("--no-clean")
+    return [out]

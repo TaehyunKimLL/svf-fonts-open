@@ -68,7 +68,7 @@ class V3OutputTest(unittest.TestCase):
         paths = {"tools": v2_parity.TOOLS, "src": src, "out": out, "work": d, "eng": None, "latin": None,
                  "master": None, "range_file": None}
         cmds = routes.routes(font)[0].commands(font, font["sizes"][0], font["svf"]["bpp"], None, ("2350", None),
-                                                paths, extra)
+                                                paths, [extra])
         if not cmds:
             shutil.copyfile(src, out)
         for argv in cmds:

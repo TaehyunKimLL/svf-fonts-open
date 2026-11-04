@@ -90,17 +90,19 @@ const CHOICE_KEYS = {"binarize": ["threshold", "ridge", "mono"]};
 // options"), i.e. the option keys the panel shows for that route. Only labels the routes above offer appear. Strict
 // JSON (the drift test compares it with the flags panel_argv emits for every route label and bpp).
 const OPTION_VISIBLE = {
-  "mkfont": {"1": ["cell", "ascent", "mono_hint", "clip_cell", "space_advance"],
-             "2": ["cell", "ascent", "clip_cell", "space_advance"]},
+  "mkfont": {"1": ["cell", "ascent", "width", "mono_hint", "clip_cell", "fit_cell", "latin", "space_advance"],
+             "2": ["cell", "ascent", "width", "clip_cell", "fit_cell", "latin", "space_advance"]},
   "johab844": {"1": []},
-  "dos raw": {"1": ["embolden", "symbols", "jset_version"]},
-  "hanterm": {"1": ["embolden", "symbols", "jset_version"]},
-  "composite": {"1": ["symbols", "jset_version"], "2": ["symbols", "jset_version"]},
-  "experimental fit": {"1": ["jset_version"], "2": ["symbols", "jset_version"]},
+  "dos raw": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
+  "hanterm": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
+  "composite": {"1": ["symbols", "jset_version", "fit_baseline", "binarize"],
+                "2": ["symbols", "jset_version", "fit_baseline"]},
+  "experimental fit": {"1": ["jset_version", "fit_baseline", "binarize", "clean"],
+                       "2": ["symbols", "jset_version", "fit_baseline", "aa_refine", "clean"]},
   "copy": {"1": ["jset_version"], "2": ["jset_version"]},
   "from-svf fit": {"1": ["jset_version"]},
-  "bdfface": {"1": []},
-  "bdfface + from-svf fit": {"1": ["jset_version"]}
+  "bdfface": {"1": ["latin_ascent", "hangul_ascent"]},
+  "bdfface + from-svf fit": {"1": ["jset_version", "latin_ascent", "hangul_ascent"]}
 };
 
 // Mirrors server._make_source_preview: how the page gets a source preview, per source kind. "draw": the server draws
