@@ -1382,6 +1382,36 @@ class ProbeTest(ApiBase):
         self.assertIs(json.loads(r.read())["probe_face"], False)
         self.assertEqual(self.raw("GET", self.url(jid, size=96, ext="svf")).status, 404)
 
+    def test_the_probe_reports_the_steps_own_cell(self):
+        """A preset's --cell (dos-u-2bpp 16, latin-18cell-2bpp 18) is the cell the build cuts at: the JSON says so."""
+        for preset, size, bpp, cell in (("dos-u-2bpp", 17, 2, 16), ("latin-18cell-2bpp", 16, 2, 18), ("plain", 16, 1, 16),
+                                        ("dos-l-1bpp", 20, 1, 16)):
+            with self.subTest(preset=preset):
+                jid = self.post("/api/jobs")["id"]
+                self.put_file(jid, "tall/Tall.ttf", inputfx.tall_ttf())
+                self.put_file(jid, "tall/OFL.txt", read(F["ttf_licence"]))
+                self.post("/api/jobs/%s/detect" % jid)
+                s = self.get("/api/jobs/%s" % jid)["settings"]
+                fid = next(iter(s["fonts"]))
+                s["fonts"][fid].update(dest="new/fixture", sizes=[size], bpp=[bpp], preset=preset)
+                self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(s).encode()).status, 200)
+                rep = json.loads(self.raw("GET", "/api/jobs/%s/probe/%s/%d/%d.json" % (jid, fid, size, bpp)).read())
+                self.assertEqual(rep["step_cell"], cell)
+        jid = self.tall_job(options={"mkfont": {"cell": 12}})
+        self.assertEqual(json.loads(self.raw("GET", self.url(jid)).read())["step_cell"], 12)
+
+    def test_a_cached_probe_get_writes_no_range_files(self):
+        jid = self.tall_job()
+        self.assertEqual(self.raw("GET", self.url(jid)).status, 200)
+        self.assertEqual(sorted(os.listdir(self.probe_dir(jid))), ["16-1.json", "16-1.svf"])
+        self.assertEqual(self.raw("GET", self.url(jid)).status, 200)
+        self.assertEqual(sorted(os.listdir(self.probe_dir(jid))), ["16-1.json", "16-1.svf"])
+
+    def test_the_probe_url_takes_no_leading_zeros(self):
+        jid = self.tall_job()
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/probe/%s/016/1.json" % (jid, self.fid)).status, 404)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/probe/%s/16/01.json" % (jid, self.fid)).status, 404)
+
     def test_probe_404s(self):
         jid = self.tall_job()
         self.assertEqual(self.raw("GET", self.url(jid, size=17)).status, 404)          # a size not selected

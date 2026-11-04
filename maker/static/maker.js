@@ -1110,7 +1110,8 @@ function clippingPanel(font, per) {
     const own = ((per.options || {}).mkfont || {})[key];
     return own !== undefined && own !== null ? own : (((settings.batch.options || {}).mkfont || {})[key] ?? null);
   };
-  const cellH = () => effOption("cell") || Number(sizeSel.value);
+  // the cell the build cuts at: the step's own (a preset may carry --cell), else the effective cell option, else the size
+  const cellH = () => (report && report.step_cell) || effOption("cell") || Number(sizeSel.value);
 
   const url = (ext) => "/api/jobs/" + encodeURIComponent(job.id) + "/probe/" + encodeURIComponent(font.id) + "/" +
     sizeSel.value + "/" + bppSel.value + "." + ext;
@@ -1522,7 +1523,9 @@ async function applySetting(fontId, what, mutate) {
     return;
   }
   if (job.state !== "detected") {
-    if (dirty && !window.confirm("Unsaved settings are replaced by the saved ones; apply anyway?")) return;
+    const lost = "Re-opening the job for editing discards its built faces and the zip" +
+      (dirty ? ", and unsaved settings are replaced by the saved ones" : "") + ". Apply and re-open?";
+    if (!window.confirm(lost)) return;
     try {
       await api("POST", "/api/jobs/" + encodeURIComponent(jobId) + "/detect");
     } catch (err) {

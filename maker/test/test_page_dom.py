@@ -32,6 +32,11 @@ DRIVER = os.path.join(TEST_DIR, "pagedrive.mjs")
 WAIT_S = 240
 
 
+def read_report(srv, job, step):
+    with open(srv.store.path(job, step["report"]), encoding="utf-8") as f:
+        return json.load(f)
+
+
 def browser():
     return next((shutil.which(n) for n in ("google-chrome", "chromium-browser") if shutil.which(n)), None)
 
@@ -231,6 +236,7 @@ return {same: again === input, mark: again.__mark, value: again.value, states: [
         self.api("POST", "/api/jobs/%s/run" % job)
         self.assertEqual(self.wait_done(job)["state"], "done")
         out = self.drive(job, """
+window.confirm = () => true;
 await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
 const dy = document.querySelector('input[aria-label="dy to try"]');
 dy.value = 'A=1 5=-1'; dy.dispatchEvent(new Event('change'));
@@ -246,6 +252,7 @@ return {notice: document.getElementById('notice').textContent, state: document.g
     def test_apply_ascent_on_a_finished_job_is_saved_and_the_guides_show(self):
         job = self.dos_job(run=True)
         out = self.drive(job, """
+window.confirm = () => true;
 await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
 const field = document.querySelector('input[aria-label="ascent to try"]');
 field.value = '11'; field.dispatchEvent(new Event('change'));
@@ -318,6 +325,88 @@ return {first, second, rows, bands, ink: canvas.dataset.ink};
         self.assertGreater(int(out["ink"]), 0)
         mk = self.api("GET", "/api/jobs/" + job)["settings"]["fonts"][font]["options"]["mkfont"]
         self.assertEqual((mk["ascent"], mk["clip_cell"]), (12, True))
+
+    def test_apply_asks_before_it_discards_the_build(self):
+        job = self.api("POST", "/api/jobs")["id"]
+        self.upload(job, "svf/NEODG16.SVF", os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"))
+        detected = self.api("POST", "/api/jobs/%s/detect" % job)
+        font = detected["fonts"][0]["id"]
+        s = detected["settings"]
+        s["fonts"][font].update(selected=True, dest="new/dom", licence={"kind": "text", "text": "OFL"},
+                                licence_name="OFL.TXT", note_name="NOTE.TXT")
+        self.api("PUT", "/api/jobs/%s/settings" % job, s)
+        self.api("POST", "/api/jobs/%s/run" % job)
+        self.assertEqual(self.wait_done(job)["state"], "done")
+        script = """
+let asked = 0;
+window.confirm = (m) => { asked++; window.__message = m; return ACCEPT; };
+await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
+const dy = document.querySelector('input[aria-label="dy to try"]');
+dy.value = 'A=1'; dy.dispatchEvent(new Event('change'));
+await sleep(500);
+[...document.querySelectorAll('button')].find((b) => b.textContent === 'apply dy').click();
+await sleep(3000);
+return {asked, message: window.__message, state: document.getElementById('state').textContent};
+"""
+        cancelled = self.drive(job, script.replace("ACCEPT", "false"))
+        self.assertEqual(cancelled["asked"], 1)
+        self.assertIn("discard", cancelled["message"])
+        state = self.api("GET", "/api/jobs/" + job)
+        self.assertEqual(state["state"], "done")                                  # nothing was touched
+        self.assertTrue(state["result"])
+        self.assertIsNone(state["settings"]["fonts"][font]["dy"])
+        accepted = self.drive(job, script.replace("ACCEPT", "true"))
+        self.assertEqual(accepted["asked"], 1)
+        state = self.api("GET", "/api/jobs/" + job)
+        self.assertEqual(state["state"], "detected")
+        self.assertEqual(state["settings"]["fonts"][font]["dy"], {"0x41": 1})
+
+    def preset_job(self, preset, size, bpp, run):
+        job = self.api("POST", "/api/jobs")["id"]
+        self.upload(job, "nanum/NanumGothic-Bold.ttf", os.path.join(REPO_DIR, "ttf", "nanumgothic", "NanumGothic-Bold.ttf"))
+        self.upload(job, "nanum/OFL.txt", os.path.join(REPO_DIR, "ttf", "nanumgothic", "OFL.txt"))
+        detected = self.api("POST", "/api/jobs/%s/detect" % job)
+        font = next(f["id"] for f in detected["fonts"] if f["path"].endswith(".ttf"))
+        s = detected["settings"]
+        for fid, per in s["fonts"].items():
+            per["selected"] = fid == font and run
+        s["fonts"][font].update(dest="new/dom", sizes=[size], bpp=[bpp], preset=preset)
+        self.api("PUT", "/api/jobs/%s/settings" % job, s)
+        self.font = font
+        return job
+
+    def panel_counts(self, job):
+        return self.drive(job, """
+const panel = (document.querySelector('tr.override[data-for="FONTID"]'));
+document.querySelector('tr[data-font="FONTID"] input.override').click();
+const details = panel.querySelector('details.clipping');
+details.open = true; details.dispatchEvent(new Event('toggle'));
+await waitFor(() => /glyphs cut/.test(panel.querySelector('.clip-counts').textContent));
+return {counts: panel.querySelector('.clip-counts').textContent, cell: panel.querySelector('.clip-controls, .svf-controls').textContent,
+        ascent: panel.querySelector('input[aria-label="clipping ascent"]').value};
+""")
+
+    def test_the_clipping_panel_uses_the_presets_own_cell(self):
+        """dos-u-2bpp carries --cell 16 --clip-cell --ascent {size-2}: the panel must show what that build cuts."""
+        built = self.preset_job("dos-u-2bpp", 17, 2, run=True)
+        done = self.wait_after_run(built)
+        report = read_report(self.srv, built, done["steps"][0])
+        cut = report["counts"]["cut"]
+        self.assertGreater(cut, 1000)
+        out = self.panel_counts(self.preset_job("dos-u-2bpp", 17, 2, run=False))
+        self.assertTrue(out["counts"].startswith("{:,} glyphs cut".format(cut)), (out, cut))
+        self.assertIn("cell 16 rows", out["cell"])
+        self.assertEqual(out["ascent"], "15")
+        # latin-18cell-2bpp: cell 18, nothing cut at 16 px
+        out = self.panel_counts(self.preset_job("latin-18cell-2bpp", 16, 2, run=False))
+        self.assertTrue(out["counts"].startswith("0 glyphs cut"), out)
+        self.assertIn("cell 18 rows", out["cell"])
+
+    def wait_after_run(self, job):
+        self.api("POST", "/api/jobs/%s/run" % job)
+        done = self.wait_done(job)
+        self.assertEqual(done["state"], "done", done.get("error"))
+        return done
 
 
 if __name__ == "__main__":

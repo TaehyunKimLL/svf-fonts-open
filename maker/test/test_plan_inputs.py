@@ -604,6 +604,22 @@ class FaceArgvTest(Case):
             checked += 1
         self.assertEqual(checked, 4)
 
+    def test_face_argv_is_the_literal_command(self):
+        """An expectation written out by hand (the equality test above calls the same function as plan_steps)."""
+        font = {"id": "f01", "path": "a.ttf", "face_index": 0, "source_kind": "outline", "sizes": [16],
+                "sizes_fixed": False, "licences": [], "companions": []}
+        st = settings.defaults([font])
+        st["fonts"]["f01"].update(preset="dos-l-1bpp", options={"mkfont": {"ascent": 12}})
+        eff = settings.effective([font], st, "f01")
+        paths = {"tools": "/T", "src": "/u/a.ttf", "out": "/w/O.SVF", "work": "/w", "eng": None, "latin": None,
+                 "master": None, "range_file": "/w/range-2350.txt", "report": "/w/report.json"}
+        got = settings.face_argv(font, eff, routes.route_for(font, "precomposed", False), "precomposed", 16, 1, None,
+                                 ("2350", None), paths)
+        self.assertEqual(got, [routes.PY + ["/T/mkfont.py", "/u/a.ttf", "/w/O.SVF", "--size", "16",
+                                            "--cell", "16", "--bpp", "1", "--unicode",
+                                            "ascii,ksx1001-nohanja,AC37,B2CF,B584,C125,C2BA,D14A,D59D",
+                                            "--ascent", "12", "--report", "/w/report.json"]])
+
 
 class ProbeArgvTest(unittest.TestCase):
     MKFONT = routes.PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF"]

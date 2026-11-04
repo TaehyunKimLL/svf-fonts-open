@@ -440,6 +440,11 @@ class ControlsTest(unittest.TestCase):
                                                  experimental=False) if "hangul_ascent" in e], [])
         self.assertEqual([e for e in self.errors(options={"jamoset": {"fit_baseline": 30}}) if "fit_baseline" in e], [])  # mkfont only
 
+    def test_two_dy_keys_for_one_code_point_are_refused(self):
+        errs = self.errors(dy={"A": 1, "0x41": -3})
+        self.assertTrue(any(e.startswith("f01: dy keys ") and "name the same code point" in e for e in errs), errs)
+        self.assertEqual(self.errors(dy={"A": 1, "0x42": -3}), [])
+
     def test_dy_needs_a_precomposed_face(self):
         self.assertIn("f01: dy needs a precomposed face", self.errors(kinds=["jamo"], experimental=True, dy={"0x41": 1}))
         self.assertEqual([e for e in self.errors(kinds=["jamo"], experimental=True, dy={}) if "dy" in e], [])

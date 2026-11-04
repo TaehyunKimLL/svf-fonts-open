@@ -343,7 +343,7 @@ _ROUTES = (
     ("GET", re.compile(r"^/api/jobs/%s/face/(?P<step>s\d+)\.svf$" % _JOB), "_job_face"),
     ("GET", re.compile(r"^/api/jobs/%s/source/(?P<font>f\d+)\.svf$" % _JOB), "_job_source_face"),
     ("GET", re.compile(r"^/api/jobs/%s/report/(?P<step>s\d+)\.json$" % _JOB), "_job_report"),
-    ("GET", re.compile(r"^/api/jobs/%s/probe/(?P<font>f\d+)/(?P<size>\d+)/(?P<bpp>\d+)\.(?P<ext>svf|json)$" % _JOB),
+    ("GET", re.compile(r"^/api/jobs/%s/probe/(?P<font>f\d+)/(?P<size>[1-9]\d*)/(?P<bpp>[1-9]\d*)\.(?P<ext>svf|json)$" % _JOB),
      "_job_probe"),
     ("GET", re.compile(r"^/api/repo/face/(?P<group>[A-Za-z0-9_-]+)/(?P<file>[A-Z0-9_]+\.SVF)$"), "_repo_face"),
     ("GET", re.compile(r"^/api/caps$"), "_caps"),
@@ -1025,15 +1025,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             os.makedirs(probe_dir, exist_ok=True)
             src = self._plain_source(entry, os.path.join(upload_dir, entry.get("path") or ""), probe_dir)
             rkind, rabs = settings.range_spec(eff, upload_dir)
+            range_file = os.path.join(probe_dir, "range.txt")     # only an uploaded list is passed as a file
             if rkind == "file":
-                range_file = os.path.join(probe_dir, "range.txt")
                 if not rabs or not _inside(upload_dir, rabs) or not os.path.isfile(rabs):
                     raise _HttpError(404, "no probe")
-                shutil.copyfile(rabs, range_file)
                 range_arg = ("file", range_file)
             else:
-                range_file = settings.write_range_files(probe_dir)[rkind]
-                range_arg = (rkind, None)
+                range_arg = (rkind, None)                          # a named range is mkfont's own --unicode name
             paths = {"tools": self.server.tools_dir, "src": src, "out": out_svf, "work": probe_dir, "eng": None,
                      "latin": None, "master": None, "range_file": range_file, "base": None}
             try:
@@ -1042,6 +1040,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise _HttpError(404, str(exc))
             argv = settings.probe_argv(step_argv, src, out_svf, out_json, size)
             if not os.path.isfile(out_json):
+                if rkind == "file":
+                    shutil.copyfile(rabs, range_file)
                 self._run_probe(argv, probe_dir, out_svf, out_json)
             if not os.path.isfile(out_json):
                 raise _HttpError(404, "the probe failed")
@@ -1052,6 +1052,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise _HttpError(404, "no probe face")
             self._serve_bytes(out_svf, "application/octet-stream")
             return
+        cell = size
+        if "--cell" in step_argv:
+            try:
+                cell = int(step_argv[step_argv.index("--cell") + 1])
+            except (ValueError, IndexError):
+                cell = size
+        report["step_cell"] = cell                       # the step's own cell height (a preset may carry --cell)
         ascent = None
         if "--ascent" in step_argv:
             try:

@@ -828,6 +828,13 @@ def _dy_errors(fid, eff, kinds, sizes):
     errors = []
     if "precomposed" not in kinds:
         errors.append("%s: dy needs a precomposed face" % fid)
+    seen = {}
+    for key in dy:
+        cp = _dy_key(key)
+        if cp is not None:
+            if cp in seen:
+                errors.append("%s: dy keys %s and %s name the same code point" % (fid, seen[cp], key))
+            seen.setdefault(cp, key)
     cell = _mkfont_options(eff).get("cell")
     cells = [cell] if _is_int(cell) else [size for size in sizes if _is_int(size)]
     for key, value in dy.items():
