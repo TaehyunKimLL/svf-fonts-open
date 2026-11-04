@@ -13,6 +13,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import shutil
 import struct
 import tempfile
 import unittest
@@ -333,6 +334,38 @@ class SourcesScanTest(DirCase):
             self.assertEqual(by_path["a/link.ttf"]["label"], "symlink, skipped")
             self.assertEqual(by_path["a/Munjo.ttf"]["licences"],
                              [{"path": "a/OFL.txt", "first_line": "SIL Open Font License, Version 1.1"}])
+
+    def test_scan_temp_copies_stay_in_tmp_dir(self):
+        sentinel = tempfile.mkdtemp()
+        tmpd = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, sentinel, ignore_errors=True)
+        self.addCleanup(shutil.rmtree, tmpd, ignore_errors=True)
+        import gzip
+        fixtures._bdf(self.path("k/ksc.bdf"), fixtures._ksc_glyphs(), 24, 19, 5, "KSX1001.1998", (24, 24))
+        with open(self.dir("k/ksc.bdf"), "rb") as f:
+            data = f.read()
+        os.remove(self.dir("k/ksc.bdf"))
+        self.put("k/ksc.bdf.gz", gzip.compress(data, mtime=0))
+        with mock.patch.object(tempfile, "tempdir", sentinel):
+            fonts = detect.scan(Sources("local", [self.dir("k")], tmp_dir=tmpd), local=True)
+        self.assertIsNotNone(fonts[0]["coverage"])
+        self.assertEqual(os.listdir(sentinel), [])
+        self.assertEqual(os.listdir(tmpd), [])
+
+    def test_local_labels_name_no_input_bytes(self):
+        self.put("r/x.bin", bytes(range(1, 65)))
+        self.put("r/bad.ttf", b"\x00\x01\x00\x00" + b"\xff\xfe" * 40)
+        self.put("r/z.zip", b"PK\x03\x04" + bytes(40))
+        fonts = {f["path"]: f for f in detect.scan(Sources("local", [self.dir("r")]), local=True)}
+        self.assertEqual(fonts["x.bin"]["label"], "unknown")
+        self.assertRegex(fonts["bad.ttf"]["label"], r"^unreadable: [A-Za-z_]+$")
+        self.assertEqual(fonts["bad.ttf"]["error_type"], fonts["bad.ttf"]["label"].split(": ")[1])
+        self.assertIn("Traceback", fonts["bad.ttf"]["error"])
+        self.assertEqual(fonts["z.zip"]["format"], "archive")
+        self.assertEqual(fonts["z.zip"]["label"], "archive: extract it first, then choose the folder")
+        up = {f["path"]: f for f in detect.scan(self.dir("r"))}                 # an upload keeps today's labels
+        self.assertRegex(up["x.bin"]["label"], r"^unknown \([0-9a-f]+\)$")
+        self.assertNotIn("z.zip", up)
 
     def test_overlapping_roots_list_each_file_once_with_its_own_licence(self):
         self.put("r/Munjo.ttf", inputfx.ttf("Munjo", BOX1))

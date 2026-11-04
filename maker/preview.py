@@ -188,7 +188,7 @@ def source_png(font, abs_path, size, out_path):
     return False
 
 
-def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=()):
+def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=(), env=None):
     """Bake @p font's source into @p out_svf for a preview; True only when this bake really produced @p out_svf.
 
     A `.gz` source is decompressed first (`materialize`). An `svf-*` source is copied (v3) or converted (v2,
@@ -204,7 +204,7 @@ def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=
     tool that times out are all False too.
 
     @p extra is the flags the job's steps carry (`--jset-version V` among them), so the preview shows the face the job
-    would write.
+    would write. @p env, when given, is the tools' environment (a local job's `TMPDIR` and no-bytecode flag).
     """
     out_svf = os.path.abspath(out_svf)
     src = abs_path
@@ -232,7 +232,7 @@ def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=
             size = (font.get("sizes") or [None])[0]
             commands = route.commands(font, size, 1, layout, ("2350", None), paths, [list(extra)])
         for argv in commands:
-            done = run_bounded(argv, work, TIMEOUT_S)
+            done = run_bounded(argv, work, TIMEOUT_S, env=env)
             if done.returncode != 0:
                 _remove(out_svf)
                 return False

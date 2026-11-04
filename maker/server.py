@@ -42,6 +42,7 @@ import naming
 import preview
 import routes
 import settings
+import sources as sourcesmod
 import zipout
 from sources import Sources
 
@@ -416,6 +417,8 @@ def make_server(host, port, repo_dir, data_root, token=None):
     if token is not None and not _is_loopback(host):
         raise LocalModeError("local mode binds 127.0.0.1 or ::1 only")
     repo_dir = os.path.abspath(repo_dir)
+    if token is not None:
+        os.umask(0o077)                                  # local mode: nothing it makes is readable by others
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
     static_dir = os.path.join(MAKER_DIR, "static")
@@ -434,6 +437,8 @@ def make_server(host, port, repo_dir, data_root, token=None):
     server.static_dir = static_dir
     server.caps = capabilities
     server.token = token
+    server.data_root = store.data_root
+    server.create_lock = threading.Lock()                # one local job per output folder, checked under it
     server.index = naming.RepoIndex(server.svf_dir)
     server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
     server.inflight = {}                                  # job id -> the `PUT files` requests not answered yet (Y3)
@@ -465,6 +470,7 @@ _ROUTES = (
     ("POST", re.compile(r"^/api/jobs/%s/cancel$" % _JOB), "_job_cancel"),
     ("PUT", re.compile(r"^/api/jobs/%s/files$" % _JOB), "_job_files"),
     ("PUT", re.compile(r"^/api/jobs/%s/settings$" % _JOB), "_job_settings"),
+    ("PUT", re.compile(r"^/api/jobs/%s/sources$" % _JOB), "_job_sources"),
     ("DELETE", re.compile(r"^/api/jobs/%s$" % _JOB), "_job_delete"),
 )
 
@@ -698,9 +704,110 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # ---- jobs ------------------------------------------------------------------------------------------------
 
+    ACTIVE_STATES = ("uploading", "detected", "queued", "running")
+
     def _job_create(self, query):
-        job = self.server.store.create()
+        """An upload job (no body, or `{"source": "upload"}`), or a local job: `{"source": "local", "output_dir"}`."""
+        body = self._json_body() if self._content_length() else {}
+        if not isinstance(body, dict) or body.get("source", "upload") not in ("upload", "local"):
+            raise _HttpError(400, "source is upload or local")
+        if body.get("source", "upload") == "upload":
+            job = self.server.store.create()
+            self.send_json({"id": job["id"]})
+            return
+        if self.server.token is None:
+            raise _HttpError(403, "local mode is off")
+        try:
+            real, _kind = sourcesmod.check_path(body.get("output_dir"), want="output", data_root=self.server.data_root,
+                                                allowed=sourcesmod.allowed_roots(os.environ))
+        except sourcesmod.PathRefused as exc:
+            raise _HttpError(400, "output folder: %s" % exc.reason)
+        store = self.server.store
+        output_id = list(sourcesmod.stat_id(real))
+        with self.server.create_lock:
+            for item in store.list():
+                if (item.get("source") == "local" and item.get("output_id") == output_id
+                        and item["state"] in self.ACTIVE_STATES):
+                    raise _HttpError(409, "output folder is in use by job %s" % item["id"])
+            job = store.create(source="local", output_dir=real, output_id=output_id)
+        try:
+            store.ensure_files_dir(job)
+        except (jobs.OutputGone, OSError) as exc:
+            store.delete(job["id"])
+            raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
         self.send_json({"id": job["id"]})
+
+    def _files_dir_ready(self, current):
+        """The files directory of @p current, made when it is a local job's and the output folder is still the one
+        picked; 404 `output folder is gone or changed` when it is not. For an upload job it is the job directory."""
+        try:
+            return self.server.store.ensure_files_dir(current)
+        except jobs.OutputGone as exc:
+            raise _HttpError(404, str(exc))
+        except OSError as exc:
+            raise _HttpError(404, "output folder: %s" % _os_reason(exc))
+
+    def _tool_env(self, job):
+        """The environment every tool a request thread starts for @p job gets: a local job's `TMPDIR` is inside its
+        files directory and Python writes no bytecode beside the tools. None (the default environment) for an upload."""
+        if job.get("source") != "local":
+            return None
+        return dict(preview.ENV, TMPDIR=os.path.join(self.server.store.files_dir(job), "work", "tmp"),
+                    PYTHONDONTWRITEBYTECODE="1")
+
+    MAX_SOURCE_PATHS = 64
+
+    def _job_sources(self, query, job):
+        """`PUT sources`: the paths a local job reads its inputs from. Each is checked (`sources.check_path`), must not
+        overlap the output folder nor another input, and the accepted ones replace the job's roots."""
+        current = self._load(job)
+        if current.get("source") != "local":
+            raise _HttpError(409, "job %s is an upload job" % job)
+        if current.get("state") not in ("uploading", "detected"):
+            raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
+        body = self._json_body()
+        paths = body.get("paths") if isinstance(body, dict) else None
+        if (not isinstance(paths, list) or len(paths) > self.MAX_SOURCE_PATHS
+                or any(not isinstance(p, str) for p in paths)):
+            raise _HttpError(400, "paths is a list of at most %d paths" % self.MAX_SOURCE_PATHS)
+        allowed = sourcesmod.allowed_roots(os.environ)
+        roots, refused = [], []
+        for path in paths:
+            try:
+                real, kind = sourcesmod.check_path(path, want="source", data_root=self.server.data_root,
+                                                   allowed=allowed)
+                if sourcesmod.overlaps(real, current["output_dir"]):
+                    raise sourcesmod.PathRefused("the output folder must not overlap an input")
+                if any(sourcesmod.overlaps(real, item["path"]) for item in roots):
+                    raise sourcesmod.PathRefused("overlaps another input")
+            except sourcesmod.PathRefused as exc:
+                refused.append({"path": path.replace("\0", "?"), "reason": exc.reason})
+                continue
+            except OSError as exc:
+                refused.append({"path": path, "reason": _os_reason(exc)})
+                continue
+            roots.append({"path": real, "kind": kind, "name": os.path.basename(real)})
+        walker = Sources("local", [item["path"] for item in roots], kinds=[item["kind"] for item in roots])
+        files, cut = walker.walk()
+        for i, rel, reason in cut:
+            refused.append({"path": os.path.join(roots[i]["path"], rel) if rel else roots[i]["path"], "reason": reason})
+        total = 0
+        for _i, _rel, path in files:
+            try:
+                total += os.lstat(path).st_size
+            except OSError:
+                pass
+
+        def transition(j):
+            if j.get("state") not in ("uploading", "detected"):
+                raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
+            j["roots"] = roots
+            j["state"] = "uploading"                          # the fonts of the earlier roots are stale: detect again
+            j["upload"] = {"files": len(files), "bytes": total,
+                           "refused": ["%s: %s" % (item["path"], item["reason"]) for item in refused]}
+        updated = self._update(job, transition)
+        self._clear_previews(job, [font.get("id") for font in updated.get("fonts") or []])
+        self.send_json({"roots": roots, "files": len(files), "bytes": total, "refused": refused})
 
     def _job_list(self, query):
         self.send_json({"jobs": self.server.store.list()})
@@ -710,6 +817,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current["queue_position"] = self.server.worker.position(job)
         current["effective_names"] = settings.effective_names(current.get("fonts") or [],
                                                               current.get("settings") or {})
+        if current.get("source") == "local":                 # a traceback may quote the input: it lives in log.md
+            current["fonts"] = [{k: v for k, v in font.items() if k != "error"} for font in current.get("fonts") or []]
         self.send_json(current)
 
     def _job_delete(self, query, job):
@@ -723,10 +832,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_json({"deleted": job})
 
     def _job_detect(self, query, job):
-        """Scan the upload and reset the job to `detected`; a `failed` or `done` job may be re-detected (S1)."""
-        self._load(job)
+        """Scan the job's sources and reset it to `detected`; a `failed` or `done` job may be re-detected (S1).
+
+        A local job's scan runs over its roots; each entry records the file's `[st_dev, st_ino, st_size]` (`POST run`
+        refuses an input that changed since), its traceback (if any) goes to `log.md` and only its exception type stays
+        in `job.json`. The job's `owned` record is not touched.
+        """
+        current = self._load(job)
+        local = current.get("source") == "local"
         self._refuse_upload_in_flight(job)
+        if local:
+            self._files_dir_ready(current)                   # the scan's temp copies go under the files directory
+        scanned_roots = list(current.get("roots") or [])
         fonts = self._scan_fonts(job)
+        if local:
+            self._stamp_local(job, current, fonts)
         cleared = []
 
         def transition(j):
@@ -734,13 +854,36 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
             self._refuse_upload_in_flight(job)              # an upload that started during the scan (Y3)
             cleared.extend(font.get("id") for font in (j.get("fonts") or []))
-            j.update(state="detected", fonts=fonts,
-                     settings=_kept_settings(j.get("settings") or {}, fonts, j.get("fonts") or []),
-                     steps=[], result=None, error=None)
+            if local:
+                if (j.get("roots") or []) != scanned_roots:
+                    raise _HttpError(409, "the sources changed while detecting: detect again")
+                kept = _kept_settings(j.get("settings") or {}, fonts, j.get("fonts") or [], roots=scanned_roots,
+                                      old_roots=j.get("scan_roots") or scanned_roots, local=True)
+                j["scan_roots"] = scanned_roots
+            else:
+                kept = _kept_settings(j.get("settings") or {}, fonts, j.get("fonts") or [])
+            j.update(state="detected", fonts=fonts, settings=kept, steps=[], result=None, error=None)
         current = self._update(job, transition)
         # outside the job lock: waiting for a bake's preview lock must not stall this job's PUTs (Y6)
         self._clear_previews(job, cleared + [font.get("id") for font in fonts])
         self.send_json(current)
+
+    def _stamp_local(self, job, current, fonts):
+        """Give each scanned entry of a local job its `file_id`, and move its traceback out of the entry into `log.md`."""
+        sources = self.server.store.sources(current)
+        notes = []
+        for font in fonts:
+            try:
+                st = os.lstat(sources.abs_of(font.get("root", 0), font.get("path")))
+                font["file_id"] = [st.st_dev, st.st_ino, st.st_size]
+            except (OSError, ValueError):
+                font["file_id"] = None
+            detail = font.pop("error", None)
+            if detail:
+                notes.append("detect: %s (root %s): %s\n%s\n" % (font.get("path"), font.get("root"),
+                                                                  font.get("error_type", ""), detail))
+        if notes:
+            zipout.append_log(self.server.store.meta_dir(job), "\n" + "\n".join(notes))
 
     def _refuse_upload_in_flight(self, job):
         """409 while a `PUT files` for @p job is between its reservation and its reply (Y3).
@@ -791,6 +934,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # ---- files and detection ---------------------------------------------------------------------------------
 
     def _job_files(self, query, job):
+        if self._load(job).get("source") == "local":
+            raise _HttpError(409, "job %s is a local job" % job)
         length = self._content_length()
         if length > BODY_CAP:
             raise _HttpError(413, "body over %d bytes" % BODY_CAP)
@@ -1091,7 +1236,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _job_preview(self, query, job, font, kind):
         current = self._load(job)
-        files_dir = self.server.store.files_dir(current)
+        files_dir = self._files_dir_ready(current)
         by_id = {entry.get("id"): entry for entry in (current.get("fonts") or [])}
         entry = by_id.get(urllib.parse.unquote(font))
         if entry is None:
@@ -1148,7 +1293,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         other previews). The `.json` carries `step_ascent`, the step's merged `--ascent` (or null)."""
         size, bpp = int(size), int(bpp)
         current = self._load(job)
-        files_dir = self.server.store.files_dir(current)
+        files_dir = self._files_dir_ready(current)
         sources = self.server.store.sources(current)
         fonts = current.get("fonts") or []
         entry = next((item for item in fonts if item.get("id") == font), None)
@@ -1164,7 +1309,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         out_json = os.path.join(probe_dir, "%d-%d.json" % (size, bpp))
         with _preview_lock(job, font):
             os.makedirs(probe_dir, exist_ok=True)
-            src = self._prepared_source(entry, eff, sources, os.path.join(files_dir, "work", "preview"))
+            src = self._prepared_source(entry, eff, sources, os.path.join(files_dir, "work", "preview"),
+                                        env=self._tool_env(current))
             rkind, rabs = settings.range_spec(eff, sources)
             range_file = os.path.join(probe_dir, "range.txt")     # only an uploaded list is passed as a file
             if rkind == "file":
@@ -1183,7 +1329,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not os.path.isfile(out_json):
                 if rkind == "file":
                     shutil.copyfile(rabs, range_file)
-                self._run_probe(argv, probe_dir, out_svf, out_json)
+                self._run_probe(argv, probe_dir, out_svf, out_json, env=self._tool_env(current))
             if not os.path.isfile(out_json):
                 raise _HttpError(404, "the probe failed")
             with open(out_json, encoding="utf-8") as f:
@@ -1211,10 +1357,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                    {"Cache-Control": "no-store" if self._no_store(current) else "no-cache"})
 
     @staticmethod
-    def _run_probe(argv, cwd, out_svf, out_json):
+    def _run_probe(argv, cwd, out_svf, out_json, env=None):
         """Run the probe; whatever it leaves after a failure is removed (a later GET asks again)."""
         try:
-            done = preview.run_bounded(argv, cwd, preview.TIMEOUT_S)
+            done = preview.run_bounded(argv, cwd, preview.TIMEOUT_S, env=env)
             failed = done.returncode != 0
         except (OSError, subprocess.SubprocessError):
             failed = True
@@ -1240,7 +1386,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _job_source_face(self, query, job, font):
         """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""
         current = self._load(job)
-        files_dir = self.server.store.files_dir(current)
+        files_dir = self._files_dir_ready(current)
         entry = next((item for item in (current.get("fonts") or []) if item.get("id") == font), None)
         if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo"):
             raise _HttpError(404, "no source face")
@@ -1280,7 +1426,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         os.makedirs(out_dir, exist_ok=True)
         out_png = os.path.join(out_dir, "%s.png" % font.get("id"))
         eff = settings.effective(fonts, job.get("settings") or {}, font.get("id"))
-        abs_src = self._prepared_source(font, eff, sources, out_dir)
+        env = self._tool_env(job)
+        abs_src = self._prepared_source(font, eff, sources, out_dir, env=env)
         if abs_src != self._plain_source(font, self._source_abs(sources, font), out_dir):
             font = dict(font, face_index=0)            # a prepared file holds the one face the build reads
         source_kind = font.get("source_kind") or ""
@@ -1291,13 +1438,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             eng_abs = self._companion_abs(eff, fonts, sources, out_dir)
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, layout, eng_abs, out_svf, self.server.tools_dir,
-                                        self._bake_flags(eff, source_kind)):
+                                        self._bake_flags(eff, source_kind), env=env):
                 self._render_preview(eng_abs, out_svf, out_png)
             return
         if source_kind in ("svf-precomposed", "svf-jamo"):
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, None, None, out_svf, self.server.tools_dir,
-                                        self._bake_flags(eff, source_kind)):
+                                        self._bake_flags(eff, source_kind), env=env):
                 self._render_preview(None, out_svf, out_png)
             return
         preview.source_png(font, abs_src, self._first_size(font, eff), out_png)
@@ -1310,7 +1457,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             raise _HttpError(404, "no preview")
 
-    def _prepared_source(self, font, eff, sources, out_dir):
+    def _prepared_source(self, font, eff, sources, out_dir, env=None):
         """The file the build's tools read for @p font: its plain source when no conversion is planned, else the
         converted copy `out_dir/<font id>/source.<ext>` (`settings.source_ops`: TTC face, Mac cmap or container,
         variable instance, PCF), written once. The caller holds the font's preview lock; the keyed settings drop the
@@ -1329,7 +1476,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, ext)
             try:
                 for argv in argvs:
-                    done = preview.run_bounded(argv, target_dir, preview.TIMEOUT_S)
+                    done = preview.run_bounded(argv, target_dir, preview.TIMEOUT_S, env=env)
                     if done.returncode != 0:
                         raise OSError("source conversion failed")
                 if produced != target or not os.path.isfile(target):

@@ -314,19 +314,26 @@ def layout_px(name, data, face=0):
 
 # ---- the file --------------------------------------------------------------------------------------------------
 
-def detect_file(abs_path, rel):
+def detect_file(abs_path, rel, local=False):
     """The font entries of one file (Shared data shapes without id/licences/companions; coverage None, jamo "none").
 
     One entry per face; every file yields at least one entry. Never raises: any exception becomes one `unreadable`
     entry carrying the traceback, and a gzip past MAX_DECOMPRESSED one labelled "too large".
+
+    With @p local (a local job) no label quotes an input's bytes: an exception is named by its type only, an
+    unrecognised file is plain "unknown", an archive is kept with a label that says what to do, and an entry whose
+    reading failed carries `error_type` (the class name) beside the traceback in `error`.
     """
     try:
-        return _detect_file(abs_path, rel)
+        return _detect_file(abs_path, rel, local)
     except TooLarge as e:
         return [_entry(rel, 0, "unreadable", str(e), "other", family=_stem(rel), error=str(e))]
     except Exception as e:
-        return [_entry(rel, 0, "unreadable", "unreadable: %s: %s" % (type(e).__name__, e), "other",
-                       family=_stem(rel), error=traceback.format_exc())]
+        label = "unreadable: %s" % type(e).__name__ if local else "unreadable: %s: %s" % (type(e).__name__, e)
+        entry = _entry(rel, 0, "unreadable", label, "other", family=_stem(rel), error=traceback.format_exc())
+        if local:
+            entry["error_type"] = type(e).__name__
+        return [entry]
 
 
 def _entry(rel, face_index, fmt, label, source_kind, family="", style="", version="", sizes=None, sizes_fixed=False,
@@ -466,7 +473,7 @@ def _head_bytes(path, gz=False, cut=None):
     return data
 
 
-def _detect_file(abs_path, rel):
+def _detect_file(abs_path, rel, local=False):
     base = os.path.basename(rel)
     if base.lower().endswith(".txt"):
         fmt = classify_txt(abs_path, rel)
@@ -489,7 +496,7 @@ def _detect_file(abs_path, rel):
         return _ttc_entries(abs_path, rel, gz, zipped)
 
     if fmt == "mac-rsrc":
-        return _mac_entries(abs_path, rel, gz, zipped)
+        return _mac_entries(abs_path, rel, gz, zipped, local)
 
     if fmt == "bdf":
         text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
@@ -602,9 +609,11 @@ def _detect_file(abs_path, rel):
                        gz=zipped)]
 
     if fmt == "archive":
-        return [_entry(rel, 0, "archive", "archive", "other", family=_stem(rel))]
+        label = "archive: extract it first, then choose the folder" if local else "archive"
+        return [_entry(rel, 0, "archive", label, "other", family=_stem(rel))]
 
-    return [_entry(rel, 0, "unknown", "unknown (%s)" % head[:8].hex(), "other", family=_stem(rel), gz=zipped)]
+    return [_entry(rel, 0, "unknown", "unknown" if local else "unknown (%s)" % head[:8].hex(), "other",
+                   family=_stem(rel), gz=zipped)]
 
 
 def _ttc_entries(abs_path, rel, gz, zipped):
@@ -665,15 +674,15 @@ def _ksc_pcf_entry(abs_path, rel, gz):
 MAC_BITMAP_TYPES = (b"NFNT", b"FONT", b"fbit")
 
 
-def _mac_entries(abs_path, rel, gz, zipped):
+def _mac_entries(abs_path, rel, gz, zipped, local=False):
     """One entry per `sfnt` resource of a Mac container (capped at _FACE_CAP); a container with only bitmap fonts is one
     `other` entry and a corrupt resource map one `unknown` entry: the file never vanishes."""
     data = _read_bytes(abs_path, gz)
     try:
         container, res = srcprep.mac_resources(data)
     except srcprep.PrepError as e:
-        return [_entry(rel, 0, "unknown", "unknown (Mac resource fork: %s)" % e, "other", family=_stem(rel),
-                       gz=zipped)]
+        return [_entry(rel, 0, "unknown", "unknown (Mac resource fork: %s)" % (type(e).__name__ if local else e),
+                       "other", family=_stem(rel), gz=zipped)]
     all_sfnts = [(rid, body) for rtype, rid, _name, body in res if rtype == b"sfnt"]
     sfnts = all_sfnts[:_FACE_CAP]
     if not sfnts:
@@ -1199,15 +1208,16 @@ def _rel(root_abs, path):
     return os.path.relpath(path, root_abs).replace(os.sep, "/")
 
 
-def _bdf_glyphs(path, unicode_enc=None, data=None):
+def _bdf_glyphs(path, unicode_enc=None, data=None, tmp_dir=None):
     """`bdfface.read_bdf`'s glyph dict.
 
     @p data is a `.gz` source's decompressed bytes: `read_bdf` takes a path only, so those bytes are written to a
-    temp file under the system temp dir (never under `upload/`), parsed, and the temp file removed.
+    temp file under @p tmp_dir (the system temp dir when None; never under `upload/`), parsed, and the temp file
+    removed.
     """
     if data is None:
         return bdfface.read_bdf(path, unicode_enc=unicode_enc)[1]
-    fd, tmp = tempfile.mkstemp(prefix="svf-maker-bdf-", suffix=".bdf")
+    fd, tmp = tempfile.mkstemp(prefix="svf-maker-bdf-", suffix=".bdf", dir=tmp_dir)
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
@@ -1222,7 +1232,7 @@ def _bdf_glyphs(path, unicode_enc=None, data=None):
 SFNT_FORMATS = ("ttf", "otf", "ttc", "mac-rsrc")
 
 
-def _coverage_of_entry(path, entry, data=None, face_index=None):
+def _coverage_of_entry(path, entry, data=None, face_index=None, tmp_dir=None):
     """An entry's coverage, or None when the source cannot be read (a kind with none, or an unsafe HBF).
 
     @p data is a `.gz` source's decompressed bytes (read once per file by `scan`), shared with the composite test.
@@ -1241,9 +1251,9 @@ def _coverage_of_entry(path, entry, data=None, face_index=None):
         if kind == "bitmap":
             return coverage_bitmap(path, entry["sizes"][0]) if entry["sizes"] else None
         if kind in ("bdf-iso10646", "bdf-iso8859"):
-            return coverage_bdf(_bdf_glyphs(path, unicode_enc=True, data=data))   # their ENCODING is a code point
+            return coverage_bdf(_bdf_glyphs(path, unicode_enc=True, data=data, tmp_dir=tmp_dir))   # their ENCODING is a code point
         if kind == "bdf-ksc5601":
-            return coverage_bdf(_bdf_glyphs(path, data=data))                    # a GL code, as bdfface.py reads it
+            return coverage_bdf(_bdf_glyphs(path, data=data, tmp_dir=tmp_dir))                    # a GL code, as bdfface.py reads it
         if kind == "bdf-johab":
             return dict(JOHAB_COVERAGE)          # johab-1 glyph indices, not KS X 1001 codes: composed from jamo
         if kind == "hbf":
@@ -1278,7 +1288,7 @@ def scan(sources, local=False):
     @p sources is a `Sources` or an upload directory string. An upload scan's entries carry no `root`; a local
     one's entries (and their `licences`) carry `root`, the index of the root that holds them, and their `path` is
     root-relative. The "same folder" tables are keyed by the real folder, so two roots stay two folders and two
-    file roots picked from one directory share one. @p local is reserved for the local-mode labels (Task 6).
+    file roots picked from one directory share one. @p local (a local job) keeps input bytes out of every label (see `detect_file`) and keeps archives as entries; the scan's temp copies go under `sources.tmp_dir`.
 
     Archives are dropped; a file's entries keep their face order; the ids are `f01`, `f02`, ... in that order
     (`f100` after 99). Each entry gets its `coverage`, `jamo`, `licences` and `companions`; an outline face whose
@@ -1328,8 +1338,8 @@ def scan(sources, local=False):
             entries.append(entry)
             groups.setdefault(key, []).append(entry)
             continue
-        for entry in detect_file(abs_of[key], rel):
-            if entry["format"] != "archive":
+        for entry in detect_file(abs_of[key], rel, local):
+            if entry["format"] != "archive" or local:
                 if with_root:
                     entry["root"] = root
                 entries.append(entry)
@@ -1384,16 +1394,17 @@ def scan(sources, local=False):
                     src, face = srcprep.prepared_bytes(data if data is not None else raw, entry["prep"]), 0
                 except Exception as ex:           # a damaged table must not take the scan down
                     cannot = str(ex) or type(ex).__name__
+                    cannot_type = type(ex).__name__
             if cannot is None and entry["source_kind"] == "outline" and _is_composite(path, face, src):
                 entry["source_kind"] = "outline-composite"
             if cannot is not None:
                 entry["coverage"] = None
-                entry["label"] += "; cannot prepare: %s" % cannot
+                entry["label"] += "; cannot prepare (%s)" % cannot_type if local else "; cannot prepare: %s" % cannot
             elif time.monotonic() >= deadline:
                 entry["coverage"] = None
                 entry["label"] += "; coverage skipped (time budget)"
             else:
-                entry["coverage"] = _coverage_of_entry(path, entry, src, face)
+                entry["coverage"] = _coverage_of_entry(path, entry, src, face, sources.tmp_dir)
             entry["jamo"] = jamo_label(entry)
             hits = find_licences(real_of[key], None, licences, ceilings[key[0]] if with_root else ceiling)
             entry["licences"] = []

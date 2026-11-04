@@ -215,3 +215,43 @@ class Sources:
             total += size
         files.append((i, rel, path))
         return None, total
+
+
+def allowed_roots(environ):
+    """`SVF_MAKER_ROOTS` (colon-separated, each entry realpath'd) or None when unset or empty."""
+    raw = (environ.get("SVF_MAKER_ROOTS") or "").strip()
+    items = [os.path.realpath(item) for item in raw.split(":") if item.strip()]
+    return items or None
+
+
+def check_path(path, *, want, data_root, allowed):
+    """`(realpath, "file" | "dir")` of a picked @p path, or `PathRefused` with the sentence the page shows.
+
+    @p want is `"source"` (a regular file or a folder) or `"output"` (a folder). Only the last component is checked
+    for being a link (the path the user picked); every overlap rule is decided by inode (`overlaps`).
+    """
+    if not isinstance(path, str) or not os.path.isabs(path):
+        raise PathRefused("not an absolute path")
+    if len(path.encode("utf-8", "surrogateescape")) > 4096:
+        raise PathRefused("path too long")
+    if "\0" in path:
+        raise PathRefused("NUL in path")
+    path = os.path.normpath(path)
+    if not os.path.lexists(path):
+        raise PathRefused("no such file or folder")
+    if os.path.islink(path):
+        raise PathRefused("the path is a symlink")
+    real = os.path.realpath(path)
+    if real == os.sep:
+        raise PathRefused("/ cannot be chosen")
+    is_dir = os.path.isdir(real)
+    if want == "source":
+        if not (is_dir or os.path.isfile(real)):
+            raise PathRefused("not a regular file or folder")
+    elif not is_dir:
+        raise PathRefused("not a folder")
+    if data_root and os.path.exists(data_root) and overlaps(real, data_root):
+        raise PathRefused("the data folder cannot be chosen")
+    if allowed is not None and not any(real == base or real.startswith(base + os.sep) for base in allowed):
+        raise PathRefused("outside SVF_MAKER_ROOTS")
+    return real, "dir" if is_dir else "file"

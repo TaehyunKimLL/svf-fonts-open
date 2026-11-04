@@ -177,6 +177,17 @@ def _default_companion(font, fmap):
     return companions[0] if companions else None
 
 
+def _upload_licence(found):
+    """The default licence choice for a licence file the scan found: its path, plus its root for a local job.
+
+    A local font with no licence file gets `None`: the maker does not require a licence to convert (the user's
+    ruling); the notes then say the licence was not checked."""
+    choice = {"kind": "upload", "path": found["path"]}
+    if "root" in found:
+        choice["root"] = found["root"]
+    return choice
+
+
 def _font_defaults(font, batch, fmap=None):
     """One font's per-font settings: the font-only keys plus only the batch keys that differ from the batch default."""
     per = {}
@@ -191,7 +202,7 @@ def _font_defaults(font, batch, fmap=None):
         "experimental": False,
         "dos_layout": None,
         "latin_companion": _default_companion(font, fmap),
-        "licence": {"kind": "upload", "path": licences[0]["path"]} if licences else None,
+        "licence": _upload_licence(licences[0]) if licences else None,
         "names": {},
         "licence_name": _licence_name(font.get("family", ""), licences[0] if licences else None),
         "note_name": naming.suggest_note_name(font.get("family", "")),
@@ -224,7 +235,8 @@ def instance_coords(font, instance):
 def defaults(fonts, local=False, today=None):
     """The Settings dict `detect` fills (Shared data shapes) for the fonts that have at least one route.
 
-    @p local and @p today are for a local job's defaults (Task 6); they change nothing yet.
+    @p local and @p today are accepted for the callers' sake and change nothing: a licence choice carries its
+    `root` when the scan found it under a local root, and a font with no licence file has none.
 
     The batch keys hold the Global Constraints defaults; a per-font dict holds the font-only keys and only those
     batch keys whose per-font default differs from the batch default, so a later batch edit reaches every font that

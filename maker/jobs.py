@@ -38,7 +38,7 @@ import quality
 import routes
 import settings
 import zipout
-from sources import Sources
+from sources import Sources, stat_id
 
 # The Global Constraints limits, verbatim.
 STEP_TIMEOUT = 600
@@ -255,6 +255,13 @@ def materialized_argv(steps, sources, work_dir):
 
 # ---- the store -------------------------------------------------------------------------------------------------
 
+class OutputGone(Exception):
+    """A local job's output folder is gone or is no longer the folder that was picked."""
+
+
+FILES_DIR_PREFIX = ".svf-maker-"
+
+
 class Store:
     """The job directories under `data_root`: `create`, `load`, `save`, `update`, `list`, `delete`, `path`."""
 
@@ -285,20 +292,59 @@ class Store:
         return self.path(job_id)
 
     def files_dir(self, job):
-        """Where the job's `work/` and `out/` live: its own directory for an upload job."""
+        """Where the job's `work/` and `out/` live: its own directory for an upload job, `<output_dir>/.svf-maker-<id>`
+        for a local one."""
+        if job.get("source") == "local":
+            return os.path.join(job["output_dir"], FILES_DIR_PREFIX + job["id"])
         return self.path(job["id"])
 
+    def ensure_files_dir(self, job):
+        """Make a local job's files directory (`work/tmp` inside, all 0700) and return it.
+
+        The output folder must still be the folder picked at create time (`output_id`), else `OutputGone`: nothing is
+        made in a replaced folder. Only the levels made here are chmod'ed, never the output folder itself.
+        """
+        if job.get("source") != "local":
+            return self.files_dir(job)
+        try:
+            same = stat_id(job["output_dir"]) == tuple(job.get("output_id") or ())
+        except OSError:
+            same = False
+        if not same:
+            raise OutputGone("output folder is gone or changed")
+        files = self.files_dir(job)
+        for path in (files, os.path.join(files, "work"), os.path.join(files, "work", "tmp")):
+            if not os.path.isdir(path):
+                os.mkdir(path, 0o700)
+                os.chmod(path, 0o700)
+        return files
+
     def sources(self, job):
-        """The `Sources` the job reads its inputs from: its `upload/` directory for an upload job."""
+        """The `Sources` the job reads its inputs from: its `upload/` directory, or a local job's picked roots."""
+        if job.get("source") == "local":
+            roots = job.get("roots") or []
+            return Sources("local", [r["path"] for r in roots],
+                           tmp_dir=os.path.join(self.files_dir(job), "work", "tmp"),
+                           kinds=[r.get("kind", "dir") for r in roots])
         return Sources("upload", [self.path(job["id"], "upload")])
 
-    def create(self):
-        """A Job in state `uploading` (Shared data shapes), with its directory and `upload/ work/ out/` made."""
+    def create(self, source="upload", output_dir=None, output_id=None):
+        """A Job in state `uploading` (Shared data shapes). An upload job gets its directory with `upload/ work/ out/`.
+
+        A local job (@p source `"local"`) gets only its metadata directory and a `job.json` that carries `source`,
+        `output_dir`, `output_id` (the folder's `[st_dev, st_ino]`), `roots`, and `owned` (output-relative path ->
+        sha256 of the bytes this job wrote there). `owned` is top-level on purpose: `POST detect` and `POST run`
+        reset `result`, and must not forget what the job owns.
+        """
         job = {"id": secrets.token_hex(6), "state": "uploading", "created": time.time(), "updated": time.time(),
                "error": None, "upload": {"files": 0, "bytes": 0, "refused": []}, "fonts": [],
                "settings": {"batch": {}, "fonts": {}}, "steps": [], "queue_position": None, "result": None}
-        for part in ("upload", "work", "out"):
-            os.makedirs(self.path(job["id"], part), exist_ok=True)
+        if source == "local":
+            job.update(source="local", output_dir=output_dir, output_id=list(output_id), roots=[], owned={})
+            os.makedirs(self.path(job["id"]), exist_ok=True)
+        else:
+            for part in ("upload", "work", "out"):
+                os.makedirs(self.path(job["id"], part), exist_ok=True)
         self.save(job)
         return job
 
@@ -353,7 +399,8 @@ class Store:
             except KeyError:
                 continue
             out.append({"id": name, "state": job.get("state"), "created": job.get("created") or 0.0,
-                        "fonts": len(job.get("fonts") or [])})
+                        "fonts": len(job.get("fonts") or []), "source": job.get("source", "upload"),
+                        "output_id": job.get("output_id")})
         out.sort(key=lambda item: (item["created"], item["id"]), reverse=True)
         return out
 

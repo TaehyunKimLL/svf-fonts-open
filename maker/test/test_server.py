@@ -1768,6 +1768,12 @@ class LocalBindTest(unittest.TestCase):
         self.assertEqual(done.returncode, 2)
         self.assertEqual(done.stderr.strip(), "local mode binds 127.0.0.1 or ::1 only")
 
+    def test_origin_null_on_put_sources(self):
+        srv = self.start()
+        r = self.raw(srv, "PUT", "/api/jobs/0123456789ab/sources", body=b'{"paths": []}',
+                     headers={"X-Maker-Token": self.TOKEN, "Origin": "null"})
+        self.assertEqual((r.status, json.loads(r.read())["error"]), (403, "cross-origin request"))
+
     def test_parse_token(self):
         self.assertIsNone(server._parse_token(None))
         self.assertIsNone(server._parse_token(""))
