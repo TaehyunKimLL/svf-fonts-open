@@ -330,7 +330,7 @@ def detect_file(abs_path, rel):
 
 def _entry(rel, face_index, fmt, label, source_kind, family="", style="", version="", sizes=None, sizes_fixed=False,
            dos=None, bdf=None, svf=None, error=None, gz=False, prep=None, variable=None, strikes=None, eng=None,
-           dos_bytes=None, cff=False):
+           dos_bytes=None, cff=False, gsub_jamo=False):
     e = {"path": rel, "face_index": face_index, "format": fmt, "label": label, "source_kind": source_kind,
          "family": family, "style": style, "version": version, "sizes": sizes or [], "sizes_fixed": sizes_fixed,
          "coverage": None, "jamo": "none", "dos": dos, "bdf": bdf, "svf": svf, "error": error}
@@ -348,18 +348,30 @@ def _entry(rel, face_index, fmt, label, source_kind, family="", style="", versio
         e["dos_bytes"] = dos_bytes
     if cff:                           # CFF outlines: a converted copy is an .otf, not a .ttf
         e["cff"] = True
+    if gsub_jamo:                     # a GSUB that composes conjoining jamo (the mask fit's shaper path)
+        e["gsub_jamo"] = True
     return e
 
 
 def _sfnt_facts(font):
-    """{"variable", "strikes", "mac_cmap", "outlines"} of an open sfnt; a table that cannot be read counts as absent."""
+    """{"variable", "strikes", "mac_cmap", "outlines", "gsub_jamo"} of an open sfnt; a table that cannot be read counts as
+    absent."""
     def safe(fn, default):
         try:
             return fn(font)
         except Exception:
             return default
     return {"variable": safe(srcprep.variable_info, None), "strikes": safe(srcprep.embedded_strikes, []),
-            "mac_cmap": safe(srcprep.mac_cmap_only, False), "outlines": srcprep.has_outlines(font)}
+            "mac_cmap": safe(srcprep.mac_cmap_only, False), "outlines": srcprep.has_outlines(font),
+            "gsub_jamo": safe(_has_jamo_features, False)}
+
+
+def _has_jamo_features(font):
+    """True when the GSUB FeatureList names ljmo, vjmo and tjmo (the OpenType conjoining-jamo features)."""
+    if "GSUB" not in font:
+        return False
+    records = font["GSUB"].table.FeatureList.FeatureRecord
+    return {"ljmo", "vjmo", "tjmo"} <= {record.FeatureTag for record in records}
 
 
 def _axis_label(a):
@@ -384,8 +396,10 @@ def _sfnt_entry(rel, face_index, fmt, label, font, prep, gz):
         suffix += "; bitmap strikes %s" % ", ".join(str(n) for n in strikes)
     if facts["mac_cmap"]:
         suffix += "; Mac Korean cmap"
+    if facts["gsub_jamo"]:
+        suffix += "; conjoining jamo (GSUB)"
     kw = dict(prep=prep, variable=facts["variable"], strikes=strikes, gz=gz,
-              cff="CFF " in font or "CFF2" in font)
+              cff="CFF " in font or "CFF2" in font, gsub_jamo=facts["gsub_jamo"])
     if facts["outlines"]:
         return _entry(rel, face_index, fmt, label + suffix, "outline", family, style, version, [16], False, **kw)
     if strikes:

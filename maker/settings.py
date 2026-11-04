@@ -870,7 +870,9 @@ def _route_errors(fid, font, eff, fmap=None):
     jamo_route = jamo_route if isinstance(jamo_route, str) and jamo_route else None     # "" is no label
     if jamo_route is not None:
         labelled = [r for r in by_kind.get("jamo", []) if r.label == jamo_route]
-        if not labelled:
+        if not labelled and jamo_route == "mask fit" and font.get("gsub_jamo") and not font.get("mask_ok"):
+            errors.append("%s: mask fit needs freetype-py and uharfbuzz (JAMOSET_PYLIB)" % fid)
+        elif not labelled:
             errors.append("%s: jamo_route %s is not offered" % (fid, jamo_route))
         elif not labelled[0].native and not eff.get("experimental"):
             errors.append("%s: jamo_route %s needs experimental" % (fid, jamo_route))
@@ -1317,7 +1319,7 @@ def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
     return routes.PY + [os.path.join(tools_dir, "svfdy.py"), out if commands else src, out, "--json", path]
 
 
-def plan_steps(job, job_dir, tools_dir, upload_dir):
+def plan_steps(job, job_dir, tools_dir, upload_dir, pylib=None):
     """The Step dicts of every selected font, kind, size and bpp, in run order (Shared data shapes).
 
     Font order, then `precomposed` before `jamo`, then ascending size, then ascending bpp (whatever order the
@@ -1397,7 +1399,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                 master = os.path.join(step_dir, "master.json")
                 paths = {"tools": tools_dir, "src": src, "out": master,
                          "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
-                         "range_file": range_file, "base": base}
+                         "range_file": range_file, "base": base, "pylib": pylib}
                 steps.append(_step(sid, fid, "prepare", None, None, layout, None,
                                    route.prepare_commands(font, layout, paths), "work/%s/master.json" % sid))
             for size in sorted(eff.get("sizes") or []):
@@ -1418,7 +1420,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                     step_layout = None if kind == "precomposed" or route.label == "copy" else layout
                     paths = {"tools": tools_dir, "src": src, "out": out,
                              "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
-                             "range_file": range_file, "base": base}
+                             "range_file": range_file, "base": base, "pylib": pylib}
                     report = None
                     if route.label == "mkfont":                 # mkfont's --report: the boxes and cuts of this bake
                         report = "work/%s/report.json" % sid

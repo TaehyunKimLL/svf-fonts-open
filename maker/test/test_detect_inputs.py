@@ -48,6 +48,15 @@ class DirCase(unittest.TestCase):
 
 
 class SfntDetectTest(DirCase):
+    def test_gsub_jamo_fact(self):
+        e = detect.detect_file(self.put("G.ttf", inputfx.gsub_jamo_ttf()), "G.ttf")[0]
+        self.assertTrue(e["gsub_jamo"])
+        self.assertTrue(e["label"].endswith("; conjoining jamo (GSUB)"), e["label"])
+        e = detect.detect_file(self.put("L.ttf", inputfx.gsub_jamo_ttf(("ljmo",))), "L.ttf")[0]
+        self.assertNotIn("gsub_jamo", e)
+        e = detect.detect_file(self.put("P.ttf", inputfx.ttf("Plain", BOX1)), "P.ttf")[0]
+        self.assertNotIn("gsub_jamo", e)
+
     def test_ttc_face_1_is_an_outline_with_a_ttc_face_op(self):
         out = detect.detect_file(self.put("two.ttc", inputfx.ttc([inputfx.ttf("One", BOX1),
                                                                     inputfx.ttf("Two", BOX2)])), "two.ttc")
@@ -132,10 +141,10 @@ class SfntDetectTest(DirCase):
 
     def test_a_prepped_font_offers_the_routes_of_its_kind(self):
         e = detect.detect_file(self.put("Mac.ttf", inputfx.mac_cmap_ttf()), "Mac.ttf")[0]
-        self.assertEqual([r.label for r in routes.routes(e)], ["mkfont", "experimental fit"])
+        self.assertEqual([r.label for r in routes.routes(e)], ["mkfont", "experimental fit", "vector fit"])
         two = detect.detect_file(self.put("t.ttc", inputfx.ttc([inputfx.ttf("One", BOX1), inputfx.ttf("Two", BOX2)])),
                                  "t.ttc")
-        self.assertEqual([len(routes.routes(e)) for e in two], [2, 2])       # face 1 has prep: a source like face 0
+        self.assertEqual([len(routes.routes(e)) for e in two], [3, 3])       # face 1 has prep: a source like face 0
 
 
 class MacContainerTest(DirCase):

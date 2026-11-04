@@ -50,7 +50,7 @@ def select(settings_, fid, dest="new/inputs", bpp=(1,), **per):
     settings_["fonts"][fid].update(selected=True, dest=dest, bpp=list(bpp), **per)
 
 
-def plan_batch(test, tmp, files, choose):
+def plan_batch(test, tmp, files, choose, caps=None, pylib=None):
     """The first half of `run_batch`: upload, scan, choose, validate and plan; returns (store, job) with the steps
     planned (state `queued`) and nothing run."""
     store = jobs.Store(tmp)
@@ -66,6 +66,9 @@ def plan_batch(test, tmp, files, choose):
         with open(path, "wb") as fh:
             fh.write(data if isinstance(data, bytes) else data.encode())
     fonts = detect.scan(upload)
+    for font in fonts:                               # the server stamps this on every read of the fonts
+        if (caps or {}).get("mask_libs") and font.get("source_kind") in ("outline", "outline-composite"):
+            font["mask_ok"] = True
     st = settings.defaults(fonts)
     for per in st["fonts"].values():                 # a batch plans only what its test chooses
         per["selected"] = False
@@ -73,7 +76,7 @@ def plan_batch(test, tmp, files, choose):
     test.assertEqual(settings.validate(fonts, st, upload), [])
     test.assertEqual(settings.run_ready(fonts, st, naming.RepoIndex(SVF), upload), [])
     job.update(state="queued", fonts=fonts, settings=st)
-    job["steps"] = settings.plan_steps(job, job_dir, TOOLS, upload)
+    job["steps"] = settings.plan_steps(job, job_dir, TOOLS, upload, pylib=pylib)
     store.save(job)
     return store, job
 

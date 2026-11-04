@@ -42,9 +42,13 @@ const PRESETS = [
 // route's bpps are the SVF's own bpp, so the entry lists both here. Strict JSON (the P12 test reads it back).
 const ROUTES = {
   "outline": [{"kind": "precomposed", "label": "mkfont", "native": true, "bpps": [1, 2]},
-              {"kind": "jamo", "label": "experimental fit", "native": false, "bpps": [1, 2]}],
+              {"kind": "jamo", "label": "experimental fit", "native": false, "bpps": [1, 2]},
+              {"kind": "jamo", "label": "mask fit", "native": false, "bpps": [1]},
+              {"kind": "jamo", "label": "vector fit", "native": false, "bpps": [1, 2]}],
   "outline-composite": [{"kind": "precomposed", "label": "mkfont", "native": true, "bpps": [1, 2]},
-                        {"kind": "jamo", "label": "composite", "native": true, "bpps": [1, 2]}],
+                        {"kind": "jamo", "label": "composite", "native": true, "bpps": [1, 2]},
+                        {"kind": "jamo", "label": "mask fit", "native": false, "bpps": [1]},
+                        {"kind": "jamo", "label": "vector fit", "native": false, "bpps": [1, 2]}],
   "bitmap": [{"kind": "precomposed", "label": "mkfont", "native": true, "bpps": [1]}],
   "bdf-iso10646": [{"kind": "precomposed", "label": "mkfont", "native": true, "bpps": [1]}],
   "bdf-ksc5601": [{"kind": "precomposed", "label": "bdfface", "native": true, "bpps": [1]},
@@ -104,6 +108,9 @@ const OPTION_VISIBLE = {
                 "2": ["symbols", "jset_version", "fit_baseline"]},
   "experimental fit": {"1": ["jset_version", "fit_baseline", "binarize"],
                        "2": ["symbols", "jset_version", "fit_baseline", "aa_refine", "clean"]},
+  "mask fit": {"1": ["jset_version", "fit_baseline", "binarize"]},
+  "vector fit": {"1": ["symbols", "jset_version", "fit_baseline", "binarize"],
+                 "2": ["symbols", "jset_version", "fit_baseline"]},
   "copy": {"1": ["jset_version"], "2": ["jset_version"]},
   "from-svf fit": {"1": ["jset_version"]},
   "bdfface": {"1": ["latin_ascent", "hangul_ascent"]},
@@ -368,6 +375,7 @@ function visibleOptions(fonts, kindsOf, bppOf, inherits) {
     const bpps = bppOf(font, per);
     for (const route of usableRoutes(font, !!per.experimental)) {
       if (!kinds.includes(route.kind)) continue;
+      if (route.kind === "jamo" && per.jamo_route && route.label !== per.jamo_route) continue;   // the chosen route
       for (const bpp of route.bpps) {
         if (!bpps.includes(bpp)) continue;
         for (const opt of ADVANCED) {
@@ -456,6 +464,7 @@ function offeredRoutes(font) {
   const out = [];
   for (const entry of entries) {
     if (entry.label === "from-svf fit" && svfBpp !== 1) continue;   // only a 1 bpp SVF can be re-fitted
+    if (entry.label === "mask fit" && !(font.gsub_jamo && font.mask_ok)) continue;   // GSUB jamo and the libraries
     if (entry.label === "johab844" && !(font.dos_bytes === 11520 && ((font.dos || {}).candidates || []).includes("844"))) continue;
     const bpps = (kind === "svf-precomposed" || kind === "svf-jamo") ? [svfBpp] : entry.bpps.slice();
     if (bpps.some((bpp) => bpp !== 1 && bpp !== 2)) continue;
@@ -1206,6 +1215,32 @@ function clippingPanel(font, per) {
   return details;
 }
 
+// The jamo route this font's jamo faces use (`jamo_route`): the routes it offers, the default being the first native
+// one, else (with experimental) the first non-native. `vector fit` says it takes minutes per font.
+function jamoRouteSelect(per, font, refresh) {
+  const label = el("label", {class: "label"}, el("span", {text: "jamo route "}));
+  const select = el("select", {"aria-label": "jamo route for " + fontName(font)});
+  const fill = () => {
+    const options = [["", "(default)"]];
+    for (const route of offeredRoutes(font)) {
+      if (route.kind !== "jamo") continue;
+      const text = route.label + (route.label === "vector fit" ? " (minutes per font)" : "") + (route.native ? "" : " (experimental)");
+      options.push([route.label, text, !route.native && !per.experimental ? ["needs experimental"] : null]);
+    }
+    fillSelect(select, options, per.jamo_route || "");
+  };
+  fill();
+  select.onchange = () => {
+    if (select.value === "") delete per.jamo_route;
+    else per.jamo_route = select.value;
+    markDirty();
+    for (const run of refresh) run();                       // the options this route uses are shown
+  };
+  refresh.push(fill);
+  label.append(select);
+  return label;
+}
+
 function overridePanel(font, per) {
   const grid = el("div", {class: "override-grid"});
   grid.append(el("h3", {}, bdi(font.path + (font.version ? " — " + font.version : ""))));
@@ -1239,6 +1274,7 @@ function overridePanel(font, per) {
     perFontSelect(per, "range", rangeOptions(per.range), settings.batch.range, font)));
   grid.append(el("label", {class: "label"}, el("span", {text: "preset "}),
     perFontSelect(per, "preset", presetOptions(per.preset), settings.batch.preset, font)));
+  grid.append(jamoRouteSelect(per, font, refresh));
   grid.append(el("label", {class: "label"}, experimental, el("span", {text: " experimental"})));
   grid.append(el("label", {class: "label"}, el("span", {text: "latin companion "}), perFontCompanion(per, font)));
   if (font.variable) {

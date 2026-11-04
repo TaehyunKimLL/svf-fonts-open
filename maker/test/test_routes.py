@@ -227,6 +227,61 @@ class PanelArgvTest(unittest.TestCase):
         self.assertNotIn("--mask-font", two)
 
 
+class DecomposableRoutesTest(unittest.TestCase):
+    OUTLINE = FONT_TTF
+    OUTLINE_COMPOSITE = FONT_COMPOSITE
+
+    def labels(self, font):
+        return [r.label for r in routes.routes(font) if r.kind == "jamo"]
+
+    def test_mask_fit_offered_only_with_both(self):
+        self.assertEqual(self.labels(dict(self.OUTLINE, gsub_jamo=True, mask_ok=True)),
+                         ["experimental fit", "mask fit", "vector fit"])
+        self.assertEqual(self.labels(dict(self.OUTLINE, gsub_jamo=True, mask_ok=False)), ["experimental fit", "vector fit"])
+        self.assertEqual(self.labels(dict(self.OUTLINE, mask_ok=True)), ["experimental fit", "vector fit"])
+        self.assertEqual(self.labels(dict(self.OUTLINE_COMPOSITE, gsub_jamo=True, mask_ok=True)),
+                         ["composite", "mask fit", "vector fit"])
+
+    def test_mask_fit_argv(self):
+        font = dict(self.OUTLINE, gsub_jamo=True, mask_ok=True)
+        r = routes.route_for(font, "jamo", True, "mask fit")
+        self.assertEqual((r.bpps, r.native, r.reference), ([1], False, "outline"))
+        argv = r.commands(font, 16, 1, "844", ("2350", None), P, [[]])[0]
+        self.assertEqual(argv[argv.index("--mask-font") + 1], "/u/in.ttf")
+        self.assertIn("--no-clean", argv)
+        self.assertEqual(argv[argv.index("--binarize") + 1], "threshold")
+        self.assertNotIn("--pylib", argv)
+        argv = r.commands(font, 16, 1, "844", ("2350", None), dict(P, pylib="/opt/py"), [[]])[0]
+        self.assertEqual(argv[-2:], ["--pylib", "/opt/py"])
+
+    def test_vector_fit_argv(self):
+        r = routes.route_for(self.OUTLINE, "jamo", True, "vector fit")
+        self.assertEqual(r.prepare_commands(self.OUTLINE, "844", P),
+                         [PY + ["/T/jamovec.py", "master", "/u/in.ttf", "-o", "/w/master.json"]])
+        self.assertEqual(r.prepare_commands(self.OUTLINE, "adaptive", P)[0][-1], "--adaptive")
+        self.assertEqual(r.commands(self.OUTLINE, 16, 2, "844", ("2350", None), P, [[]])[0][-5:],
+                         ["--binarize", "threshold", "--check", "-o", P["out"]])
+        self.assertEqual((r.bpps, r.native), ([1, 2], False))
+
+    def test_panel_argv_of_the_two_routes(self):
+        opts = {"jamoset": {"symbols": True, "jset_version": 2, "fit_baseline": 11, "binarize": "ridge", "aa_refine": 3,
+                            "clean": False}}
+        self.assertEqual(presets.panel_argv(opts, "jamo", "mask fit", 1),
+                         [["--jset-version", "2", "--baseline", "11", "--binarize", "ridge"]])
+        self.assertEqual(presets.panel_argv(opts, "jamo", "vector fit", 1),
+                         [["--symbols", "--jset-version", "2", "--baseline", "11", "--binarize", "ridge"]])
+        self.assertEqual(presets.panel_argv(opts, "jamo", "vector fit", 2),
+                         [["--symbols", "--jset-version", "2", "--baseline", "11"]])
+
+    def test_reference_uses_jamo_route(self):
+        import jobs
+        font = dict(self.OUTLINE, id="f01", gsub_jamo=True, mask_ok=True)
+        job = {"fonts": [font], "settings": {"batch": {}, "fonts": {"f01": {"experimental": True, "jamo_route": "vector fit"}}}}
+        self.assertEqual(jobs.Worker._reference(job, font, {"font": "f01"}), "outline")
+        job["settings"]["fonts"]["f01"]["jamo_route"] = "nope"
+        self.assertIsNone(jobs.Worker._reference(job, font, {"font": "f01"}))
+
+
 class RoutesTest(unittest.TestCase):
     def test_panel_argv_on_the_new_labels(self):
         every = {"mkfont": {}, "jamoset": {"jset_version": 2, "symbols": True, "embolden": True}}
@@ -235,7 +290,8 @@ class RoutesTest(unittest.TestCase):
 
     def test_outline_precomposed(self):
         r = routes.routes(FONT_TTF)
-        self.assertEqual([(x.kind, x.label, x.native) for x in r], [("precomposed", "mkfont", True), ("jamo", "experimental fit", False)])
+        self.assertEqual([(x.kind, x.label, x.native) for x in r], [("precomposed", "mkfont", True), ("jamo", "experimental fit", False),
+                          ("jamo", "vector fit", False)])
         self.assertEqual(r[0].commands(FONT_TTF, 16, 2, None, ("2350", None), P, []),
                          [PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF", "--size", "16", "--bpp", "2", "--unicode", "ascii,ksx1001-hangul"]])
         self.assertEqual(r[0].commands(FONT_TTF, 16, 1, None, ("file", "/u/list.txt"), P, [])[0][-1], "ascii,file:/w/range-2350.txt")

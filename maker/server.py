@@ -887,7 +887,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
             try:
-                steps = settings.plan_steps(dict(j, fonts=fonts), job_dir, self.server.tools_dir, upload_dir)
+                steps = settings.plan_steps(dict(j, fonts=fonts), job_dir, self.server.tools_dir, upload_dir,
+                                            pylib=os.environ.get("JAMOSET_PYLIB") or None)
             except ValueError as exc:
                 raise _HttpError(400, str(exc))
             self._check_steps(job_dir, upload_dir, fonts, steps)

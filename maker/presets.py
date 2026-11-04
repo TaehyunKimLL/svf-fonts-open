@@ -104,15 +104,15 @@ def panel_argv(options, kind, route_label, bpp):
         return [first, second]
     if jamoset.get("embolden") and route_label in ("dos raw", "hanterm"):
         out.append("--embolden")
-    if jamoset.get("symbols") and (route_label in ("dos raw", "hanterm", "composite")
+    if jamoset.get("symbols") and (route_label in ("dos raw", "hanterm", "composite", "vector fit")
                                    or (route_label == "experimental fit" and bpp == 2)):
         out.append("--symbols")
     if jamoset.get("jset_version") is not None and route_label in ("dos raw", "hanterm", "composite", "experimental fit",
-                                                                   "from-svf fit", "copy"):
+                                                                   "mask fit", "vector fit", "from-svf fit", "copy"):
         out += ["--jset-version", str(jamoset["jset_version"])]   # unset: a writer's own 1, an SVF upload keeps its block
     if route_label in ("dos raw", "hanterm"):
         _num(out, "--ascent", jamoset.get("jamo_ascent"))
-    if route_label in ("composite", "experimental fit"):
+    if route_label in ("composite", "experimental fit", "mask fit", "vector fit"):
         _num(out, "--baseline", jamoset.get("fit_baseline"))
         binarize = jamoset.get("binarize")
         if bpp == 1 and binarize not in (None, "threshold"):

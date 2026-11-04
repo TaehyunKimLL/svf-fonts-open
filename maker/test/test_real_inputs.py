@@ -22,6 +22,7 @@ import unittest
 
 import inputkinds
 import inputfx  # noqa: F401
+import jamofit
 from inputkinds import fid_of, select
 
 
@@ -102,6 +103,43 @@ class RealInputsTest(unittest.TestCase):
             font = [f for f in fonts if f["id"] == fid][0]
             select(s, fid, kinds=["precomposed"], sizes=[font["sizes"][0]])
         self.run_file("SVF_MAKER_REAL_EBDT", choose)
+
+    @unittest.skipUnless(jamofit.libs_available(os.environ.get("JAMOSET_PYLIB")), "freetype-py/uharfbuzz absent")
+    def test_mask_fit(self):
+        """neodgm (GSUB conjoining jamo): the mask fit's argv holds --mask-font and --no-clean, the fit does not fall back
+        to the free fit, and its face differs from the experimental fit's at the same size."""
+        path = os.path.join(REPO_DIR, "ttf", "neodgm", "neodgm.ttf")
+        with open(path, "rb") as fh:
+            data = fh.read()
+        faces = {}
+        for route in ("mask fit", "experimental fit"):
+            job, z = inputkinds.run_batch(self, os.path.join(self.tmp, route.replace(" ", "-")), {"n/neodgm.ttf": data},
+                                          lambda f, s: select(s, inputkinds.only_font(f), kinds=["jamo"], experimental=True,
+                                                              jamo_route=route, layout="844"),
+                                          caps={"mask_libs": True}, pylib=os.environ.get("JAMOSET_PYLIB") or None)
+            self.assertEqual(job["state"], "done", job.get("error"))
+            step = job["steps"][0]
+            if route == "mask fit":
+                self.assertIn("--mask-font", step["argv"][0])
+                self.assertIn("--no-clean", step["argv"][0])
+                self.assertNotIn("fitting without the mask font", step["stderr_tail"])
+            faces[route] = inputkinds.zip_face(z).glyphs
+        self.assertNotEqual(faces["mask fit"], faces["experimental fit"])
+
+    @unittest.skipUnless(os.environ.get("SVF_MAKER_REAL_VECTOR"), "set SVF_MAKER_REAL_VECTOR to a TTF")
+    def test_real_vector(self):
+        """A vector fit of a real font; the seconds are printed (ruling D7: minutes per font)."""
+        import time
+        path = os.environ["SVF_MAKER_REAL_VECTOR"]
+        with open(path, "rb") as fh:
+            data = fh.read()
+        started = time.monotonic()
+        job, z = inputkinds.run_batch(self, os.path.join(self.tmp, "vector"), {"v/" + os.path.basename(path): data},
+                                      lambda f, s: select(s, inputkinds.only_font(f), kinds=["jamo"], experimental=True,
+                                                          jamo_route="vector fit", layout="844"))
+        print("real vector fit: %.1f s" % (time.monotonic() - started))
+        self.assertEqual(job["state"], "done", job.get("error"))
+        inputkinds.assert_facecheck(self, z)
 
 
 if __name__ == "__main__":

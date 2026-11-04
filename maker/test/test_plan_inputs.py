@@ -661,6 +661,29 @@ class ProbeArgvTest(unittest.TestCase):
         self.assertNotIn("9", got)
 
 
+class VectorFitTest(Case):
+    def test_vector_fit_end_to_end(self):
+        job, z = self.run_batch({"v/F.ttf": inputfx.flat_composite_ttf()},
+                                lambda f, st: select(st, inputkinds.only_font(f), kinds=["jamo"], experimental=True,
+                                                     jamo_route="vector fit", layout="844"))
+        self.assertEqual(job["state"], "done", [(s["id"], s["state"], s["stderr_tail"][-300:]) for s in job["steps"]])
+        self.assertEqual([s["kind"] for s in job["steps"]], ["prepare", "jamo"])
+        self.assertNotIn("--components", job["steps"][0]["argv"][0])
+        inputkinds.assert_facecheck(self, z)
+        self.assertIsNotNone(job["steps"][1]["quality"])
+
+    def test_mask_fit_plans_pylib(self):
+        self.n += 1
+        files = {"g/G.ttf": inputfx.gsub_jamo_ttf()}
+        store, job = inputkinds.plan_batch(
+            self, os.path.join(self.tmp, "j%d" % self.n), files,
+            lambda f, st: select(st, inputkinds.only_font(f), kinds=["jamo"], experimental=True, jamo_route="mask fit",
+                                 layout="844"), caps={"mask_libs": True}, pylib="/opt/py")
+        argv = job["steps"][0]["argv"][0]
+        self.assertEqual(argv[-2:], ["--pylib", "/opt/py"])
+        self.assertIn("--mask-font", argv)
+
+
 class NamedRangeTest(Case):
     def test_seven_named_ranges(self):
         paths = settings.write_range_files(self.tmp)

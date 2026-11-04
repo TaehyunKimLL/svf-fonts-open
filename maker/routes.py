@@ -150,6 +150,25 @@ def _composite_commands(font, size, bpp, layout, range_spec, paths, extra):
     return _with_extra([argv], extra)
 
 
+def _vector_prepare(font, layout, paths):
+    """jamovec.py's master from the outlines themselves (no --components): the vector fit for a font whose syllables
+    are not composites."""
+    argv = PY + [_tool(paths, "jamovec.py"), "master", paths["src"], "-o", paths["master"]]
+    if layout == "adaptive":
+        argv.append("--adaptive")
+    return [argv]
+
+
+def _mask_fit_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """The free fit with the font's own GSUB-composed jamo as the mask (needs freetype-py and uharfbuzz): 1 bpp only,
+    always --no-clean (the mask would be discarded by a cleaned raster), `--pylib` when the libraries are in a folder."""
+    argv = PY + [_tool(paths, "jamoset.py"), "--layout", layout, "--from-ttf", paths["src"], "--size", str(size),
+                 "--binarize", "threshold", "--mask-font", paths["src"], "--no-clean", "--check", "-o", paths["out"]]
+    if paths.get("pylib"):
+        argv += ["--pylib", paths["pylib"]]
+    return _with_extra([argv], extra)
+
+
 def _fit_commands(font, size, bpp, layout, range_spec, paths, extra):
     argv = PY + [_tool(paths, "jamoset.py"), "--layout", layout, "--from-ttf", paths["src"], "--size", str(size)]
     if bpp == 1:
@@ -345,6 +364,11 @@ def routes(font):
         else:
             out.append(Route("jamo", "experimental fit", False, ["844", "adaptive"], [1, 2], None, "outline",
                              None, _fit_commands))
+        if font.get("gsub_jamo") and font.get("mask_ok"):
+            out.append(Route("jamo", "mask fit", False, ["844", "adaptive"], [1], None, "outline", None,
+                             _mask_fit_commands))
+        out.append(Route("jamo", "vector fit", False, ["844", "adaptive"], [1, 2], None, "outline", _vector_prepare,
+                         _composite_commands))
     elif kind in ("bitmap", "bdf-iso10646"):
         if (face_index > 0 and not font.get("prep")) or not sizes:   # a bare FNT header or a BDF Pillow opens at no size has no face
             return []

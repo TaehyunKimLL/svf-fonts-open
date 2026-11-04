@@ -120,6 +120,8 @@ def canonical_fonts():
     # the rules a kind's own rows cannot show: johab844 only for an 11,520 byte raw font, a face after the first only
     # with prep, a 2 bpp-less SVF, a KSC BDF without a box
     prep = [{"op": "ttc-face", "index": 1}]
+    fonts += [dict(base, source_kind=kind, gsub_jamo=True, mask_ok=ok)
+              for kind in ("outline", "outline-composite") for ok in (True, False)]
     fonts += [dict(base, source_kind="dos-raw", dos_bytes=25920),
               dict(base, source_kind="dos-raw", dos={"candidates": ["844-ihnm"]}),
               dict(base, source_kind="outline", face_index=1),
@@ -1237,6 +1239,26 @@ class FaceBytesTest(ApiBase):
             r = self.raw("POST", "/api/jobs/%s/run" % jid)
             self.assertEqual(r.status, 400)
             self.assertIn("binarize mono needs freetype-py", r.read().decode())
+
+    def test_a_saved_mask_route_is_refused_at_the_run_once_the_libraries_are_gone(self):
+        jid = self.post("/api/jobs")["id"]
+        self.put_file(jid, "g/G.ttf", inputfx.gsub_jamo_ttf())
+        self.put_file(jid, "g/OFL.txt", read(F["ttf_licence"]))
+        self.post("/api/jobs/%s/detect" % jid)
+        s = self.get("/api/jobs/%s" % jid)["settings"]
+        for per in s["fonts"].values():
+            per.update(dest="new/fixture", experimental=True, kinds=["jamo"], bpp=[1], jamo_route="mask fit", layout="844")
+        body = json.dumps(s).encode()
+        with mock.patch.dict(self.srv.caps, {"mask_libs": False}):
+            r = self.raw("PUT", "/api/jobs/%s/settings" % jid, body=body)       # not offered without the libraries
+            self.assertEqual(r.status, 400)
+            self.assertIn("mask fit", r.read().decode())
+        with mock.patch.dict(self.srv.caps, {"mask_libs": True}):
+            self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=body).status, 200)
+        with mock.patch.dict(self.srv.caps, {"mask_libs": False}):
+            r = self.raw("POST", "/api/jobs/%s/run" % jid)
+            self.assertEqual(r.status, 400)
+            self.assertIn("mask fit needs freetype-py and uharfbuzz (JAMOSET_PYLIB)", r.read().decode())
 
     def test_mask_ok_is_not_saved(self):
         jid = self.minimal_job()

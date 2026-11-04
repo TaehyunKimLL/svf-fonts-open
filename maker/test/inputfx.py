@@ -76,6 +76,38 @@ def tall_ttf(span=(-180, 740)):
     return _save(fb.font)
 
 
+def gsub_jamo_ttf(features=("ljmo", "vjmo", "tjmo")):
+    """`ttf` plus a GSUB whose FeatureList names @p features (each a single substitution A -> ga)."""
+    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+    font = TTFont(io.BytesIO(ttf("Gsub", (50, 0, 950, 800))))
+    fea = "\n".join("feature %s { sub A by ga; } %s;" % (f, f) for f in features)
+    addOpenTypeFeaturesFromString(font, fea)
+    return _save(font)
+
+
+def flat_composite_ttf():
+    """fixtures._composite_ttf's font with every composite glyph replaced by its decomposed outline, so detect calls it
+    `outline` (not `outline-composite`)."""
+    import tempfile
+    from fontTools.pens.recordingPen import DecomposingRecordingPen
+    with tempfile.TemporaryDirectory() as d:
+        path = fixtures._composite_ttf(os.path.join(d, "C.ttf"))
+        font = TTFont(path)
+    glyf, order = font["glyf"], font.getGlyphOrder()
+    gs = font.getGlyphSet()
+    flat = {}
+    for name in order:
+        if glyf[name].isComposite():
+            rec = DecomposingRecordingPen(gs)
+            gs[name].draw(rec)
+            pen = TTGlyphPen(None)
+            rec.replay(pen)
+            flat[name] = pen.glyph()
+    for name, glyph in flat.items():
+        glyf[name] = glyph
+    return _save(font)
+
+
 def otf(family, ga_box):
     """The same as CFF."""
     def cs(box):

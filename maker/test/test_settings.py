@@ -458,6 +458,25 @@ class ControlsTest(unittest.TestCase):
         self.assertEqual(self.errors(kinds=["jamo"], experimental=True, jamo_route="experimental fit"), [])
         self.assertEqual(self.errors(FONT_COMPOSITE, kinds=["jamo"], jamo_route="composite"), [])
 
+    def test_saved_mask_route_without_libs_is_refused(self):
+        font = dict(FONT_TTF, gsub_jamo=True, mask_ok=False)
+        self.assertIn("f01: mask fit needs freetype-py and uharfbuzz (JAMOSET_PYLIB)",
+                      self.errors(font, kinds=["jamo"], experimental=True, jamo_route="mask fit"))
+        font = dict(FONT_TTF, gsub_jamo=True, mask_ok=True)
+        self.assertEqual([e for e in self.errors(font, kinds=["jamo"], experimental=True, bpp=[1], jamo_route="mask fit")
+                          if "mask fit" in e], [])
+        # without the GSUB fact the route is simply not offered
+        self.assertIn("f01: jamo_route mask fit is not offered",
+                      self.errors(dict(FONT_TTF, mask_ok=True), kinds=["jamo"], experimental=True, jamo_route="mask fit"))
+
+    def test_binarize_mono_on_vector_fit_is_refused_and_on_mask_fit_allowed(self):
+        mono = {"jamoset": {"binarize": "mono"}}
+        self.assertIn("f01: binarize mono is not a jamovec choice",
+                      self.errors(kinds=["jamo"], experimental=True, bpp=[1], jamo_route="vector fit", options=mono))
+        font = dict(FONT_TTF, gsub_jamo=True, mask_ok=True)
+        self.assertEqual([e for e in self.errors(font, kinds=["jamo"], experimental=True, bpp=[1], jamo_route="mask fit",
+                                                 options=mono) if "binarize" in e], [])
+
     def test_route_for_with_jamo_route(self):
         self.assertEqual(routes.route_for(FONT_COMPOSITE, "jamo", True, "composite").label, "composite")
         self.assertIsNone(routes.route_for(FONT_TTF, "jamo", False, "experimental fit"))
