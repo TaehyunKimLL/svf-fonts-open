@@ -50,12 +50,9 @@ def select(settings_, fid, dest="new/inputs", bpp=(1,), **per):
     settings_["fonts"][fid].update(selected=True, dest=dest, bpp=list(bpp), **per)
 
 
-def run_batch(test, tmp, files, choose):
-    """Upload @p files (rel path -> bytes) under a job in @p tmp, scan, choose, plan and run; (job, zip path or None).
-
-    Every font starts unselected. A `LICENSE.txt` is put beside the fonts of every folder that has none. `choose(fonts, settings)` edits the
-    settings in place; the result must validate and be run-ready. The worker runs `run_job` on the calling thread.
-    """
+def plan_batch(test, tmp, files, choose):
+    """The first half of `run_batch`: upload, scan, choose, validate and plan; returns (store, job) with the steps
+    planned (state `queued`) and nothing run."""
     store = jobs.Store(tmp)
     job = store.create()
     job_dir = store.path(job["id"])
@@ -78,6 +75,16 @@ def run_batch(test, tmp, files, choose):
     job.update(state="queued", fonts=fonts, settings=st)
     job["steps"] = settings.plan_steps(job, job_dir, TOOLS, upload)
     store.save(job)
+    return store, job
+
+
+def run_batch(test, tmp, files, choose):
+    """Upload @p files (rel path -> bytes) under a job in @p tmp, scan, choose, plan and run; (job, zip path or None).
+
+    Every font starts unselected. A `LICENSE.txt` is put beside the fonts of every folder that has none. `choose(fonts, settings)` edits the
+    settings in place; the result must validate and be run-ready. The worker runs `run_job` on the calling thread.
+    """
+    store, job = plan_batch(test, tmp, files, choose)
     jobs.Worker(store, REPO_DIR, SVF, TOOLS).run_job(job["id"])
     job = store.load(job["id"])
     result = job.get("result")

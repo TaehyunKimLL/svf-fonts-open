@@ -17,6 +17,7 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 
 import datetime
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -53,7 +54,11 @@ NAME_KEY_RE = re.compile(r"^(precomposed|jamo)/\d+/\d+$")
 # repository's `OFL*.txt`, `LICENSE-OFL.txt`) is one too, even when only its first line is at hand (see the report).
 _OFL_HINT = "SIL OPEN FONT LICENSE"
 
-RANGE_FILES = (("11172", "hangul"), ("2350", "ksx1001-hangul"))
+# The named ranges a batch or a font may choose: (the setting's value, its mkfont.NAMED_RANGES key).
+RANGE_FILES = (("11172", "hangul"), ("2350", "ksx1001-hangul"), ("ksx1001-nohanja", "ksx1001-nohanja"),
+               ("ksx1001-symbols", "ksx1001-symbols"), ("ksx1001", "ksx1001"), ("jamo", "jamo"), ("cp949", "cp949"))
+NAMED_RANGE_NAMES = tuple(name for name, _ in RANGE_FILES)
+_RANGE_MESSAGE = "not a named range (%s) or a list file in the batch" % ", ".join(NAMED_RANGE_NAMES)
 RANGE_CHARS_PER_LINE = 50
 MAX_SIZES = 16                  # a sizes list longer than this would plan more steps than a page can show
 
@@ -691,9 +696,9 @@ def _shape_errors(fid, font, eff, per, batch, fonts, upload_dir):
     elif "bpp" in per and len(set(bpps)) != len(bpps):
         errors.append("%s: bpp has a repeated value" % fid)
     rng = eff.get("range")
-    if "range" in per and rng not in ("11172", "2350"):
+    if "range" in per and rng not in NAMED_RANGE_NAMES:
         if rng not in _entry_paths(fonts, ("list",)) or (upload_dir and not os.path.isfile(os.path.join(upload_dir, rng))):
-            errors.append("%s: range %s is not 11172, 2350 or a list file in the batch" % (fid, rng))
+            errors.append("%s: range %s is %s" % (fid, rng, _RANGE_MESSAGE))
     if "preset" in per and eff.get("preset") not in presets.PRESETS:
         errors.append("%s: unknown preset %s" % (fid, eff.get("preset")))
     errors += _option_errors(fid, eff, _own_option_keys(per))
@@ -773,9 +778,9 @@ def _batch_shape_errors(batch, fonts, upload_dir):
     elif "bpp" in batch and len(set(bpps)) != len(bpps):
         errors.append("batch: bpp has a repeated value")
     rng = batch.get("range")
-    if "range" in batch and rng not in ("11172", "2350"):
+    if "range" in batch and rng not in NAMED_RANGE_NAMES:
         if rng not in _entry_paths(fonts, ("list",)) or (upload_dir and not os.path.isfile(os.path.join(upload_dir, rng))):
-            errors.append("batch: range %s is not 11172, 2350 or a list file in the batch" % rng)
+            errors.append("batch: range %s is %s" % (rng, _RANGE_MESSAGE))
     if "preset" in batch and batch.get("preset") not in presets.PRESETS:
         errors.append("batch: unknown preset %s" % batch.get("preset"))
     if "options" in batch:
@@ -1194,15 +1199,14 @@ def run_ready(fonts, settings, index, upload_dir):
 def range_spec(eff, upload_dir):
     """A font's range as `mkfont`/`bdfface` take it: a named set, or `("file", <the upload's own path>)`."""
     rng = eff.get("range")
-    if rng == "11172":
-        return ("11172", None)
-    if rng == "2350":
-        return ("2350", None)
+    if rng in NAMED_RANGE_NAMES:
+        return (rng, None)
     return ("file", os.path.join(upload_dir, rng) if rng else None)
 
 
 def write_range_files(work_dir):
-    """Write the two named ranges as UTF-8 text, 50 characters a line, and return `{"11172": abs, "2350": abs}`.
+    """Write the named ranges as UTF-8 text, 50 characters a line, and return `{name: abs path}` for each of
+    NAMED_RANGE_NAMES (`range-<name>.txt`).
 
     `mkfont --unicode` and `bdfface --chars-from` read a list file character by character, so a named range is a
     file too and no `--unicode` value has to name a comma-split set.
@@ -1238,6 +1242,25 @@ def _step(sid, fid, kind, size, bpp, layout, name, argv, output):
     return {"id": sid, "font": fid, "kind": kind, "size": size, "bpp": bpp, "layout": layout, "name": name,
             "argv": argv, "output": output, "state": "pending", "exit": None, "seconds": None, "error": None,
             "stderr_tail": "", "facts": None, "quality": None, "identical_to": None}
+
+
+def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
+    """The `svfdy.py` argv that ends a `precomposed` step whose font has a `dy` (spec 7.5), else `[]`.
+
+    The table goes into `work/sNN/dy.json` (`{"0x41": 1}`, sorted by code point), so the argv stays short. A route with
+    commands has svfdy rewrite its own output in place; the copy route (no commands) has it read the font's upload
+    (@p src, which the worker rewrites for a `.gz`) and write the output.
+    """
+    if kind != "precomposed" or not isinstance(dy, dict) or not dy:
+        return []
+    table = {}
+    for key, value in dy.items():
+        table[_dy_key(key)] = value
+    path = os.path.join(step_dir, "dy.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"0x%X" % cp: table[cp] for cp in sorted(table)}, f)
+        f.write("\n")
+    return routes.PY + [os.path.join(tools_dir, "svfdy.py"), out if commands else src, out, "--json", path]
 
 
 def plan_steps(job, job_dir, tools_dir, upload_dir):
@@ -1348,6 +1371,9 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                         argv = route.commands(font, size, bpp, step_layout, range_arg, paths, panel)
                     except ValueError as exc:
                         raise ValueError("%s: %s" % (fid, exc))
+                    dy_argv = _dy_argv(eff.get("dy"), kind, argv, src, out, step_dir, tools_dir)
+                    if dy_argv:
+                        argv = argv + [dy_argv]
                     steps.append(_step(sid, fid, kind, size, bpp, step_layout, name, argv,
                                        "work/%s/%s" % (sid, name)))
     return steps

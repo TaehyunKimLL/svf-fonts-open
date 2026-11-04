@@ -14,6 +14,7 @@ for _p in (TEST_DIR, MAKER_DIR, os.path.join(REPO_DIR, "tools")):
         sys.path.insert(0, _p)
 
 import gzip
+import json
 import shutil
 import tempfile
 import unittest
@@ -22,6 +23,8 @@ import detect
 import fixtures
 import inputfx
 import inputkinds
+import jamoset
+import mkfont
 import routes
 import settings
 import zipout
@@ -45,6 +48,17 @@ class Case(unittest.TestCase):
     def run_batch(self, files, choose):
         self.n += 1
         return inputkinds.run_batch(self, os.path.join(self.tmp, "j%d" % self.n), files, choose)
+
+    def plan(self, files, **per):
+        """The planned steps of the one font in @p files (a dict, or the bytes of one TTF) selected with @p per; the
+        job directory is left in self.job_dir."""
+        self.n += 1
+        if isinstance(files, bytes):
+            files = {"d/d.ttf": files}
+        store, job = inputkinds.plan_batch(self, os.path.join(self.tmp, "j%d" % self.n), files,
+                                           lambda f, st: select(st, inputkinds.only_font(f), **per))
+        self.job_dir = store.path(job["id"])
+        return job["steps"]
 
 
 class SourceCommandsTest(unittest.TestCase):
@@ -472,6 +486,105 @@ class VariableCollectionTest(Case):
         job, _z = self.run_batch({"v/V.ttc": self.vtc()}, lambda f, s: select(
             s, fid_of(f, face=0, path="v/V.ttc"), sizes=[24]))
         self.assertEqual(inputkinds.step_tools(job["steps"]), [["mkfont.py"]])
+
+
+def tool_names(step):
+    return [os.path.basename(argv[2]) for argv in step["argv"]]
+
+
+def read_json(path):
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+class DyStepTest(Case):
+    def test_mkfont_step_ends_with_svfdy(self):
+        step = self.plan(inputfx.ttf("D", BOX1), dy={"0x41": 1})[0]
+        self.assertEqual(tool_names(step), ["mkfont.py", "svfdy.py"])
+        out = os.path.join(self.job_dir, step["output"])
+        dy_json = os.path.join(self.job_dir, "work", step["id"], "dy.json")
+        self.assertEqual(step["argv"][-1][3:], [out, out, "--json", dy_json])
+        self.assertEqual(read_json(dy_json), {"0x41": 1})
+
+    def test_dy_json_is_sorted_hex_whatever_the_keys_were(self):
+        step = self.plan(inputfx.ttf("D", BOX1), dy={"g": -1, "65": 2, "0x20": 1})[0]
+        dy_json = step["argv"][-1][-1]
+        with open(dy_json, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertEqual(json.loads(text), {"0x20": 1, "0x41": 2, "0x67": -1})
+        self.assertEqual(list(json.loads(text)), ["0x20", "0x41", "0x67"])
+
+    def test_no_dy_no_svfdy_and_jamo_steps_never_get_one(self):
+        self.assertEqual(tool_names(self.plan(inputfx.ttf("D", BOX1))[0]), ["mkfont.py"])
+        self.assertEqual(tool_names(self.plan(inputfx.ttf("D", BOX1), dy={})[0]), ["mkfont.py"])
+
+    def test_copy_step_reads_the_upload(self):
+        with open(os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"), "rb") as fh:
+            data = fh.read()
+        step = self.plan({"s/NEODG16.SVF": data}, dy={"0x41": 1})[0]
+        self.assertEqual(len(step["argv"]), 1)
+        argv = step["argv"][0]
+        self.assertEqual(os.path.basename(argv[2]), "svfdy.py")
+        self.assertEqual(argv[3:], [os.path.join(self.job_dir, "upload", "s", "NEODG16.SVF"),
+                                    os.path.join(self.job_dir, step["output"]), "--json",
+                                    os.path.join(self.job_dir, "work", step["id"], "dy.json")])
+
+    def test_dy_end_to_end(self):
+        with open(os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"), "rb") as fh:
+            svf = fh.read()
+        for name, files in (("mkfont", {"d/d.ttf": inputfx.ttf("D", BOX1)}), ("copy", {"s/NEODG16.SVF": svf})):
+            with self.subTest(route=name):
+                job, z = self.run_batch(files, lambda f, st: select(st, inputkinds.only_font(f), dy={"0x41": 1}))
+                self.assertEqual([st["state"] for st in job["steps"]], ["done"], job["steps"])
+                face = inputkinds.zip_face(z)
+                self.assertEqual(face.dy.get(0x41), 1)
+                inputkinds.assert_facecheck(self, z)
+
+    def test_dy_on_a_face_without_metrics_fails_with_the_tool_message(self):
+        cell = bytes(16 * 2)
+        data = jamoset.pack_svfn(16, 16, 12, 1, 0, [cell], [(0x41, 0)], None, None, (0, 0), "default")
+        job, z = self.run_batch({"s/NOMETRIC.SVF": data}, lambda f, st: select(st, inputkinds.only_font(f), dy={"0x41": 1}))
+        step = job["steps"][0]
+        self.assertEqual(step["state"], "failed", step)
+        self.assertIn("no metrics table", step["stderr_tail"] + (step["error"] or ""))
+        self.assertIsNone(z and next(iter(inputkinds.zip_faces(z)), None))
+
+
+class NamedRangeTest(Case):
+    def test_seven_named_ranges(self):
+        paths = settings.write_range_files(self.tmp)
+        self.assertEqual(sorted(paths), sorted(settings.NAMED_RANGE_NAMES))
+        self.assertEqual(len(settings.NAMED_RANGE_NAMES), 7)
+        for name, named in settings.RANGE_FILES:
+            with open(paths[name], encoding="utf-8") as fh:
+                chars = fh.read().replace("\n", "")
+            self.assertEqual([ord(c) for c in chars], mkfont.NAMED_RANGES[named]())
+
+    def test_named_range_reaches_mkfont(self):
+        for name in settings.NAMED_RANGE_NAMES:
+            step = self.plan(inputfx.ttf("D", BOX1), range=name)[0]
+            argv = step["argv"][0]
+            want = {"11172": "ascii,hangul", "2350": "ascii,ksx1001-hangul"}.get(name, "ascii," + name)
+            self.assertEqual(argv[argv.index("--unicode") + 1], want, name)
+
+    def test_range_messages_name_the_seven(self):
+        self.n += 1
+        fonts = [{"id": "f01", "path": "a.ttf", "face_index": 0, "source_kind": "outline", "sizes": [16],
+                  "sizes_fixed": False, "licences": [], "companions": []}]
+        st = settings.defaults(fonts)
+        st["batch"]["range"] = "nope"
+        msg = [e for e in settings.validate(fonts, st, None) if "range" in e]
+        self.assertEqual(msg, ["batch: range nope is not a named range (11172, 2350, ksx1001-nohanja, ksx1001-symbols, "
+                               "ksx1001, jamo, cp949) or a list file in the batch"])
+
+    def test_width_and_latin_end_to_end(self):
+        def faces(**opts):
+            job, z = self.run_batch({"d/d.ttf": inputfx.ttf("D", BOX1)},
+                                    lambda f, st: select(st, inputkinds.only_font(f), options={"mkfont": opts}))
+            return inputkinds.zip_face(z)
+        self.assertEqual(faces(width=20).cell_w, 20)
+        plain, latin = faces(cell=10, latin=False), faces(cell=10, latin=True)
+        self.assertNotEqual(plain.ascent, latin.ascent)
 
 
 class ZipoutSourceTitleTest(unittest.TestCase):

@@ -118,7 +118,7 @@ def _flat(extras):
 
 
 def _mkfont_unicode(range_spec, paths):
-    """mkfont.py's `--unicode` value for a range spec: the named 2350/11172 set or the maker's own list copy.
+    """mkfont.py's `--unicode` value for a range spec: a named range (2350, 11172, ksx1001-nohanja, ksx1001-symbols, ksx1001, jamo, cp949) or the maker's own list copy.
 
     The value is comma-separated, so an uploaded list file's path is never spliced in (a name with a comma would
     inject a named range or hex ranges): the maker copies the list to `paths["range_file"]` and passes that.
@@ -128,7 +128,7 @@ def _mkfont_unicode(range_spec, paths):
         if not paths.get("range_file"):
             raise ValueError("mkfont needs a range file")
         return "ascii,file:" + paths["range_file"]
-    return "ascii,hangul" if kind == "11172" else "ascii,ksx1001-hangul"
+    return {"11172": "ascii,hangul", "2350": "ascii,ksx1001-hangul"}.get(kind, "ascii," + kind)
 
 
 def _mkfont_commands(font, size, bpp, layout, range_spec, paths, extra):

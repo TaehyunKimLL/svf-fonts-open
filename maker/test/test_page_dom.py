@@ -257,6 +257,24 @@ return {guides, hint};
         self.assertEqual(state["state"], "detected")
         self.assertEqual(state["settings"]["fonts"][self.font]["options"]["jamoset"]["jamo_ascent"], 11)
 
+    def test_the_dy_table_editor_saves_hex_keys(self):
+        job = self.api("POST", "/api/jobs")["id"]
+        self.upload(job, "svf/NEODG16.SVF", os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"))
+        detected = self.api("POST", "/api/jobs/%s/detect" % job)
+        font = detected["fonts"][0]["id"]
+        self.font = font
+        self.drive(job, """
+await waitFor(() => document.querySelector('tr[data-font="FONTID"]'));
+document.querySelector('tr[data-font="FONTID"] input.override').click();
+const input = document.querySelector('input[aria-label^="dy table"]');
+input.value = 'g=-1 U+0041=2'; input.dispatchEvent(new Event('change'));
+document.getElementById('save').click();
+await waitFor(() => document.getElementById('state').textContent.includes('detected'));
+await sleep(1000);
+return 1;
+""")
+        self.assertEqual(self.api("GET", "/api/jobs/" + job)["settings"]["fonts"][font]["dy"], {"0x41": 2, "0x67": -1})
+
 
 if __name__ == "__main__":
     unittest.main()

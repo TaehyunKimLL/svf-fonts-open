@@ -566,7 +566,9 @@ function layoutOptions(stored) {
 }
 
 function rangeOptions(stored) {
-  const options = [["11172", "11172 (all Hangul)"], ["2350", "2350 (KS X 1001)"]];
+  const options = [["11172", "11172 (all Hangul)"], ["2350", "2350 (KS X 1001)"],
+    ["ksx1001-nohanja", "KS X 1001 without hanja"], ["ksx1001-symbols", "KS X 1001 symbols"], ["ksx1001", "KS X 1001"],
+    ["jamo", "compatibility jamo"], ["cp949", "CP949"]];
   if (job) {
     for (const font of job.fonts || []) {
       if (font.format === "list" && font.path && !options.some(([value]) => value === font.path)) {
@@ -1045,6 +1047,32 @@ function advancedFieldset(per, font) {
   return {toggle, box, refresh};
 }
 
+// The per-font dy table (spec 7.5), shown while a precomposed face is selected: "U+0041=1 g=-1 0x67=2", written to
+// per.dy as {"0x41": 1} (hex keys). Empty clears it.
+function dyText(dy) {
+  return Object.entries(dy || {}).map(([k, v]) => k + "=" + v).join(" ");
+}
+
+function dyEditor(per, font, refresh) {
+  const input = el("input", {type: "text", size: "30", placeholder: "U+0041=1 g=-1",
+                             "aria-label": "dy table for " + fontName(font)});
+  input.value = dyText(per.dy);
+  input.onchange = () => {
+    const parsed = parseDyText(input.value);
+    if (parsed === null) {
+      notice("dy: tokens are CODEPOINT=ROWS (U+0041=1, g=-1, 0x67=2), ROWS -128..127");
+      return;
+    }
+    const keys = Object.keys(parsed).map(Number).sort((a, b) => a - b);
+    per.dy = keys.length ? Object.fromEntries(keys.map((cp) => ["0x" + cp.toString(16).toUpperCase(), parsed[cp]])) : null;
+    markDirty();
+  };
+  const label = el("label", {class: "label", dataset: {field: "dy"}}, el("span", {text: "dy "}), input);
+  refresh.push(() => { label.hidden = !effectiveKinds(font, per).includes("precomposed"); });
+  label.hidden = !effectiveKinds(font, per).includes("precomposed");
+  return label;
+}
+
 function overridePanel(font, per) {
   const grid = el("div", {class: "override-grid"});
   grid.append(el("h3", {}, bdi(font.path + (font.version ? " — " + font.version : ""))));
@@ -1087,6 +1115,7 @@ function overridePanel(font, per) {
   grid.append(el("label", {class: "label"}, el("span", {text: "note name "}), perFontText(per, "note_name", font)));
   grid.append(el("label", {class: "label"}, advanced.toggle, el("span", {text: " advanced options"})));
   grid.append(advanced.box);
+  grid.append(dyEditor(per, font, refresh));
   grid.append(namesField(font));
   return grid;
 }
