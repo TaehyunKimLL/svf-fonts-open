@@ -2,14 +2,17 @@
 // SCRIPT_FILE in the page (helpers: sleep(ms), waitFor(fn, ms)); prints the JSON it returns on stdout. Chrome is driven
 // over the DevTools protocol with node's built-in WebSocket (no playwright). Exit 1 with the page's error on stderr.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const [chrome, url, scriptFile] = process.argv.slice(2);
 const profile = mkdtempSync(join(tmpdir(), 'pagedrive-'));
+// Chrome's own temp files (/tmp/com.google.Chrome.*) go under the profile and leave with it
+mkdirSync(join(profile, 'tmp'));
 const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-sandbox', '--remote-debugging-port=0',
-  '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' });
+  '--user-data-dir=' + profile, 'about:blank'],
+  { stdio: 'ignore', env: { ...process.env, TMPDIR: join(profile, 'tmp') } });
 const exited = new Promise((res) => proc.once('exit', res));
 let ws = null;
 // Ask Chrome to close over CDP, wait for it (bounded, then SIGKILL and wait again) before the profile goes: its
@@ -38,8 +41,9 @@ async function until(fn, ms, what) {
   }
 }
 
-// a hung page must not hang the suite: after 200 s Chrome is killed and the driver exits 1
-setTimeout(async () => { process.stderr.write('pagedrive: watchdog\n'); process.exitCode = 1; await shutdown(); process.exit(1); }, 200000).unref();
+// a hung page must not hang the suite: after PAGEDRIVE_WATCHDOG_S seconds (default 200) Chrome is killed and the driver exits 1
+const watchdogMs = 1000 * Number(process.env.PAGEDRIVE_WATCHDOG_S || 200);   // raise it for a long flow
+setTimeout(async () => { process.stderr.write('pagedrive: watchdog\n'); process.exitCode = 1; await shutdown(); process.exit(1); }, watchdogMs).unref();
 
 try {
   const portFile = join(profile, 'DevToolsActivePort');

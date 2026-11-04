@@ -554,8 +554,11 @@ def ink_box(font, ch, bpp):
     size = max(8, int(getattr(font, "size", 16)))
     ox, oy = size * 2, size * 3
     img = Image.new("L", (size * 5, size * 5), 0)
+    draw = ImageDraw.Draw(img)
+    if MONO_HINT and bpp == 1:           # the ink the bake draws: FreeType's monochrome renderer, as render() does
+        draw.fontmode = "1"
     try:
-        ImageDraw.Draw(img).text((ox, oy), ch, font=font, fill=255, anchor="ls")
+        draw.text((ox, oy), ch, font=font, fill=255, anchor="ls")
     except (ValueError, OSError):
         return None, b""
     if bpp == 1:
@@ -649,8 +652,11 @@ def clipped_ink(font, ch, bpp, ascent, cell_h):
     size = max(8, int(getattr(font, "size", 16)))
     ox, oy = size * 2, size * 3
     img = Image.new("L", (size * 5, size * 5), 0)
+    draw = ImageDraw.Draw(img)
+    if MONO_HINT and bpp == 1:
+        draw.fontmode = "1"
     try:
-        ImageDraw.Draw(img).text((ox, oy), ch, font=font, fill=255, anchor="ls")
+        draw.text((ox, oy), ch, font=font, fill=255, anchor="ls")
     except (ValueError, OSError):
         return 0, 0
     if bpp == 1:

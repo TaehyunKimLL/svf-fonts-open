@@ -1096,15 +1096,16 @@ function applyLocal(per, mutate, message) {
 // The "clipping" disclosure of a font with a mkfont route (spec 8.3): a probe bake (tall cell, nothing cut) and its box
 // report, from which the rows any cell would cut are computed here for the ascent typed (clip.js, fit_counts' rule),
 // listed and drawn over the probe face. "Apply" writes the ascent and ticks clip_cell.
-function clippingPanel(font, per) {
+function clippingPanel(font, per, optionBox) {
   if (!usableRoutes(font, !!per.experimental).some((route) => route.label === "mkfont")) return null;
   const details = el("details", {class: "clipping"}, el("summary", {text: "clipping"}));
-  const sizes = Array.isArray(per.sizes) ? per.sizes : (settings.batch.sizes || []);
-  const bpps = Array.isArray(per.bpp) ? per.bpp : (settings.batch.bpp || []);
+  const effSizes = () => (Array.isArray(per.sizes) ? per.sizes : (settings.batch.sizes || []));
+  const effBpps = () => (Array.isArray(per.bpp) ? per.bpp : (settings.batch.bpp || []));
   const sizeSel = el("select", {"aria-label": "clipping size"});
-  fillSelect(sizeSel, sizes.map((v) => [String(v), String(v) + " px"]), String(sizes[0] ?? ""));
+  fillSelect(sizeSel, effSizes().map((v) => [String(v), String(v) + " px"]), String(effSizes()[0] ?? ""));
   const bppSel = el("select", {"aria-label": "clipping bpp"});
-  fillSelect(bppSel, bpps.map((v) => [String(v), String(v) + " bpp"]), String(bpps[0] ?? ""));
+  fillSelect(bppSel, effBpps().map((v) => [String(v), String(v) + " bpp"]), String(effBpps()[0] ?? ""));
+  const note = el("div", {class: "sub"});
   const ascentIn = el("input", {type: "text", inputmode: "numeric", size: "3", "aria-label": "clipping ascent"});
   const cellEl = el("span", {class: "sub"});
   const counts = el("div", {class: "clip-counts"});
@@ -1120,7 +1121,14 @@ function clippingPanel(font, per) {
     return own !== undefined && own !== null ? own : (((settings.batch.options || {}).mkfont || {})[key] ?? null);
   };
   // the cell the build cuts at: the step's own (a preset may carry --cell), else the effective cell option, else the size
-  const cellH = () => (report && report.step_cell) || effOption("cell") || Number(sizeSel.value);
+  // A cell typed in the (open) advanced panel and not yet saved wins: it is what the user is about to build with.
+  const typedCell = () => {
+    const node = optionBox && optionBox.querySelector('[data-option="cell"]');
+    if (!node || node.closest("[hidden]")) return null;
+    const text = String(node.value).trim();
+    return /^\d+$/.test(text) && Number(text) >= 4 ? Number(text) : null;
+  };
+  const cellH = () => typedCell() || (report && report.step_cell) || effOption("cell") || Number(sizeSel.value);
 
   const url = (ext) => "/api/jobs/" + encodeURIComponent(job.id) + "/probe/" + encodeURIComponent(font.id) + "/" +
     sizeSel.value + "/" + bppSel.value + "." + ext;
@@ -1130,6 +1138,7 @@ function clippingPanel(font, per) {
     const ascent = Number(ascentIn.value);
     const h = cellH();
     cellEl.textContent = "cell " + h + " rows";
+    note.textContent = dirty ? "unsaved edits: the probe was measured with the saved settings; only the cell typed here is live" : "";
     if (!Number.isInteger(ascent) || ascent < 1) {
       counts.textContent = "ascent must be a whole number from 1";
       list.replaceChildren();                           // no ascent, no cut rows: the list and the overlay go too
@@ -1187,7 +1196,7 @@ function clippingPanel(font, per) {
     counts.textContent = "measuring…";
     try {
       const response = await fetch(url("json"), {cache: "no-cache"});
-      if (!response.ok) throw new Error("no probe (" + response.status + ")");
+      if (!response.ok) throw new Error("no probe (" + response.status + "): save the settings first if the size or bpp is new");
       report = await response.json();
       if (report.probe_face) face = await fetchFresh(url("svf"));
     } catch (err) {
@@ -1199,6 +1208,17 @@ function clippingPanel(font, per) {
   };
 
   details.addEventListener("toggle", () => { if (details.open && !loaded) { loaded = true; load(); } });
+  // The selectors follow the fields above as they change (sizes, bpp, cell); a size or bpp the server has not saved yet
+  // has no probe, which the counts line says.
+  details.sync = () => {
+    const keep = [sizeSel.value, bppSel.value];
+    fillSelect(sizeSel, effSizes().map((v) => [String(v), String(v) + " px"]), keep[0]);
+    fillSelect(bppSel, effBpps().map((v) => [String(v), String(v) + " bpp"]), keep[1]);
+    if (!effSizes().map(String).includes(keep[0])) sizeSel.value = String(effSizes()[0] ?? "");
+    if (!effBpps().map(String).includes(keep[1])) bppSel.value = String(effBpps()[0] ?? "");
+    if (details.open && loaded && (sizeSel.value !== keep[0] || bppSel.value !== keep[1])) { ascentIn.value = ""; load(); }
+    else update();
+  };
   sizeSel.onchange = () => { ascentIn.value = ""; load(); };
   bppSel.onchange = () => { ascentIn.value = ""; load(); };
   ascentIn.oninput = () => update();
@@ -1211,7 +1231,7 @@ function clippingPanel(font, per) {
     }, "ascent " + ascent + " and clip cell set");
   };
   details.append(el("div", {class: "svf-controls"}, sizeSel, bppSel, el("label", {}, "ascent ", ascentIn), cellEl, apply),
-    counts, wrap, list);
+    note, counts, wrap, list);
   return details;
 }
 
@@ -1285,8 +1305,12 @@ function overridePanel(font, per) {
   grid.append(el("label", {class: "label"}, advanced.toggle, el("span", {text: " advanced options"})));
   grid.append(advanced.box);
   grid.append(dyEditor(per, font, refresh));
-  const clipping = clippingPanel(font, per);
-  if (clipping) grid.append(clipping);
+  const clipping = clippingPanel(font, per, advanced.box);
+  if (clipping) {
+    grid.append(clipping);
+    grid.addEventListener("input", clipping.sync);          // the sizes, bpp and cell fields feed the panel as they are typed
+    grid.addEventListener("change", clipping.sync);
+  }
   grid.append(namesField(font));
   return grid;
 }
@@ -1458,7 +1482,10 @@ function previewCell(step) {
         if (useGlyphs) {
           if (tryState.ascent !== null) opts.ascentOverride = tryState.ascent;
           opts.dy = tryState.dy;
-          opts.symbolsFixed = jamosetOption(step.font, "symbols") === true;
+          // a DOS raw face carries the two symbol glyphs when the build was told --symbols: by the option or by a preset
+          // (jamo-844-symbols, jamo-844-hbios24) that puts the flag in the step's own argv
+          opts.symbolsFixed = jamosetOption(step.font, "symbols") === true ||
+            (step.argv || []).some((argv) => Array.isArray(argv) && argv.includes("--symbols"));
           r = svfview.drawGlyphs(canvas, previewState.text, opts);
           if (r) r.ascentOverride = tryState.ascent;
         } else {
@@ -1605,9 +1632,11 @@ function piecesPanel(step, chainBytes, mate) {
             "LIST exception for its worst syllables (jamoexc.py, not in the maker)"}));
         }
         const worst = el("div", {class: "piece-worst", hidden: true});
+        let drawing = false;                                // one fill of the worst syllables per row, however fast the clicks
         row.onclick = async () => {
           worst.hidden = !worst.hidden;
-          if (worst.hidden || worst.childElementCount) return;
+          if (worst.hidden || worst.childElementCount || drawing) return;
+          drawing = true;
           for (const w of piece.worst || []) {
             const cell = el("span", {class: "piece-worst-cell", text: "U+" + w.cp.toString(16).toUpperCase() + " read " + (w.got || "-") + " "});
             const mine = el("canvas", {});
@@ -1620,6 +1649,7 @@ function piecesPanel(step, chainBytes, mate) {
             }
             worst.append(cell);
           }
+          drawing = false;
         };
         row.append(worst);
         table.append(row);
@@ -1687,9 +1717,11 @@ function glyphGrid(step, chainBytes) {
   const nav = el("div", {});
   const holder = el("div", {});
   box.append(nav, holder, info);
-  let page = 0, syllableView = false, list = [];
+  let page = 0, syllableView = false, list = [], token = 0;
 
+  // Only the latest show() renders: a second click while the first is still drawing must not append a second set.
   const show = async () => {
+    const mine = ++token;
     holder.innerHTML = "";
     try {
       const [face] = await chainBytes();
@@ -1698,6 +1730,7 @@ function glyphGrid(step, chainBytes) {
         list = (syllableView ? svfview.syllables(0) : svfview.codePoints(0)).filter(svfview.isCodePoint);
         const pitch = infos[0].cellW + 2;
         const pageList = list.slice(page * 256, page * 256 + 256);
+        const rows = [];
         for (let row = 0; row < pageList.length; row += 16) {
           const cps = pageList.slice(row, row + 16);
           const canvas = el("canvas", {class: "grid-row"});
@@ -1716,8 +1749,10 @@ function glyphGrid(step, chainBytes) {
                 " bearing " + m.bearing + " ink " + m.inkW + " dy " + m.dy + (pieces.length ? " pieces " + pieces.join(" ") : "");
             });
           };
-          holder.append(canvas);
+          rows.push(canvas);
         }
+        if (mine !== token) return;                         // a newer show() is (or was) drawing: leave the page to it
+        holder.replaceChildren(...rows);
         nav.innerHTML = "";
         const pages = Math.max(1, Math.ceil(list.length / 256));
         const prev = el("button", {type: "button", text: "<"});
@@ -1734,7 +1769,7 @@ function glyphGrid(step, chainBytes) {
         }
       });
     } catch (err) {
-      info.textContent = escapeControls(err && err.message);
+      if (mine === token) info.textContent = escapeControls(err && err.message);
     }
   };
   return {box, show};

@@ -380,6 +380,7 @@ class Worker(threading.Thread):
         self.cancels = {}                       # job id -> threading.Event, one per enqueued job
         self._queued = []                       # the ids in the queue, in order (only `position` needs them)
         self._current = None                    # the id `run_job` is running, or None
+        self._stopping = False                  # `stop` was called: no job starts any more
         self._lock = threading.Lock()
 
     def enqueue(self, job_id):
@@ -438,6 +439,22 @@ class Worker(threading.Thread):
                     event.set()
                 return "signalled"
             return "not running"
+
+    def stop(self, timeout=30):
+        """Stop for good: no job starts any more, the running one is cancelled through the usual group kill (every tool
+        child runs in its own session and would outlive this process), and the call waits up to @p timeout seconds for it
+        to end. Idempotent; True when nothing was left running."""
+        with self._lock:
+            self._stopping = True
+            for event in self.cancels.values():
+                event.set()
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                if self._current is None:
+                    return True
+            time.sleep(0.05)
+        return False
 
     def recover(self):
         """Called once before `start()`: a `running` job is `failed`/`interrupted`, a `queued` one re-enqueued.
@@ -505,6 +522,8 @@ class Worker(threading.Thread):
         while True:
             job_id = self.queue.get()
             try:
+                if self._stopping:                  # the server is going down: a queued job stays queued for the next start
+                    continue
                 if self._claim(job_id) == "queued":
                     self.run_job(job_id)
             except Exception:                       # one broken job must not stop the worker for the others
@@ -649,6 +668,7 @@ class Worker(threading.Thread):
         """
         argvs = step.get("argv") or []
         out_abs = os.path.join(job_dir, step.get("output") or "")
+        self._clear_outputs(os.path.dirname(out_abs), out_abs, step)      # a copy step too: no stale report or scores
         if not argvs:
             try:
                 source = self._plain_source(font, job_dir, upload_dir, plain)
@@ -666,7 +686,6 @@ class Worker(threading.Thread):
             return "", "", str(exc) or exc.__class__.__name__
         stdout, stderr, seconds = [], [], 0.0
         cwd = os.path.dirname(out_abs)
-        self._clear_outputs(cwd, out_abs, step)
         for argv in step["argv"]:
             result = run_command(argv, cwd, STEP_TIMEOUT, cancel)
             stdout.append(result["stdout"])

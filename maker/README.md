@@ -30,6 +30,17 @@ built: run maker/build-wasm.sh" and every preview cell shows that text; nothing 
   a jamo set. Scoring only: no recogniser or weights are in this repository, and without the folder the page says the
   check is unavailable.
 
+## Notes
+
+- `GET /api/caps` is served and tested but the page does not call it yet: it learns what is missing from the notices
+  (the module, the libraries, the recogniser) and from `mask_ok` on the font entries. It is for a shell that wants to
+  show the capabilities up front.
+- The server still renders a PNG for baked sources (a DOS raw or SVF entry) into `work/preview/<font>.png`. The page no
+  longer shows it (it draws the baked face with WASM); it stays because `test_preview.py` and the source-PNG route use it
+  as the byte oracle's image form. Nothing else depends on it.
+- Stopping the server (SIGTERM, SIGINT or exit) cancels the running job and kills its tool processes (each runs in its
+  own session); a queued job stays queued and is re-queued at the next start.
+
 ## What has not been run
 
 - **The `mask fit` route has never run a job**: it needs freetype-py and uharfbuzz (`JAMOSET_PYLIB`), which are not installed

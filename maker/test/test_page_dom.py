@@ -103,7 +103,7 @@ class PageDomTest(unittest.TestCase):
             time.sleep(0.2)
         self.fail("job did not finish")
 
-    def dos_job(self, run):
+    def dos_job(self, run, **extra):
         job = self.api("POST", "/api/jobs")["id"]
         self.upload(job, "dos/HAN.FNT", self.fx["dos_raw"])
         self.upload(job, "dos/ENG.FNT", self.fx["dos_eng"])
@@ -114,6 +114,10 @@ class PageDomTest(unittest.TestCase):
                 per["dos_layout"] = "844"
         self.api("PUT", "/api/jobs/%s/settings" % job, s)
         self.font = next(f["id"] for f in detected["fonts"] if f["path"].endswith("HAN.FNT"))
+        if extra:
+            s = self.api("GET", "/api/jobs/" + job)["settings"]
+            s["fonts"][self.font].update(extra)
+            self.api("PUT", "/api/jobs/%s/settings" % job, s)
         if run:
             s = self.api("GET", "/api/jobs/" + job)["settings"]
             s["fonts"][self.font].update(selected=True, dest="new/dom", licence={"kind": "text", "text": "OFL"},
@@ -130,8 +134,10 @@ class PageDomTest(unittest.TestCase):
             f.write(script)
         # its own process group: a driver that overruns takes Chrome (and its ~100 tasks) down with it, so a hung page
         # cannot starve the rest of the suite of threads
+        env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WAIT_S - 20))        # the driver's own limit comes first
         proc = subprocess.Popen(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+                                env=env)
         try:
             stdout, stderr = proc.communicate(timeout=WAIT_S)
         except subprocess.TimeoutExpired:
@@ -465,6 +471,76 @@ return document.querySelector('.pieces-summary').textContent;
 """)
         self.assertEqual(out, "identity check unavailable (set SVF_RECOG_DIR to a folder with recog.py and its weights; "
                               "numpy and torch needed)")
+
+    def symbols_hint(self, job):
+        return self.drive(job, """
+window.confirm = () => true;
+await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
+const field = document.querySelector('input[aria-label="ascent to try"]');
+field.value = '5'; field.dispatchEvent(new Event('change'));
+await waitFor(() => /baseline row/.test(document.querySelector('.svf-preview .sub').textContent));
+return document.querySelector('.svf-preview .sub').textContent;
+""")
+
+    def test_the_symbols_hint_follows_the_flag_a_preset_puts_in_the_argv(self):
+        """jamo-844-symbols injects --symbols: the compositor treats the two symbols as framed by the ascent."""
+        self.assertIn("symbols are approximate", self.symbols_hint(self.dos_job(run=True, preset="jamo-844-symbols")))
+        self.assertNotIn("symbols are approximate", self.symbols_hint(self.dos_job(run=True)))
+
+    def test_the_clipping_panel_follows_the_unsaved_fields(self):
+        job = self.api("POST", "/api/jobs")["id"]
+        self.upload_bytes(job, "tall/Tall.ttf", inputfx.tall_ttf())
+        self.upload(job, "tall/OFL.txt", self.fx["ttf_licence"])
+        detected = self.api("POST", "/api/jobs/%s/detect" % job)
+        font = next(f["id"] for f in detected["fonts"] if f["path"].endswith("Tall.ttf"))
+        s = detected["settings"]
+        s["fonts"][font].update(sizes=[16], bpp=[1], options={"mkfont": {"cell": 12, "width": 16}})
+        self.api("PUT", "/api/jobs/%s/settings" % job, s)
+        self.font = font
+        out = self.drive(job, """
+document.querySelector('tr[data-font="FONTID"] input.override').click();
+const panel = document.querySelector('tr.override[data-for="FONTID"]');
+const details = panel.querySelector('details.clipping');
+details.open = true; details.dispatchEvent(new Event('toggle'));
+await waitFor(() => /glyphs cut/.test(panel.querySelector('.clip-counts').textContent));
+const cell = () => [...panel.querySelectorAll('.svf-controls span')].map((n) => n.textContent).join(' ');
+const first = {counts: panel.querySelector('.clip-counts').textContent, cell: cell()};
+const field = panel.querySelector('input[data-option="cell"]');       // the advanced panel is open: it holds a cell option
+field.value = '9'; field.dispatchEvent(new Event('input', {bubbles: true}));
+await sleep(500);
+const typed = {counts: panel.querySelector('.clip-counts').textContent, cell: cell(), note: panel.querySelector('details.clipping .sub').textContent};
+const sizes = panel.querySelector('input.ov-sizes');
+sizes.value = '16, 17'; sizes.dispatchEvent(new Event('change', {bubbles: true}));
+await sleep(500);
+const options = [...panel.querySelectorAll('select[aria-label="clipping size"] option')].map((o) => o.value);
+return {first, typed, options};
+""")
+        self.assertIn("cell 12 rows", out["first"]["cell"])
+        self.assertIn("cell 9 rows", out["typed"]["cell"])
+        self.assertNotEqual(out["typed"]["counts"], out["first"]["counts"])
+        self.assertEqual(out["options"], ["16", "17"])
+
+    def test_two_quick_page_clicks_in_the_glyph_grid_draw_one_page(self):
+        job = self.api("POST", "/api/jobs")["id"]
+        self.upload(job, "svf/NEODG16.SVF", os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"))
+        detected = self.api("POST", "/api/jobs/%s/detect" % job)
+        font = detected["fonts"][0]["id"]
+        s = detected["settings"]
+        s["fonts"][font].update(selected=True, dest="new/dom", licence={"kind": "text", "text": "OFL"},
+                                licence_name="OFL.TXT", note_name="NOTE.TXT")
+        self.api("PUT", "/api/jobs/%s/settings" % job, s)
+        self.api("POST", "/api/jobs/%s/run" % job)
+        self.assertEqual(self.wait_done(job)["state"], "done")
+        out = self.drive(job, """
+await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
+[...document.querySelectorAll('button')].find((b) => b.textContent === 'glyphs').click();
+await waitFor(() => document.querySelectorAll('canvas.grid-row').length === 16);
+const next = [...document.querySelectorAll('.glyph-grid button')].find((b) => b.textContent === '>');
+next.click(); next.click();
+await sleep(2500);
+return {rows: document.querySelectorAll('canvas.grid-row').length, nav: document.querySelector('.glyph-grid div').textContent};
+""")
+        self.assertEqual(out["rows"], 16, out)
 
 
 if __name__ == "__main__":

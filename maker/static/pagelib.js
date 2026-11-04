@@ -38,5 +38,6 @@ export function parseDyText(text) {
 /** A signature of a step row: equal signatures mean the row's DOM can be kept (its controls, its glyph grid). */
 export function stepSig(step, companion) {
   const pick = (s) => s ? [s.id, s.state, s.seconds, s.error, s.kind, s.size, s.bpp, s.name, s.output, s.report, s.exit, s.identical_to] : null;
-  return JSON.stringify([pick(step), pick(companion), step.stderr_tail || "", step.quality || null, step.facts || null]);
+  return JSON.stringify([pick(step), pick(companion), step.stderr_tail || "", step.quality || null, step.facts || null,
+    step.identity || null]);
 }

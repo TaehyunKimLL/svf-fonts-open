@@ -51,8 +51,9 @@ class PagelibTest(unittest.TestCase):
 const same = L.stepSig(a, null) === L.stepSig({...a}, null);
 const rerun = L.stepSig(a, null) !== L.stepSig({...a, seconds: 1.6}, null);
 const mate = L.stepSig(a, null) !== L.stepSig(a, {...a, id: "s02"});
-console.log(JSON.stringify([same, rerun, mate]));""", json.dumps(step))
-        self.assertEqual(got, [True, True, True])
+const ident = L.stepSig(a, null) !== L.stepSig({...a, identity: {available: true, identity: "pass"}}, null);
+console.log(JSON.stringify([same, rerun, mate, ident]));""", json.dumps(step))
+        self.assertEqual(got, [True, True, True, True])
 
 
 if __name__ == "__main__":

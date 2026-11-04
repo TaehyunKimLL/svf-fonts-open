@@ -26,6 +26,7 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 import gzip
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -115,6 +116,23 @@ def svf_png(chain_paths, out_path):
         raise
 
 
+def run_bounded(argv, cwd, timeout, env=None):
+    """`subprocess.run(argv)` with stdout and stderr captured, in its own session: on @p timeout the whole process group
+    is killed (not only the child, whose own children would survive) and `subprocess.TimeoutExpired` is raised."""
+    proc = subprocess.Popen(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except BaseException:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()
+        raise
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
+
 def source_png(font, abs_path, size, out_path):
     """@p abs_path drawn with Pillow at @p size as a PNG at @p out_path; False when nothing could be written.
 
@@ -187,8 +205,7 @@ def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=
             size = (font.get("sizes") or [None])[0]
             commands = route.commands(font, size, 1, layout, ("2350", None), paths, [list(extra)])
         for argv in commands:
-            done = subprocess.run(argv, cwd=work, env=ENV, timeout=TIMEOUT_S,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            done = run_bounded(argv, work, TIMEOUT_S)
             if done.returncode != 0:
                 _remove(out_svf)
                 return False

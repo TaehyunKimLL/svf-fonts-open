@@ -943,6 +943,46 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(rep["auto_ascent"], mkfont.fit_ascent(boxes, 12, mkfont.choose_ascent(font, 12, False))[0])
         self.assertEqual(mkfont.fit_counts(boxes, 16, 15, 12), ([], [], []))        # nothing cut by construction
 
+    NANUM = os.path.join(os.path.dirname(HERE_DIR), "ttf", "nanumgothic", "NanumGothic-Regular.ttf")
+
+    @unittest.skipUnless(os.path.exists(NANUM), "in-tree NanumGothic-Regular.ttf not found")
+    def test_mono_hint_boxes_are_the_baked_ink(self):
+        """--mono-hint bakes with FreeType's monochrome renderer; the boxes, the fit and the cut counts must measure that
+        same ink, not the anti-aliased one (the probe's box rows equal the probe face's ink rows)."""
+        self.src = self.NANUM
+        rep, face = self.probe("--size", "13", "--bpp", "1", "--width", "13", "--probe", "--mono-hint")
+        f = jamoset.parse_svfn(face)
+        pitch = (f.cell_w + 7) // 8
+        checked = 0
+        for key, (left, top, right, bottom) in rep["boxes"].items():
+            cell = f.glyphs.get(int(key, 16))
+            if cell is None:
+                continue
+            rows = [i for i in range(f.cell_h) if any(cell[i * pitch:(i + 1) * pitch])]
+            self.assertEqual((rows[0] - f.ascent, rows[-1] + 1 - f.ascent), (top, bottom), key)
+            checked += 1
+        self.assertGreater(checked, 50)
+
+    @unittest.skipUnless(os.path.exists(NANUM), "in-tree NanumGothic-Regular.ttf not found")
+    def test_mono_hint_clipped_ink_counts_the_hinted_pixels(self):
+        from PIL import ImageFont
+        font = ImageFont.truetype(self.NANUM, 13)
+        old = mkfont.MONO_HINT
+        try:
+            mkfont.MONO_HINT = False
+            plain = mkfont.clipped_ink(font, "\uac00", 1, 3, 8)
+            mkfont.MONO_HINT = True
+            hinted = mkfont.clipped_ink(font, "\uac00", 1, 3, 8)
+            img, _, _ = mkfont.render(font, "\uac00", 16, 40, 30, 1, nudge=False)
+        finally:
+            mkfont.MONO_HINT = old
+        self.assertNotEqual(plain, hinted)                       # the two renderers do not agree on this glyph
+        # the cell above row 3 .. below row 11 of a glyph drawn at baseline 30 in a 40-row image: the cut pixels
+        rows = [[img.getpixel((x, y)) for x in range(16)] for y in range(40)]
+        top, bottom = 30 - 3, 30 - 3 + 8
+        full = sum(1 for y, r in enumerate(rows) if y < top or y >= bottom for v in r if v == 255)
+        self.assertEqual(hinted[0], full)
+
     def test_probe_cell_function(self):
         self.assertEqual(mkfont.probe_cell({}), (1, 1))
         self.assertEqual(mkfont.probe_cell({1: (0, -12, 5, 3), 2: (0, -4, 5, 0)}), (12, 15))

@@ -15,6 +15,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import atexit
 import contextlib
 import datetime
 import glob
@@ -22,6 +23,7 @@ import http.server
 import json
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import stat
@@ -1075,7 +1077,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _run_probe(argv, cwd, out_svf, out_json):
         """Run the probe; whatever it leaves after a failure is removed (a later GET asks again)."""
         try:
-            done = subprocess.run(argv, cwd=cwd, env=preview.ENV, timeout=preview.TIMEOUT_S, capture_output=True)
+            done = preview.run_bounded(argv, cwd, preview.TIMEOUT_S)
             failed = done.returncode != 0
         except (OSError, subprocess.SubprocessError):
             failed = True
@@ -1183,8 +1185,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, ext)
             try:
                 for argv in argvs:
-                    done = subprocess.run(argv, cwd=target_dir, env=preview.ENV, timeout=preview.TIMEOUT_S,
-                                          stdin=subprocess.DEVNULL, capture_output=True)
+                    done = preview.run_bounded(argv, target_dir, preview.TIMEOUT_S)
                     if done.returncode != 0:
                         raise OSError("source conversion failed")
                 if produced != target or not os.path.isfile(target):
@@ -1287,11 +1288,18 @@ def main():
     host, port = _bind(bind)                              # no host means 127.0.0.1, not every interface (W11)
     server = make_server(host, port, repo_dir, data_root)
     print("svf-maker listening on %s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
+    atexit.register(server.worker.stop)                   # however the process ends, the tool children are stopped first
+
+    def terminate(signum, frame):
+        raise KeyboardInterrupt                           
+    signal.signal(signal.SIGTERM, terminate)
+    signal.signal(signal.SIGINT, terminate)               # also when the parent started us with SIGINT ignored (a background job)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        server.worker.stop()
         server.server_close()
 
 

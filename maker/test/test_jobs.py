@@ -574,7 +574,7 @@ class WorkerTest(unittest.TestCase):
         self.worker.retain()
         self.assertEqual(self.store.list(), [])
 
-    def run_identity(self, caps_value, stub_kwargs=None, recog_timeout=None, arrays="lists", flags=()):
+    def run_identity(self, caps_value, stub_kwargs=None, recog_timeout=None, arrays="lists", flags=(), steps=None):
         """A jamo step run with the stub recogniser (a directory of its own) under @p caps_value."""
         stub = tempfile.mkdtemp(prefix="svf-recog-stub-")
         self.addCleanup(shutil.rmtree, stub, True)
@@ -590,9 +590,35 @@ class WorkerTest(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         self.worker.caps = caps_value
-        j = self.job_with_steps(["open(sys.argv[1],'wb').write(open(HGKEY,'rb').read())"], kinds=["jamo"])
+        j = self.job_with_steps(["open(sys.argv[1],'wb').write(open(HGKEY,'rb').read())"], kinds=["jamo"],
+                                **(steps or {}))
         self.worker.enqueue(j["id"])
         return self.wait_for(j["id"])
+
+    def test_a_copy_route_rerun_without_the_recogniser_drops_the_old_scores(self):
+        """A copy step (an uploaded SVF jamo set) returns before any tool runs: its stale scores go too."""
+        copy = {"scripts": None}
+        stub = tempfile.mkdtemp(prefix="svf-recog-stub-")
+        self.addCleanup(shutil.rmtree, stub, True)
+        test_recog_score.write_stub(stub)
+        for p in (mock.patch.dict(os.environ, {"SVF_RECOG_DIR": stub}), mock.patch.object(caps, "recog_dir", return_value=stub),
+                  mock.patch.object(jobs, "RECOG_ARRAYS", "lists")):
+            p.start()
+            self.addCleanup(p.stop)
+        self.worker.caps = {"recog": True}
+        j = self.job_with_steps([None], kinds=["jamo"], src_bytes=read(HGKEY))
+        self.worker.enqueue(j["id"])
+        j = self.wait_for(j["id"])
+        step = j["steps"][0]
+        path = self.store.path(j["id"], "work", step["id"], "identity.json")
+        self.assertTrue(step["identity"]["available"], step)
+        self.assertTrue(os.path.isfile(path))
+        self.worker.caps = {"recog": False}
+        self.store.update(j["id"], lambda job: job.update(state="detected"))
+        self.worker.enqueue(j["id"])
+        j = self.wait_for(j["id"])
+        self.assertFalse(j["steps"][0]["identity"]["available"])
+        self.assertFalse(os.path.exists(path))
 
     def test_identity_written_for_jamo_steps(self):
         j = self.run_identity({"wasm": False, "mask_libs": False, "recog": True})

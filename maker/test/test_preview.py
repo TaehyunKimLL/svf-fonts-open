@@ -167,6 +167,33 @@ def rss_kb():
     return pages * (os.sysconf("SC_PAGE_SIZE") // 1024)
 
 
+class RunBoundedTest(unittest.TestCase):
+    def test_a_timeout_kills_the_whole_group(self):
+        import subprocess as sp
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            pidfile = os.path.join(d, "pid")
+            script = ("import subprocess, sys, time\n"
+                      "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                      "open(%r, 'w').write(str(p.pid))\n"
+                      "time.sleep(60)\n" % pidfile)
+            with self.assertRaises(sp.TimeoutExpired):
+                preview.run_bounded([sys.executable, "-c", script], d, 1)
+            with open(pidfile) as f:
+                pid = int(f.read())
+            for _ in range(50):
+                if not os.path.exists("/proc/%d" % pid) or open("/proc/%d/stat" % pid).read().split(") ")[1][0] == "Z":
+                    break
+                import time
+                time.sleep(0.1)
+            else:
+                self.fail("the grandchild survived the timeout")
+
+    def test_it_returns_the_code_and_the_output(self):
+        r = preview.run_bounded([sys.executable, "-c", "import sys; print('hi'); sys.exit(3)"], ".", 10)
+        self.assertEqual((r.returncode, r.stdout.strip()), (3, b"hi"))
+
+
 class PreviewTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -357,7 +384,7 @@ class PreviewTest(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(self.d, "REL.SVF")))
         finally:
             os.chdir(cwd)
-        with mock.patch.object(preview.subprocess, "run", side_effect=subprocess.TimeoutExpired("jamoset.py", 60)):
+        with mock.patch.object(preview, "run_bounded", side_effect=subprocess.TimeoutExpired("jamoset.py", 60)):
             self.assertFalse(preview.bake_source_face(FONT_DOS, F["dos_raw"], "844", None, out, TOOLS))
         self.assertFalse(os.path.exists(out))
         jmap = dict(FONT_SVF_PRE, svf=dict(FONT_SVF_PRE["svf"], jset_version=3))     # routes refuse a JSET version for it
