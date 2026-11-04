@@ -43,6 +43,7 @@ import preview
 import routes
 import settings
 import zipout
+from sources import Sources
 
 # The spec's upload limits (Global Constraints).
 BODY_CAP = 67108864
@@ -198,18 +199,19 @@ def _json_depth(data):
     return best
 
 
-def _preview_glob(store, job_id, font_id):
+def _preview_glob(store, job, font_id):
     """The `work/preview/` entries that belong to @p font_id (`<id>`, `<id>.*`, the `<id>/` directory).
 
     The id is matched whole (Y7): clearing `f10` must never touch `f100`'s preview.
     """
-    base = os.path.join(store.path(job_id, "work", "preview"), glob.escape(str(font_id)))
+    base = os.path.join(store.files_dir(job), "work", "preview", glob.escape(str(font_id)))
     return glob.glob(base) + glob.glob(base + ".*")
 
 
-def _remove_preview(store, job_id, font_id):
-    """Remove every derived preview file of @p font_id; the caller holds that font's preview lock (W2)."""
-    for path in _preview_glob(store, job_id, font_id):
+def _remove_preview(store, job, font_id):
+    """Remove every derived preview file of @p font_id of @p job (the loaded job); the caller holds that font's
+    preview lock (W2)."""
+    for path in _preview_glob(store, job, font_id):
         if os.path.isdir(path) and not os.path.islink(path):
             shutil.rmtree(path, ignore_errors=True)
         else:
@@ -258,20 +260,57 @@ def _is_upload_tmp(rel):
     return any(part.startswith(UPLOAD_TMP) for part in str(rel or "").replace(os.sep, "/").split("/"))
 
 
-def _kept_settings(old, fonts, old_fonts):
+def _kept_settings(old, fonts, old_fonts, roots=None, old_roots=None, local=False):
     """`settings.defaults(fonts)` with the owner's earlier settings kept: the batch and every font still there.
 
     `POST detect` may run again on a job the owner already edited (S1: a failed or done job is re-detected), so the
     edit must survive the re-scan. The ids are positional (`f01`, `f02`, ... in path order), so a new upload that
     sorts earlier renumbers every font: an old per-font entry is remapped to the new id by the font's own path and
     face (Y2), never by the id. A path the new scan no longer has is dropped; a new one gets its defaults.
+
+    A local job passes its `roots` and the `old_roots` of the earlier scan (lists of `{"path": ...}`): a font is
+    then keyed by `(root path, path, face)`, and every root-indexed setting follows its root by path: a licence
+    `{"kind": "upload", "root": i}`, a per-font `range_root` and the batch `range_root`. A root that is gone
+    gives the licence its fresh default and drops the range (the batch's range falls back to its default).
     """
-    fresh = settings.defaults(fonts)
+    fresh = settings.defaults(fonts, local=True) if local else settings.defaults(fonts)
     if not isinstance(old, dict):
         return fresh
+    is_local = roots is not None and old_roots is not None
+
+    def rootpath(table, entry):
+        try:
+            return table[entry.get("root")]["path"]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    def key_of(entry, table):
+        if is_local:
+            return (rootpath(table, entry), entry.get("path"), entry.get("face_index"))
+        return (entry.get("path"), entry.get("face_index"))
+
+    new_index = {}
+    if is_local:
+        for i, item in enumerate(roots):
+            new_index.setdefault(item.get("path"), i)
+
+    def remap_root(old_root):
+        """The new index of the root the old index named, or None when that root is gone."""
+        try:
+            return new_index.get(old_roots[old_root]["path"])
+        except (KeyError, IndexError, TypeError):
+            return None
+
     old_batch = old.get("batch")
     if isinstance(old_batch, dict) and all(key in old_batch for key in settings.BATCH_KEYS):
-        fresh["batch"] = old_batch
+        fresh["batch"] = dict(old_batch) if is_local else old_batch
+        if is_local and settings.RANGE_ROOT_KEY in old_batch:
+            moved = remap_root(old_batch[settings.RANGE_ROOT_KEY])
+            if moved is None:
+                fresh["batch"].pop(settings.RANGE_ROOT_KEY, None)
+                fresh["batch"]["range"] = settings.defaults(fonts)["batch"]["range"]
+            else:
+                fresh["batch"][settings.RANGE_ROOT_KEY] = moved
     old_per_font = old.get("fonts")
     if not isinstance(old_per_font, dict):
         return fresh
@@ -281,13 +320,12 @@ def _kept_settings(old, fonts, old_fonts):
             continue
         per = old_per_font.get(entry.get("id"))
         if isinstance(per, dict):
-            old_by_key[(entry.get("path"), entry.get("face_index"))] = per
-    old_key_by_id = {entry.get("id"): (entry.get("path"), entry.get("face_index"))
-                     for entry in old_fonts or [] if isinstance(entry, dict)}
-    new_id_by_key = {(font.get("path"), font.get("face_index")): font.get("id") for font in fonts}
+            old_by_key[key_of(entry, old_roots)] = per
+    old_key_by_id = {entry.get("id"): key_of(entry, old_roots) for entry in old_fonts or [] if isinstance(entry, dict)}
+    new_id_by_key = {key_of(font, roots): font.get("id") for font in fonts}
     for font in fonts:
         fid = font.get("id")
-        per = old_by_key.get((font.get("path"), font.get("face_index")))
+        per = old_by_key.get(key_of(font, roots))
         if per is None or fid not in fresh["fonts"]:
             continue
         per = dict(per)
@@ -298,6 +336,20 @@ def _kept_settings(old, fonts, old_fonts):
                     fresh["fonts"][fid].get("latin_companion")
         if "instance" in per:                       # an instance stays only while the font still has those axes
             per["instance"] = per["instance"] if _instance_fits(font, per["instance"]) else None
+        if is_local:
+            licence = per.get("licence")
+            if isinstance(licence, dict) and licence.get("kind") == "upload" and "root" in licence:
+                moved = remap_root(licence["root"])
+                per["licence"] = (dict(licence, root=moved) if moved is not None
+                                  else fresh["fonts"][fid].get("licence"))
+            rng = per.get("range")
+            if isinstance(rng, str) and rng not in settings.NAMED_RANGE_NAMES:
+                moved = remap_root(per.get(settings.RANGE_ROOT_KEY, 0))
+                if moved is None:
+                    per.pop("range", None)
+                    per.pop(settings.RANGE_ROOT_KEY, None)
+                else:
+                    per[settings.RANGE_ROOT_KEY] = moved
         fresh["fonts"][fid] = per
     return fresh
 
@@ -688,8 +740,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise _HttpError(409, "an upload is in flight for job %s" % job)
 
     def _scan_fonts(self, job):
-        """`detect.scan` of the job's upload, without the temp files of uploads still in flight (Y3)."""
-        fonts = detect.scan(self.server.store.path(job, "upload"))
+        """`detect.scan` of the job's sources, without the temp files of uploads still in flight (Y3)."""
+        current = self._load(job)
+        fonts = detect.scan(self.server.store.sources(current), local=current.get("source") == "local")
         return [font for font in fonts if not _is_upload_tmp(font.get("path"))]
 
     def _begin_upload(self, job):
@@ -716,7 +769,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with contextlib.ExitStack() as stack:
             for lock in locks:
                 stack.enter_context(lock)
-            shutil.rmtree(self.server.store.path(job_id, "work", "preview"), ignore_errors=True)
+            shutil.rmtree(os.path.join(self.server.store.files_dir(self._load(job_id)), "work", "preview"),
+                          ignore_errors=True)
 
     # ---- files and detection ---------------------------------------------------------------------------------
 
@@ -924,42 +978,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
         body = self._json_body()
         store = self.server.store
-        upload_dir = store.path(job, "upload")
 
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
                 raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
             fonts = self._stamped(j.get("fonts") or [])
-            errors = settings.validate(fonts, body, upload_dir)
+            errors = settings.validate(fonts, body, store.sources(j))
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
             for font_id in _changed_preview_fonts(fonts, j.get("settings") or {}, body):
                 with _preview_lock(job, font_id):            # W2: a new input invalidates the drawn preview
-                    _remove_preview(store, job, font_id)
+                    _remove_preview(store, j, font_id)
             j["settings"] = body
         current = self._update(job, transition)
         self.send_json(current)
 
     def _job_run(self, query, job):
         store = self.server.store
-        job_dir = store.path(job)
-        upload_dir = os.path.join(job_dir, "upload")
         index = naming.RepoIndex(self.server.svf_dir)       # a fresh index: the checkout's current names count
 
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
                 raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
             fonts = self._stamped(j.get("fonts") or [])
-            errors = settings.run_ready(fonts, j.get("settings") or {}, index, upload_dir)
+            files_dir, sources = store.files_dir(j), store.sources(j)
+            errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources)
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
             try:
-                steps = settings.plan_steps(dict(j, fonts=fonts), job_dir, self.server.tools_dir, upload_dir,
+                steps = settings.plan_steps(dict(j, fonts=fonts), files_dir, self.server.tools_dir, sources,
                                             pylib=os.environ.get("JAMOSET_PYLIB") or None)
             except ValueError as exc:
                 raise _HttpError(400, str(exc))
-            self._check_steps(job_dir, upload_dir, fonts, steps)
-            self._check_notes(fonts, steps, upload_dir, job_dir)
+            self._check_steps(files_dir, sources, fonts, steps)
+            self._check_notes(fonts, steps, sources, files_dir)
             j.update(state="queued", error=None, steps=steps, result=None)
         self._update(job, transition)
         position = self.server.worker.enqueue(job)          # the position it really got (W13)
@@ -967,23 +1019,27 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current["queue_position"] = position
         self.send_json(current)
 
-    def _check_steps(self, job_dir, upload_dir, fonts, steps):
-        """Refuse a step whose `output` or whose font's `path` is not inside the job directory.
+    def _check_steps(self, files_dir, sources, fonts, steps):
+        """Refuse a step whose `output` is not inside the files directory or whose font's `path` is not under its
+        root of the sources.
 
-        The worker trusts `job.json` and joins `output`/`path` onto the job directory: the server, which is the one
-        that writes them there, refuses anything that would leave it (Tasks 12/13 review).
+        The worker trusts `job.json` and joins `output`/`path` onto those directories: the server, which is the one
+        that writes them there, refuses anything that would leave them (Tasks 12/13 review).
         """
         by_id = {font.get("id"): font for font in fonts}
         for step in steps:
             output = step.get("output")
-            if not isinstance(output, str) or not _inside(job_dir, os.path.join(job_dir, output)):
+            if not isinstance(output, str) or not _inside(files_dir, os.path.join(files_dir, output)):
                 raise _HttpError(400, "step %s output is outside the job directory" % step.get("id"))
             font = by_id.get(step.get("font")) or {}
             path = font.get("path")
-            if isinstance(path, str) and not _inside(upload_dir, os.path.join(upload_dir, path)):
-                raise _HttpError(400, "font %s path is outside the upload" % step.get("font"))
+            if isinstance(path, str):
+                try:
+                    sources.abs_of(font.get("root", 0), path)
+                except ValueError:
+                    raise _HttpError(400, "font %s path is outside the upload" % step.get("font"))
 
-    def _check_notes(self, fonts, steps, upload_dir, job_dir):
+    def _check_notes(self, fonts, steps, sources, files_dir):
         """Refuse a note the zip step would refuse, using the real command lines the steps will run.
 
         The names and the command lines come from `zipout`'s own helpers, applied to the materialized argvs
@@ -992,14 +1048,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         into a 400 at `POST /run`, never a failed job at the zip step (Tasks 12/13 review).
         """
         by_id = {font.get("id"): font for font in fonts}
-        work_dir = os.path.join(job_dir, "work")
+        work_dir = os.path.join(files_dir, "work")
         for font_id in dict.fromkeys(step.get("font") for step in steps):
             font = by_id.get(font_id) or {}
             mine = [step for step in steps if step.get("font") == font_id]
             faces = [step for step in mine if step.get("kind") in ("precomposed", "jamo")]
             if not faces:                                    # only a face step is named in a note (a prepare is not)
                 continue
-            materialized = [dict(step, argv=jobs.materialized_argv([step], upload_dir, work_dir)) for step in mine]
+            materialized = [dict(step, argv=jobs.materialized_argv([step], sources, work_dir)) for step in mine]
             names = zipout.note_names([{"name": step.get("name"), "identical_to": step.get("identical_to")}
                                        for step in faces])
             try:
@@ -1019,14 +1075,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _job_preview(self, query, job, font, kind):
         current = self._load(job)
-        job_dir = self.server.store.path(job)
+        files_dir = self.server.store.files_dir(current)
         by_id = {entry.get("id"): entry for entry in (current.get("fonts") or [])}
         entry = by_id.get(urllib.parse.unquote(font))
         if entry is None:
             raise _HttpError(404, "no font %s" % font)
         kind = urllib.parse.unquote(kind)
         if kind == "source":
-            path = os.path.join(job_dir, "work", "preview", "%s.png" % entry.get("id"))
+            path = os.path.join(files_dir, "work", "preview", "%s.png" % entry.get("id"))
             if not os.path.isfile(path):
                 with _preview_lock(job, entry.get("id")):
                     if not os.path.isfile(path):
@@ -1034,7 +1090,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}
                         if entry.get("id") not in fonts:
                             raise _HttpError(404, "no font %s" % font)
-                        self._make_source_preview(fresh, job_dir, fonts[entry.get("id")])
+                        self._make_source_preview(fresh, files_dir, fonts[entry.get("id")])
             if not os.path.isfile(path):
                 raise _HttpError(404, "no preview")
             self._serve_file(path, "image/png",
@@ -1047,25 +1103,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _job_face(self, query, job, step):
         """The output of a `done` face step of this job (never the file a re-run has not rewritten yet)."""
         current = self._load(job)
-        job_dir = self.server.store.path(job)
+        files_dir = self.server.store.files_dir(current)
         found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
         if (found is None or found.get("state") != "done" or found.get("kind") not in ("precomposed", "jamo")
                 or not found.get("output")):
             raise _HttpError(404, "no face")
-        path = os.path.join(job_dir, found["output"])
-        if not _inside(job_dir, path) or not os.path.isfile(path):
+        path = os.path.join(files_dir, found["output"])
+        if not _inside(files_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no face")
         self._serve_bytes(path, "application/octet-stream", self._no_store(current))
 
     def _job_report(self, query, job, step):
         """The `--report` JSON of a `done` mkfont step of this job."""
         current = self._load(job)
-        job_dir = self.server.store.path(job)
+        files_dir = self.server.store.files_dir(current)
         found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
         if found is None or found.get("state") != "done" or not found.get("report"):
             raise _HttpError(404, "no report")
-        path = os.path.join(job_dir, found["report"])
-        if not _inside(job_dir, path) or not os.path.isfile(path):
+        path = os.path.join(files_dir, found["report"])
+        if not _inside(files_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no report")
         self._serve_bytes(path, "application/json", self._no_store(current))
 
@@ -1076,7 +1132,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         other previews). The `.json` carries `step_ascent`, the step's merged `--ascent` (or null)."""
         size, bpp = int(size), int(bpp)
         current = self._load(job)
-        job_dir = self.server.store.path(job)
+        files_dir = self.server.store.files_dir(current)
+        sources = self.server.store.sources(current)
         fonts = current.get("fonts") or []
         entry = next((item for item in fonts if item.get("id") == font), None)
         if entry is None:
@@ -1086,17 +1143,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if route is None or route.label != "mkfont" or size not in (eff.get("sizes") or []) \
                 or bpp not in (eff.get("bpp") or []) or bpp not in route.bpps:
             raise _HttpError(404, "no probe")
-        upload_dir = os.path.join(job_dir, "upload")
-        probe_dir = os.path.join(job_dir, "work", "preview", font, "probe")
+        probe_dir = os.path.join(files_dir, "work", "preview", font, "probe")
         out_svf = os.path.join(probe_dir, "%d-%d.svf" % (size, bpp))
         out_json = os.path.join(probe_dir, "%d-%d.json" % (size, bpp))
         with _preview_lock(job, font):
             os.makedirs(probe_dir, exist_ok=True)
-            src = self._prepared_source(entry, eff, upload_dir, os.path.join(job_dir, "work", "preview"))
-            rkind, rabs = settings.range_spec(eff, upload_dir)
+            src = self._prepared_source(entry, eff, sources, os.path.join(files_dir, "work", "preview"))
+            rkind, rabs = settings.range_spec(eff, sources)
             range_file = os.path.join(probe_dir, "range.txt")     # only an uploaded list is passed as a file
             if rkind == "file":
-                if not rabs or not _inside(upload_dir, rabs) or not os.path.isfile(rabs):
+                if not rabs or not sources.inside(rabs) or not os.path.isfile(rabs):
                     raise _HttpError(404, "no probe")
                 range_arg = ("file", range_file)
             else:
@@ -1156,23 +1212,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _job_identity(self, query, job, step):
         """`work/sNN/identity.json` of a `done` jamo step that has one."""
         current = self._load(job)
-        job_dir = self.server.store.path(job)
+        files_dir = self.server.store.files_dir(current)
         found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
         if found is None or found.get("state") != "done" or found.get("kind") != "jamo":
             raise _HttpError(404, "no identity")
-        path = os.path.join(job_dir, "work", step, "identity.json")
-        if not _inside(job_dir, path) or not os.path.isfile(path):
+        path = os.path.join(files_dir, "work", step, "identity.json")
+        if not _inside(files_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no identity")
         self._serve_bytes(path, "application/json", self._no_store(current))
 
     def _job_source_face(self, query, job, font):
         """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""
         current = self._load(job)
-        job_dir = self.server.store.path(job)
+        files_dir = self.server.store.files_dir(current)
         entry = next((item for item in (current.get("fonts") or []) if item.get("id") == font), None)
         if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo"):
             raise _HttpError(404, "no source face")
-        path = os.path.join(job_dir, "work", "preview", "%s.svf" % font)
+        path = os.path.join(files_dir, "work", "preview", "%s.svf" % font)
         if not os.path.isfile(path):
             with _preview_lock(job, font):
                 if not os.path.isfile(path):
@@ -1181,12 +1237,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if font not in fonts:
                         raise _HttpError(404, "no source face")
                     try:
-                        self._make_source_preview(fresh, job_dir, fonts[font])
+                        self._make_source_preview(fresh, files_dir, fonts[font])
                     except _HttpError as exc:
                         if exc.status == 409:                  # an unconfirmed DOS layout: no source face yet
                             raise _HttpError(404, exc.message)
                         raise
-        if not os.path.isfile(path) or not _inside(job_dir, path):
+        if not os.path.isfile(path) or not _inside(files_dir, path):
             raise _HttpError(404, "no source face")
         self._serve_bytes(path, "application/octet-stream", self._no_store(current))
 
@@ -1200,24 +1256,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _caps(self, query):
         self.send_json({key: bool(value) for key, value in self.server.caps.items()})
 
-    def _make_source_preview(self, job, job_dir, font):
+    def _make_source_preview(self, job, files_dir, font):
         """Bake or draw @p font's source preview into `work/preview/<font id>.png` (its own file: no shared name)."""
-        job_id = job.get("id")
         fonts = job.get("fonts") or []
-        upload_dir = self.server.store.path(job_id, "upload")
-        out_dir = os.path.join(job_dir, "work", "preview")
+        sources = self.server.store.sources(job)
+        out_dir = os.path.join(files_dir, "work", "preview")
         os.makedirs(out_dir, exist_ok=True)
         out_png = os.path.join(out_dir, "%s.png" % font.get("id"))
         eff = settings.effective(fonts, job.get("settings") or {}, font.get("id"))
-        abs_src = self._prepared_source(font, eff, upload_dir, out_dir)
-        if abs_src != self._plain_source(font, os.path.join(upload_dir, font.get("path") or ""), out_dir):
+        abs_src = self._prepared_source(font, eff, sources, out_dir)
+        if abs_src != self._plain_source(font, self._source_abs(sources, font), out_dir):
             font = dict(font, face_index=0)            # a prepared file holds the one face the build reads
         source_kind = font.get("source_kind") or ""
         if source_kind == "dos-raw":
             layout = eff.get("dos_layout")
             if not layout:
                 raise _HttpError(409, "confirm the DOS Johab layout")
-            eng_abs = self._companion_abs(eff, fonts, upload_dir, out_dir)
+            eng_abs = self._companion_abs(eff, fonts, sources, out_dir)
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, layout, eng_abs, out_svf, self.server.tools_dir,
                                         self._bake_flags(eff, source_kind)):
@@ -1231,12 +1286,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         preview.source_png(font, abs_src, self._first_size(font, eff), out_png)
 
-    def _prepared_source(self, font, eff, upload_dir, out_dir):
+    @staticmethod
+    def _source_abs(sources, font):
+        """The absolute path of @p font's own file under its root of @p sources; 'no preview' when it is outside."""
+        try:
+            return sources.abs_of(font.get("root", 0), font.get("path"))
+        except ValueError:
+            raise _HttpError(404, "no preview")
+
+    def _prepared_source(self, font, eff, sources, out_dir):
         """The file the build's tools read for @p font: its plain source when no conversion is planned, else the
         converted copy `out_dir/<font id>/source.<ext>` (`settings.source_ops`: TTC face, Mac cmap or container,
         variable instance, PCF), written once. The caller holds the font's preview lock; the keyed settings drop the
         copy with the font's other previews. A conversion that fails is 'no preview' (404)."""
-        plain = self._plain_source(font, os.path.join(upload_dir, font.get("path") or ""), out_dir)
+        plain = self._plain_source(font, self._source_abs(sources, font), out_dir)
         ops = settings.source_ops(font, eff)
         if not ops:
             return plain
@@ -1305,14 +1368,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception:
             pass
 
-    def _companion_abs(self, eff, fonts, upload_dir, out_dir):
+    def _companion_abs(self, eff, fonts, sources, out_dir):
         """The DOS raw font's Latin companion as an absolute path, or `None` (a `.gz` one is decompressed too)."""
         by_id = {font.get("id"): font for font in fonts}
         companion = eff.get("latin_companion")
         font = by_id.get(companion) if isinstance(companion, str) else None
         if font is None:
             return None
-        return self._plain_source(font, os.path.join(upload_dir, font.get("path") or ""), out_dir)
+        return self._plain_source(font, self._source_abs(sources, font), out_dir)
 
     @staticmethod
     def _first_size(font, eff):

@@ -783,6 +783,32 @@ class ApiTest(ApiBase):
                 srv.server_close()
             shutil.rmtree(data, ignore_errors=True)
 
+    def test_files_dir_is_the_only_work_root(self):
+        other = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, other, ignore_errors=True)
+        with mock.patch.object(jobs.Store, "files_dir", lambda self, job: other):
+            jid = self.minimal_job()
+            job = self.get("/api/jobs/%s" % jid)
+            fid = job["fonts"][0]["id"]
+            self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, fid)).status, 200)
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        under_other = [os.path.join(d, n) for d, _, ns in os.walk(other) for n in ns]
+        self.assertTrue(any("/work/" in p for p in under_other))
+        jdir = os.path.join(self.data, "jobs", jid)
+        self.assertEqual(sorted(os.listdir(jdir)), ["job.json", "log.md", "out", "upload", "work"])
+        self.assertEqual([n for _, _, ns in os.walk(os.path.join(jdir, "work")) for n in ns], [])   # made empty, never used
+
+    def test_no_upload_path_outside_the_upload_handlers(self):
+        exempt = {"_job_files", "_unpack", "_record_counts", "_reserve_upload", "_release_upload", "_receive",
+                  "_job_zip"}
+        for name, fn in inspect.getmembers(server.Handler, inspect.isfunction):
+            if name in exempt:
+                continue
+            src = inspect.getsource(fn)
+            self.assertIsNone(re.search(r"""(store\.path|os\.path\.join)\([^)]*["']upload["']""", src), name)
+            self.assertNotIn("store.path(", src, name)
+
     def test_csp_and_static_urls(self):
         for path in ("/", "/static/maker.js"):
             self.assertEqual(self.raw("GET", path).getheader("Content-Security-Policy"), server.CSP)
@@ -1789,6 +1815,56 @@ class KeptCompanionTest(unittest.TestCase):
         for f in fonts:
             f["companions"] = latin if f["path"] == ksc else []
         return fonts
+
+    def _local_fonts(self, spec):
+        """`spec` is [(root index, path)]: ids f01.. in that order, ttf entries with no companions."""
+        from test_routes import FONT_TTF
+        return [dict(FONT_TTF, id="f%02d" % (i + 1), root=root, path=path, face_index=0, companions=[])
+                for i, (root, path) in enumerate(spec)]
+
+    def test_kept_settings_by_root_path_for_local(self):
+        old_roots = [{"path": "/a"}, {"path": "/b"}]
+        roots = [{"path": "/b"}, {"path": "/c"}, {"path": "/a"}]
+        old_fonts = self._local_fonts([(0, "x.ttf"), (1, "x.ttf")])
+        new_fonts = self._local_fonts([(0, "x.ttf"), (1, "x.ttf"), (2, "x.ttf")])
+        fresh = settings.defaults(new_fonts)
+        old = {"batch": settings.defaults(old_fonts)["batch"],
+               "fonts": {"f01": {"dest": "games/a"}, "f02": {"dest": "games/b"}}}
+        kept = server._kept_settings(old, new_fonts, old_fonts, roots=roots, old_roots=old_roots)
+        self.assertEqual([kept["fonts"][f]["dest"] for f in ("f01", "f03")], ["games/b", "games/a"])
+        self.assertEqual(kept["fonts"]["f02"].get("dest"), fresh["fonts"]["f02"].get("dest"))
+        self.assertNotEqual(kept["fonts"]["f02"].get("dest"), "games/a")
+
+    def test_kept_settings_remaps_root_indices(self):
+        old_roots = [{"path": "/a"}, {"path": "/b"}]
+        old_fonts = self._local_fonts([(0, "x.ttf")])
+        batch = settings.defaults(old_fonts)["batch"]
+        batch.update(range="list.txt", range_root=1)
+        old = {"batch": batch, "fonts": {"f01": {"licence": {"kind": "upload", "root": 0, "path": "OFL.txt"},
+                                                  "range": "mine.txt", "range_root": 0}}}
+        roots = [{"path": "/b"}, {"path": "/c"}, {"path": "/a"}]
+        new_fonts = self._local_fonts([(0, "q.ttf"), (2, "x.ttf")])          # f02 is the old f01
+        kept = server._kept_settings(old, new_fonts, old_fonts, roots=roots, old_roots=old_roots)
+        per = kept["fonts"]["f02"]
+        self.assertEqual(per["licence"], {"kind": "upload", "root": 2, "path": "OFL.txt"})
+        self.assertEqual((per["range"], per["range_root"]), ("mine.txt", 2))
+        self.assertEqual((kept["batch"]["range"], kept["batch"]["range_root"]), ("list.txt", 0))
+        gone = [{"path": "/b"}, {"path": "/c"}]                              # /a is no longer a root
+        new_fonts = self._local_fonts([(0, "x.ttf")])
+        old_fonts2 = self._local_fonts([(0, "x.ttf")])
+        kept = server._kept_settings(old, new_fonts, old_fonts2, roots=gone, old_roots=old_roots)
+        # the font's own key is (/a, x.ttf): no longer there, so the font gets its defaults
+        self.assertEqual(kept["fonts"]["f01"], settings.defaults(new_fonts)["fonts"]["f01"])
+        old_fonts3 = self._local_fonts([(1, "x.ttf")])                       # (/b, x.ttf) is still there as root 0
+        old3 = {"batch": dict(batch, range_root=0), "fonts": {"f01": {"licence": {"kind": "upload", "root": 0, "path": "OFL.txt"},
+                                                   "range": "mine.txt", "range_root": 0}}}
+        kept = server._kept_settings(old3, new_fonts, old_fonts3, roots=gone, old_roots=old_roots)
+        per = kept["fonts"]["f01"]                                           # its licence and range lived in /a
+        self.assertEqual(per["licence"], settings.defaults(new_fonts)["fonts"]["f01"]["licence"])
+        self.assertNotIn("range", per)
+        self.assertNotIn("range_root", per)
+        self.assertEqual(kept["batch"]["range"], settings.defaults(new_fonts)["batch"]["range"])
+        self.assertNotIn("range_root", kept["batch"])
 
     def test_companion_follows_its_path(self):
         import server, settings

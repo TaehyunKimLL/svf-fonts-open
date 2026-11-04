@@ -221,8 +221,10 @@ def instance_coords(font, instance):
     return coords
 
 
-def defaults(fonts):
+def defaults(fonts, local=False, today=None):
     """The Settings dict `detect` fills (Shared data shapes) for the fonts that have at least one route.
+
+    @p local and @p today are for a local job's defaults (Task 6); they change nothing yet.
 
     The batch keys hold the Global Constraints defaults; a per-font dict holds the font-only keys and only those
     batch keys whose per-font default differs from the batch default, so a later batch edit reaches every font that
