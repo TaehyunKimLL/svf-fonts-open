@@ -75,46 +75,32 @@ range (2350 / 11172 / an uploaded list), preset, and an advanced panel with `cel
 | Piece identity check | no | the routes run `--check`, which proves the table composes all 11,172 syllables, not that each piece is its jamo. `quality.py` scores IoU against the reference only. No jamo recogniser is in this repository (grep for "recogni" in tools/ finds only JMAP_RECOG flag handling); the card t_9acea7ab requirement needs one brought in or written |
 | Mac/HWP options (`--symbols` for fbit, `--mode derived`, `jamomerge.py`, `jamoexc.py`) | no | none of these tools is called |
 
-## 3. Preview: server PNG today, browser WASM next
+## 3. Preview: the browser draws with the WASM renderer
 
-**Today.** Source preview: Pillow draws the sample line for FreeType-readable sources (preview.py:118-143); DOS raw and
-SVF sources are baked to SVF and drawn by `svfline.layout` (preview.py:93-115, 146-197; server.py:893-920). Result
-preview: every produced face drawn by `svfline` into a PNG (preview.py:219-226), chained with `svf/dos/NEODG16.SVF`
-when the face has no U+0041 (preview.py:202-216). Every preview needs a server round trip and, for a DOS source, a
-`jamoset.py` run. Nothing re-renders as a control changes; a preview exists only after a bake or a run.
+**State (card t_9acea7ab).** Every produced face and every baked source face is drawn in the page by the C renderer
+built to WebAssembly (`maker/build-wasm.sh` into `maker/static/wasm/`, the compile line shared with `web/build.sh`
+through `c/ports/web/emcc-flags.sh`). `svfline.py` stays the byte-for-byte oracle (`tools/test_web_picker.py`
+`TestModule`, which also pins the page's per-glyph compositor and its target decoders). The worker no longer writes a
+result PNG.
 
-**The WASM module (decision 2026-11-03: C renderer unified, maker preview in the browser, `svfline.py` stays the
-oracle).** Facts checked here:
-
-- emscripten **is available**, but not on PATH: `which emcc` prints nothing; `~/opt/emsdk/upstream/emscripten/emcc`
-  is emcc 6.0.13, the path `web/build.sh` uses by default (`EMSDK`, web/build.sh:13-14). `web/build.sh
-  /tmp/maker-audit-wasm` built `svf.wasm` 39,234 bytes, `svf.js` 6,623 bytes, 116 faces, in 2 s.
-- The byte-for-byte oracle exists already: `tools/test_web_picker.py` TestModule builds the module and compares GRAY8,
-  MONO_PAGE, MONO_ROW and RGB565 buffers with `svfline.py`; run here: 44 tests OK, 1 skipped (TestPage: no
-  `web/test/node_modules/playwright-core`).
-- Exports of `c/ports/web/svf_web.c`: `svfw_open` (4-slot chain), `svfw_target` / `svfw_target2` (GRAY8, MONO_PAGE,
-  MONO_ROW, RGB565, threshold, fg/bg), `svfw_scale` (1..16 / 1..16), `svfw_measure`, `svfw_draw`, `svfw_reset`,
-  `svfw_info` (bpp, cell w/h, ascent, flags, status, glyph count, is_jamo), `svfw_has`, `svfw_order`
-  (c/ports/web/svf_web.c:64-200). The module takes face bytes from JS (`svf_open_mapped`), so a face the server just
-  baked can be fetched as bytes and drawn without a PNG.
-
-Is it sufficient?
-
-| Preview need | Sufficient? | What is missing |
-|---|---|---|
-| Draw a produced face (any bpp, any target, scaled) | yes | nothing: fetch the SVF bytes (a new `GET /api/jobs/<id>/face/<step>.svf`), `svfw_open`, `svfw_draw` |
-| Baseline shift (face ascent) | partly | JS can patch the header's ascent byte in a copy and reopen (the module keeps no copy), but the C API has no setter and no "draw cell boxes / baseline" aid. Proposed: `svfw_ascent_override(slot, a)` or a documented header-patch helper in JS, plus `svfw_line_box` (the scaled line top/baseline/bottom for a pen) to draw guides |
-| Per-glyph dy (`svfdy.py`) live | no | dy lives in each glyph record; a live preview needs either a per-code-point dy override table in the glue (`svfw_dy_override(slot, cp, dy)` consulted by the draw path, which `c/src` has no hook for today) or a server re-bake per change. `svf_metrics_of` (c/include/svf.h:191, returns advance, bearing_x, ink_w, dy) is not exported: add `svfw_metrics(slot, cp, out)` |
-| Top/bottom clipping | no, by construction | a baked SVF holds only the ink inside the cell; what was cut is gone. Showing "clipped rows before build" needs the source outline: either the server bakes once without `--clip-cell` into a tall cell (and the browser draws the cell rectangle over it, needing `svfw_metrics` and cell geometry from `svfw_info`), or mkfont reports per-glyph cut rows as data (a new mkfont `--report` JSON; it only prints counts to stdout today) |
-| Per-glyph inspection, piece view for jamo sets | no | `svf_glyph`, `svf_compose`, `svf_jamo_pieces`, `svf_cmap_cp`, `svf_cell_bytes` (c/include/svf.h:181-260) are not exported; a piece/identity view needs `svfw_glyph(slot, cp, buf, len)`, `svfw_pieces(slot, cp, out3)` and `svfw_cmap_cp(slot, i)` |
-| Draw at a given advance / single code point at x,y | partly | `svfw_draw` takes UTF-8 text; enough for lines, not for a glyph grid with fixed pitch (one call per glyph works, at a cost) |
-| Non-SVF sources (TTF/OTF/BDF/PCF/FNT before conversion) | no | the C renderer reads SVF only. Two choices: keep the Pillow PNG (`source_png`) for the "source" column, or bake a quick 1-size SVF server-side (mkfont, about a second for 2,446 glyphs at 16 px; not timed here) and draw that in WASM, which also shows exactly what the converter produces. The second keeps one renderer for everything a user compares |
-| Two faces side by side / chain fallback | yes | `svfw_order` and 4 slots |
-
-So: for result faces the module is enough today; for baseline, dy and clipping it needs `svfw_metrics`, a dy/ascent
-override (or JS header patching plus a dy table hook in `c/src`), line-box geometry, and a server endpoint that serves
-face bytes; clipping additionally needs an unclipped bake or per-glyph cut data from mkfont. Outline/bitmap sources
-stay server-rendered (PNG, or a quick server-side SVF bake) because the C renderer has no outline path.
+- **Endpoints that serve bytes** (`maker/server.py`, all GET, `no-cache` with an ETag, host-checked): `face/<step>.svf`
+  (a done face step only), `source/<font>.svf` (the baked source of a DOS raw or SVF entry), `repo/face/<group>/<FILE>`
+  (the Latin companion `dos/NEODG16.SVF`), `report/<step>.json`, `probe/<font>/<size>/<bpp>.(svf|json)`,
+  `identity/<step>.json`; `/api/caps` says which optional parts exist.
+- **Exports** of `c/ports/web/svf_web.c` beyond the draw path: `svfw_metrics`, `svfw_cell_bytes`, `svfw_glyph`,
+  `svfw_pieces`, `svfw_cmap_cp`, `svfw_line_box` (thin calls into `svf.h`; `c/src` is unchanged).
+- **The page** (`maker/static/svfview.js`, `maker.js`): a result cell per done step with the sample text, scale, target
+  (GRAY8, MONO, RGB565), threshold, guides, the glyph grid, and an ascent to try (`dos raw`/`hanterm`) or a dy to try
+  (precomposed) that the per-glyph compositor draws without a rebuild (`drawGlyphsInto`, which follows `walk_next`);
+  applying one re-opens a finished job and saves it. The step row shows the mkfont report (`cut N`, `nudged N`, `fit at
+  S px`); a jamo step shows the identity verdict and, opened, its pieces.
+- **Clipping before the build** (`mkfont --probe` / `--report`, `clip.js`): the probe is baked from the step's own
+  argv (`settings.face_argv` / `probe_argv`) in a cell that cuts nothing; the "clipping" panel computes the rows any
+  ascent would cut with `fit_counts`' rule and draws them over the probe face.
+- **What stays server-drawn:** the source PNG of FreeType-readable sources (Pillow, `preview.source_png`); the PNG of
+  baked sources is still written by the server (and tested) but the page draws those with WASM.
+- **Caps:** `wasm` (the module is built), `mask_libs` (freetype-py and uharfbuzz for `mask fit` and `binarize mono`),
+  `recog` (`SVF_RECOG_DIR` with numpy and torch for the identity check).
 
 ## 4. Electron shell with a Python sidecar on 127.0.0.1
 
@@ -173,18 +159,24 @@ server deployment is kept.
   200 (folders `dos`, `jamo-extra`); `POST /api/jobs` 200 `{"id": ...}`; the same POST with `Origin:
   http://evil.example` 403 "cross-origin request". No upload or conversion was run through the server.
 
+**Closing run state (Task 15, branch maker-controls).** maker suite via heavy: 666 tests OK (10 skipped: no playwright,
+freetype-py/uharfbuzz, numpy, `SVF_MAKER_REAL_*`); `tools/test_*.py` via heavy: 967 tests OK (17 skipped), `test_web_picker`
+included; `make -C c check` via heavy: exit 0; `sh c/cross/test-check-features.sh`: OK; `maker/test/smoke_dom.py`: exit 0
+under google-chrome; `git diff 01a943f -- c/src c/include`: empty.
+
 ## 7. Gap list (priority order) and the card each belongs to
 
-1. **t_9acea7ab** - WASM result preview: add `GET .../face/<step>.svf`, draw produced faces with `svf_web` in the
-   page, keep `svfline` PNG only as the test oracle. The module builds here and is already proven byte-identical.
-2. **t_9acea7ab** - export `svfw_metrics` (svf_metrics_of), `svfw_glyph`, `svfw_pieces`, `svfw_cmap_cp`, a line-box
-   helper, and an ascent/dy override (glue table plus a draw-path hook in `c/src`, or JS header patching for ascent).
-3. **t_9acea7ab** - controls: ascent for jamoset/bdfface routes, `--fit-cell`, `--width`, `--latin`, an `svfdy.py`
-   step with a dy table, mkfont cut counts per step (and a per-glyph cut report for the clipping view), `--aa-refine`,
-   `--binarize` choice, more named ranges.
-4. **t_9acea7ab** - jamo set from decomposable fonts with a piece identity check: a GSUB-mask route (`--mask-font`,
-   pylib pass-through in `ENV`), `jamovec.py master` without `--components`; the jamo recogniser is not in this
-   repository and has to be brought in or written.
+1. **t_9acea7ab** - DONE (Tasks 6-8): the page draws produced faces with the WASM renderer; `GET .../face/<step>.svf`;
+   `svfline` PNG is only the test oracle.
+2. **t_9acea7ab** - DONE (Tasks 1, 7): the exports `svfw_metrics`, `svfw_glyph`, `svfw_pieces`, `svfw_cmap_cp`,
+   `svfw_line_box`; the ascent and dy overrides are done by the page's compositor (no hook in `c/src`).
+3. **t_9acea7ab** - DONE (Tasks 4, 5, 9, 10, 11): ascent keys per tool, `--fit-cell`, `--width`, `--latin`, the
+   `svfdy.py` step with a dy table, the mkfont `--report` and cut counts per step, the clipping probe and panel,
+   `--aa-refine`, `--binarize`, `clean`, the seven named ranges.
+4. **t_9acea7ab** - DONE (Tasks 3, 12, 14): the `mask fit` route (`--mask-font`, `--pylib`) and the `vector fit` route
+   (`jamovec.py master` without `--components`); the identity check runs `maker/recog_score.py` when `SVF_RECOG_DIR`
+   names a recogniser (not in this repository: unverified here beyond a stub). Source previews and the probe read the
+   prepared font (Task 13).
 5. **t_f3ef3189** - input kinds: done on branch maker-inputs (see section 1: VF instance, TTC faces, Mac TTF and containers,
    KSC/johab PCF, `johab844.py`, 12x24 `--eng`, `--from-svf` after `bdfface`, strike sizes). What remains of it: source and
    instance previews (t_9acea7ab), local-only mode and Mac `fbit` (t_cbd14d61), Electron, packaging, the jamo recogniser.
