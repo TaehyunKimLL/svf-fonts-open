@@ -57,19 +57,34 @@ const LAYOUTS = ["844", "adaptive", "hanterm-johab"];
 const DEST_FIXED = ["dos", "jamo-extra"];
 
 // The advanced panel's inputs (Shared data shapes `options`); `group` is the tool the key belongs to, and a key in
-// `FLAG_KEYS` is a boolean (`false` in DEFAULT_OPTIONS), the rest a number (`null`).
+// `FLAG_KEYS` is a boolean (`false` in DEFAULT_OPTIONS, `true` for `FLAG_DEFAULT_ON`), a key in `CHOICE_KEYS` one of
+// its strings, the rest a number (`null`). Keys are unique across the three groups.
 const ADVANCED = [
   {key: "cell", group: "mkfont", label: "cell"},
   {key: "ascent", group: "mkfont", label: "ascent"},
+  {key: "width", group: "mkfont", label: "width"},
   {key: "space_advance", group: "mkfont", label: "space advance"},
   {key: "mono_hint", group: "mkfont", label: "mono hint"},
   {key: "clip_cell", group: "mkfont", label: "clip cell"},
+  {key: "fit_cell", group: "mkfont", label: "fit cell"},
+  {key: "latin", group: "mkfont", label: "Latin top"},
   {key: "embolden", group: "jamoset", label: "embolden"},
   {key: "symbols", group: "jamoset", label: "symbols"},
   {key: "jset_version", group: "jamoset", label: "JSET version"},
+  {key: "jamo_ascent", group: "jamoset", label: "header ascent"},
+  {key: "fit_baseline", group: "jamoset", label: "fit baseline"},
+  {key: "aa_refine", group: "jamoset", label: "AA refine"},
+  {key: "clean", group: "jamoset", label: "clean noise"},
+  {key: "binarize", group: "jamoset", label: "binarize"},
+  {key: "latin_ascent", group: "bdfface", label: "Latin ascent"},
+  {key: "hangul_ascent", group: "bdfface", label: "Hangul ascent"},
 ];
 
-const FLAG_KEYS = new Set(["mono_hint", "clip_cell", "embolden", "symbols"]);
+const FLAG_KEYS = new Set(["mono_hint", "clip_cell", "fit_cell", "latin", "embolden", "symbols", "clean"]);
+// A flag whose batch default is on (settings.DEFAULT_OPTIONS): "off" is the value worth storing.
+const FLAG_DEFAULT_ON = new Set(["clean"]);
+// settings.OPTION_CHOICES: a key drawn as a <select data-option>; its first value is the default.
+const CHOICE_KEYS = {"binarize": ["threshold", "ridge", "mono"]};
 
 // Mirrors presets.panel_argv: which option a route label and bpp actually uses (the spec's "Advanced panel
 // options"), i.e. the option keys the panel shows for that route. Only labels the routes above offer appear. Strict
@@ -251,14 +266,18 @@ function parseSizes(text) {
 // @p previous is the stored batch options: a field the panel does not show keeps its stored value (Q3/m1), so a
 // batch value hidden by the current selection is never dropped on the next save.
 function readOptions(root, previous) {
-  const options = {mkfont: {}, jamoset: {}};
+  const options = {mkfont: {}, jamoset: {}, bdfface: {}};
   const bad = [];
-  for (const node of root.querySelectorAll("input[data-option]")) {
+  for (const node of root.querySelectorAll("[data-option]")) {
     const group = node.dataset.group;
     const key = node.dataset.option;
     if (node.closest("[hidden]")) {                 // a hidden option's stale value is not read (I5), but is kept
       const kept = ((previous || {})[group] || {})[key];
       if (kept !== undefined) options[group][key] = kept;
+      continue;
+    }
+    if (node.tagName === "SELECT") {                // a choice: its string value
+      options[group][key] = node.value;
       continue;
     }
     if (node.type === "checkbox") {
@@ -285,6 +304,11 @@ function readPerPanel(box, per) {
     const key = node.dataset.option;
     if (node.closest("[hidden]")) continue;
     if (!options[group]) options[group] = {};
+    if (node.tagName === "SELECT" && CHOICE_KEYS[key]) {      // a choice: its string, empty = the batch's
+      if (node.value === "") delete options[group][key];
+      else options[group][key] = node.value;
+      continue;
+    }
     if (node.tagName === "SELECT") {
       if (node.value === "on") options[group][key] = true;
       else if (node.value === "off") options[group][key] = false;
@@ -301,15 +325,21 @@ function readPerPanel(box, per) {
 
 function optionsAreEmpty(options) {
   for (const group of Object.values(options || {})) {
-    for (const value of Object.values(group)) if (value !== null && value !== false) return false;
+    for (const [key, value] of Object.entries(group)) {
+      if (value === null) continue;
+      if (value === false && !FLAG_DEFAULT_ON.has(key)) continue;     // "off" is a value for a default-on flag
+      return false;
+    }
   }
   return true;
 }
 
 function fillOptions(root, options) {
-  for (const node of root.querySelectorAll("input[data-option]")) {
-    const value = ((options || {})[node.dataset.group] || {})[node.dataset.option];
-    if (node.type === "checkbox") node.checked = !!value;
+  for (const node of root.querySelectorAll("[data-option]")) {
+    const key = node.dataset.option;
+    const value = ((options || {})[node.dataset.group] || {})[key];
+    if (node.tagName === "SELECT") node.value = CHOICE_KEYS[key] && CHOICE_KEYS[key].includes(value) ? value : CHOICE_KEYS[key][0];
+    else if (node.type === "checkbox") node.checked = value === undefined ? FLAG_DEFAULT_ON.has(key) : !!value;
     else node.value = value === null || value === undefined ? "" : value;
   }
 }
@@ -955,10 +985,18 @@ function advancedFieldset(per, font) {
     const batch = batchOf(opt.group, opt.key);
     const hasBatch = batch !== undefined && batch !== null && batch !== false;
     let input;
-    if (flag) {
+    if (CHOICE_KEYS[opt.key]) {
+      const first = CHOICE_KEYS[opt.key][0];
+      const shown = batch === undefined || batch === null ? first : batch;
+      input = el("select", {class: "ov-choice"});
+      input.title = "empty: the batch's value (" + shown + ")";
+      fillSelect(input, [["", "(batch: " + shown + ")"], ...CHOICE_KEYS[opt.key].map((v) => [v, v])],
+                 value === undefined || value === null ? "" : value);
+    } else if (flag) {
+      const on = batch === undefined ? FLAG_DEFAULT_ON.has(opt.key) : !!batch;
       input = el("select", {class: "ov-flag"});
-      input.title = "empty: the batch's value (" + (batch ? "on" : "off") + ")";
-      fillSelect(input, [["", "(batch: " + (batch ? "on" : "off") + ")"], ["on", "on"], ["off", "off"]],
+      input.title = "empty: the batch's value (" + (on ? "on" : "off") + ")";
+      fillSelect(input, [["", "(batch: " + (on ? "on" : "off") + ")"], ["on", "on"], ["off", "off"]],
                  value === undefined ? "" : (value ? "on" : "off"));
     } else {
       input = el("input", {type: "text", inputmode: "numeric", size: "4"});

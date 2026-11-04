@@ -940,6 +940,21 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(js_json_block(js, "SOURCE_WORDS"), settings._SOURCE_WORDS)
         self.assertEqual(js_json_block(js, "SOURCE_ARTICLES"), settings._SOURCE_ARTICLES)
 
+    def test_page_advanced_lists_the_new_keys(self):
+        with open(os.path.join(MAKER_DIR, "static", "maker.js"), encoding="utf-8") as f:
+            js = f.read()
+        for key in ("width", "fit_cell", "latin", "jamo_ascent", "fit_baseline", "aa_refine", "clean", "binarize",
+                    "latin_ascent", "hangul_ascent"):
+            self.assertRegex(js, r'\{key: "%s", group: "(mkfont|jamoset|bdfface)"' % key)
+        self.assertIn('const CHOICE_KEYS = {"binarize": ["threshold", "ridge", "mono"]}', js)
+        with open(os.path.join(MAKER_DIR, "static", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        for key in ("width", "fit_cell", "latin", "jamo_ascent", "fit_baseline", "aa_refine", "clean", "binarize",
+                    "latin_ascent", "hangul_ascent"):
+            self.assertIn('data-field="%s"' % key, html)
+        if shutil.which("node"):
+            self.assertEqual(subprocess.run(["node", "--check", os.path.join(MAKER_DIR, "static", "maker.js")]).returncode, 0)
+
 
 MAKER_JS = os.path.join(MAKER_DIR, "static", "maker.js")
 

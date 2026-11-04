@@ -22,7 +22,9 @@ from unittest import mock
 import detect
 import fixtures
 import naming
+import routes
 import settings
+from test_routes import FONT_COMPOSITE, FONT_DOS, FONT_JOHAB, FONT_KSC, FONT_TTF
 
 ROOT = None
 FONTS = []
@@ -319,6 +321,119 @@ class ValidateTest(unittest.TestCase):
                 errors = settings.run_ready(FONTS, body, idx, ROOT)
                 self.assertIsInstance(errors, list)
                 self.assertIn(expected, errors)
+
+
+class ControlsTest(unittest.TestCase):
+    """The recipes' controls (options schema, ranges, dy, jamo_route) on synthetic entries with id f01."""
+
+    UNSET = object()
+
+    def errors(self, font=FONT_TTF, options=None, dy=UNSET, jamo_route=UNSET, kinds=None, experimental=False,
+               **per_over):
+        font = dict(copy.deepcopy(font), id="f01")
+        s = settings.defaults([font])
+        per = s["fonts"]["f01"]
+        per.update(selected=True, experimental=experimental, licence={"kind": "text", "text": "OFL"},
+                   licence_name="OFL.TXT", note_name="NOTE.TXT")
+        if font["source_kind"] == "dos-raw":
+            per["dos_layout"] = "844"
+        if kinds is not None:
+            per["kinds"] = kinds
+        if options is not None:
+            per["options"] = options
+        if dy is not self.UNSET:
+            per["dy"] = dy
+        if jamo_route is not self.UNSET:
+            per["jamo_route"] = jamo_route
+        per.update(per_over)
+        return settings.validate([font], s, None)
+
+    def test_clean_base_case(self):
+        self.assertEqual(self.errors(), [])
+
+    def test_new_defaults_and_unique_keys(self):
+        keys = [k for group in settings.DEFAULT_OPTIONS.values() for k in group]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertEqual(settings.DEFAULT_OPTIONS["jamoset"]["clean"], True)
+        self.assertEqual(settings.DEFAULT_OPTIONS["bdfface"], {"latin_ascent": None, "hangul_ascent": None})
+        self.assertEqual(settings.OPTION_CHOICES, {"binarize": ("threshold", "ridge", "mono")})
+        self.assertEqual(settings.DEFAULT_OPTIONS["mkfont"],
+                         {"cell": None, "ascent": None, "width": None, "mono_hint": False, "clip_cell": False,
+                          "fit_cell": False, "latin": False, "space_advance": None})
+        self.assertEqual(settings.DEFAULT_OPTIONS["jamoset"],
+                         {"embolden": False, "symbols": False, "jset_version": None, "jamo_ascent": None,
+                          "fit_baseline": None, "aa_refine": None, "clean": True, "binarize": "threshold"})
+        self.assertIn("dy", settings.FONT_ONLY_KEYS)
+        self.assertIn("jamo_route", settings.FONT_ONLY_KEYS)
+
+    def test_choice_value_type(self):
+        errs = self.errors(options={"jamoset": {"binarize": "otsu"}})
+        self.assertIn("f01: option jamoset.binarize is not one of threshold, ridge, mono", errs)
+        self.assertIn("f01: option jamoset.binarize is not one of threshold, ridge, mono",
+                      self.errors(options={"jamoset": {"binarize": 1}}))
+        self.assertEqual(self.errors(options={"jamoset": {"binarize": "ridge", "clean": False}}), [])
+        self.assertIn("f01: option jamoset.clean is not true or false",
+                      self.errors(options={"jamoset": {"clean": "no"}}))
+
+    def test_int_ranges(self):
+        for key, group, bad, msg in (("width", "mkfont", 0, "f01: width 0 is not 1..255"),
+                                     ("width", "mkfont", 256, "f01: width 256 is not 1..255"),
+                                     ("aa_refine", "jamoset", 10, "f01: aa_refine 10 is not 0..9")):
+            with self.subTest(key=key, bad=bad):
+                self.assertIn(msg, self.errors(options={group: {key: bad}}))
+        self.assertEqual(self.errors(options={"jamoset": {"aa_refine": 0}, "mkfont": {"width": 255}}), [])
+
+    def test_ascent_zero_refused_on_every_ascent_key(self):
+        cases = ((FONT_TTF, {}, "mkfont", "ascent", "cell"),
+                 (FONT_DOS, {}, "jamoset", "jamo_ascent", "cell"),
+                 (FONT_TTF, {"experimental": True, "kinds": ["jamo"]}, "jamoset", "fit_baseline", "size"),
+                 (FONT_KSC, {}, "bdfface", "latin_ascent", "box"),
+                 (FONT_KSC, {}, "bdfface", "hangul_ascent", "box"))
+        for font, over, group, key, word in cases:
+            with self.subTest(key=key):
+                self.assertIn("f01: %s 0 is not 1..%s" % (key, word),
+                              self.errors(font, options={group: {key: 0}}, **over))
+
+    def test_ascent_keys_against_their_cells(self):
+        self.assertIn("f01: jamo_ascent 17 is over the cell 16", self.errors(FONT_DOS, options={"jamoset": {"jamo_ascent": 17}}))
+        self.assertEqual([e for e in self.errors(FONT_DOS, options={"jamoset": {"jamo_ascent": 16}}) if "jamo_ascent" in e], [])
+        self.assertIn("f01: jamo_ascent 17 is over the cell 16", self.errors(FONT_JOHAB, options={"jamoset": {"jamo_ascent": 17}}))
+        self.assertIn("f01: hangul_ascent 25 is over the cell 24", self.errors(FONT_KSC, options={"bdfface": {"hangul_ascent": 25}}))
+        self.assertIn("f01: latin_ascent 25 is over the cell 24", self.errors(FONT_KSC, options={"bdfface": {"latin_ascent": 25}}))
+        self.assertIn("f01: fit_baseline 17 is over the cell 16",
+                      self.errors(options={"jamoset": {"fit_baseline": 17}}, experimental=True, kinds=["jamo"]))
+
+    def test_dy_shape_and_bounds(self):
+        self.assertIn("f01: dy is not an object of code point -> int", self.errors(dy={"0x41": "1"}))
+        self.assertIn("f01: dy is not an object of code point -> int", self.errors(dy={"zz": 1}))
+        self.assertIn("f01: dy is not an object of code point -> int", self.errors(dy=[1]))
+        self.assertIn("f01: dy 0xF0001 names a jamo piece", self.errors(dy={"0xF0001": 1}))
+        self.assertIn("f01: dy 17 of 0x41 is not -16..16", self.errors(dy={"0x41": 17}))     # sizes [16]
+        self.assertIn("f01: dy -17 of 0x41 is not -16..16", self.errors(dy={"0x41": -17}))
+        self.assertEqual(self.errors(dy={"0x41": -2, "g": 1}), [])
+        # the cell option replaces the size as the bound, capped at 127
+        self.assertEqual(self.errors(dy={"0x41": 20}, options={"mkfont": {"cell": 24}}), [])
+        self.assertIn("f01: dy 128 of 0x41 is not -127..127", self.errors(dy={"0x41": 128}, options={"mkfont": {"cell": 200}}))
+
+    def test_dy_needs_a_precomposed_face(self):
+        self.assertIn("f01: dy needs a precomposed face", self.errors(kinds=["jamo"], experimental=True, dy={"0x41": 1}))
+        self.assertEqual([e for e in self.errors(kinds=["jamo"], experimental=True, dy={}) if "dy" in e], [])
+
+    def test_jamo_route_rules(self):
+        self.assertIn("f01: jamo_route hanterm is not offered", self.errors(kinds=["jamo"], jamo_route="hanterm"))
+        self.assertIn("f01: jamo_route experimental fit needs experimental",
+                      self.errors(kinds=["jamo"], jamo_route="experimental fit"))
+        self.assertIn("f01: jamo_route 3 is not a route label", self.errors(jamo_route=3))
+        self.assertEqual(self.errors(kinds=["jamo"], experimental=True, jamo_route="experimental fit"), [])
+        self.assertEqual(self.errors(FONT_COMPOSITE, kinds=["jamo"], jamo_route="composite"), [])
+
+    def test_route_for_with_jamo_route(self):
+        self.assertEqual(routes.route_for(FONT_COMPOSITE, "jamo", True, "composite").label, "composite")
+        self.assertIsNone(routes.route_for(FONT_TTF, "jamo", False, "experimental fit"))
+        self.assertEqual(routes.route_for(FONT_TTF, "jamo", True, "experimental fit").label, "experimental fit")
+        self.assertIsNone(routes.route_for(FONT_TTF, "jamo", True, "hanterm"))
+        self.assertEqual(routes.route_for(FONT_TTF, "jamo", True).label, "experimental fit")          # no label: today's rule
+        self.assertEqual(routes.route_for(FONT_TTF, "precomposed", False, "composite").label, "mkfont")   # only for jamo
 
 
 class RunReadyTest(unittest.TestCase):

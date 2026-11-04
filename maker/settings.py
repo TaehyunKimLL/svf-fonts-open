@@ -28,9 +28,15 @@ import routes
 
 BATCH_KEYS = ("dest", "kinds", "layout", "sizes", "bpp", "range", "preset", "options")
 FONT_ONLY_KEYS = ("selected", "experimental", "dos_layout", "latin_companion", "licence", "names", "licence_name",
-                  "note_name", "instance")
-DEFAULT_OPTIONS = {"mkfont": {"cell": None, "ascent": None, "mono_hint": False, "clip_cell": False, "space_advance": None},
-                   "jamoset": {"embolden": False, "symbols": False, "jset_version": None}}
+                  "note_name", "instance", "dy", "jamo_route")
+# Every option key is unique across the three groups (the page's data-field and _own_option_keys rely on it).
+DEFAULT_OPTIONS = {"mkfont": {"cell": None, "ascent": None, "width": None, "mono_hint": False, "clip_cell": False,
+                              "fit_cell": False, "latin": False, "space_advance": None},
+                   "jamoset": {"embolden": False, "symbols": False, "jset_version": None, "jamo_ascent": None,
+                               "fit_baseline": None, "aa_refine": None, "clean": True, "binarize": "threshold"},
+                   "bdfface": {"latin_ascent": None, "hangul_ascent": None}}
+# An option whose value is one of these strings (its default is the first).
+OPTION_CHOICES = {"binarize": ("threshold", "ridge", "mono")}
 
 # The batch defaults (Global Constraints); `defaults` copies them so an edit never reaches another settings dict.
 BATCH_DEFAULTS = {"dest": "dos", "kinds": ["precomposed"], "layout": "844", "sizes": [16], "bpp": [1, 2],
@@ -38,7 +44,7 @@ BATCH_DEFAULTS = {"dest": "dos", "kinds": ["precomposed"], "layout": "844", "siz
 
 _FONT_ONLY_DEFAULTS = {"selected": False, "experimental": False, "dos_layout": None, "latin_companion": None,
                        "licence": None, "names": {}, "licence_name": "", "note_name": "",
-                       "instance": None}
+                       "instance": None, "dy": None, "jamo_route": None}
 
 # A `names` key: a kind, a size and a bpp, all digits (`effective` ignores a well-formed key outside the selection).
 NAME_KEY_RE = re.compile(r"^(precomposed|jamo)/\d+/\d+$")
@@ -181,6 +187,8 @@ def _font_defaults(font, batch, fmap=None):
         "licence_name": _licence_name(font.get("family", ""), licences[0] if licences else None),
         "note_name": naming.suggest_note_name(font.get("family", "")),
         "instance": None,
+        "dy": None,
+        "jamo_route": None,
     })
     return per
 
@@ -218,7 +226,7 @@ def _merge_options(base, over):
     A non-dict on either side is ignored here (the type rules report it); the result is always the two tools' dicts.
     """
     out = {}
-    for tool in ("mkfont", "jamoset"):
+    for tool in DEFAULT_OPTIONS:
         merged = {}
         for source in (base, over):
             sub = source.get(tool) if isinstance(source, dict) else None
@@ -368,10 +376,17 @@ def _jamoset_options(values):
     return sub if isinstance(sub, dict) else {}
 
 
+def _bdfface_options(values):
+    """The `bdfface` sub-dict of a settings dict's options, or `{}` when it is not an object."""
+    options = values.get("options") if isinstance(values, dict) else None
+    sub = options.get("bdfface") if isinstance(options, dict) else None
+    return sub if isinstance(sub, dict) else {}
+
+
 def _own_option_keys(per):
     """The option keys the font's own options carry (H3): a key it merely inherits is checked as `batch: ...`.
 
-    The two tools' keys are disjoint, so the tool name does not matter here; a wrongly typed `options` is read as
+    The three tools' keys are disjoint, so the tool name does not matter here; a wrongly typed `options` is read as
     no keys (the type rules already report it).
     """
     options = per.get("options") if isinstance(per, dict) else None
@@ -384,7 +399,8 @@ def _own_option_keys(per):
 
 
 def _option_errors(fid, values, keys=None):
-    """The advanced panel's int values: cell 4..255, ascent 0..cell, space_advance 0..255, jset_version 1 or 2.
+    """The advanced panel's int values: cell 4..255, width 1..255, every ascent-like key 1.., aa_refine 0..9,
+    space_advance 0..255, jset_version 1 or 2 (the cross-key cell rules are `_ascent_cell_errors`').
 
     @p keys limits the checks to the font's own option keys (H3): a batch value a font inherits unchanged is
     reported once as `batch: ...`, so a font that overrides one key does not repeat the batch's other errors.
@@ -392,41 +408,74 @@ def _option_errors(fid, values, keys=None):
     """
     errors = []
     mkfont_options = _mkfont_options(values)
-    cell = mkfont_options.get("cell")
-    if (keys is None or "cell" in keys) and cell is not None and (not _is_int(cell) or not 4 <= cell <= 255):
-        errors.append("%s: cell %s is not 4..255" % (fid, cell))
-    ascent = mkfont_options.get("ascent")
-    if (keys is None or "ascent" in keys) and ascent is not None and (not _is_int(ascent) or ascent < 0):
-        errors.append("%s: ascent %s is not 0..cell" % (fid, ascent))
-    advance = mkfont_options.get("space_advance")
-    if (keys is None or "space_advance" in keys) and advance is not None and (not _is_int(advance) or not 0 <= advance <= 255):
-        errors.append("%s: space_advance %s is not 0..255" % (fid, advance))
-    jset_version = _jamoset_options(values).get("jset_version")
-    if (keys is None or "jset_version" in keys) and jset_version is not None and (not _is_int(jset_version) or jset_version not in (1, 2)):
-        errors.append("%s: jset_version %s is not 1 or 2" % (fid, jset_version))
+    jamoset_options = _jamoset_options(values)
+    bdfface_options = _bdfface_options(values)
+
+    def check(options, key, ok, rng):
+        value = options.get(key)
+        if (keys is None or key in keys) and value is not None and (not _is_int(value) or not ok(value)):
+            errors.append("%s: %s %s is not %s" % (fid, key, value, rng))
+
+    check(mkfont_options, "cell", lambda v: 4 <= v <= 255, "4..255")
+    check(mkfont_options, "ascent", lambda v: v >= 1, "1..cell")
+    check(mkfont_options, "width", lambda v: 1 <= v <= 255, "1..255")
+    check(mkfont_options, "space_advance", lambda v: 0 <= v <= 255, "0..255")
+    check(jamoset_options, "jset_version", lambda v: v in (1, 2), "1 or 2")
+    check(jamoset_options, "jamo_ascent", lambda v: v >= 1, "1..cell")
+    check(jamoset_options, "fit_baseline", lambda v: v >= 1, "1..size")
+    check(jamoset_options, "aa_refine", lambda v: 0 <= v <= 9, "0..9")
+    check(bdfface_options, "latin_ascent", lambda v: v >= 1, "1..box")
+    check(bdfface_options, "hangul_ascent", lambda v: v >= 1, "1..box")
     return errors
 
 
-def _ascent_cell_errors(fid, values):
-    """The cross-key rule (Task 5 M2): the ascent must fit the cell it is used at.
+def _ascent_cell_errors(fid, values, font=None, batch_covered=False):
+    """The cross-key rule (Task 5 M2): an ascent must fit the cell it is used at, each key against its own cell.
 
-    The cell is the effective `cell` option when it is an int, else each effective size. The rule runs on every
-    font's effective values (H1), whether or not the font carries its own options; a font whose sizes and options
-    are the batch's relies on the batch-level report, so `_shape_errors` calls this only when they differ. A wrongly
-    typed ascent is the key rule's (H3); a non-list `sizes` is read as no size rather than iterated.
+    `ascent`: the effective `cell` option when it is an int, else every effective size (skipped when
+    @p batch_covered: the batch's report already names it). With the @p font entry: `jamo_ascent` against the DOS raw
+    font's pixel size (`font["sizes"][0]`) or the hanterm BDF box height; `fit_baseline` against every size;
+    `latin_ascent` and `hangul_ascent` against the BDF box height. The rule runs on every font's effective values
+    (H1); a wrongly typed or out-of-range ascent is the key rule's (H3); a non-list `sizes` is read as no size.
     """
     errors = []
+
+    def over(key, value, limit):
+        if _is_int(value) and value >= 1 and _is_int(limit) and value > limit:
+            errors.append("%s: %s %s is over the cell %s" % (fid, key, value, limit))
+            return True
+        return False
+
+    sizes = values.get("sizes")
+    sizes = sizes if isinstance(sizes, list) else []
     mkfont_options = _mkfont_options(values)
     ascent = mkfont_options.get("ascent")
-    if ascent is None or not _is_int(ascent) or ascent < 0:
+    if not batch_covered and _is_int(ascent) and ascent >= 1:
+        cell = mkfont_options.get("cell")
+        for size in sizes:
+            if over("ascent", ascent, cell if _is_int(cell) else size):
+                break
+    if font is None:
         return errors
-    cell = mkfont_options.get("cell")
-    sizes = values.get("sizes")
-    for size in (sizes if isinstance(sizes, list) else []):
-        limit = cell if _is_int(cell) else size
-        if _is_int(limit) and ascent > limit:
-            errors.append("%s: ascent %s is over the cell %s" % (fid, ascent, limit))
+    kind = font.get("source_kind")
+    box = (font.get("bdf") or {}).get("box")
+    box_h = box[1] if isinstance(box, (list, tuple)) and len(box) == 2 else None
+    jamoset_options = _jamoset_options(values)
+    jamo_cell = None
+    if kind == "dos-raw":
+        font_sizes = font.get("sizes")
+        jamo_cell = font_sizes[0] if isinstance(font_sizes, list) and font_sizes else None
+    elif kind == "bdf-johab":
+        jamo_cell = box_h
+    over("jamo_ascent", jamoset_options.get("jamo_ascent"), jamo_cell)
+    baseline = jamoset_options.get("fit_baseline")
+    for size in sizes:
+        if over("fit_baseline", baseline, size):
             break
+    if kind == "bdf-ksc5601":
+        bdfface_options = _bdfface_options(values)
+        over("latin_ascent", bdfface_options.get("latin_ascent"), box_h)
+        over("hangul_ascent", bdfface_options.get("hangul_ascent"), box_h)
     return errors
 
 
@@ -438,7 +487,8 @@ def _same_as_batch(eff, batch):
 
 
 def _options_type_errors(fid, options):
-    """The advanced panel's shape: an object of the two tools' objects, every key known, every value the right type."""
+    """The advanced panel's shape: an object of the three tools' objects, every key known, every value the right type
+    (a bool, an int or null, or for a key in OPTION_CHOICES one of its strings)."""
     errors = []
     if options is None:
         return errors
@@ -456,7 +506,10 @@ def _options_type_errors(fid, options):
                 errors.append("%s: unknown option key %s.%s" % (fid, tool, key))
                 continue
             default = DEFAULT_OPTIONS[tool][key]
-            if default is None:
+            if key in OPTION_CHOICES:
+                if value not in OPTION_CHOICES[key] or not isinstance(value, str):
+                    errors.append("%s: option %s.%s is not one of %s" % (fid, tool, key, ", ".join(OPTION_CHOICES[key])))
+            elif default is None:
                 if value is not None and not _is_int(value):
                     errors.append("%s: option %s.%s is not an int or null" % (fid, tool, key))
             elif not isinstance(value, bool):
@@ -495,6 +548,16 @@ def _batch_type_errors(batch):
             errors.append("batch: bpp has a value that is not an int")
     errors += _options_type_errors("batch", batch.get("options"))
     return errors
+
+
+def _dy_key(key):
+    """The code point a `dy` key names: `int(key, 0)` ("0x41", "65") or a one-character string; None otherwise."""
+    if not isinstance(key, str):
+        return None
+    try:
+        return int(key, 0)
+    except ValueError:
+        return ord(key) if len(key) == 1 else None
 
 
 def _type_errors(fid, eff, per):
@@ -540,6 +603,13 @@ def _type_errors(fid, eff, per):
             isinstance(tag, str) and isinstance(value, (int, float)) and not isinstance(value, bool)
             for tag, value in instance.items())):
         errors.append("%s: instance is not an object of axis values" % fid)
+    dy = eff.get("dy")
+    if dy is not None and not (isinstance(dy, dict) and all(_dy_key(k) is not None and _is_int(v)
+                                                          for k, v in dy.items())):
+        errors.append("%s: dy is not an object of code point -> int" % fid)
+    route = eff.get("jamo_route")
+    if route is not None and not isinstance(route, str):
+        errors.append("%s: jamo_route %s is not a route label" % (fid, route))
     for key in ("selected", "experimental"):
         if not isinstance(eff.get(key), bool):
             errors.append("%s: %s is not true or false" % (fid, key))
@@ -607,8 +677,7 @@ def _shape_errors(fid, font, eff, per, batch, fonts, upload_dir):
     if "preset" in per and eff.get("preset") not in presets.PRESETS:
         errors.append("%s: unknown preset %s" % (fid, eff.get("preset")))
     errors += _option_errors(fid, eff, _own_option_keys(per))
-    if not _same_as_batch(eff, batch):
-        errors += _ascent_cell_errors(fid, eff)
+    errors += _ascent_cell_errors(fid, eff, font, batch_covered=_same_as_batch(eff, batch))
     raw_names = per.get("names") if isinstance(per, dict) else None
     for key in (raw_names if isinstance(raw_names, dict) else {}):
         if not isinstance(key, str) or not NAME_KEY_RE.match(key):
@@ -695,6 +764,28 @@ def _batch_shape_errors(batch, fonts, upload_dir):
     return errors
 
 
+def _dy_errors(fid, eff, kinds, sizes):
+    """The `dy` rules (spec 7.1): no jamo piece code point, each value within the cell, a precomposed kind selected."""
+    dy = eff.get("dy")
+    if not isinstance(dy, dict) or not dy:
+        return []
+    errors = []
+    if "precomposed" not in kinds:
+        errors.append("%s: dy needs a precomposed face" % fid)
+    cell = _mkfont_options(eff).get("cell")
+    cells = [cell] if _is_int(cell) else [size for size in sizes if _is_int(size)]
+    for key, value in dy.items():
+        cp = _dy_key(key)
+        if cp is not None and cp >= 0xF0000:
+            errors.append("%s: dy %s names a jamo piece" % (fid, key))
+            continue
+        for cell_h in dict.fromkeys(cells):
+            limit = min(127, cell_h)
+            if _is_int(value) and not -limit <= value <= limit:
+                errors.append("%s: dy %s of %s is not -%d..%d" % (fid, value, key, limit, limit))
+    return errors
+
+
 def _route_errors(fid, font, eff, fmap=None):
     """The route rules, on the effective values: what each selected font's routes can honour.
 
@@ -712,8 +803,17 @@ def _route_errors(fid, font, eff, fmap=None):
     by_kind = {}
     for route in routes.routes(font):
         by_kind.setdefault(route.kind, []).append(route)
+    jamo_route = eff.get("jamo_route")
+    jamo_route = jamo_route if isinstance(jamo_route, str) else None
+    if jamo_route is not None:
+        labelled = [r for r in by_kind.get("jamo", []) if r.label == jamo_route]
+        if not labelled:
+            errors.append("%s: jamo_route %s is not offered" % (fid, jamo_route))
+        elif not labelled[0].native and not eff.get("experimental"):
+            errors.append("%s: jamo_route %s needs experimental" % (fid, jamo_route))
+    errors += _dy_errors(fid, eff, kinds, sizes)
     for kind in kinds:
-        route = routes.route_for(font, kind, bool(eff.get("experimental")))
+        route = routes.route_for(font, kind, bool(eff.get("experimental")), jamo_route)
         if route is None:
             if by_kind.get(kind):
                 errors.append("%s: %s needs experimental on a precomposed font" % (fid, kind))
@@ -1155,7 +1255,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
         for kind in ("precomposed", "jamo"):
             if kind not in (eff.get("kinds") or []):
                 continue
-            route = routes.route_for(font, kind, bool(eff.get("experimental")))
+            route = routes.route_for(font, kind, bool(eff.get("experimental")), eff.get("jamo_route"))
             if route is None:
                 continue
             layout = eff.get("dos_layout") if font.get("source_kind") == "dos-raw" else eff.get("layout")

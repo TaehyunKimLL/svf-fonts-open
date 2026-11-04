@@ -76,14 +76,33 @@
             <input id="opt-cell" data-option="cell" data-group="mkfont" data-label="cell" type="text" inputmode="numeric" size="4"></label>
           <label class="label" data-field="ascent">ascent
             <input id="opt-ascent" data-option="ascent" data-group="mkfont" data-label="ascent" type="text" inputmode="numeric" size="4"></label>
+          <label class="label" data-field="width">width
+            <input id="opt-width" data-option="width" data-group="mkfont" data-label="width" type="text" inputmode="numeric" size="4"></label>
           <label class="label" data-field="space_advance">space advance
             <input id="opt-space-advance" data-option="space_advance" data-group="mkfont" data-label="space advance" type="text" inputmode="numeric" size="4"></label>
           <label data-field="mono_hint"><input id="opt-mono-hint" data-option="mono_hint" data-group="mkfont" data-label="mono hint" type="checkbox"> mono hint</label>
           <label data-field="clip_cell"><input id="opt-clip-cell" data-option="clip_cell" data-group="mkfont" data-label="clip cell" type="checkbox"> clip cell</label>
+          <label data-field="fit_cell"><input id="opt-fit-cell" data-option="fit_cell" data-group="mkfont" data-label="fit cell" type="checkbox"> fit cell</label>
+          <label data-field="latin"><input id="opt-latin" data-option="latin" data-group="mkfont" data-label="Latin top" type="checkbox"> Latin top</label>
           <label data-field="embolden"><input id="opt-embolden" data-option="embolden" data-group="jamoset" data-label="embolden" type="checkbox"> embolden</label>
           <label data-field="symbols"><input id="opt-symbols" data-option="symbols" data-group="jamoset" data-label="symbols" type="checkbox"> symbols</label>
           <label class="label" data-field="jset_version" title="JSET block version (1 or 2). Empty: version 1 for a new face; an SVF upload keeps its own. 2 is for memory-constrained targets only.">JSET version
             <input id="opt-jset-version" data-option="jset_version" data-group="jamoset" data-label="JSET version" type="text" inputmode="numeric" size="2" placeholder="1"></label>
+          <label class="label" data-field="jamo_ascent">header ascent
+            <input id="opt-jamo-ascent" data-option="jamo_ascent" data-group="jamoset" data-label="header ascent" type="text" inputmode="numeric" size="4"></label>
+          <label class="label" data-field="fit_baseline">fit baseline
+            <input id="opt-fit-baseline" data-option="fit_baseline" data-group="jamoset" data-label="fit baseline" type="text" inputmode="numeric" size="4"></label>
+          <label class="label" data-field="aa_refine">AA refine
+            <input id="opt-aa-refine" data-option="aa_refine" data-group="jamoset" data-label="AA refine" type="text" inputmode="numeric" size="2"></label>
+          <label data-field="clean"><input id="opt-clean" data-option="clean" data-group="jamoset" data-label="clean noise" type="checkbox" checked> clean noise</label>
+          <label class="label" data-field="binarize">binarize
+            <select id="opt-binarize" data-option="binarize" data-group="jamoset" data-label="binarize">
+              <option value="threshold">threshold</option><option value="ridge">ridge</option><option value="mono">mono</option>
+            </select></label>
+          <label class="label" data-field="latin_ascent">Latin ascent
+            <input id="opt-latin-ascent" data-option="latin_ascent" data-group="bdfface" data-label="Latin ascent" type="text" inputmode="numeric" size="4"></label>
+          <label class="label" data-field="hangul_ascent">Hangul ascent
+            <input id="opt-hangul-ascent" data-option="hangul_ascent" data-group="bdfface" data-label="Hangul ascent" type="text" inputmode="numeric" size="4"></label>
         </div>
       </details>
     </form>

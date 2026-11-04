@@ -359,9 +359,17 @@ def routes(font):
     return out
 
 
-def route_for(font, kind, experimental):
-    """The route of @p kind to use: the first native one, else (when @p experimental) the first non-native one."""
+def route_for(font, kind, experimental, jamo_route=None):
+    """The route of @p kind to use: the first native one, else (when @p experimental) the first non-native one.
+
+    A @p jamo_route label picks the jamo route of that label instead, when the font offers it and it is native or
+    @p experimental is set (else None); it never changes a precomposed choice."""
     found = [r for r in routes(font) if r.kind == kind]
+    if kind == "jamo" and jamo_route:
+        for route in found:
+            if route.label == jamo_route and (route.native or experimental):
+                return route
+        return None
     for route in found:
         if route.native:
             return route

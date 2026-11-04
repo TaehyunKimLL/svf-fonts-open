@@ -732,9 +732,8 @@ class Worker(threading.Thread):
         if not isinstance(font, dict):
             return None
         try:
-            experimental = bool(settings.effective(job.get("fonts") or [], job.get("settings") or {},
-                                                   step.get("font")).get("experimental"))
-            route = routes.route_for(font, "jamo", experimental)
+            eff = settings.effective(job.get("fonts") or [], job.get("settings") or {}, step.get("font"))
+            route = routes.route_for(font, "jamo", bool(eff.get("experimental")), eff.get("jamo_route"))
         except (KeyError, TypeError, ValueError):
             return None
         return route.reference if route is not None else None
