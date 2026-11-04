@@ -1094,8 +1094,11 @@ def _licence_sha(index, licence, sources, licence_paths):
         path = licence.get("path")
         if not isinstance(path, str) or path not in licence_paths:
             return None
+        sources = Sources.coerce(sources)
+        if sources is None:
+            return None
         try:
-            abs_path = Sources.coerce(sources).abs_of(licence.get("root", 0), path)
+            abs_path = sources.abs_of(licence.get("root", 0), path)
         except ValueError:
             return None
         if not os.path.isfile(abs_path):

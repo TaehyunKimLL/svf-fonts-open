@@ -799,15 +799,33 @@ class ApiTest(ApiBase):
         self.assertEqual(sorted(os.listdir(jdir)), ["job.json", "log.md", "out", "upload", "work"])
         self.assertEqual([n for _, _, ns in os.walk(os.path.join(jdir, "work")) for n in ns], [])   # made empty, never used
 
-    def test_no_upload_path_outside_the_upload_handlers(self):
-        exempt = {"_job_files", "_unpack", "_record_counts", "_reserve_upload", "_release_upload", "_receive",
-                  "_job_zip"}
-        for name, fn in inspect.getmembers(server.Handler, inspect.isfunction):
-            if name in exempt:
-                continue
-            src = inspect.getsource(fn)
-            self.assertIsNone(re.search(r"""(store\.path|os\.path\.join)\([^)]*["']upload["']""", src), name)
-            self.assertNotIn("store.path(", src, name)
+    def test_handlers_read_inputs_only_through_store_sources(self):
+        """A handler that built `<job>/upload` by hand would ignore the `Sources` the store hands out."""
+        jid = self.minimal_job()
+        alt = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, alt, ignore_errors=True)
+        with open(os.path.join(alt, "Other.ttf"), "wb") as f:
+            f.write(inputfx.ttf("Other", (50, 0, 950, 800)))
+        from sources import Sources
+        with mock.patch.object(jobs.Store, "sources", lambda self, job: Sources("upload", [alt])):
+            job = self.post("/api/jobs/%s/detect" % jid)
+            self.assertEqual([f["path"] for f in job["fonts"]], ["Other.ttf"])
+            fid = job["fonts"][0]["id"]
+            self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, fid)).status, 200)
+            st = self.get("/api/jobs/%s" % jid)["settings"]
+            self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(st).encode()).status, 200)
+
+    def test_detect_survives_a_job_deleted_meanwhile(self):
+        jid = self.minimal_job()
+        handler = server.Handler
+        real = handler._clear_previews
+
+        def delete_then_clear(self, job_id, font_ids):
+            self.server.store.delete(job_id)
+            return real(self, job_id, font_ids)
+        with mock.patch.object(handler, "_clear_previews", delete_then_clear):
+            r = self.raw("POST", "/api/jobs/%s/detect" % jid)
+        self.assertEqual(r.status, 200)
 
     def test_csp_and_static_urls(self):
         for path in ("/", "/static/maker.js"):
@@ -1654,8 +1672,6 @@ class ProbeTest(ApiBase):
             self.assertEqual((rows[0] - face.ascent, rows[-1] + 1 - face.ascent), (top, bottom), hex(cp))
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class LocalBindTest(unittest.TestCase):
@@ -1724,6 +1740,33 @@ class LocalBindTest(unittest.TestCase):
             self.assertTrue(server._is_loopback("localhost"))
         self.assertTrue(server._is_loopback("[::1]"))
         self.assertFalse(server._is_loopback("example.org"))
+
+    def test_only_the_documented_loopback_addresses(self):
+        for host in ("127.0.0.2", "127.255.255.254"):
+            self.assertFalse(server._is_loopback(host), host)
+            with self.assertRaisesRegex(server.LocalModeError, r"local mode binds 127\.0\.0\.1 or ::1 only"):
+                server.make_server(host, 0, fixtures.REPO_DIR, self.data, token=self.TOKEN)
+        self.assertTrue(server._is_loopback("127.0.0.1"))
+        self.assertTrue(server._is_loopback("::1"))
+        self.assertTrue(server._is_loopback("[::1]"))
+
+    def test_bracketed_ipv6_host_binds(self):
+        if not socket.has_ipv6:
+            self.skipTest("this host has no IPv6")
+        probe = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        try:
+            probe.bind(("::1", 0))
+        except OSError:
+            self.skipTest("::1 is not bindable here")
+        finally:
+            probe.close()
+        srv = self.start("[::1]")
+        self.assertEqual(srv.server_address[0], "::1")
+
+    def test_main_reports_only_local_mode_errors_by_message(self):
+        done = self._main({"SVF_MAKER_TOKEN": self.TOKEN, "SVF_MAKER_BIND": "127.0.0.2:0"})
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stderr.strip(), "local mode binds 127.0.0.1 or ::1 only")
 
     def test_parse_token(self):
         self.assertIsNone(server._parse_token(None))
@@ -1866,6 +1909,19 @@ class KeptCompanionTest(unittest.TestCase):
         self.assertEqual(kept["batch"]["range"], settings.defaults(new_fonts)["batch"]["range"])
         self.assertNotIn("range_root", kept["batch"])
 
+    def test_kept_settings_batch_range_with_an_implicit_root(self):
+        old_roots = [{"path": "/a"}, {"path": "/b"}]
+        old_fonts = self._local_fonts([(0, "x.ttf")])
+        batch = settings.defaults(old_fonts)["batch"]
+        batch["range"] = "list.txt"                                   # no range_root: root 0 (/a)
+        old = {"batch": batch, "fonts": {}}
+        fonts = self._local_fonts([(0, "x.ttf")])
+        kept = server._kept_settings(old, fonts, old_fonts, roots=[{"path": "/b"}, {"path": "/a"}], old_roots=old_roots)
+        self.assertEqual((kept["batch"]["range"], kept["batch"]["range_root"]), ("list.txt", 1))
+        kept = server._kept_settings(old, fonts, old_fonts, roots=[{"path": "/b"}], old_roots=old_roots)
+        self.assertEqual(kept["batch"]["range"], settings.defaults(fonts)["batch"]["range"])
+        self.assertNotIn("range_root", kept["batch"])
+
     def test_companion_follows_its_path(self):
         import server, settings
         old_fonts = self._fonts(["z/iso3.bdf", "y/iso.bdf"])
@@ -1887,3 +1943,7 @@ class KeptCompanionTest(unittest.TestCase):
             self.assertEqual(kept2["fonts"][ksc2["id"]]["latin_companion"], ksc2["companions"][0])
         finally:
             settings.defaults = orig_defaults
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1344,7 +1344,9 @@ def scan(sources, local=False):
 
     # licences: matched by the file's real folder; the search stops at the ceiling of the file's root
     real_of = {key: os.path.join(folder_of(abs_of[key]), os.path.basename(abs_of[key])) for key in keys}
-    key_of_real = {path: key for key, path in real_of.items()}
+    key_of_real = {}
+    for key, path in real_of.items():
+        key_of_real.setdefault(path, key)               # the first root keeps a path two roots reach
     licences = _licence_folders(list(real_of.values()))
     if with_root:
         ceilings = {}

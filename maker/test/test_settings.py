@@ -954,6 +954,10 @@ class SourcesSettingsTest(unittest.TestCase):
         self.assertIn(os.path.join(self.B, "Munjo.ttf"), flat(by_font[self.fb["id"]]))
         self.assertTrue(os.path.isdir(os.path.join(files_dir, "work")))
 
+    def test_licence_sha_without_sources_is_none(self):
+        lic = {"kind": "upload", "root": 0, "path": "OFL.txt"}
+        self.assertIsNone(settings._licence_sha(self.index, lic, None, {"OFL.txt"}))
+
     def test_upload_path_message_unchanged(self):
         with self.assertRaisesRegex(ValueError, r"^f01: \.\./x is outside the upload$"):
             settings._upload_path("f01", "../x", "/tmp/u")

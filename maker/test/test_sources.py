@@ -115,6 +115,81 @@ class SourcesTest(unittest.TestCase):
         f = self.put("in/Seoul12.rsrc")
         self.assertEqual(Sources("local", [f]).walk(), ([(0, "Seoul12.rsrc", f)], []))
 
+    def test_walk_dedupes_overlapping_roots_by_inode(self):
+        root = os.path.join(self.tmp, "r")
+        self.put("r/x.ttf")
+        self.put("r/sub/y.ttf")
+        sub = os.path.join(root, "sub")
+        for roots in ([root, root], [root, sub], [os.path.join(root, "x.ttf"), root]):
+            files, _ = Sources("local", roots).walk()
+            self.assertEqual(sorted(f[2] for f in files), [os.path.join(root, "sub/y.ttf"), os.path.join(root, "x.ttf")],
+                             roots)
+        files, _ = Sources("local", [root, sub]).walk()
+        self.assertEqual({f[0] for f in files}, {0})                    # the first root keeps the file
+
+    def test_overlaps_by_inode(self):
+        a = os.path.join(self.tmp, "a")
+        self.put("a/b/c.txt")
+        link = os.path.join(self.tmp, "alias")
+        os.symlink(self.tmp, link)
+        self.assertTrue(sources.overlaps(a, os.path.join(a, "b")))
+        self.assertTrue(sources.overlaps(os.path.join(a, "b", "c.txt"), a))
+        self.assertTrue(sources.overlaps(a, a))
+        self.assertTrue(sources.overlaps(os.path.join(link, "a"), os.path.join(a, "b")))      # through a symlinked parent
+        os.makedirs(os.path.join(self.tmp, "a2"))
+        self.assertFalse(sources.overlaps(os.path.join(a, "b"), os.path.join(self.tmp, "a2")))
+        self.assertEqual(sources.stat_id(a), (os.stat(a).st_dev, os.stat(a).st_ino))
+        self.assertIn(sources.stat_id(a), sources.ancestors_ids(os.path.join(a, "b", "c.txt")))
+
+    def test_recorded_kind_wins_over_the_live_filesystem(self):
+        f = self.put("in/a.ttf")
+        s = Sources("local", [f], kinds=["file"])
+        os.remove(f)
+        os.makedirs(f)                                            # replaced by a folder of the same name
+        self.assertTrue(s.is_file_root(0))
+        self.assertEqual(s.abs_of(0, "a.ttf"), f)
+        files, refused = s.walk()
+        self.assertEqual(files, [])
+        self.assertEqual(refused, [(0, "a.ttf", "file is gone or changed")])
+        d = os.path.join(self.tmp, "d")
+        os.makedirs(d)
+        s = Sources("local", [d], kinds=["dir"])
+        os.rmdir(d)
+        self.put("d", b"x")                                       # now a file
+        files, refused = s.walk()
+        self.assertEqual((files, refused), ([], [(0, "", "folder is gone or changed")]))
+
+    def test_local_abs_of_refuses_an_inner_symlink(self):
+        root = os.path.join(self.tmp, "r")
+        self.put("r/a.ttf")
+        os.symlink("a.ttf", os.path.join(root, "alias.ttf"))
+        os.makedirs(os.path.join(root, "real"))
+        os.symlink("real", os.path.join(root, "dirlink"))
+        self.put("r/real/z.ttf")
+        s = Sources("local", [root])
+        self.assertEqual(s.abs_of(0, "a.ttf"), os.path.join(root, "a.ttf"))
+        self.assertEqual(s.abs_of(0, "real/z.ttf"), os.path.join(root, "real/z.ttf"))
+        for rel in ("alias.ttf", "dirlink/z.ttf"):
+            with self.assertRaises(ValueError, msg=rel):
+                s.abs_of(0, rel)
+        up = Sources("upload", [root])                            # an upload keeps today's rule
+        self.assertEqual(up.abs_of(0, "alias.ttf"), os.path.join(root, "alias.ttf"))
+
+    def test_unreadable_subfolder_is_reported(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads every folder")
+        root = os.path.join(self.tmp, "r")
+        self.put("r/ok.ttf")
+        self.put("r/locked/x.ttf")
+        os.chmod(os.path.join(root, "locked"), 0)
+        self.addCleanup(os.chmod, os.path.join(root, "locked"), 0o755)
+        files, refused = Sources("local", [root]).walk()
+        self.assertEqual([f[1] for f in files], ["ok.ttf"])
+        self.assertEqual(refused, [(0, "locked", "unreadable, skipped")])
+
+    def test_inside_with_a_non_path(self):
+        self.assertFalse(Sources("local", [self.tmp]).inside(None))
+
     def test_coerce(self):
         self.assertEqual(Sources.coerce("/u").roots, ["/u"])
         self.assertEqual(Sources.coerce("/u").kind, "upload")

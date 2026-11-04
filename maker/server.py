@@ -138,20 +138,31 @@ CSP = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 's
 _TOKEN_RE = re.compile(r"\A[0-9a-f]{32}\Z")
 
 
-def _is_loopback(host):
-    """True for a loopback address; `localhost` only when every address it resolves to is loopback; any other name no."""
+class LocalModeError(ValueError):
+    """A local-mode start-up refusal (a bad token, a non-loopback bind): `main` prints its message and exits 2."""
+
+
+def _unbracket(host):
     host = str(host).strip()
-    if host.startswith("[") and host.endswith("]"):
-        host = host[1:-1]
+    return host[1:-1] if host.startswith("[") and host.endswith("]") else host
+
+
+_LOOPBACKS = (ipaddress.ip_address("127.0.0.1"), ipaddress.ip_address("::1"))
+
+
+def _is_loopback(host):
+    """True for 127.0.0.1 and ::1 (bracketed or not); `localhost` only when every address it resolves to is one of
+    those; any other name, and the rest of 127.0.0.0/8, no."""
+    host = _unbracket(host)
     try:
-        return ipaddress.ip_address(host).is_loopback
+        return ipaddress.ip_address(host) in _LOOPBACKS
     except ValueError:
         pass
     if host.lower() != "localhost":
         return False
     try:
         found = socket.getaddrinfo(host, None)
-        return bool(found) and all(ipaddress.ip_address(item[4][0].split("%")[0]).is_loopback for item in found)
+        return bool(found) and all(ipaddress.ip_address(item[4][0].split("%")[0]) in _LOOPBACKS for item in found)
     except (OSError, ValueError):
         return False
 
@@ -161,7 +172,7 @@ def _parse_token(value):
     if value is None or value == "":
         return None
     if not _TOKEN_RE.match(value):
-        raise ValueError("SVF_MAKER_TOKEN: 32 hex characters")
+        raise LocalModeError("SVF_MAKER_TOKEN: 32 hex characters")
     return value.encode("ascii")
 
 
@@ -304,8 +315,9 @@ def _kept_settings(old, fonts, old_fonts, roots=None, old_roots=None, local=Fals
     old_batch = old.get("batch")
     if isinstance(old_batch, dict) and all(key in old_batch for key in settings.BATCH_KEYS):
         fresh["batch"] = dict(old_batch) if is_local else old_batch
-        if is_local and settings.RANGE_ROOT_KEY in old_batch:
-            moved = remap_root(old_batch[settings.RANGE_ROOT_KEY])
+        old_range = old_batch.get("range")
+        if is_local and isinstance(old_range, str) and old_range not in settings.NAMED_RANGE_NAMES:
+            moved = remap_root(old_batch.get(settings.RANGE_ROOT_KEY, 0))
             if moved is None:
                 fresh["batch"].pop(settings.RANGE_ROOT_KEY, None)
                 fresh["batch"]["range"] = settings.defaults(fonts)["batch"]["range"]
@@ -398,10 +410,11 @@ def make_server(host, port, repo_dir, data_root, token=None):
     With a @p token (bytes, or the 32-hex string) the server is in local mode: it binds loopback only (`ValueError`
     first, before the store, the worker or the socket exist), and every `/api/` request must carry it.
     """
+    host = _unbracket(host)
     if isinstance(token, str):
         token = _parse_token(token)
     if token is not None and not _is_loopback(host):
-        raise ValueError("local mode binds 127.0.0.1 or ::1 only")
+        raise LocalModeError("local mode binds 127.0.0.1 or ::1 only")
     repo_dir = os.path.abspath(repo_dir)
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
@@ -769,8 +782,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with contextlib.ExitStack() as stack:
             for lock in locks:
                 stack.enter_context(lock)
-            shutil.rmtree(os.path.join(self.server.store.files_dir(self._load(job_id)), "work", "preview"),
-                          ignore_errors=True)
+            try:
+                previews = os.path.join(self.server.store.files_dir(self._load(job_id)), "work", "preview")
+            except _HttpError:                                # the job was deleted meanwhile: nothing to clear
+                return
+            shutil.rmtree(previews, ignore_errors=True)
 
     # ---- files and detection ---------------------------------------------------------------------------------
 
@@ -1417,7 +1433,7 @@ def main():
     try:
         token = _parse_token(os.environ.get("SVF_MAKER_TOKEN"))
         server = make_server(host, port, repo_dir, data_root, token=token)
-    except ValueError as exc:                             # a bad token or a non-loopback bind with it; never print the token
+    except LocalModeError as exc:                         # a bad token or a non-loopback bind with it; never print the token
         print(str(exc), file=sys.stderr)
         sys.exit(2)
     print("svf-maker listening on %s:%d" % (server.server_address[0], server.server_address[1]), flush=True)

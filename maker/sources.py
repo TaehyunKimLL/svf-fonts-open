@@ -18,15 +18,54 @@ LOCAL_FREE_MIN = 256 << 20            # the free space a local run needs in the 
 KINDS = ("upload", "local")
 
 
+class PathRefused(ValueError):
+    """A picked path the maker will not use; `.reason` is the sentence the page shows."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def stat_id(path):
+    """`(st_dev, st_ino)` of @p path (symlinks followed)."""
+    st = os.stat(path)
+    return (st.st_dev, st.st_ino)
+
+
+def ancestors_ids(path):
+    """The ids of @p path, its parent, and so on up to `/` (the path is resolved first)."""
+    out = []
+    current = os.path.realpath(path)
+    while True:
+        out.append(stat_id(current))
+        parent = os.path.dirname(current)
+        if parent == current:
+            return out
+        current = parent
+
+
+def overlaps(a, b):
+    """True when one of @p a, @p b is the other or lies inside it, decided by inode (a symlinked parent cannot hide
+    it); a cheap prefix pass on the real paths runs first."""
+    ra, rb = os.path.realpath(a), os.path.realpath(b)
+    if ra == rb or ra.startswith(rb + os.sep) or rb.startswith(ra + os.sep):
+        return True
+    return stat_id(a) in ancestors_ids(b) or stat_id(b) in ancestors_ids(a)
+
+
 class Sources:
     """The input roots of a job: @p kind `"upload"` or `"local"`, @p roots absolute paths, @p tmp_dir for temp copies."""
 
-    def __init__(self, kind, roots, tmp_dir=None):
+    def __init__(self, kind, roots, tmp_dir=None, kinds=None):
         if kind not in KINDS:
             raise ValueError("Sources kind %r is not one of %s" % (kind, "/".join(KINDS)))
         self.kind = kind
         self.roots = list(roots)
         self.tmp_dir = tmp_dir
+        if kinds is None:                         # probed once here; a job passes the kinds recorded at put time
+            kinds = ["file" if kind == "local" and os.path.isfile(r) and not os.path.isdir(r) else "dir"
+                     for r in self.roots]
+        self.kinds = list(kinds)
 
     def __repr__(self):
         return "Sources(%r, %r)" % (self.kind, self.roots)
@@ -42,7 +81,7 @@ class Sources:
 
     def is_file_root(self, i):
         """True when root @p i is a single picked file (a local job only; an upload root is a directory)."""
-        return self.kind == "local" and os.path.isfile(self.roots[i]) and not os.path.isdir(self.roots[i])
+        return self.kinds[i] == "file"
 
     def abs_of(self, root, rel):
         """The absolute path of @p rel under root @p root; `ValueError("outside")` when it is not strictly under it.
@@ -60,15 +99,19 @@ class Sources:
                 raise ValueError("outside")
             return base
         joined = os.path.join(base, rel)
-        if not os.path.realpath(joined).startswith(os.path.realpath(base) + os.sep):
+        real = os.path.realpath(joined)
+        real_base = os.path.realpath(base)
+        if not real.startswith(real_base + os.sep):
             raise ValueError("outside")
+        if self.kind == "local" and real != os.path.join(real_base, os.path.normpath(rel)):
+            raise ValueError("outside")           # a link below the root: `walk` refuses it, so does this
         return joined
 
     def inside(self, abs_path):
         """True when the realpath of @p abs_path is under a root, or is a file root."""
         try:
             return self._locate(abs_path) is not None
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             return False
 
     def rel_of(self, abs_path):
@@ -102,18 +145,30 @@ class Sources:
         files, refused = [], []
         total = 0
         stop = None
+        seen = set()                                  # local: a file reached through two roots is listed once
         for i, base in enumerate(self.roots):
             if stop:
                 break
-            if self.is_file_root(i) or (local and os.path.islink(base)):
+            if self.is_file_root(i):
                 name = os.path.basename(base)
                 if os.path.islink(base):
                     refused.append((i, name, "symlink, skipped"))
-                    continue
-                size = os.lstat(base).st_size
-                stop, total = self._admit(files, refused, i, name, base, size, total, local)
+                elif not os.path.isfile(base):
+                    refused.append((i, name, "file is gone or changed"))
+                else:
+                    stop, total = self._admit(files, refused, i, name, base, os.lstat(base), total, local, seen)
                 continue
-            for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+            if local and (os.path.islink(base) or not os.path.isdir(base)):
+                refused.append((i, "", "folder is gone or changed"))
+                continue
+
+            def unreadable(exc, i=i, base=base):
+                if local and exc.filename:
+                    rel = os.path.relpath(exc.filename, base).replace(os.sep, "/")
+                    if rel != ".":
+                        refused.append((i, rel, "unreadable, skipped"))
+
+            for dirpath, dirnames, filenames in os.walk(base, followlinks=False, onerror=unreadable):
                 dirnames.sort()
                 for d in dirnames:
                     path = os.path.join(dirpath, d)
@@ -128,10 +183,10 @@ class Sources:
                     if not os.path.isfile(path):
                         continue                                 # a device, a socket or a FIFO
                     try:
-                        size = os.lstat(path).st_size
+                        st = os.lstat(path)
                     except OSError:
                         continue
-                    stop, total = self._admit(files, refused, i, rel, path, size, total, local)
+                    stop, total = self._admit(files, refused, i, rel, path, st, total, local, seen)
                     if stop:
                         break
                 if stop:
@@ -143,9 +198,13 @@ class Sources:
         return files, refused
 
     @staticmethod
-    def _admit(files, refused, i, rel, path, size, total, local):
+    def _admit(files, refused, i, rel, path, st, total, local, seen):
         """Add one regular file to @p files under the local caps; returns `(stop or None, total)`."""
+        size = st.st_size
         if local:
+            if (st.st_dev, st.st_ino) in seen:
+                return None, total                         # the same file through an overlapping root
+            seen.add((st.st_dev, st.st_ino))
             if size > LOCAL_FILE_CAP:
                 refused.append((i, rel, "too large, skipped"))
                 return None, total

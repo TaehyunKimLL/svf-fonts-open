@@ -317,15 +317,48 @@ class SourcesScanTest(DirCase):
         fonts = detect.scan(Sources("local", [fonts_dir + "/Munjo.ttf"]))
         self.assertEqual(fonts[0]["licences"], [])                         # alone: no licence found
 
-    def test_upload_sources_scan_equals_the_string_scan(self):
+    def test_upload_scan_entries(self):
+        """The upload scan's shape, spelled out: no root key, root-relative paths, today's symlink entry."""
         self.put("a/Munjo.ttf", inputfx.ttf("Munjo", BOX1))
         self.put("a/OFL.txt", b"SIL Open Font License, Version 1.1\n")
         os.symlink("Munjo.ttf", self.dir("a") + "/link.ttf")
-        by_str = detect.scan(self.root)
-        by_src = detect.scan(Sources("upload", [self.root]))
-        self.assertEqual(by_src, by_str)
-        self.assertTrue(all("root" not in f for f in by_str))
-        self.assertIn("symlink, skipped", [f["label"] for f in by_str])
+        for src in (self.root, Sources("upload", [self.root])):
+            fonts = detect.scan(src)
+            self.assertEqual([(f["id"], f["path"], f["format"]) for f in fonts],
+                             [("f01", "a/Munjo.ttf", "ttf"), ("f02", "a/OFL.txt", "licence"),
+                              ("f03", "a/link.ttf", "unknown")])
+            by_path = {f["path"]: f for f in fonts}
+            self.assertEqual(sorted(by_path), ["a/Munjo.ttf", "a/OFL.txt", "a/link.ttf"])
+            self.assertTrue(all("root" not in f for f in fonts))
+            self.assertEqual(by_path["a/link.ttf"]["label"], "symlink, skipped")
+            self.assertEqual(by_path["a/Munjo.ttf"]["licences"],
+                             [{"path": "a/OFL.txt", "first_line": "SIL Open Font License, Version 1.1"}])
+
+    def test_overlapping_roots_list_each_file_once_with_its_own_licence(self):
+        self.put("r/Munjo.ttf", inputfx.ttf("Munjo", BOX1))
+        self.put("r/OFL.txt", b"SIL Open Font License, Version 1.1\n")
+        self.put("r/sub/Other.ttf", inputfx.ttf("Other", BOX2))
+        r = self.dir("r")
+        for roots in ([r, r], [r, r + "/sub"], [r + "/Munjo.ttf", r]):
+            fonts = detect.scan(Sources("local", roots))
+            ttfs = [f for f in fonts if f["format"] == "ttf"]
+            self.assertEqual(sorted(f["path"].split("/")[-1] for f in ttfs), ["Munjo.ttf", "Other.ttf"], roots)
+            munjo = next(f for f in ttfs if f["path"].endswith("Munjo.ttf"))
+            self.assertLessEqual(len(munjo["licences"]), 1, roots)
+            for l in munjo["licences"]:                      # a licence names a file that exists under its own root
+                base = Sources("local", roots).roots[l["root"]]
+                self.assertTrue(os.path.isfile(os.path.join(base, l["path"])), (roots, l))
+
+    def test_unreadable_folder_is_an_other_entry(self):
+        if os.geteuid() == 0:
+            self.skipTest("root reads every folder")
+        self.put("r/ok.ttf", inputfx.ttf("Ok", BOX1))
+        self.put("r/locked/x.ttf", inputfx.ttf("X", BOX2))
+        os.chmod(self.dir("r/locked"), 0)
+        self.addCleanup(os.chmod, self.dir("r/locked"), 0o755)
+        fonts = detect.scan(Sources("local", [self.dir("r")]))
+        self.assertIn(("locked", "unknown", "unreadable, skipped"),
+                      [(f["path"], f["format"], f["label"]) for f in fonts])
 
 
 if __name__ == "__main__":
