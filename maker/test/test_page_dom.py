@@ -416,6 +416,47 @@ return {counts: panel.querySelector('.clip-counts').textContent, cell: panel.que
         self.assertEqual(done["state"], "done", done.get("error"))
         return done
 
+    def test_the_pieces_panel_lists_pieces_from_the_identity_json(self):
+        job = self.dos_job(run=True)
+        done = self.api("GET", "/api/jobs/" + job)
+        step = next(st for st in done["steps"] if st["kind"] == "jamo")
+        summary = {"available": True, "identity": "fail", "recog_ks": 0.9, "recog_all": 0.9, "unscored": 0,
+                   "pieces": {"pass": 1, "warn": 0, "fail": 1, "unscored": 0, "unused": 0}}
+        pieces = [{"piece": 0, "slot": "i", "jamo": "ㄱ", "set": 0, "users": 10, "read": 0.1, "nll": 3.0, "flag": "fail",
+                   "worst": [{"cp": 0xAC00, "got": "ㄲ"}]},
+                  {"piece": 1, "slot": "m", "jamo": "ㅏ", "set": 0, "users": 20, "read": 0.99, "nll": 0.1, "flag": "pass",
+                   "worst": []}]
+        self.srv.store.update(job, lambda j: j["steps"][0].update(identity=summary))
+        with open(self.srv.store.path(job, "work", step["id"], "identity.json"), "w") as f:
+            json.dump({"available": True, "applicable": True, "face": summary, "pieces": pieces, "bpp_note": None}, f)
+        out = self.drive(job, """
+await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
+const summary = document.querySelector('.pieces-summary').textContent;
+const details = document.querySelector('details.pieces');
+details.open = true; details.dispatchEvent(new Event('toggle'));
+await waitFor(() => document.querySelectorAll('.piece-row').length === 2);
+await sleep(500);
+const rows = [...document.querySelectorAll('.piece-row')].map((r) => ({flag: r.dataset.flag, drawn: r.querySelector('canvas').dataset.drawn,
+  text: r.textContent}));
+document.querySelector('.piece-row').click();
+await waitFor(() => document.querySelectorAll('.piece-worst canvas').length >= 1);
+return {summary, rows};
+""")
+        self.assertIn("identity fail", out["summary"])
+        self.assertEqual([r["flag"] for r in out["rows"]], ["fail", "pass"])
+        self.assertTrue(all(r["drawn"] == "1" for r in out["rows"]))
+        self.assertIn("fix:", out["rows"][0]["text"])
+        self.assertNotIn("fix:", out["rows"][1]["text"])
+
+    def test_the_pieces_panel_says_when_the_check_is_unavailable(self):
+        job = self.dos_job(run=True)
+        out = self.drive(job, """
+await waitFor(() => document.querySelector('.pieces-summary'));
+return document.querySelector('.pieces-summary').textContent;
+""")
+        self.assertEqual(out, "identity check unavailable (set SVF_RECOG_DIR to a folder with recog.py and its weights; "
+                              "numpy and torch needed)")
+
 
 if __name__ == "__main__":
     unittest.main()

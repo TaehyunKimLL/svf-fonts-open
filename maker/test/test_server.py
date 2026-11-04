@@ -1016,6 +1016,13 @@ class PreviewWiringTest(unittest.TestCase):
             self.assertEqual(json.loads(out.stdout), ["cut 2,300 (368 top, 2,299 bottom)",
                                                       "cut 4 (1 top, 3 bottom), 2 dropped", "nudged 3", "fit at 14 px"])
 
+    def test_page_pieces_panel(self):
+        js = read_text(MAKER_JS)
+        self.assertIn("identity check unavailable (set SVF_RECOG_DIR to a folder with recog.py and its weights; "
+                      "numpy and torch needed)", js)
+        self.assertIn('"/identity/"', js)
+        self.assertIn("svfview.drawPiece", js)
+
     def test_page_sample_text_is_detects(self):
         import detect
         m = re.search(r'const SAMPLE_TEXT = "([^"]*)"', read_text(MAKER_JS))
@@ -1145,6 +1152,28 @@ class FaceBytesTest(ApiBase):
         r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, dos))
         self.assertEqual(r.status, 404)
         self.assertIn("confirm the DOS Johab layout", r.read().decode())
+
+    def test_identity_endpoint(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        step = job["steps"][0]
+        url = "/api/jobs/%s/identity/%s.json" % (jid, step["id"])
+        self.assertEqual(self.raw("GET", url).status, 404)                      # a precomposed step: none
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/identity/s99.json" % jid).status, 404)
+
+        def as_jamo(j):
+            j["steps"][0]["kind"] = "jamo"
+        self.srv.store.update(jid, as_jamo)
+        with open(self.srv.store.path(jid, "work", step["id"], "identity.json"), "w") as f:
+            f.write('{"available": true}')
+        r = self.raw("GET", url)
+        self.assertEqual((r.status, r.getheader("Content-Type"), r.read()), (200, "application/json", b'{"available": true}'))
+        self.assertEqual(self.raw("GET", url, headers={"Host": "evil.example"}).status, 403)
+
+        def running(j):
+            j["steps"][0]["state"] = "running"
+        self.srv.store.update(jid, running)
+        self.assertEqual(self.raw("GET", url).status, 404)
 
     def test_report_endpoint(self):
         jid = self.minimal_job()

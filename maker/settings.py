@@ -1262,7 +1262,7 @@ def _step(sid, fid, kind, size, bpp, layout, name, argv, output):
     """One Step dict (Shared data shapes), `pending`."""
     return {"id": sid, "font": fid, "kind": kind, "size": size, "bpp": bpp, "layout": layout, "name": name,
             "argv": argv, "output": output, "state": "pending", "exit": None, "seconds": None, "error": None,
-            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None, "report": None}
+            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None, "report": None, "identity": None}
 
 
 def face_argv(font, eff, route, kind, size, bpp, step_layout, range_arg, paths):

@@ -89,3 +89,9 @@ canvas.result, canvas.grid-row, canvas.preview { image-rendering:pixelated; max-
 .clip-frame { border:1px solid rgba(40,120,60,.9); border-left:0; border-right:0 }
 .clip-list { max-height:12rem; overflow:auto; font-size:.85rem }
 .clip-row { cursor:pointer }
+
+/* the pieces panel of a jamo step */
+.pieces-panel { font-size:.85rem }
+.piece-row { cursor:pointer; padding:.1rem 0; border-top:1px solid var(--line) }
+.piece-glyph { vertical-align:middle; image-rendering:pixelated; background:var(--sunk) }
+.piece-worst-cell { margin-right:.6rem }

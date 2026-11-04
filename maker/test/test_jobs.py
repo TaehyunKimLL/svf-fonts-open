@@ -24,8 +24,10 @@ import time
 import unittest
 from unittest import mock
 
+import caps
 import jobs
 import quality
+import test_recog_score
 
 REPO = REPO_DIR
 SVF = os.path.join(REPO, "svf")
@@ -271,7 +273,8 @@ class WorkerTest(unittest.TestCase):
                           "size": None if kind == "prepare" else 16, "bpp": None if kind == "prepare" else 1,
                           "layout": layout, "name": name, "argv": argv, "output": output, "state": "pending",
                           "exit": None, "seconds": None, "error": None, "stderr_tail": "", "facts": None,
-                          "quality": None, "identical_to": None, "report": None})
+                          "quality": None, "identical_to": None, "report": None,
+                          "identity": None})
         eff = {"selected": True, "experimental": True, "dos_layout": None, "latin_companion": None,
                "licence": {"kind": "text", "text": "x"}, "licence_name": "LICNEO.TXT", "note_name": "NEO.TXT",
                "names": {"precomposed/16/1": "NEWONE.SVF", "jamo/16/1": "NEWONE.SVF"}, "dest": dest,
@@ -570,6 +573,67 @@ class WorkerTest(unittest.TestCase):
         self.store.update(old["id"], lambda j: j.update(state="done", created=time.time() - jobs.MAX_AGE - 60))
         self.worker.retain()
         self.assertEqual(self.store.list(), [])
+
+    def run_identity(self, caps_value, stub_kwargs=None, recog_timeout=None, arrays="lists", flags=()):
+        """A jamo step run with the stub recogniser (a directory of its own) under @p caps_value."""
+        stub = tempfile.mkdtemp(prefix="svf-recog-stub-")
+        self.addCleanup(shutil.rmtree, stub, True)
+        test_recog_score.write_stub(stub, **(stub_kwargs or {}))
+        for flag in flags:
+            open(os.path.join(stub, flag), "w").close()
+        patches = [mock.patch.dict(os.environ, {"SVF_RECOG_DIR": stub}),
+                   mock.patch.object(caps, "recog_dir", return_value=stub),
+                   mock.patch.object(jobs, "RECOG_ARRAYS", arrays)]
+        if recog_timeout is not None:
+            patches.append(mock.patch.object(jobs, "RECOG_TIMEOUT", recog_timeout))
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.worker.caps = caps_value
+        j = self.job_with_steps(["open(sys.argv[1],'wb').write(open(HGKEY,'rb').read())"], kinds=["jamo"])
+        self.worker.enqueue(j["id"])
+        return self.wait_for(j["id"])
+
+    def test_identity_written_for_jamo_steps(self):
+        j = self.run_identity({"wasm": False, "mask_libs": False, "recog": True})
+        step = j["steps"][0]
+        self.assertEqual(step["state"], "done", step)
+        self.assertEqual(step["identity"]["identity"], "pass")
+        self.assertTrue(step["identity"]["available"])
+        self.assertTrue(os.path.isfile(self.store.path(j["id"], "work", step["id"], "identity.json")))
+        self.assertIn("identity: pass", read_text(self.store.path(j["id"], "log.md")))
+
+    def test_identity_timeout_keeps_the_step_done(self):
+        j = self.run_identity({"recog": True}, stub_kwargs={"sleep": 5}, recog_timeout=1)
+        step = j["steps"][0]
+        self.assertEqual(step["state"], "done")
+        self.assertFalse(step["identity"]["available"])
+        self.assertIn("timed out", step["identity"]["error"])
+        self.assertIn("identity: error", read_text(self.store.path(j["id"], "log.md")))
+
+    def test_identity_where_every_syllable_is_unscored_is_an_error(self):
+        j = self.run_identity({"recog": True}, flags=("allnan.flag",))
+        step = j["steps"][0]
+        self.assertEqual(step["state"], "done")
+        self.assertFalse(step["identity"]["available"])
+        self.assertIn("unscored", step["identity"]["error"])
+        self.assertNotIn("identity", step["identity"])               # no verdict, not 'warn'
+        self.assertIn("identity: error", read_text(self.store.path(j["id"], "log.md")))
+
+    def test_identity_unavailable_without_recog(self):
+        j = self.run_identity({"recog": False})
+        step = j["steps"][0]
+        self.assertEqual(step["state"], "done")
+        self.assertFalse(step["identity"]["available"])
+        self.assertIn("structural", step["identity"])
+        self.assertFalse(os.path.exists(self.store.path(j["id"], "work", step["id"], "identity.json")))
+        self.assertIn("identity check unavailable", read_text(self.store.path(j["id"], "log.md")))
+
+    def test_a_precomposed_step_has_no_identity(self):
+        j = self.job_with_steps(["open(sys.argv[1],'wb').write(open(NEODG,'rb').read())"])
+        self.worker.enqueue(j["id"])
+        j = self.wait_for(j["id"])
+        self.assertIsNone(j["steps"][0]["identity"])
 
     def test_jamo_step_measures_against_its_reference(self):
         j = self.job_with_steps(["open(sys.argv[1],'wb').write(open(HGKEY,'rb').read())"], kinds=["jamo"])

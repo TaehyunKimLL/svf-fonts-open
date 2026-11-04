@@ -37,6 +37,9 @@ _rows = [0]
 def load(model):
     if os.path.exists(os.path.join(_HERE, "raise.flag")):
         raise RuntimeError("no weights")
+    if os.path.exists(os.path.join(_HERE, "sleep.txt")):
+        import time
+        time.sleep(float(open(os.path.join(_HERE, "sleep.txt")).read()))
     return "net"
 
 
@@ -57,6 +60,8 @@ def _heads(net, arr):
         for h in range(3):
             row = [-20.0] * sizes[h]
             row[(right[h] + 1) % sizes[h] if (s in bad_syl and h == k) else right[h]] = 0.0
+            if os.path.exists(os.path.join(_HERE, "allnan.flag")):
+                row = [float("nan")] * sizes[h]
             if os.path.exists(os.path.join(_HERE, "nonfinite.flag")):
                 if s == 0 and h == 1:
                     row = [float("nan")] * sizes[h]
@@ -65,6 +70,18 @@ def _heads(net, arr):
             out[h].append(row)
     return out
 '''
+
+
+def write_stub(directory, bad=(), k=1, sleep=0):
+    """A stub recogniser in @p directory (recog.py, bad.json): every syllable is read right except the syllable indices
+    in @p bad on head @p k; load() sleeps @p sleep seconds. Used by the worker and server tests too."""
+    with open(os.path.join(directory, "recog.py"), "w") as f:
+        f.write(STUB)
+    with open(os.path.join(directory, "bad.json"), "w") as f:
+        json.dump({"syllables": list(bad), "k": k}, f)
+    if sleep:
+        with open(os.path.join(directory, "sleep.txt"), "w") as f:
+            f.write(str(sleep))
 
 
 def face_path(rel):
@@ -156,6 +173,13 @@ class RecogScoreTest(unittest.TestCase):
         self.assertEqual(data["face"]["unscored"], 2)
         self.assertNotEqual(data["face"]["identity"], "pass")
         self.assertLess(data["face"]["recog_all"], 1.0)
+
+    def test_every_syllable_unscored_is_an_error_not_a_warning(self):
+        open(os.path.join(self.recog_dir, "allnan.flag"), "w").close()
+        r, out = self.run_raw(face_path(self.FACE), "--arrays", "lists")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("recog: every syllable was unscored", r.stderr)
+        self.assertFalse(os.path.exists(out))
 
     def test_threads_below_one_exit_2(self):
         r, out = self.run_raw(face_path(self.FACE), "--arrays", "lists", "--threads", "0")

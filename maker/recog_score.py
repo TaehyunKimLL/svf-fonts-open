@@ -127,6 +127,8 @@ def score_face(face_bytes, R, net, to_array, batch=256, index_array=list):
         if cell is not None:
             cells[s] = cell
     syls = sorted(cells)
+    if not syls:
+        raise ValueError("the face composes no syllable")
     h, w = face.cell_h, face.cell_w
     LVT = [_rows(x) if hasattr(x, "tolist") else list(x) for x in _call(R.split, index_array(syls))]
     right_of = {s: (LVT[0][i], LVT[1][i], LVT[2][i]) for i, s in enumerate(syls)}
@@ -151,6 +153,8 @@ def score_face(face_bytes, R, net, to_array, batch=256, index_array=list):
             got[s] = g
             read_ok[s] = tuple(g[k] == r[k] for k in range(3))
             nll[s] = tuple(-float(rows[k][r[k]]) for k in range(3))
+    if len(unscored) == len(syls):
+        raise RecogError("every syllable was unscored (non-finite log-probabilities): nothing can be rated")
     users = {}
     for s in syls:
         ps = jamoset.pieces_of(t, 0xAC00 + s)

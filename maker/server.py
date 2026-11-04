@@ -346,6 +346,7 @@ _ROUTES = (
     ("GET", re.compile(r"^/api/jobs/%s/report/(?P<step>s\d+)\.json$" % _JOB), "_job_report"),
     ("GET", re.compile(r"^/api/jobs/%s/probe/(?P<font>f\d+)/(?P<size>[1-9]\d*)/(?P<bpp>[1-9]\d*)\.(?P<ext>svf|json)$" % _JOB),
      "_job_probe"),
+    ("GET", re.compile(r"^/api/jobs/%s/identity/(?P<step>s\d+)\.json$" % _JOB), "_job_identity"),
     ("GET", re.compile(r"^/api/repo/face/(?P<group>[A-Za-z0-9_-]+)/(?P<file>[A-Z0-9_]+\.SVF)$"), "_repo_face"),
     ("GET", re.compile(r"^/api/caps$"), "_caps"),
     ("GET", re.compile(r"^/api/jobs/%s/preview/(?P<font>[^/]+)/(?P<kind>[^/]+)\.png$" % _JOB), "_job_preview"),
@@ -1085,6 +1086,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     os.remove(path)
                 except OSError:
                     pass
+
+    def _job_identity(self, query, job, step):
+        """`work/sNN/identity.json` of a `done` jamo step that has one."""
+        current = self._load(job)
+        job_dir = self.server.store.path(job)
+        found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
+        if found is None or found.get("state") != "done" or found.get("kind") != "jamo":
+            raise _HttpError(404, "no identity")
+        path = os.path.join(job_dir, "work", step, "identity.json")
+        if not _inside(job_dir, path) or not os.path.isfile(path):
+            raise _HttpError(404, "no identity")
+        self._serve_bytes(path, "application/json")
 
     def _job_source_face(self, query, job, font):
         """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""

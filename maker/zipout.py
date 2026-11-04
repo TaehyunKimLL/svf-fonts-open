@@ -167,6 +167,21 @@ def _command_lines(step, src=None):
     return [_one_line(shlex.join(argv)) for argv in argvs]
 
 
+def _identity_line(identity):
+    """One line for a jamo step's identity check (spec 9.4): the verdict and counts, "unavailable", or the error."""
+    if not isinstance(identity, dict) or identity.get("available") is None:
+        return "identity check unavailable"
+    if not identity.get("available"):
+        return "identity: error %s" % identity["error"] if identity.get("error") else "identity check unavailable"
+    if identity.get("applicable") is False:
+        return "identity check: %s" % (identity.get("reason") or "not applicable")
+    pieces = identity.get("pieces") or {}
+    ks = identity.get("recog_ks")
+    return "identity: %s, %d pieces, %d warn, %d fail, ks %s" % (
+        identity.get("identity"), sum(pieces.get(k, 0) for k in ("pass", "warn", "fail", "unscored")),
+        pieces.get("warn", 0), pieces.get("fail", 0), "%.2f" % ks if isinstance(ks, (int, float)) else "n/a")
+
+
 def log_step(step, stdout, stderr):
     """The log's block for one step: its heading, every command with its exit and seconds, then its result.
 
@@ -181,6 +196,8 @@ def log_step(step, stdout, stderr):
               "stderr:", "```", (stderr or "").rstrip("\n"), "```", ""]
     if step.get("error"):
         lines += ["error: %s" % step["error"], ""]
+    if step.get("kind") == "jamo":
+        lines += [_identity_line(step.get("identity")), ""]
     lines += ["facts:", "```json", _json(step.get("facts")), "```", "",
               "quality:", "```json", _json(step.get("quality")), "```", "",
               "identical_to:", "```json", _json(step.get("identical_to")), "```", ""]

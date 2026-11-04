@@ -1546,8 +1546,90 @@ function previewCell(step) {
   }
 
   box.append(controls, wrap, hint, fail, grid.box);
+  if (step.kind === "jamo") box.append(piecesPanel(step, chainBytes, mate));
   draw();
   return {node: box, redraw: draw};
+}
+
+// The pieces panel of a jamo step (spec 9.5): the identity check's verdict line and, opened, the per-piece table from
+// GET .../identity/<step>.json. Each row draws its piece at 2x; a row opens to its worst syllables as the jamo face
+// composes them beside the same syllables from the font's precomposed face of that size when one is done.
+const IDENTITY_UNAVAILABLE = "identity check unavailable (set SVF_RECOG_DIR to a folder with recog.py and its weights; numpy and torch needed)";
+const FLAG_COLOURS = {pass: "#2a7a3b", warn: "#a86b00", fail: "#b3261e", unavailable: "#777", unscored: "#777", unused: "#777"};
+
+function piecesPanel(step, chainBytes, mate) {
+  const box = el("div", {class: "pieces-panel"});
+  const identity = step.identity;
+  const line = el("div", {class: "pieces-summary"});
+  box.append(line);
+  if (!identity || identity.available !== true) {
+    line.style.color = FLAG_COLOURS.unavailable;
+    line.textContent = identity && identity.error ? "identity check failed: " + escapeControls(identity.error)
+                                                  : IDENTITY_UNAVAILABLE;
+    if (identity && identity.structural) box.append(el("div", {class: "sub", text: escapeControls(identity.structural)}));
+    return box;
+  }
+  if (identity.applicable === false) {
+    line.textContent = "identity check: " + escapeControls(identity.reason || "not applicable");
+    return box;
+  }
+  const counts = identity.pieces || {};
+  line.style.color = FLAG_COLOURS[identity.identity] || "inherit";
+  line.textContent = "identity " + identity.identity + ": " + (counts.pass || 0) + " pass, " + (counts.warn || 0) + " warn, " +
+    (counts.fail || 0) + " fail" + (counts.unscored ? ", " + counts.unscored + " unscored" : "") +
+    (typeof identity.recog_ks === "number" ? "; KS X 1001 read " + (identity.recog_ks * 100).toFixed(1) + "%" : "");
+  const details = el("details", {class: "pieces"}, el("summary", {text: "pieces"}));
+  const table = el("div", {class: "pieces-table"});
+  details.append(table);
+  let loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || loaded) return;
+    loaded = true;
+    try {
+      const response = await fetch("/api/jobs/" + encodeURIComponent(job.id) + "/identity/" + encodeURIComponent(step.id) + ".json",
+                                   {cache: "no-cache"});
+      if (!response.ok) throw new Error("identity.json: " + response.status);
+      const data = await response.json();
+      const [face, companion] = await chainBytes();
+      for (const piece of data.pieces || []) {
+        const row = el("div", {class: "piece-row piece-" + piece.flag, dataset: {piece: String(piece.piece), flag: piece.flag}});
+        const canvas = el("canvas", {class: "piece-glyph"});
+        row.append(canvas,
+          el("span", {text: " " + piece.slot + " " + piece.jamo + " set " + piece.set + "  users " + piece.users + "  read " +
+            (piece.read * 100).toFixed(1) + "%  "}),
+          el("b", {text: piece.flag, style: "color:" + (FLAG_COLOURS[piece.flag] || "inherit")}));
+        await withChain([face], () => svfview.drawPiece(canvas, 0, piece.piece, 2));
+        if (piece.flag === "fail") {
+          row.append(el("div", {class: "sub", text: "fix: fit again with a mask (mask fit, 1 bpp), more sets (adaptive), or a " +
+            "LIST exception for its worst syllables (jamoexc.py, not in the maker)"}));
+        }
+        const worst = el("div", {class: "piece-worst", hidden: true});
+        row.onclick = async () => {
+          worst.hidden = !worst.hidden;
+          if (worst.hidden || worst.childElementCount) return;
+          for (const w of piece.worst || []) {
+            const cell = el("span", {class: "piece-worst-cell", text: "U+" + w.cp.toString(16).toUpperCase() + " read " + (w.got || "-") + " "});
+            const mine = el("canvas", {});
+            cell.append(mine);
+            await withChain([face], () => { svfview.setScale(1, 1); svfview.drawLine(mine, String.fromCodePoint(w.cp), {}); });
+            if (companion) {
+              const theirs = el("canvas", {});
+              cell.append(" vs ", theirs);
+              await withChain([companion], () => { svfview.setScale(1, 1); svfview.drawLine(theirs, String.fromCodePoint(w.cp), {}); });
+            }
+            worst.append(cell);
+          }
+        };
+        row.append(worst);
+        table.append(row);
+      }
+      if (data.bpp_note) table.append(el("div", {class: "sub", text: escapeControls(data.bpp_note)}));
+    } catch (err) {
+      table.textContent = escapeControls(err && err.message);
+    }
+  });
+  box.append(details);
+  return box;
 }
 
 // "Apply" of an ascent or dy to try: settings are accepted only while the job is being edited, so a finished job is

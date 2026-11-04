@@ -30,6 +30,7 @@ import time
 import traceback
 import zlib
 
+import caps
 import detect
 import naming
 import preview
@@ -40,6 +41,8 @@ import zipout
 
 # The Global Constraints limits, verbatim.
 STEP_TIMEOUT = 600
+RECOG_TIMEOUT = 180                      # the identity scoring of one jamo step (maker/recog_score.py)
+RECOG_ARRAYS = "numpy"                  # recog_score's input builder; a test with a stub recogniser says "lists"
 JOB_TIMEOUT = 14400
 OUTPUT_CAP = 4194304
 KILL_GRACE = 5.0
@@ -157,10 +160,10 @@ def _stop(proc):
     proc.wait()
 
 
-def run_command(argv, cwd, timeout, cancel):
+def run_command(argv, cwd, timeout, cancel, env=None):
     """Run @p argv in @p cwd with stdout and stderr captured to files there; return the result dict.
 
-    The child gets `ENV`, no shell and no stdin, and runs in its own process group. `stdout.txt` and `stderr.txt` are
+    The child gets `env` (default `ENV`), no shell and no stdin, and runs in its own process group. `stdout.txt` and `stderr.txt` are
     truncated first and hold at most `OUTPUT_CAP` bytes each: the two pipes are read on their own threads into a
     bounded tail, and the moment either stream passes `OUTPUT_CAP` the whole group is stopped. The loop polls every
     `POLL_S` seconds for the exit, the timeout, the cancel event and the two readers' overflow; a stop leaves `exit`
@@ -174,7 +177,7 @@ def run_command(argv, cwd, timeout, cancel):
             pass
     started = time.monotonic()
     error = None
-    proc = subprocess.Popen(argv, cwd=cwd, env=ENV, stdin=subprocess.DEVNULL,
+    proc = subprocess.Popen(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     out, err = _Capture(proc.stdout, OUTPUT_CAP), _Capture(proc.stderr, OUTPUT_CAP)
     out.start()
@@ -625,7 +628,7 @@ class Worker(threading.Thread):
         font = fonts_by_id.get(step.get("font")) or {}
         stdout, stderr, error = self._execute(job_dir, upload_dir, gz_upload, plain, step, font, cancel)
         if error is None and step.get("kind") not in ("prepare", "source"):
-            error = self._read_back(job, job_dir, upload_dir, plain, step, font)
+            error = self._read_back(job, job_dir, upload_dir, plain, step, font, cancel, stdout)
         if error is not None:
             step["state"] = "failed"
             step["error"] = error
@@ -694,7 +697,7 @@ class Worker(threading.Thread):
             except OSError:
                 shutil.rmtree(path, ignore_errors=True)
 
-    def _read_back(self, job, job_dir, upload_dir, plain, step, font):
+    def _read_back(self, job, job_dir, upload_dir, plain, step, font, cancel=None, stdout=""):
         """Read a produced face back: its facts and its quality numbers; return an error or None.
 
         `quality.face_facts` comes first and `quality.measure` only when it succeeded (measure does not re-validate
@@ -716,7 +719,44 @@ class Worker(threading.Thread):
             return str(exc)
         except _SOURCE_ERRORS as exc:
             return str(exc) or exc.__class__.__name__
+        if step.get("kind") == "jamo":
+            step["identity"] = self._identity(job_dir, step, cancel or threading.Event(), stdout)
         return None
+
+    def _identity(self, job_dir, step, cancel, stdout):
+        """The identity check of a `jamo` step (spec 9.3): `maker/recog_score.py` run as a subprocess with the recogniser's
+        folder in its environment, `RECOG_TIMEOUT` and the job's cancel. Never fails the step: the result is
+        `{"available": true, ...the face summary}`, `{"available": false, "error": ...}` (a non-zero exit, a timeout, an
+        unreadable JSON), or without the capability `{"available": false, "structural": <the `check:` line>}`. The
+        scorer's full JSON stays in `work/sNN/identity.json`."""
+        recog = caps.recog_dir(os.environ) if self.caps.get("recog") else None
+        if recog is None:
+            line = next((l for l in (stdout or "").splitlines() if l.startswith("check:")), "")
+            return {"available": False, "structural": line}
+        step_dir = os.path.join(job_dir, "work", step.get("id") or "")
+        out_json = os.path.join(step_dir, "identity.json")
+        work = os.path.join(step_dir, "identity")
+        try:
+            os.remove(out_json)
+        except OSError:
+            pass
+        os.makedirs(work, exist_ok=True)
+        argv = routes.PY + [os.path.join(os.path.dirname(os.path.abspath(__file__)), "recog_score.py"),
+                            os.path.join(job_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
+                            "--arrays", RECOG_ARRAYS]
+        result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(ENV, SVF_RECOG_DIR=recog))
+        if result["error"] is not None or result["exit"] != 0:
+            tail = (result["stderr"] or "").strip().splitlines()
+            reason = "timed out" if result["error"] == "timeout" else (result["error"] or (tail[-1] if tail else "exit %s" % result["exit"]))
+            return {"available": False, "error": reason}
+        try:
+            with open(out_json, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as exc:
+            return {"available": False, "error": "unreadable identity.json: %s" % exc}
+        if not data.get("applicable", True):
+            return {"available": True, "applicable": False, "reason": data.get("reason", "")}
+        return dict(data.get("face") or {}, available=True)
 
     @staticmethod
     def _reference(job, font, step):
