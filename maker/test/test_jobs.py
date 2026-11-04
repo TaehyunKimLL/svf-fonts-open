@@ -25,6 +25,7 @@ import unittest
 from unittest import mock
 
 import jobs
+import quality
 
 REPO = REPO_DIR
 SVF = os.path.join(REPO, "svf")
@@ -68,6 +69,11 @@ def alive(pid):
     except (OSError, IndexError):
         return False
     return fields[0] not in (b"Z", b"X", b"x")
+
+
+def read_bytes(path):
+    with open(path, "rb") as f:
+        return f.read()
 
 
 class StoreTest(unittest.TestCase):
@@ -265,7 +271,7 @@ class WorkerTest(unittest.TestCase):
                           "size": None if kind == "prepare" else 16, "bpp": None if kind == "prepare" else 1,
                           "layout": layout, "name": name, "argv": argv, "output": output, "state": "pending",
                           "exit": None, "seconds": None, "error": None, "stderr_tail": "", "facts": None,
-                          "quality": None, "identical_to": None, "preview": None})
+                          "quality": None, "identical_to": None})
         eff = {"selected": True, "experimental": True, "dos_layout": None, "latin_companion": None,
                "licence": {"kind": "text", "text": "x"}, "licence_name": "LICNEO.TXT", "note_name": "NEO.TXT",
                "names": {"precomposed/16/1": "NEWONE.SVF", "jamo/16/1": "NEWONE.SVF"}, "dest": dest,
@@ -306,7 +312,9 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(j["result"]["failed_steps"], [j["steps"][1]["id"]])
         self.assertTrue(os.path.isfile(self.store.path(j["id"], j["result"]["zip"])))
         self.assertIsNotNone(j["steps"][0]["facts"])
-        self.assertTrue(os.path.isfile(self.store.path(j["id"], j["steps"][0]["preview"])))
+        self.assertNotIn("preview", j["steps"][0])                  # the page draws the face itself (WASM)
+        self.assertIsNotNone(quality.face_facts(read_bytes(self.store.path(j["id"], j["steps"][0]["output"]))))
+        self.assertFalse(os.path.exists(self.store.path(j["id"], "work", j["steps"][0]["id"], "preview.png")))
         self.assertIn("## s01", read_text(self.store.path(j["id"], "log.md")))
         self.assertIn("## s02", read_text(self.store.path(j["id"], "log.md")))
         self.assertEqual(j["steps"][1]["error"], "exit 2")
@@ -330,7 +338,7 @@ class WorkerTest(unittest.TestCase):
         j = self.wait_for(j["id"])
         self.assertEqual([s["state"] for s in j["steps"]], ["done", "done"])
         self.assertIsNone(j["steps"][0]["facts"])
-        self.assertIsNone(j["steps"][0]["preview"])
+        self.assertNotIn("preview", j["steps"][0])
         self.assertIsNone(j["steps"][0]["quality"])
         self.assertIsNotNone(j["steps"][1]["facts"])
         self.assertEqual(j["steps"][1]["identical_to"], "dos/NEODG16.SVF")
@@ -368,7 +376,7 @@ class WorkerTest(unittest.TestCase):
         j = self.wait_for(j["id"])
         self.assertEqual(j["steps"][0]["state"], "failed")
         self.assertIn("not an SVFN v3 font", j["steps"][0]["error"])
-        self.assertIsNone(j["steps"][0]["preview"])
+        self.assertNotIn("preview", j["steps"][0])
         self.assertIn("error: ", read_text(self.store.path(j["id"], "log.md")))
 
     def test_a_name_clash_fails_the_job_with_the_path(self):
@@ -563,7 +571,8 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(step["quality"]["compared"], 2357)       # the source SVF's own precomposed syllables
         self.assertLess(0, step["quality"]["all"])
         self.assertLess(step["quality"]["all"], 1)
-        self.assertTrue(os.path.isfile(self.store.path(j["id"], step["preview"])))
+        self.assertNotIn("preview", step)
+        self.assertIsNotNone(quality.face_facts(read_bytes(self.store.path(j["id"], step["output"]))))
 
     def test_a_face_with_no_usable_jamo_set_is_not_measured(self):
         j = self.job_with_steps(["open(sys.argv[1],'wb').write(open(NEODG,'rb').read()[:-1]+b'\\x01')"],

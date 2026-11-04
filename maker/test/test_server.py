@@ -575,16 +575,16 @@ class ApiTest(ApiBase):
         self.assertEqual(server._bind("[::1]:8766"), ("::1", 8766))
         self.assertEqual(server._bind("192.0.2.10:8766"), ("192.0.2.10", 8766))
 
-    def test_step_previews_are_per_font(self):
-        """W6/W14: a step preview is served for its own font only."""
+    def test_the_step_png_route_is_gone(self):
+        """The worker writes no result PNG: a step's PNG is a 404 for its own font; the source PNG still works."""
         jid = self.minimal_job()
         job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done")
         step = job["steps"][0]
-        r = self.raw("GET", "/api/jobs/%s/preview/%s/%s.png" % (jid, step["font"], step["id"]))
+        self.assertNotIn("preview", step)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/%s.png" % (jid, step["font"], step["id"])).status, 404)
+        r = self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, step["font"]))
         self.assertEqual((r.status, r.getheader("Content-Type")), (200, "image/png"))
-        other = [f["id"] for f in job["fonts"] if f["id"] != step["font"]][0]
-        self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/%s.png" % (jid, other, step["id"])).status, 404)
 
     def test_zip_headers_on_a_done_job(self):
         """W14: the zip of a done job, and a done job can be detected again (S1)."""
@@ -979,6 +979,29 @@ class ApiTest(ApiBase):
 
 
 MAKER_JS = os.path.join(MAKER_DIR, "static", "maker.js")
+SVFVIEW_JS = os.path.join(MAKER_DIR, "static", "svfview.js")
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+class PreviewWiringTest(unittest.TestCase):
+    def test_page_wires_the_preview(self):
+        js = read_text(MAKER_JS)
+        self.assertIn('import * as svfview from "./svfview.js"', js)
+        self.assertNotIn("preview.png", js)
+        self.assertIn('"/face/"', js)
+        self.assertIn('"/api/repo/face/dos/NEODG16.SVF"', js)
+        self.assertIn('/static/wasm/svf.js', read_text(SVFVIEW_JS))
+        if shutil.which("node"):
+            for path in (MAKER_JS, SVFVIEW_JS):
+                self.assertEqual(subprocess.run(["node", "--check", path]).returncode, 0, path)
+
+    def test_no_code_but_the_oracle_helpers_writes_preview_png(self):
+        for name in ("server.py", "jobs.py", "settings.py", "zipout.py"):
+            self.assertNotIn("preview.png", read_text(os.path.join(MAKER_DIR, name)), name)
 
 VF_ENTRY = {"id": "f01", "path": "v/Vary.ttf", "face_index": 0, "source_kind": "outline",
             "variable": {"axes": [{"tag": "wght", "min": 100, "default": 400, "max": 900}],

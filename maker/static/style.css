@@ -74,3 +74,12 @@ input.name, .override-grid h3 { unicode-bidi:isolate }
 .mark.bad { border-color:var(--bad); color:var(--bad) }
 p { margin:0 }
 @media (prefers-reduced-motion: reduce) { * { transition:none!important } }
+
+/* the result previews drawn by the WASM renderer (svfview.js) */
+.svf-preview { display:flex; flex-direction:column; gap:.3rem; min-width:16rem }
+.svf-controls { display:flex; flex-wrap:wrap; gap:.3rem; align-items:center; font-size:.85rem }
+.canvaswrap { position:relative; display:inline-block; background:var(--sunk); border:1px solid var(--line); border-radius:3px; line-height:0 }
+canvas.result, canvas.grid-row, canvas.preview { image-rendering:pixelated; max-width:100% }
+.guide { position:absolute; left:0; right:0; height:0; border-top:1px solid rgba(220,60,60,.7); pointer-events:none }
+.guide-baseline { border-top-color:rgba(60,120,220,.8) }
+.glyph-grid canvas { display:block }

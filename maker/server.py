@@ -956,13 +956,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise _HttpError(404, "no preview")
             self._serve_file(path, "image/png")
             return
-        step = next((item for item in (current.get("steps") or []) if item.get("id") == kind), None)
-        if step is None or step.get("font") != entry.get("id") or not step.get("preview"):
-            raise _HttpError(404, "no preview")               # a step preview belongs to its own font only (W6)
-        path = os.path.join(job_dir, step["preview"])
-        if not _inside(job_dir, path) or not os.path.isfile(path):
-            raise _HttpError(404, "no preview")
-        self._serve_file(path, "image/png")
+        raise _HttpError(404, "no preview")                  # only the source PNG is served (the result faces are bytes)
 
     # ---- bytes for the page's WASM renderer ------------------------------------------------------------------
 

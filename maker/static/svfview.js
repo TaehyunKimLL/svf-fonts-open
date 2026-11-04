@@ -120,6 +120,14 @@ function D(v) {
 
 const isMark = (cp) => cp >= 0x300 && cp <= 0x36F;
 
+/** The rows of @p slot's cell for a line whose baseline row is @p baseline: {top, baseline, bottom} (the guides). */
+export function cellBox(slot, baseline, ascentOverride = null) {
+  const info = infos[slot];
+  if (!info) throw new Error("slot " + slot + " is not open");
+  const top = baseline - S(ascentOverride ?? info.ascent);
+  return {top, baseline, bottom: top + D(info.cellH)};
+}
+
 export const has = (slot, cp) => need()._svfw_has(slot, cp) !== 0;
 
 export function metrics(slot, cp) {

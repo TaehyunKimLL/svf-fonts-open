@@ -1237,7 +1237,7 @@ def _step(sid, fid, kind, size, bpp, layout, name, argv, output):
     """One Step dict (Shared data shapes), `pending`."""
     return {"id": sid, "font": fid, "kind": kind, "size": size, "bpp": bpp, "layout": layout, "name": name,
             "argv": argv, "output": output, "state": "pending", "exit": None, "seconds": None, "error": None,
-            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None, "preview": None}
+            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None}
 
 
 def plan_steps(job, job_dir, tools_dir, upload_dir):

@@ -17,7 +17,10 @@
 
 "use strict";
 
+import * as svfview from "./svfview.js";
+
 const POLL_MS = 2000;
+const SAMPLE_TEXT = "다람쥐 헌 쳇바퀴에 타고파 ABC xyz 0123";   // detect.SAMPLE_TEXT
 
 // Mirrors presets.PRESETS (name -> what it reproduces). The select shows only the name (a long `reproduces` in an
 // option makes the control wide enough to push the form off the page, Q2) and carries the whole text in its title.
@@ -802,10 +805,14 @@ function fontMainRow(font, per, override) {
 
   const cell = el("td", {});
   if (job && hasSourcePreview(font, per)) {           // M2: no request for an entry that has no preview
-    const image = el("img", {class: "preview", loading: "lazy", alt: fontName(font)});
-    image.src = previewSrc(job.id, font.id, "source");
-    image.onerror = () => { image.hidden = true; };
-    cell.append(image);
+    if (PREVIEW_KINDS[font.source_kind] === "bake") {   // a baked source: its face drawn by the WASM renderer
+      cell.append(sourceFaceCanvas(font));
+    } else {
+      const image = el("img", {class: "preview", loading: "lazy", alt: fontName(font)});
+      image.src = previewSrc(job.id, font.id, "source");
+      image.onerror = () => { image.hidden = true; };
+      cell.append(image);
+    }
   }
   tr.append(cell);
 
@@ -1103,6 +1110,297 @@ function buildFonts() {
   fontsEl.append(head, body);
 }
 
+// ---- the result and source previews (the WASM renderer) ------------------------------------------------------
+
+const LATIN_FALLBACK_URL = "/api/repo/face/dos/NEODG16.SVF";
+const previewState = {text: SAMPLE_TEXT, scale: 1, target: "gray8", threshold: 128, guides: false};
+const previewRedraws = [];                           // the redraw functions of the cells on the page
+const faceBytes = new Map();                         // "job|url|state|seconds" -> Promise<Uint8Array>
+let svfReady = null;                                 // svfview.load(), once
+let drawChain = Promise.resolve();                   // draws run one at a time: the module has one chain
+
+function svfModule() {
+  if (!svfReady) {
+    svfReady = svfview.load();
+    svfReady.catch(() => notice(svfview.NOTICE));
+  }
+  return svfReady;
+}
+
+function fetchBytes(url, stamp) {
+  const key = url + "|" + stamp;
+  if (!faceBytes.has(key)) {
+    faceBytes.set(key, fetch(url).then((response) => {
+      if (!response.ok) throw new Error(url + ": " + response.status);
+      return response.arrayBuffer();
+    }).then((buffer) => new Uint8Array(buffer)));
+    faceBytes.get(key).catch(() => faceBytes.delete(key));
+  }
+  return faceBytes.get(key);
+}
+
+function faceUrl(step) {
+  return "/api/jobs/" + encodeURIComponent(job.id) + "/face/" + encodeURIComponent(step.id) + ".svf";
+}
+
+// The same font's done precomposed face at this size (the Latin and the glyphs a jamo face lacks), else null.
+function companionStep(step) {
+  if (step.kind !== "jamo") return null;
+  return (job.steps || []).find((other) => other !== step && other.font === step.font && other.kind === "precomposed"
+    && other.size === step.size && other.state === "done") || null;
+}
+
+// Draw `fn` with the chain [bytes, companion?] open; `fn` returns what the caller needs. Serialized.
+function withChain(faces, fn) {
+  const run = drawChain.then(async () => {
+    await svfModule();
+    const infos = svfview.openChain(faces);
+    return fn(infos);
+  });
+  drawChain = run.catch(() => {});
+  return run;
+}
+
+async function stepChain(step) {
+  const stamp = step.state + "|" + step.seconds;
+  const face = await fetchBytes(faceUrl(step), stamp);
+  const mate = companionStep(step);
+  if (mate) return [face, await fetchBytes(faceUrl(mate), mate.state + "|" + mate.seconds)];
+  return [face, null];
+}
+
+function canvasOptions() {
+  return {target: previewState.target, threshold: previewState.threshold};
+}
+
+function paintGuides(wrap, canvas, r, zoom) {
+  for (const old of wrap.querySelectorAll(".guide")) old.remove();
+  if (!previewState.guides || !r) return;
+  const box = svfview.cellBox(0, r.baseline, r.ascentOverride);
+  for (const [name, row] of [["top", box.top], ["baseline", box.baseline], ["bottom", box.bottom]]) {
+    const line = el("div", {class: "guide guide-" + name});
+    line.style.top = (row * zoom) + "px";
+    wrap.append(line);
+  }
+}
+
+// A small canvas with a baked source face of a DOS raw or SVF entry (GET .../source/<font>.svf).
+function sourceFaceCanvas(font) {
+  const canvas = el("canvas", {class: "preview", "data-font": font.id});
+  const url = "/api/jobs/" + encodeURIComponent(job.id) + "/source/" + encodeURIComponent(font.id) + ".svf";
+  const draw = async () => {
+    try {
+      const bytes = await fetchBytes(url, previewState.text.length + "|" + (settings.fonts[font.id] || {}).dos_layout);
+      const chain = [bytes];
+      await withChain(chain, () => {
+        svfview.drawLine(canvas, previewState.text, canvasOptions());
+      });
+    } catch (err) {
+      canvas.hidden = true;
+    }
+  };
+  draw();
+  previewRedraws.push(draw);
+  return canvas;
+}
+
+// The result cell of a done face step: the sample line drawn by the WASM renderer from the step's own bytes, with the
+// sample text, scale, target, threshold, guides, the glyph grid and (per kind) an ascent or dy to try.
+function previewCell(step) {
+  const box = el("div", {class: "svf-preview"});
+  const font = (job.fonts || []).find((item) => item.id === step.font) || {};
+  const wrap = el("div", {class: "canvaswrap"});
+  const canvas = el("canvas", {class: "result", "data-step": step.id});
+  wrap.append(canvas);
+  const fail = el("div", {class: "sub", hidden: true});
+  const tryState = {ascent: null, dy: {}};
+
+  const draw = async () => {
+    fail.hidden = true;
+    try {
+      const [face, mate] = await stepChain(step);
+      await withChain(mate ? [face, mate] : [face], async (infos) => {
+        let chain = infos;
+        if (!mate && !svfview.has(0, 0x41)) {                     // the face has no Latin: the repo's companion
+          const latin = await fetchBytes(LATIN_FALLBACK_URL, "repo");
+          chain = svfview.openChain([face, latin]);
+        }
+        svfview.setScale(previewState.scale, 1);
+        const useGlyphs = tryState.ascent !== null || Object.keys(tryState.dy).length > 0;
+        const opts = canvasOptions();
+        let r;
+        if (useGlyphs) {
+          if (tryState.ascent !== null) opts.ascentOverride = tryState.ascent;
+          opts.dy = tryState.dy;
+          opts.symbolsFixed = true;
+          r = svfview.drawGlyphs(canvas, previewState.text, opts);
+          if (r) r.ascentOverride = tryState.ascent;
+        } else {
+          r = svfview.drawLine(canvas, previewState.text, opts);
+        }
+        canvas.style.imageRendering = "pixelated";
+        canvas.style.width = canvas.width * 2 + "px";
+        paintGuides(wrap, canvas, r, 2);
+        void chain;
+      });
+    } catch (err) {
+      canvas.dataset.error = String(err && err.message ? err.message : err);
+      fail.textContent = escapeControls(err && err.message === svfview.NOTICE ? svfview.NOTICE : canvas.dataset.error);
+      fail.hidden = false;
+    }
+  };
+  previewRedraws.push(draw);
+
+  // controls
+  const text = el("input", {type: "text", size: "24", value: previewState.text, "aria-label": "sample text"});
+  text.oninput = () => { previewState.text = text.value; redrawPreviews(); };
+  const scale = el("select", {"aria-label": "scale"});
+  fillSelect(scale, [1, 2, 3, 4].map((n) => [String(n), n + "/1"]), previewState.scale);
+  scale.onchange = () => { previewState.scale = Number(scale.value); redrawPreviews(); };
+  const target = el("select", {"aria-label": "target"});
+  fillSelect(target, [["gray8", "GRAY8"], ["mono", "MONO"], ["rgb565", "RGB565"]], previewState.target);
+  target.onchange = () => { previewState.target = target.value; redrawPreviews(); };
+  const threshold = el("input", {type: "text", inputmode: "numeric", size: "3", value: String(previewState.threshold),
+                                 "aria-label": "mono threshold"});
+  threshold.onchange = () => {
+    const v = Number(threshold.value);
+    if (Number.isInteger(v) && v >= 0 && v <= 255) { previewState.threshold = v; redrawPreviews(); }
+  };
+  const guides = el("input", {type: "checkbox", "aria-label": "guides"});
+  guides.checked = previewState.guides;
+  guides.onchange = () => { previewState.guides = guides.checked; redrawPreviews(); };
+  const controls = el("div", {class: "svf-controls"}, text, scale, target, threshold,
+    el("label", {}, guides, " guides"));
+
+  const grid = glyphGrid(step);
+  const toggle = el("button", {type: "button", text: "glyphs"});
+  toggle.onclick = () => { grid.box.hidden = !grid.box.hidden; if (!grid.box.hidden) grid.show(); };
+  controls.append(toggle);
+
+  const per = settings.fonts && settings.fonts[step.font];
+  if (step.kind === "jamo" && (font.source_kind === "dos-raw" || font.source_kind === "bdf-johab") && per) {
+    const ascent = el("input", {type: "text", inputmode: "numeric", size: "3", "aria-label": "ascent to try"});
+    ascent.onchange = () => {
+      const v = ascent.value.trim() === "" ? null : Number(ascent.value);
+      tryState.ascent = v !== null && Number.isInteger(v) && v >= 1 ? v : null;
+      draw();
+    };
+    const apply = el("button", {type: "button", text: "apply ascent"});
+    apply.onclick = () => {
+      if (tryState.ascent === null) return;
+      applyOption(per, "jamoset", "jamo_ascent", tryState.ascent);
+    };
+    controls.append(el("label", {}, "ascent ", ascent), apply);
+  }
+  if (step.kind === "precomposed" && per) {
+    const dy = el("input", {type: "text", size: "10", placeholder: "U+0041=1 g=-1", "aria-label": "dy to try"});
+    dy.onchange = () => {
+      const parsed = parseDyText(dy.value);
+      tryState.dy = parsed || {};
+      draw();
+    };
+    const apply = el("button", {type: "button", text: "apply dy"});
+    apply.onclick = () => {
+      if (!Object.keys(tryState.dy).length) return;
+      per.dy = Object.assign({}, per.dy || {}, ...Object.entries(tryState.dy).map(([cp, v]) => ({["0x" + Number(cp).toString(16).toUpperCase()]: v})));
+      markDirty();
+      notice("dy of " + step.font + " set; save the settings to keep it");
+    };
+    controls.append(el("label", {}, "dy ", dy), apply);
+  }
+
+  box.append(controls, wrap, fail, grid.box);
+  draw();
+  return box;
+}
+
+// "U+0041=1 g=-1 0x67=2" -> {65: 1, 103: -1}; null when a token does not parse.
+function parseDyText(text) {
+  const out = {};
+  for (const token of text.split(/[\s,]+/).filter(Boolean)) {
+    const m = /^(?:U\+([0-9a-fA-F]+)|(0x[0-9a-fA-F]+|\d+)|(.))=(-?\d+)$/u.exec(token);
+    if (!m) return null;
+    const cp = m[1] ? parseInt(m[1], 16) : m[2] ? Number(m[2]) : m[3].codePointAt(0);
+    out[cp] = Number(m[4]);
+  }
+  return out;
+}
+
+// Write an advanced option into a font's own settings and rebuild the font table (the panel reads per.options).
+function applyOption(per, group, key, value) {
+  readPerOptions();
+  per.options = per.options || {};
+  per.options[group] = Object.assign({}, per.options[group] || {}, {[key]: value});
+  markDirty();
+  buildFonts();
+  notice(key + " " + value + " set; save the settings to keep it");
+}
+
+function redrawPreviews() {
+  for (const redraw of previewRedraws) redraw();
+}
+
+// The glyph grid of a step's face: 16 a row at pitch cell_w + 2, 256 a page; a click shows the glyph's metrics and,
+// for a jamo face's composed code point, its pieces.
+function glyphGrid(step) {
+  const box = el("div", {class: "glyph-grid", hidden: true});
+  const info = el("div", {class: "sub"});
+  const nav = el("div", {});
+  const holder = el("div", {});
+  box.append(nav, holder, info);
+  let page = 0, syllableView = false, list = [];
+
+  const show = async () => {
+    holder.innerHTML = "";
+    try {
+      const [face] = await stepChain(step);
+      await withChain([face], async (infos) => {
+        svfview.setScale(1, 1);
+        list = syllableView ? svfview.syllables(0) : svfview.codePoints(0).filter((cp) => cp < 0xD800 || cp > 0xDFFF);
+        const pitch = infos[0].cellW + 2;
+        const pageList = list.slice(page * 256, page * 256 + 256);
+        for (let row = 0; row < pageList.length; row += 16) {
+          const cps = pageList.slice(row, row + 16);
+          const canvas = el("canvas", {class: "grid-row"});
+          svfview.drawGlyphs(canvas, cps.map((cp) => String.fromCodePoint(cp)).join(""),
+            {pitch, target: "gray8"});
+          canvas.style.imageRendering = "pixelated";
+          canvas.style.width = canvas.width * 2 + "px";
+          canvas.onclick = async (event) => {
+            const col = Math.floor((event.offsetX / (canvas.clientWidth / canvas.width) - 1) / pitch);
+            const cp = cps[col];
+            if (cp === undefined) return;
+            await withChain([face], () => {
+              const m = svfview.metrics(0, cp);
+              const pieces = svfview.pieces(0, cp);
+              info.textContent = "U+" + cp.toString(16).toUpperCase().padStart(4, "0") + " advance " + m.advance +
+                " bearing " + m.bearing + " ink " + m.inkW + " dy " + m.dy + (pieces.length ? " pieces " + pieces.join(" ") : "");
+            });
+          };
+          holder.append(canvas);
+        }
+        nav.innerHTML = "";
+        const pages = Math.max(1, Math.ceil(list.length / 256));
+        const prev = el("button", {type: "button", text: "<"});
+        prev.disabled = page === 0;
+        prev.onclick = () => { page--; show(); };
+        const next = el("button", {type: "button", text: ">"});
+        next.disabled = page + 1 >= pages;
+        next.onclick = () => { page++; show(); };
+        nav.append(prev, " " + (page + 1) + "/" + pages + " ", next);
+        if (infos[0].jamo) {
+          const view = el("button", {type: "button", text: syllableView ? "glyphs" : "syllables"});
+          view.onclick = () => { syllableView = !syllableView; page = 0; show(); };
+          nav.append(" ", view);
+        }
+      });
+    } catch (err) {
+      info.textContent = escapeControls(err && err.message);
+    }
+  };
+  return {box, show};
+}
+
 // ---- the steps table ------------------------------------------------------------------------------------------
 
 function qualityText(step) {
@@ -1147,11 +1445,8 @@ function stepRow(step) {
   tr.append(el("td", {}, el("pre", {class: "stderr", text: escapeControls(step.stderr_tail || "")})));
 
   const result = el("td", {});
-  if (job && step.preview) {
-    const image = el("img", {class: "preview", loading: "lazy", alt: escapeControls(step.name || step.id)});
-    image.src = previewSrc(job.id, step.font, step.id);
-    image.onerror = () => { image.hidden = true; };
-    result.append(image);
+  if (job && step.state === "done" && (step.kind === "precomposed" || step.kind === "jamo")) {
+    result.append(previewCell(step));
   }
   tr.append(result);
   return tr;
@@ -1159,6 +1454,7 @@ function stepRow(step) {
 
 function buildSteps() {
   stepsEl.innerHTML = "";
+  previewRedraws.length = 0;
   if (!job || !(job.steps || []).length) return;
   stepsEl.append(el("thead", {}, el("tr", {},
     ...["id", "font", "kind", "size", "bpp", "name", "state", "seconds", "quality", "stderr", "result"]

@@ -695,12 +695,11 @@ class Worker(threading.Thread):
                 shutil.rmtree(path, ignore_errors=True)
 
     def _read_back(self, job, job_dir, upload_dir, plain, step, font):
-        """Read a produced face back: its facts, its quality numbers and its preview; return an error or None.
+        """Read a produced face back: its facts and its quality numbers; return an error or None.
 
         `quality.face_facts` comes first and `quality.measure` only when it succeeded (measure does not re-validate
         the bytes), and a ValueError from either fails the step with its message (the Task 8 ruling). A `jamo` step
-        whose route names a reference is scored against it; the preview is drawn with the same font's `precomposed`
-        output at this size beside the face when one is `done` (`latin_abs`).
+        whose route names a reference is scored against it. The page draws the face itself (WASM); no picture is written.
         """
         out_abs = os.path.join(job_dir, step.get("output") or "")
         data = _read_bytes(out_abs)
@@ -717,9 +716,6 @@ class Worker(threading.Thread):
             return str(exc)
         except _SOURCE_ERRORS as exc:
             return str(exc) or exc.__class__.__name__
-        preview_abs = os.path.join(job_dir, "work", step.get("id") or "", "preview.png")
-        if preview.result_png(out_abs, self._latin_abs(job, job_dir, step), self.svf_dir, preview_abs):
-            step["preview"] = "work/%s/preview.png" % step.get("id")
         return None
 
     @staticmethod
@@ -738,18 +734,6 @@ class Worker(threading.Thread):
         except (KeyError, TypeError, ValueError):
             return None
         return route.reference if route is not None else None
-
-    @staticmethod
-    def _latin_abs(job, job_dir, step):
-        """The same font's `done` `precomposed` output at this step's size, for the preview chain; else `None`."""
-        if step.get("kind") != "jamo":
-            return None
-        for other in job.get("steps") or []:
-            if (other is not step and other.get("font") == step.get("font")
-                    and other.get("kind") == "precomposed" and other.get("size") == step.get("size")
-                    and other.get("state") == "done"):
-                return os.path.join(job_dir, other.get("output") or "")
-        return None
 
     @staticmethod
     def _prepared_source(job, job_dir, font_id):
