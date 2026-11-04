@@ -135,7 +135,7 @@ def ttc(fonts):
     return buf.getvalue()
 
 
-def variable_ttf():
+def variable_ttf(delta=-40):
     """Family Vary, axis wght 100/400/900, instances Regular 400 and Bold 700, a gvar delta on ga's right edge."""
     from fontTools.ttLib.tables.TupleVariation import TupleVariation
     fb = FontBuilder(1000, isTTF=True)
@@ -147,7 +147,7 @@ def variable_ttf():
     fb.setupFvar([("wght", 100, 400, 900, "Weight")],
                  [{"location": {"wght": 400}, "stylename": "Regular"}, {"location": {"wght": 700}, "stylename": "Bold"}])
     # ga has 4 points (x0,y0) (x0,y1) (x1,y1) (x1,y0) plus 4 phantom points; the right edge moves by -40 at the axis max
-    deltas = [(0, 0), (0, 0), (-40, 0), (-40, 0), (0, 0), (0, 0), (0, 0), (0, 0)]
+    deltas = [(0, 0), (0, 0), (delta, 0), (delta, 0), (0, 0), (0, 0), (0, 0), (0, 0)]
     fb.setupGvar({"ga": [TupleVariation({"wght": (0.0, 1.0, 1.0)}, deltas)]})
     return _save(fb.font)
 

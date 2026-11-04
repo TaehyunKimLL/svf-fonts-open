@@ -198,6 +198,18 @@ def _font_defaults(font, batch, fmap=None):
     return per
 
 
+def source_ops(font, eff):
+    """The conversions the font's source needs before any tool reads it: its detected `prep` ops, plus (with an instance
+    chosen) the `ttc-face` of face 0 of a collection and the `instance` pin of every axis. The planned `source` step
+    and the page's previews and probe all read the file these produce."""
+    ops = list(font.get("prep") or [])
+    if eff.get("instance") is not None:
+        if not ops and font.get("format") == "ttc":    # face 0 of a collection: the instancer reads one face
+            ops.append({"op": "ttc-face", "index": font.get("face_index", 0)})
+        ops.append({"op": "instance", "coords": instance_coords(font, eff["instance"])})
+    return ops
+
+
 def instance_coords(font, instance):
     """The full `{axis tag: value}` of a variable-font instance: every axis's default, overlaid by @p instance."""
     coords = {axis["tag"]: axis["default"] for axis in (font.get("variable") or {}).get("axes") or []}
@@ -1363,11 +1375,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir, pylib=None):
                 range_files = write_range_files(work_root)
             range_file = range_files[rkind]
             range_arg = (rkind, None)
-        ops = list(font.get("prep") or [])
-        if eff.get("instance") is not None:
-            if not ops and font.get("format") == "ttc":    # face 0 of a collection: the instancer reads one face
-                ops.append({"op": "ttc-face", "index": font.get("face_index", 0)})
-            ops.append({"op": "instance", "coords": instance_coords(font, eff["instance"])})
+        ops = source_ops(font, eff)
         if ops:                                          # the font's source step: every later step reads its file
             counter += 1
             sid = "s%02d" % counter

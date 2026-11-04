@@ -38,6 +38,7 @@ import naming
 import preview
 import routes
 import settings
+import srcprep
 import zipout
 
 # The spec's upload limits (Global Constraints).
@@ -1024,7 +1025,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         out_json = os.path.join(probe_dir, "%d-%d.json" % (size, bpp))
         with _preview_lock(job, font):
             os.makedirs(probe_dir, exist_ok=True)
-            src = self._plain_source(entry, os.path.join(upload_dir, entry.get("path") or ""), probe_dir)
+            src = self._prepared_source(entry, eff, upload_dir, os.path.join(job_dir, "work", "preview"))
             rkind, rabs = settings.range_spec(eff, upload_dir)
             range_file = os.path.join(probe_dir, "range.txt")     # only an uploaded list is passed as a file
             if rkind == "file":
@@ -1128,8 +1129,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         out_dir = os.path.join(job_dir, "work", "preview")
         os.makedirs(out_dir, exist_ok=True)
         out_png = os.path.join(out_dir, "%s.png" % font.get("id"))
-        abs_src = self._plain_source(font, os.path.join(upload_dir, font.get("path") or ""), out_dir)
         eff = settings.effective(fonts, job.get("settings") or {}, font.get("id"))
+        abs_src = self._prepared_source(font, eff, upload_dir, out_dir)
+        if abs_src != self._plain_source(font, os.path.join(upload_dir, font.get("path") or ""), out_dir):
+            font = dict(font, face_index=0)            # a prepared file holds the one face the build reads
         source_kind = font.get("source_kind") or ""
         if source_kind == "dos-raw":
             layout = eff.get("dos_layout")
@@ -1148,6 +1151,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._render_preview(None, out_svf, out_png)
             return
         preview.source_png(font, abs_src, self._first_size(font, eff), out_png)
+
+    def _prepared_source(self, font, eff, upload_dir, out_dir):
+        """The file the build's tools read for @p font: its plain source when no conversion is planned, else the
+        converted copy `out_dir/<font id>/source.<ext>` (`settings.source_ops`: TTC face, Mac cmap or container,
+        variable instance, PCF), written once. The caller holds the font's preview lock; the keyed settings drop the
+        copy with the font's other previews. A conversion that fails is 'no preview' (404)."""
+        plain = self._plain_source(font, os.path.join(upload_dir, font.get("path") or ""), out_dir)
+        ops = settings.source_ops(font, eff)
+        if not ops:
+            return plain
+        last = ops[-1].get("op")
+        ext = "bdf" if last == "pcf-bdf" else "otf" if font.get("cff") else "ttf"
+        target_dir = os.path.join(out_dir, str(font.get("id")))
+        target = os.path.join(target_dir, "source." + ext)
+        if not os.path.isfile(target):
+            try:
+                with open(plain, "rb") as f:
+                    data = srcprep.prepared_bytes(f.read(), ops)
+                os.makedirs(target_dir, exist_ok=True)
+                with open(target, "wb") as f:
+                    f.write(data)
+            except (OSError, srcprep.PrepError):
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
+                raise _HttpError(404, "no preview")
+        return target
 
     @staticmethod
     def _bake_flags(eff, source_kind):

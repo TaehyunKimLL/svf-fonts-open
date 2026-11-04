@@ -82,6 +82,16 @@ class SrcprepTest(TmpCase):
         with self.assertRaises(srcprep.PrepError):
             srcprep.prepared_bytes(b"", [{"op": "instance", "coords": {}}])
 
+    def test_prepared_bytes_instance_op(self):
+        out = TTFont(io.BytesIO(srcprep.prepared_bytes(inputfx.variable_ttf(),
+                                                       [{"op": "instance", "coords": {"wght": 700}}])))
+        self.assertNotIn("fvar", out)
+        wide = TTFont(io.BytesIO(srcprep.prepared_bytes(inputfx.variable_ttf(),
+                                                        [{"op": "instance", "coords": {"wght": 900}}])))
+        # the gvar delta moves ga's right edge at the axis maximum
+        right = lambda f: max(x for x, _ in f["glyf"]["ga"].getCoordinates(f["glyf"])[0])
+        self.assertLess(right(wide), right(out))
+
     def test_cli_ttc_face(self):
         src = self.write("two.ttc", inputfx.ttc([inputfx.ttf("One", (50, 0, 950, 800)),
                                                  inputfx.ttf("Two", (300, 0, 700, 400))]))

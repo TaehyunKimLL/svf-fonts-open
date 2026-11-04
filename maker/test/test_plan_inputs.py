@@ -661,6 +661,32 @@ class ProbeArgvTest(unittest.TestCase):
         self.assertNotIn("9", got)
 
 
+class SourceOpsTest(Case):
+    def test_source_ops_shared_with_plan_steps(self):
+        two = inputfx.ttc([inputfx.ttf("One", BOX1), inputfx.ttf("Two", BOX2)])
+        for name, files, pick, per in (
+                ("ttc face 0 with an instance", {"t/v.ttc": inputfx.ttc([inputfx.variable_ttf(), inputfx.ttf("Two", BOX2)])},
+                 dict(face=0, path="t/v.ttc"), {"instance": {"wght": 700}}),
+                ("mac cmap", {"m/Mac.ttf": inputfx.mac_cmap_ttf()}, dict(), {}),
+                ("ttc face 1", {"t/two.ttc": two}, dict(face=1, path="t/two.ttc"), {})):
+            with self.subTest(name):
+                self.n += 1
+                store, job = inputkinds.plan_batch(self, os.path.join(self.tmp, "j%d" % self.n), files,
+                                                   lambda f, st: select(st, inputkinds.fid_of(f, **pick) if pick
+                                                                        else inputkinds.only_font(f), **per))
+                font = next(f for f in job["fonts"] if f["id"] == next(s["font"] for s in job["steps"]))
+                eff = settings.effective(job["fonts"], job["settings"], font["id"])
+                ops = settings.source_ops(font, eff)
+                self.assertTrue(ops)
+                job_dir = store.path(job["id"])
+                step = job["steps"][0]
+                self.assertEqual(step["kind"], "source")
+                want, _ = routes.source_commands(ops, os.path.join(job_dir, "upload", font["path"]),
+                                                 os.path.join(job_dir, "work", step["id"]), os.path.join(REPO_DIR, "tools"),
+                                                 "otf" if font.get("cff") else "ttf")
+                self.assertEqual(step["argv"], want)
+
+
 class VectorFitTest(Case):
     def test_vector_fit_end_to_end(self):
         job, z = self.run_batch({"v/F.ttf": inputfx.flat_composite_ttf()},

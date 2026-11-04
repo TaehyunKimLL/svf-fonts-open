@@ -1240,6 +1240,38 @@ class FaceBytesTest(ApiBase):
             self.assertEqual(r.status, 400)
             self.assertIn("binarize mono needs freetype-py", r.read().decode())
 
+    def test_source_preview_draws_the_prepared_font(self):
+        jid = self.post("/api/jobs")["id"]
+        self.put_file(jid, "v/Vary.ttf", inputfx.variable_ttf())
+        self.put_file(jid, "v/OFL.txt", read(F["ttf_licence"]))
+        detected = self.post("/api/jobs/%s/detect" % jid)
+        fid = next(f["id"] for f in detected["fonts"] if f["source_kind"] == "outline")
+        url = "/api/jobs/%s/preview/%s/source.png" % (jid, fid)
+        first = self.raw("GET", url)
+        self.assertEqual(first.status, 200)
+        prepared = self.srv.store.path(jid, "work", "preview", fid, "source.ttf")
+        self.assertFalse(os.path.exists(prepared))                    # no ops: the plain source
+        s = detected["settings"]
+        s["fonts"][fid]["instance"] = {"wght": 900}
+        self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(s).encode()).status, 200)
+        second = self.raw("GET", url)
+        self.assertEqual(second.status, 200)
+        self.assertTrue(os.path.isfile(prepared))                     # the converted copy the build would read
+        from fontTools.ttLib import TTFont
+        self.assertNotIn("fvar", TTFont(prepared))
+        s["fonts"][fid]["instance"] = None
+        self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(s).encode()).status, 200)
+        self.assertFalse(os.path.exists(prepared))
+
+    def test_source_preview_of_a_mac_cmap_font(self):
+        jid = self.post("/api/jobs")["id"]
+        self.put_file(jid, "m/Mac.ttf", inputfx.mac_cmap_ttf())
+        self.put_file(jid, "m/OFL.txt", read(F["ttf_licence"]))
+        detected = self.post("/api/jobs/%s/detect" % jid)
+        fid = next(f["id"] for f in detected["fonts"] if f["source_kind"] == "outline")
+        r = self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, fid))
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "image/png"))
+
     def test_a_saved_mask_route_is_refused_at_the_run_once_the_libraries_are_gone(self):
         jid = self.post("/api/jobs")["id"]
         self.put_file(jid, "g/G.ttf", inputfx.gsub_jamo_ttf())
@@ -1433,6 +1465,50 @@ class ProbeTest(ApiBase):
         jid = self.tall_job()
         self.assertEqual(self.raw("GET", "/api/jobs/%s/probe/%s/016/1.json" % (jid, self.fid)).status, 404)
         self.assertEqual(self.raw("GET", "/api/jobs/%s/probe/%s/16/01.json" % (jid, self.fid)).status, 404)
+
+    def font_job(self, files, pick, **per):
+        """A detected job over @p files (rel -> bytes) with the font entry chosen by @p pick selected into new/fixture."""
+        jid = self.post("/api/jobs")["id"]
+        for rel, data in files.items():
+            self.put_file(jid, rel, data)
+        self.put_file(jid, os.path.dirname(next(iter(files))) + "/OFL.txt", read(F["ttf_licence"]))
+        detected = self.post("/api/jobs/%s/detect" % jid)
+        fid = next(f["id"] for f in detected["fonts"] if pick(f))
+        s = detected["settings"]
+        for k, p in s["fonts"].items():
+            p["selected"] = k == fid
+        s["fonts"][fid].update(dest="new/fixture", sizes=[16], bpp=[1], **per)
+        self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(s).encode()).status, 200)
+        self.fid = fid
+        return jid
+
+    def boxes_probe_vs_build(self, jid):
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        step = next(st for st in job["steps"] if st["kind"] == "precomposed")
+        built = json.loads(self.raw("GET", "/api/jobs/%s/report/%s.json" % (jid, step["id"])).read())["boxes"]
+        probed = json.loads(self.raw("GET", self.url(jid)).read())["boxes"]
+        return built, probed
+
+    def test_the_probe_measures_the_prepared_source(self):
+        """The probe reads the file the build reads: a variable instance, a TTC face, a Mac cmap font."""
+        two = inputfx.ttc([inputfx.ttf("One", (50, 0, 950, 800)), inputfx.ttf("Two", (300, 0, 700, 400))])
+        cases = (("instance", {"v/Vary.ttf": inputfx.variable_ttf(-600)}, lambda f: f["source_kind"] == "outline",
+                  {"instance": {"wght": 900}}),
+                 ("ttc face 1", {"t/two.ttc": two}, lambda f: f["face_index"] == 1, {}),
+                 ("mac cmap", {"m/Mac.ttf": inputfx.mac_cmap_ttf()}, lambda f: f["source_kind"] == "outline", {}))
+        for name, files, pick, per in cases:
+            with self.subTest(name):
+                jid = self.font_job(files, pick, **per)
+                built, probed = self.boxes_probe_vs_build(jid)
+                self.assertTrue(built)
+                self.assertEqual(probed, built)
+        # and the instance changes what is measured
+        plain = json.loads(self.raw("GET", self.url(self.font_job({"v/Vary.ttf": inputfx.variable_ttf(-600)}, lambda f: f["source_kind"] == "outline",
+                                                                   instance={"wght": 100}))).read())["boxes"]
+        wide = json.loads(self.raw("GET", self.url(self.font_job({"v/Vary.ttf": inputfx.variable_ttf(-600)}, lambda f: f["source_kind"] == "outline",
+                                                                 instance={"wght": 900}))).read())["boxes"]
+        self.assertNotEqual(plain, wide)
 
     def test_probe_404s(self):
         jid = self.tall_job()

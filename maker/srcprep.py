@@ -164,7 +164,8 @@ def mac_resources(data):
 # ---- ops -------------------------------------------------------------------------------------------------------
 
 def prepared_bytes(data, ops):
-    """@p ops applied in order, in-process. An `instance` op raises: detection never instantiates."""
+    """@p ops applied in order, in-process (detection applies none that instantiate; the previews and the probe apply the
+    `instance` op the planned source step would run)."""
     for op in ops:
         try:
             data = _apply_op(data, op)
@@ -194,6 +195,14 @@ def _apply_op(data, op):
             raise PrepError(str(e))
         except (TTLibError, struct.error, OSError, KeyError) as e:
             raise PrepError("not an sfnt font (%s)" % e)
+        return buf.getvalue()
+    if kind == "instance":
+        from fontTools.varLib import instancer
+        font = TTFont(io.BytesIO(data))
+        pinned = instancer.instantiateVariableFont(font, {tag: float(v) for tag, v in op["coords"].items()},
+                                                   inplace=False)
+        buf = io.BytesIO()
+        pinned.save(buf)
         return buf.getvalue()
     if kind == "pcf-bdf":
         return pcf_to_bdf(data)
