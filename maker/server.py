@@ -340,6 +340,7 @@ _ROUTES = (
     ("GET", re.compile(r"^/api/jobs/%s/zip$" % _JOB), "_job_zip"),
     ("GET", re.compile(r"^/api/jobs/%s/face/(?P<step>s\d+)\.svf$" % _JOB), "_job_face"),
     ("GET", re.compile(r"^/api/jobs/%s/source/(?P<font>f\d+)\.svf$" % _JOB), "_job_source_face"),
+    ("GET", re.compile(r"^/api/jobs/%s/report/(?P<step>s\d+)\.json$" % _JOB), "_job_report"),
     ("GET", re.compile(r"^/api/repo/face/(?P<group>[A-Za-z0-9_-]+)/(?P<file>[A-Z0-9_]+\.SVF)$"), "_repo_face"),
     ("GET", re.compile(r"^/api/caps$"), "_caps"),
     ("GET", re.compile(r"^/api/jobs/%s/preview/(?P<font>[^/]+)/(?P<kind>[^/]+)\.png$" % _JOB), "_job_preview"),
@@ -982,6 +983,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not _inside(job_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no face")
         self._serve_bytes(path, "application/octet-stream")
+
+    def _job_report(self, query, job, step):
+        """The `--report` JSON of a `done` mkfont step of this job."""
+        current = self._load(job)
+        job_dir = self.server.store.path(job)
+        found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
+        if found is None or found.get("state") != "done" or not found.get("report"):
+            raise _HttpError(404, "no report")
+        path = os.path.join(job_dir, found["report"])
+        if not _inside(job_dir, path) or not os.path.isfile(path):
+            raise _HttpError(404, "no report")
+        self._serve_bytes(path, "application/json")
 
     def _job_source_face(self, query, job, font):
         """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""

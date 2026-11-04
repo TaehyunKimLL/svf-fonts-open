@@ -271,7 +271,7 @@ class WorkerTest(unittest.TestCase):
                           "size": None if kind == "prepare" else 16, "bpp": None if kind == "prepare" else 1,
                           "layout": layout, "name": name, "argv": argv, "output": output, "state": "pending",
                           "exit": None, "seconds": None, "error": None, "stderr_tail": "", "facts": None,
-                          "quality": None, "identical_to": None})
+                          "quality": None, "identical_to": None, "report": None})
         eff = {"selected": True, "experimental": True, "dos_layout": None, "latin_companion": None,
                "licence": {"kind": "text", "text": "x"}, "licence_name": "LICNEO.TXT", "note_name": "NEO.TXT",
                "names": {"precomposed/16/1": "NEWONE.SVF", "jamo/16/1": "NEWONE.SVF"}, "dest": dest,
@@ -331,6 +331,16 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(read_text(order), "12")
         self.assertEqual([self.store.load(first["id"])["state"], self.store.load(second["id"])["state"]],
                          ["done", "done"])
+
+    def test_a_stale_report_is_removed_before_a_rerun(self):
+        j = self.job_with_steps(["sys.exit(1)"])
+        stale = self.store.path(j["id"], "work", "s01", "report.json")
+        with open(stale, "w") as fh:
+            fh.write("{}")
+        self.worker.enqueue(j["id"])
+        j = self.wait_for(j["id"])
+        self.assertEqual(j["steps"][0]["state"], "failed")
+        self.assertFalse(os.path.exists(stale))
 
     def test_prepare_and_copy_steps(self):
         j = self.job_with_steps(["open(sys.argv[1],'w').write('{}')", None], kinds=["prepare", "precomposed"])

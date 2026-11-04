@@ -1485,6 +1485,19 @@ function glyphGrid(step, chainBytes) {
 
 // ---- the steps table ------------------------------------------------------------------------------------------
 
+// The one line a step row shows for its mkfont report (spec 8.2): clip "cut N (T top, B bottom)" (", G dropped" when the
+// cell removes a glyph whole), nudge "nudged N", fit "fit at S px".
+function reportText(report) {
+  const n = (value) => Number(value || 0).toLocaleString("en");
+  const counts = report.counts || {};
+  if (report.mode === "clip") {
+    return "cut " + n(counts.cut) + " (" + n(counts.top) + " top, " + n(counts.bottom) + " bottom)" +
+      (counts.gone ? ", " + n(counts.gone) + " dropped" : "");
+  }
+  if (report.mode === "fit") return "fit at " + n(report.size) + " px";
+  return "nudged " + n((report.nudged || []).length);
+}
+
 function qualityText(step) {
   const quality = step.quality;
   if (!quality) return "";
@@ -1510,6 +1523,15 @@ function stepRow(step) {
   state.append(el("span", {text: escapeControls(step.state || "")}));
   if (step.error) state.append(el("div", {class: "sub", text: escapeControls(step.error)}));
   if (step.identical_to) state.append(el("div", {class: "sub", text: "identical to " + escapeControls(step.identical_to)}));
+  if (job && step.state === "done" && step.report) {
+    const line = el("div", {class: "sub", dataset: {report: step.id}});
+    state.append(line);
+    fetch("/api/jobs/" + encodeURIComponent(job.id) + "/report/" + encodeURIComponent(step.id) + ".json",
+          {cache: "no-cache"})
+      .then((response) => (response.ok ? response.json() : null))
+      .then((report) => { if (report) line.textContent = reportText(report); })
+      .catch(() => {});
+  }
   tr.append(state);
 
   tr.append(el("td", {class: "nums",

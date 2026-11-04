@@ -999,6 +999,20 @@ class PreviewWiringTest(unittest.TestCase):
             for path in (MAKER_JS, SVFVIEW_JS):
                 self.assertEqual(subprocess.run(["node", "--check", path]).returncode, 0, path)
 
+    def test_page_report_text(self):
+        js = read_text(MAKER_JS)
+        func = re.search(r"function reportText\(report\) \{.*?\n\}\n", js, re.S).group(0)
+        cases = [{"mode": "clip", "counts": {"cut": 2300, "top": 368, "bottom": 2299, "gone": 0}},
+                 {"mode": "clip", "counts": {"cut": 4, "top": 1, "bottom": 3, "gone": 2}},
+                 {"mode": "nudge", "nudged": ["0x41", "0x42", "0x43"], "counts": {}},
+                 {"mode": "fit", "size": 14, "counts": {}}]
+        if shutil.which("node"):
+            script = "%s\nconsole.log(JSON.stringify(JSON.parse(process.argv[1]).map(reportText)));" % func
+            out = subprocess.run(["node", "-e", script, json.dumps(cases)], capture_output=True, text=True)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(json.loads(out.stdout), ["cut 2,300 (368 top, 2,299 bottom)",
+                                                      "cut 4 (1 top, 3 bottom), 2 dropped", "nudged 3", "fit at 14 px"])
+
     def test_page_sample_text_is_detects(self):
         import detect
         m = re.search(r'const SAMPLE_TEXT = "([^"]*)"', read_text(MAKER_JS))
@@ -1128,6 +1142,29 @@ class FaceBytesTest(ApiBase):
         r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, dos))
         self.assertEqual(r.status, 404)
         self.assertIn("confirm the DOS Johab layout", r.read().decode())
+
+    def test_report_endpoint(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        step = job["steps"][0]
+        self.assertTrue(step["report"])
+        r = self.raw("GET", "/api/jobs/%s/report/%s.json" % (jid, step["id"]))
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "application/json"))
+        self.assertEqual(r.read(), read(self.srv.store.path(jid, step["report"])))
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/report/s99.json" % jid).status, 404)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/report/%s.json" % (jid, step["id"]),
+                                  headers={"Host": "evil.example"}).status, 403)
+
+        def running(j):
+            j["steps"][0]["state"] = "running"
+        self.srv.store.update(jid, running)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/report/%s.json" % (jid, step["id"])).status, 404)
+
+        def jamo(j):
+            j["steps"][0]["state"] = "done"
+            j["steps"][0]["report"] = None
+        self.srv.store.update(jid, jamo)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/report/%s.json" % (jid, step["id"])).status, 404)
 
     def test_repo_face(self):
         self.assertEqual(self.raw("GET", "/api/repo/face/dos/NEODG16.SVF").read(),

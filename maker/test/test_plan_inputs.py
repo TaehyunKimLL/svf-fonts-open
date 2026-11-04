@@ -13,6 +13,7 @@ for _p in (TEST_DIR, MAKER_DIR, os.path.join(REPO_DIR, "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import glob
 import gzip
 import json
 import shutil
@@ -548,6 +549,31 @@ class DyStepTest(Case):
         self.assertEqual(step["state"], "failed", step)
         self.assertIn("no metrics table", step["stderr_tail"] + (step["error"] or ""))
         self.assertIsNone(z and next(iter(inputkinds.zip_faces(z)), None))
+
+
+class ReportStepTest(Case):
+    def test_mkfont_argv_and_step_carry_the_report(self):
+        step = self.plan(inputfx.ttf("R", BOX1))[0]
+        self.assertEqual(step["report"], "work/%s/report.json" % step["id"])
+        argv = step["argv"][0]
+        self.assertEqual(argv[argv.index("--report") + 1], os.path.join(self.job_dir, step["report"]))
+
+    def test_the_report_comes_before_the_dy_argv_and_only_mkfont_has_one(self):
+        step = self.plan(inputfx.ttf("R", BOX1), dy={"0x41": 1})[0]
+        self.assertIn("--report", step["argv"][0])
+        self.assertNotIn("--report", step["argv"][1])
+        with open(os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"), "rb") as fh:
+            copy = self.plan({"s/NEODG16.SVF": fh.read()})[0]
+        self.assertIsNone(copy["report"])
+
+    def test_fit_cell_report_mode_fit(self):
+        job, z = self.run_batch({"d/d.ttf": inputfx.ttf("R", BOX1)},
+                                lambda f, st: select(st, inputkinds.only_font(f),
+                                                     options={"mkfont": {"cell": 12, "fit_cell": True}}))
+        hits = glob.glob(os.path.join(self.tmp, "j%d" % self.n, "**", job["steps"][0]["report"]), recursive=True)
+        self.assertEqual(len(hits), 1, hits)
+        rep = read_json(hits[0])
+        self.assertEqual(rep["mode"], "fit")
 
 
 class NamedRangeTest(Case):

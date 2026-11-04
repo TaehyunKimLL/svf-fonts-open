@@ -1241,7 +1241,7 @@ def _step(sid, fid, kind, size, bpp, layout, name, argv, output):
     """One Step dict (Shared data shapes), `pending`."""
     return {"id": sid, "font": fid, "kind": kind, "size": size, "bpp": bpp, "layout": layout, "name": name,
             "argv": argv, "output": output, "state": "pending", "exit": None, "seconds": None, "error": None,
-            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None}
+            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None, "report": None}
 
 
 def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
@@ -1371,9 +1371,14 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                         argv = route.commands(font, size, bpp, step_layout, range_arg, paths, panel)
                     except ValueError as exc:
                         raise ValueError("%s: %s" % (fid, exc))
+                    report = None
+                    if route.label == "mkfont" and argv:        # mkfont's --report: the boxes and cuts of this bake
+                        report = "work/%s/report.json" % sid
+                        argv[0] = routes.apply_flags(argv[0], ["--report", os.path.join(job_dir, report)])
                     dy_argv = _dy_argv(eff.get("dy"), kind, argv, src, out, step_dir, tools_dir)
                     if dy_argv:
                         argv = argv + [dy_argv]
-                    steps.append(_step(sid, fid, kind, size, bpp, step_layout, name, argv,
-                                       "work/%s/%s" % (sid, name)))
+                    step = _step(sid, fid, kind, size, bpp, step_layout, name, argv, "work/%s/%s" % (sid, name))
+                    step["report"] = report
+                    steps.append(step)
     return steps

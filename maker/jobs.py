@@ -682,7 +682,7 @@ class Worker(threading.Thread):
     def _clear_outputs(cwd, out_abs, step):
         """Remove what an earlier run left where this step writes: a tool that exits 0 without writing must fail "no
         output", not pass on the old file (a re-detected job reuses `work/sNN/`)."""
-        stale = [out_abs]
+        stale = [out_abs, os.path.join(cwd, "report.json")]      # a failed re-run must not show the last run's report
         if step.get("kind") == "source":
             stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith("source-")] \
                 if os.path.isdir(cwd) else []

@@ -75,7 +75,7 @@ def _flip(data):
 def _step(sid, fid, kind, size, bpp, name, argv, output):
     return {"id": sid, "font": fid, "kind": kind, "size": size, "bpp": bpp, "layout": None, "name": name,
             "argv": argv, "output": output, "state": "done", "exit": 0, "seconds": 0.5, "error": None,
-            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None}
+            "stderr_tail": "", "facts": None, "quality": None, "identical_to": None, "report": None}
 
 
 class _ZipBase(unittest.TestCase):
