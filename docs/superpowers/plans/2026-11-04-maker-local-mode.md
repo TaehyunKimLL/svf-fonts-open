@@ -61,6 +61,42 @@ says so, and the choice is listed again under "Design issues found while plannin
 - **Commits** end with the trailer `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>` and name the card
   `(t_cbd14d61)` in the subject.
 
+## Licence ruling (user, 2026-11-04; amends this plan, wins over everything below it)
+
+Font licences matter only when WE publish (upload to GitHub and the like). Converting a font in the maker is the
+user's own responsibility. The maker does not police licences; it shows one acknowledgement and records what the user
+chose.
+
+- **No licence is required to convert in local mode.** A selected font with no licence file runs. `check_face`,
+  `_licence_present_ok`, `_clash_errors` (licence part) and `_text_entry` never block a **local** job for a missing
+  licence, and `settings.run_ready` adds no "needs a licence" error for it. **Upload jobs behave exactly as before**:
+  this card changes no upload behaviour (the switch is `Sources.kind == "local"` / `job["source"] == "local"`).
+- **Optional licence selection.** When the user picks a licence (an `upload` licence file, a `repo` file or a `text`),
+  it is copied into the output notes as today (`LICENCE` text file, `LICENCES.tsv.lines`). When none is given, the
+  notes and `BUILD.md` say `licence: not checked (user's responsibility)` and no licence text file is written.
+- **Dropped:** the prefilled "proprietary, own use" text licence (**D7**) and `settings.defaults(local=True)`'s default
+  licence. A local font's default `licence` is `{"kind": "upload", "root": r, "path": p}` only when the scan found a
+  licence file the user picked, else `None`. Sibling-licence pairing for file roots is no longer a requirement (the
+  Task 2 behaviour stays because it is trivial and green; it is never relied on).
+- **Acknowledgement popup (page, Task 9).** The first time a local job is created in a page session, a modal shows:
+  "You are responsible for having the right to convert the fonts you choose. Converted faces are written only to your
+  chosen output folder. If you publish them, check each font's licence." with an OK button. The acknowledgement is
+  remembered for the page session (and the launch), not on the server. The CDP harness test: the popup shows on the
+  first local job, and does not show again after OK.
+- **README and NOTICE** keep "no proprietary font is distributed" and gain one sentence: converting a font you do not
+  own the rights to is your own responsibility; if you publish the result, check the font's licence.
+
+**Superseded by this ruling** (the text below stays for history; implement the ruling instead):
+D7 (Rulings paragraph); the file-map settings row's "default text licence (6)"; Task 2's file-root licence pairing text
+and `test_file_roots_in_one_folder_pair_up` (kept: trivial and green); Task 5's licence fallback to the "fresh default"
+(now `None` for a local font without a picked licence) and Task 6's `local=True` default-licence case in
+`test_kept_settings_by_root_path_for_local`; Task 6's "Produces (`settings.defaults(fonts, local=False, today=None)`)"
+block and `test_local_default_text_licence` (replaced by `test_local_no_default_licence`: no licence is selected for
+a font without one, and such a font runs); Task 7's `own_earlier` exemptions for `_licence_present_ok` /
+`_clash_errors` / `_text_entry` apply to faces and notes only (a missing licence is never an error in a local job);
+design issues 6 and 15; review dispositions "SOL b" and "Opus m2"'s `first_line` clause (the `first_line` metadata
+stays only because it is trivial).
+
 ## Review Focus
 
 1. **Privacy leaks: an input's bytes reach `job.json`, the API, a note or the data directory by an indirect road.**
