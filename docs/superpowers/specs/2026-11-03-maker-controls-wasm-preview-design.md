@@ -919,6 +919,7 @@ says, but "matches the rebuild" holds only for an ascent-to-try at or above the 
 and cuts the two symbols, which no pen offset reproduces, so the compositor keeps the cells whole (the box grows upward)
 and the preview is approximate there. `symbolsFixed` is passed only when the font's effective `symbols` option is on.
 `mask_ok` is stamped on every read of a job's fonts that decides something (GET, settings PUT, run), never stored. The
-byte GETs, the zip, the job JSON and the job list are host-checked. A source face of a DOS raw font with an unconfirmed
-layout is a 404 (6.2). The page keeps a finished step's row (its controls and glyph grid) across polls and fetches a
+byte GETs, the zip, the job JSON and the source PNG are host-checked (the job list and `/api/repo` are not: they hand out no font bytes). A source face of a DOS raw font with an unconfirmed
+layout is a 404 (6.2). "Apply" of an ascent or dy to try re-opens a finished job (detect keeps the settings), writes the value
+and saves it; a running job refuses it. The page keeps a finished step's row (its controls and glyph grid) across polls and fetches a
 face afresh (`cache: "no-cache"`, so the ETag validates it) when a cell is made.

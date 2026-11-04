@@ -1175,9 +1175,9 @@ function canvasOptions() {
   return {target: previewState.target, threshold: previewState.threshold};
 }
 
-function paintGuides(wrap, r, zoom) {
+function paintGuides(wrap, r, zoom, force) {
   for (const old of wrap.querySelectorAll(".guide")) old.remove();
-  if (!previewState.guides || !r) return;
+  if (!(previewState.guides || force) || !r) return;
   const box = svfview.cellBox(0, r.baseline, r.ascentOverride);
   for (const [name, row] of [["top", box.top], ["baseline", box.baseline], ["bottom", box.bottom]]) {
     const line = el("div", {class: "guide guide-" + name});
@@ -1231,6 +1231,7 @@ function previewCell(step) {
   const canvas = el("canvas", {class: "result", "data-step": step.id});
   wrap.append(canvas);
   const fail = el("div", {class: "sub", hidden: true});
+  const hint = el("div", {class: "sub"});
   const tryState = {ascent: null, dy: {}};
   const mate = companionStep(step);
   let bytes = null;
@@ -1246,9 +1247,9 @@ function previewCell(step) {
     fail.hidden = true;
     try {
       const [face, companion] = await chainBytes();
-      await withChain(companion ? [face, companion] : [face], async () => {
+      await withChain(companion ? [face, companion] : [face], async (infos) => {
         if (!companion && !svfview.has(0, 0x41)) {                  // the face has no Latin: the repo's companion
-          svfview.openChain([face, await repoLatin()]);
+          infos = svfview.openChain([face, await repoLatin()]);
         }
         svfview.setScale(previewState.scale, 1);
         const useGlyphs = tryState.ascent !== null || Object.keys(tryState.dy).length > 0;
@@ -1265,7 +1266,14 @@ function previewCell(step) {
         }
         canvas.style.imageRendering = "pixelated";
         canvas.style.width = canvas.width * 2 + "px";
-        paintGuides(wrap, r, 2);
+        paintGuides(wrap, r, 2, tryState.ascent !== null);      // a header ascent moves the baseline only: show it
+        hint.textContent = "";
+        if (tryState.ascent !== null) {
+          hint.textContent = "baseline row " + infos[0].ascent + " -> " + tryState.ascent + " (the line looks the same: " +
+            "the cell and the baseline move together; watch the guides)" +
+            (opts.symbolsFixed && tryState.ascent < infos[0].ascent
+              ? "; symbols are approximate below the header ascent (a rebuild re-frames them)" : "");
+        }
       });
     } catch (err) {
       canvas.dataset.error = String(err && err.message ? err.message : err);
@@ -1309,9 +1317,12 @@ function previewCell(step) {
     };
     const apply = el("button", {type: "button", text: "apply ascent"});
     apply.onclick = () => {
-      const per = perFont(step.font);
-      if (tryState.ascent === null || !per) return;
-      applyOption(per, "jamoset", "jamo_ascent", tryState.ascent);
+      if (tryState.ascent === null) return;
+      const value = tryState.ascent;
+      applySetting(step.font, "header ascent " + value, (per) => {
+        per.options = per.options || {};
+        per.options.jamoset = Object.assign({}, per.options.jamoset || {}, {jamo_ascent: value});
+      });
     };
     controls.append(el("label", {}, "ascent ", ascent), apply);
   }
@@ -1323,30 +1334,58 @@ function previewCell(step) {
     };
     const apply = el("button", {type: "button", text: "apply dy"});
     apply.onclick = () => {
-      const per = perFont(step.font);
-      if (!per || !Object.keys(tryState.dy).length) return;
-      const merged = Object.assign({}, per.dy || {});
-      for (const [cp, v] of Object.entries(tryState.dy)) merged["0x" + Number(cp).toString(16).toUpperCase()] = v;
-      per.dy = merged;
-      markDirty();
-      notice("dy of " + step.font + " set; save the settings to keep it");
+      if (!Object.keys(tryState.dy).length) return;
+      const tried = Object.assign({}, tryState.dy);
+      applySetting(step.font, "dy", (per) => {
+        const merged = Object.assign({}, per.dy || {});
+        for (const [cp, v] of Object.entries(tried)) merged["0x" + Number(cp).toString(16).toUpperCase()] = v;
+        per.dy = merged;
+      });
     };
     controls.append(el("label", {}, "dy ", dy), apply);
   }
 
-  box.append(controls, wrap, fail, grid.box);
+  box.append(controls, wrap, hint, fail, grid.box);
   draw();
   return {node: box, redraw: draw};
 }
 
-// Write an advanced option into a font's own settings and rebuild the font table (the panel reads per.options).
-function applyOption(per, group, key, value) {
-  readPerOptions();
-  per.options = per.options || {};
-  per.options[group] = Object.assign({}, per.options[group] || {}, {[key]: value});
+// "Apply" of an ascent or dy to try: settings are accepted only while the job is being edited, so a finished job is
+// re-opened first (detect keeps the settings), the value is written into the reloaded settings and saved. A running
+// job cannot be re-opened. The job is then ready to run again (its old steps are gone).
+async function applySetting(fontId, what, mutate) {
+  clearNotice();
+  if (!jobId || !job) return;
+  if (job.state === "queued" || job.state === "running") {
+    notice("the job is running: apply " + what + " when it has finished");
+    return;
+  }
+  if (job.state !== "detected") {
+    if (dirty && !window.confirm("Unsaved settings are replaced by the saved ones; apply anyway?")) return;
+    try {
+      await api("POST", "/api/jobs/" + encodeURIComponent(jobId) + "/detect");
+    } catch (err) {
+      return;
+    }
+    await reload();
+  }
+  const per = perFont(fontId);
+  if (!per) {
+    notice("this entry offers no route: " + what + " not applied");
+    return;
+  }
+  mutate(per);
   markDirty();
-  buildFonts();
-  notice(key + " " + value + " set; save the settings to keep it");
+  buildFonts();                                       // the panel shows the value; save() reads the panels back
+  if (!readBatch() || !readPerOptions()) return;
+  try {
+    await api("PUT", "/api/jobs/" + encodeURIComponent(jobId) + "/settings", settings);
+  } catch (err) {
+    return;
+  }
+  await reload();
+  await renderJobs();
+  notice(what + " saved; the job is open for editing again: run it to build with it");
 }
 
 function redrawPreviews() {

@@ -10,8 +10,23 @@ const [chrome, url, scriptFile] = process.argv.slice(2);
 const profile = mkdtempSync(join(tmpdir(), 'pagedrive-'));
 const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-sandbox', '--remote-debugging-port=0',
   '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' });
-const cleanup = () => { try { proc.kill('SIGKILL'); } catch {} try { rmSync(profile, { recursive: true, force: true }); } catch {} };
-process.on('exit', cleanup);
+const exited = new Promise((res) => proc.once('exit', res));
+let ws = null;
+// Ask Chrome to close over CDP, wait for it (bounded, then SIGKILL and wait again) before the profile goes: its
+// children are still writing the cache while it shuts down.
+async function shutdown() {
+  const wait = (ms) => Promise.race([exited, new Promise((r) => setTimeout(r, ms))]);
+  if (proc.exitCode === null && proc.signalCode === null) {
+    try { ws && ws.readyState === 1 && ws.send(JSON.stringify({ id: 999999, method: 'Browser.close' })); } catch {}
+    await wait(10000);
+    if (proc.exitCode === null && proc.signalCode === null) { try { proc.kill('SIGKILL'); } catch {} await wait(10000); }
+  }
+  for (let i = 0; i < 40 && existsSync(profile); i++) {      // Chrome's children may write a moment longer
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); } catch {}
+    if (existsSync(profile)) await new Promise((r) => setTimeout(r, 250));
+  }
+}
+process.on('SIGTERM', () => { try { proc.kill('SIGKILL'); } catch {} try { rmSync(profile, { recursive: true, force: true }); } catch {} process.exit(1); });
 
 async function until(fn, ms, what) {
   const end = Date.now() + ms;
@@ -27,7 +42,7 @@ try {
   const portFile = join(profile, 'DevToolsActivePort');
   await until(() => existsSync(portFile), 30000, 'chrome start');
   const [port, path] = readFileSync(portFile, 'utf8').trim().split('\n');
-  const ws = new WebSocket('ws://127.0.0.1:' + port + path);
+  ws = new WebSocket('ws://127.0.0.1:' + port + path);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('websocket')); });
   let id = 0;
   const pending = new Map();
@@ -61,5 +76,5 @@ try {
   process.stderr.write(String(err && err.stack || err) + '\n');
   process.exitCode = 1;
 }
-cleanup();
+await shutdown();
 process.exit(process.exitCode || 0);

@@ -165,33 +165,97 @@ return {changed: !!changed, notice: document.getElementById('notice').textConten
 """)
         self.assertTrue(out["changed"], out)
 
-    def test_polling_keeps_the_controls_of_finished_steps(self):
+    def slow_job(self):
+        """A job whose second step blocks until a flag file exists: it stays `running` as long as the test wants."""
         job = self.api("POST", "/api/jobs")["id"]
-        self.upload(job, "neodgm/neodgm.ttf", os.path.join(REPO_DIR, "ttf", "neodgm", "neodgm.ttf"))
-        self.upload(job, "neodgm/LICENSE.txt", os.path.join(REPO_DIR, "ttf", "neodgm", "LICENSE.txt"))
+        self.upload(job, "svf/NEODG16.SVF", os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"))
         detected = self.api("POST", "/api/jobs/%s/detect" % job)
-        font = next(f["id"] for f in detected["fonts"] if f["path"].endswith("neodgm.ttf"))
+        font = detected["fonts"][0]["id"]
         s = detected["settings"]
-        for fid, per in s["fonts"].items():
-            per["selected"] = fid == font
-            per["dest"] = "new/dom"
-        s["fonts"][font].update(kinds=["precomposed"], sizes=list(range(12, 28)), bpp=[1, 2])
-        s["batch"]["range"] = "11172"
+        s["fonts"][font].update(selected=True, dest="new/dom", licence={"kind": "text", "text": "OFL"},
+                                licence_name="OFL.TXT", note_name="NOTE.TXT")
         self.api("PUT", "/api/jobs/%s/settings" % job, s)
-        self.api("POST", "/api/jobs/%s/run" % job)
-        out = self.drive(job, """
+        names = self.api("GET", "/api/jobs/" + job)["effective_names"][font]
+        name = names["precomposed/16/1"]
+        flag = os.path.join(self.tmp, "release-" + job)
+        neodg = os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF")
+        job_dir = self.srv.store.path(job)
+        steps = []
+        for i, wait in enumerate((False, True, True), 1):
+            sid = "s%02d" % i
+            os.makedirs(os.path.join(job_dir, "work", sid), exist_ok=True)
+            out = os.path.join(job_dir, "work", sid, name)
+            text = "import sys, os, time, shutil\n" + (
+                "while not os.path.exists(%r):\n    time.sleep(0.05)\n" % flag if wait else "") + \
+                "shutil.copy(%r, sys.argv[1])\n" % neodg
+            steps.append({"id": sid, "font": font, "kind": "precomposed", "size": 16, "bpp": 1, "layout": None,
+                          "name": name, "argv": [[sys.executable, "-c", text, out]], "output": "work/%s/%s" % (sid, name),
+                          "state": "pending", "exit": None, "seconds": None, "error": None, "stderr_tail": "",
+                          "facts": None, "quality": None, "identical_to": None})
+        self.srv.store.update(job, lambda j: j.update(steps=steps))
+        self.srv.worker.enqueue(job)
+        return job, flag
+
+    def test_polling_keeps_the_controls_of_finished_steps(self):
+        job, flag = self.slow_job()
+        try:
+            out = self.drive(job, """
 const row = await waitFor(() => { const c = document.querySelector('canvas[data-step="s01"]'); return c && c.dataset.drawn === '1' && c.closest('tr'); });
 const input = row.querySelector('input[aria-label="sample text"]');
 input.__mark = 1; input.value = 'keep me';
 const seen = new Set();
 const start = Date.now();
-while (Date.now() - start < 7000) { seen.add(document.getElementById('state').textContent); await sleep(250); }
+while (Date.now() - start < 6000) { seen.add(document.getElementById('state').textContent); await sleep(250); }   // three polls
 const again = document.querySelector('canvas[data-step="s01"]').closest('tr').querySelector('input[aria-label="sample text"]');
 return {same: again === input, mark: again.__mark, value: again.value, states: [...seen]};
 """)
+        finally:
+            open(flag, "w").close()                     # let the worker finish
         self.assertTrue(out["same"], out)
         self.assertEqual((out["mark"], out["value"]), (1, "keep me"))
-        self.assertTrue(any("running" in s for s in out["states"]), "the job ended before the polls were checked: %s" % out)
+        self.assertTrue(all("running" in s for s in out["states"]), out)
+
+    def test_apply_dy_on_a_finished_job_is_saved(self):
+        job = self.api("POST", "/api/jobs")["id"]
+        self.upload(job, "svf/NEODG16.SVF", os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"))
+        detected = self.api("POST", "/api/jobs/%s/detect" % job)
+        font = detected["fonts"][0]["id"]
+        s = detected["settings"]
+        s["fonts"][font].update(selected=True, dest="new/dom", licence={"kind": "text", "text": "OFL"},
+                                licence_name="OFL.TXT", note_name="NOTE.TXT")
+        self.api("PUT", "/api/jobs/%s/settings" % job, s)
+        self.api("POST", "/api/jobs/%s/run" % job)
+        self.assertEqual(self.wait_done(job)["state"], "done")
+        out = self.drive(job, """
+await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
+const dy = document.querySelector('input[aria-label="dy to try"]');
+dy.value = 'A=1 5=-1'; dy.dispatchEvent(new Event('change'));
+await sleep(500);
+[...document.querySelectorAll('button')].find((b) => b.textContent === 'apply dy').click();
+await waitFor(() => document.getElementById('notice').textContent.includes('saved'));
+return {notice: document.getElementById('notice').textContent, state: document.getElementById('state').textContent};
+""")
+        state = self.api("GET", "/api/jobs/" + job)
+        self.assertEqual(state["state"], "detected", out)
+        self.assertEqual(state["settings"]["fonts"][font]["dy"], {"0x41": 1, "0x35": -1})
+
+    def test_apply_ascent_on_a_finished_job_is_saved_and_the_guides_show(self):
+        job = self.dos_job(run=True)
+        out = self.drive(job, """
+await waitFor(() => { const c = document.querySelector('canvas[data-step]'); return c && c.dataset.drawn === '1'; });
+const field = document.querySelector('input[aria-label="ascent to try"]');
+field.value = '11'; field.dispatchEvent(new Event('change'));
+const guides = await waitFor(() => document.querySelectorAll('.canvaswrap .guide').length);
+const hint = document.querySelector('.svf-preview .sub').textContent;
+[...document.querySelectorAll('button')].find((b) => b.textContent === 'apply ascent').click();
+await waitFor(() => document.getElementById('notice').textContent.includes('saved'));
+return {guides, hint};
+""")
+        self.assertEqual(out["guides"], 3)
+        self.assertIn("baseline row", out["hint"])
+        state = self.api("GET", "/api/jobs/" + job)
+        self.assertEqual(state["state"], "detected")
+        self.assertEqual(state["settings"]["fonts"][self.font]["options"]["jamoset"]["jamo_ascent"], 11)
 
 
 if __name__ == "__main__":
