@@ -30,6 +30,7 @@ import traceback
 import urllib.parse
 
 import archive
+import caps
 import detect
 import jobs
 import naming
@@ -43,7 +44,8 @@ JOB_CAP = 268435456
 FILE_CAP = 2000
 
 CHUNK = 1 << 20                          # the upload body is read in 1 MB chunks
-STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}
+STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png",
+                ".wasm": "application/wasm"}
 UPLOAD_TMP = ".upload-"                   # `_receive`'s temp files: never counted as uploads (they are in flight)
 IDLE_TIMEOUT = 60                        # seconds a socket may hold a read open (W8: 60 s idle per read)
 JSON_DEPTH = 200                         # the deepest a settings body may nest before it is refused (W5)
@@ -179,9 +181,27 @@ def _remove_preview(store, job_id, font_id):
                 pass
 
 
+_PREVIEW_KEYS = ("dos_layout", "sizes", "kinds", "bpp", "range", "preset", "latin_companion", "instance",
+                 "experimental", "jamo_route")
+_PREVIEW_OPTIONS = {"mkfont": ("cell", "width", "latin", "mono_hint", "space_advance"),
+                    "jamoset": ("jset_version", "jamo_ascent", "embolden", "symbols")}
+
+
+def preview_inputs(eff):
+    """The effective values a derived preview file (source PNG or face, probe) depends on (spec 6.5). Not keys:
+    mkfont ascent / clip_cell / fit_cell (the page applies them to the probe data), dy (applied live), aa_refine,
+    clean, binarize and the bdfface options."""
+    out = {key: eff.get(key) for key in _PREVIEW_KEYS}
+    options = eff.get("options") or {}
+    for tool, keys in _PREVIEW_OPTIONS.items():
+        sub = options.get(tool) or {}
+        for key in keys:
+            out["options.%s.%s" % (tool, key)] = sub.get(key)
+    return out
+
+
 def _changed_preview_fonts(fonts, before, after):
     """The font ids whose effective preview inputs differ between the two settings (W2)."""
-    keys = ("dos_layout", "sizes", "kinds", "latin_companion", "instance")
     changed = []
     for font in fonts:
         font_id = font.get("id")
@@ -190,7 +210,7 @@ def _changed_preview_fonts(fonts, before, after):
             new = settings.effective(fonts, after, font_id)
         except KeyError:
             continue
-        if any(old.get(key) != new.get(key) for key in keys):
+        if preview_inputs(old) != preview_inputs(new):
             changed.append(font_id)
     return changed
 
@@ -289,7 +309,10 @@ def make_server(host, port, repo_dir, data_root):
     repo_dir = os.path.abspath(repo_dir)
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
-    worker = jobs.Worker(store, repo_dir, os.path.join(repo_dir, "svf"), os.path.join(repo_dir, "tools"))
+    static_dir = os.path.join(MAKER_DIR, "static")
+    capabilities = caps.compute(static_dir, os.environ)
+    worker = jobs.Worker(store, repo_dir, os.path.join(repo_dir, "svf"), os.path.join(repo_dir, "tools"),
+                         capabilities)
     worker.recover()
     worker.start()
     server_class = _Server6 if ":" in str(host) else _Server
@@ -299,7 +322,8 @@ def make_server(host, port, repo_dir, data_root):
     server.repo_dir = repo_dir
     server.svf_dir = os.path.join(repo_dir, "svf")
     server.tools_dir = os.path.join(repo_dir, "tools")
-    server.static_dir = os.path.join(MAKER_DIR, "static")
+    server.static_dir = static_dir
+    server.caps = capabilities
     server.index = naming.RepoIndex(server.svf_dir)
     server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
     server.inflight = {}                                  # job id -> the `PUT files` requests not answered yet (Y3)
@@ -314,6 +338,10 @@ _ROUTES = (
     ("GET", re.compile(r"^/static/(?P<file>.+)$"), "_static_file"),
     ("GET", re.compile(r"^/api/jobs$"), "_job_list"),
     ("GET", re.compile(r"^/api/jobs/%s/zip$" % _JOB), "_job_zip"),
+    ("GET", re.compile(r"^/api/jobs/%s/face/(?P<step>s\d+)\.svf$" % _JOB), "_job_face"),
+    ("GET", re.compile(r"^/api/jobs/%s/source/(?P<font>f\d+)\.svf$" % _JOB), "_job_source_face"),
+    ("GET", re.compile(r"^/api/repo/face/(?P<group>[A-Za-z0-9_-]+)/(?P<file>[A-Z0-9_]+\.SVF)$"), "_repo_face"),
+    ("GET", re.compile(r"^/api/caps$"), "_caps"),
     ("GET", re.compile(r"^/api/jobs/%s/preview/(?P<font>[^/]+)/(?P<kind>[^/]+)\.png$" % _JOB), "_job_preview"),
     ("GET", re.compile(r"^/api/jobs/%s$" % _JOB), "_job_get"),
     ("GET", re.compile(r"^/api/repo$"), "_repo"),
@@ -325,6 +353,9 @@ _ROUTES = (
     ("PUT", re.compile(r"^/api/jobs/%s/settings$" % _JOB), "_job_settings"),
     ("DELETE", re.compile(r"^/api/jobs/%s$" % _JOB), "_job_delete"),
 )
+
+# The GET handlers that hand out font bytes: they run the Host check too (a DNS-rebinding page must not read them).
+_HOST_CHECKED = {"_job_face", "_job_source_face", "_repo_face", "_job_report", "_job_probe", "_job_identity"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -366,6 +397,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    def _serve_bytes(self, path, content_type):
+        """@p path with `Cache-Control: no-cache` and an `ETag` of size and mtime; `If-None-Match` equal is a 304."""
+        try:
+            st = os.stat(path)
+            with open(path, "rb") as f:
+                body = f.read()
+        except OSError:
+            raise _HttpError(404, "not found")
+        etag = '"%d-%d"' % (st.st_size, st.st_mtime_ns)
+        headers = {"Cache-Control": "no-cache", "ETag": etag}
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            for key, value in headers.items():
+                self.send_header(key, value)
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            return
+        self._send(body, content_type, 200, headers)
+
     def _serve_file(self, path, content_type, extra=None):
         try:
             with open(path, "rb") as f:
@@ -378,11 +428,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _handle(self, method):
         try:
-            if method in _STATE_CHANGERS:
-                self._check_same_origin()
             split = urllib.parse.urlsplit(self.path)
             query = urllib.parse.parse_qs(split.query)
             handler, params = self._route(method, split.path)
+            if method in _STATE_CHANGERS or (handler is not None and handler.__name__ in _HOST_CHECKED):
+                self._check_same_origin()
             if handler is None:
                 raise _HttpError(404, "not found")
             handler(query, **params)
@@ -438,9 +488,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _load(self, job_id):
         try:
-            return self.server.store.load(job_id)
+            job = self.server.store.load(job_id)
         except KeyError:
             raise _HttpError(404, "no job %s" % job_id)
+        mask_ok = bool(self.server.caps.get("mask_libs"))        # live every load, never saved
+        for font in job.get("fonts") or []:
+            if isinstance(font, dict) and font.get("source_kind") in ("outline", "outline-composite"):
+                font["mask_ok"] = mask_ok
+        return job
 
     def _update(self, job_id, fn):
         """`store.update` with a job deleted under us reported as a 409 conflict, never a 500 (W1)."""
@@ -492,7 +547,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = os.path.join(self.server.static_dir, rel)
         if not _inside(self.server.static_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "not found")
-        self._serve_file(path, content_type)
+        self._serve_bytes(path, content_type)
 
     # ---- jobs ------------------------------------------------------------------------------------------------
 
@@ -909,6 +964,51 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise _HttpError(404, "no preview")
         self._serve_file(path, "image/png")
 
+    # ---- bytes for the page's WASM renderer ------------------------------------------------------------------
+
+    def _job_face(self, query, job, step):
+        """The output of a `done` face step of this job (never the file a re-run has not rewritten yet)."""
+        current = self._load(job)
+        job_dir = self.server.store.path(job)
+        found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
+        if (found is None or found.get("state") != "done" or found.get("kind") not in ("precomposed", "jamo")
+                or not found.get("output")):
+            raise _HttpError(404, "no face")
+        path = os.path.join(job_dir, found["output"])
+        if not _inside(job_dir, path) or not os.path.isfile(path):
+            raise _HttpError(404, "no face")
+        self._serve_bytes(path, "application/octet-stream")
+
+    def _job_source_face(self, query, job, font):
+        """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""
+        current = self._load(job)
+        job_dir = self.server.store.path(job)
+        entry = next((item for item in (current.get("fonts") or []) if item.get("id") == font), None)
+        if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo"):
+            raise _HttpError(404, "no source face")
+        path = os.path.join(job_dir, "work", "preview", "%s.svf" % font)
+        if not os.path.isfile(path):
+            with _preview_lock(job, font):
+                if not os.path.isfile(path):
+                    fresh = self._load(job)
+                    fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}
+                    if font not in fonts:
+                        raise _HttpError(404, "no source face")
+                    self._make_source_preview(fresh, job_dir, fonts[font])
+        if not os.path.isfile(path) or not _inside(job_dir, path):
+            raise _HttpError(404, "no source face")
+        self._serve_bytes(path, "application/octet-stream")
+
+    def _repo_face(self, query, group, file):
+        """A face of `svf/` (the page's Latin companion, `dos/NEODG16.SVF`)."""
+        path = os.path.join(self.server.svf_dir, group, file)
+        if not _inside(self.server.svf_dir, path) or not os.path.isfile(path):
+            raise _HttpError(404, "no face")
+        self._serve_bytes(path, "application/octet-stream")
+
+    def _caps(self, query):
+        self.send_json({key: bool(value) for key, value in self.server.caps.items()})
+
     def _make_source_preview(self, job, job_dir, font):
         """Bake or draw @p font's source preview into `work/preview/<font id>.png` (its own file: no shared name)."""
         job_id = job.get("id")
@@ -927,23 +1027,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
             eng_abs = self._companion_abs(eff, fonts, upload_dir, out_dir)
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, layout, eng_abs, out_svf, self.server.tools_dir,
-                                        self._jset_flags(eff)):
+                                        self._bake_flags(eff, source_kind)):
                 self._render_preview(eng_abs, out_svf, out_png)
             return
         if source_kind in ("svf-precomposed", "svf-jamo"):
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, None, None, out_svf, self.server.tools_dir,
-                                        self._jset_flags(eff)):
+                                        self._bake_flags(eff, source_kind)):
                 self._render_preview(None, out_svf, out_png)
             return
         preview.source_png(font, abs_src, self._first_size(font, eff), out_png)
 
     @staticmethod
-    def _jset_flags(eff):
-        """The `--jset-version V` flag the advanced panel sets (presets.panel_argv emits the same), or []: a preview
-        honours it."""
-        value = ((eff.get("options") or {}).get("jamoset") or {}).get("jset_version")
-        return [] if value is None else ["--jset-version", str(value)]
+    def _bake_flags(eff, source_kind):
+        """The panel's flags a source bake honours: `--jset-version V` for every bake and, for a DOS raw font,
+        `--ascent N` (jamo_ascent), `--embolden` and `--symbols` (the order `presets.panel_argv` emits)."""
+        jamoset = (eff.get("options") or {}).get("jamoset") or {}
+        flags = []
+        if jamoset.get("jset_version") is not None:
+            flags += ["--jset-version", str(jamoset["jset_version"])]
+        if source_kind == "dos-raw":
+            if jamoset.get("jamo_ascent") is not None:
+                flags += ["--ascent", str(jamoset["jamo_ascent"])]
+            if jamoset.get("embolden"):
+                flags.append("--embolden")
+            if jamoset.get("symbols"):
+                flags.append("--symbols")
+        return flags
 
     @staticmethod
     def _plain_source(font, abs_path, out_dir):

@@ -19,6 +19,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
 
 import contextlib
 import gzip
+import importlib.util
 import hashlib
 import http.client
 import inspect
@@ -33,10 +34,13 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.parse
 import zipfile
 
+import caps as capsmod
 import fixtures
+import jamoset
 import jobs
 import presets
 import routes
@@ -170,7 +174,9 @@ class Reply:
         return self._headers.get(name, default)
 
 
-class ApiTest(unittest.TestCase):
+class ApiBase(unittest.TestCase):
+    """The server fixture and helpers; a subclass adds the tests (this class has none, so it runs nothing)."""
+
     def setUp(self):
         self.data = tempfile.mkdtemp(prefix="svf-server-data-")
         self.srv = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data)
@@ -274,6 +280,8 @@ class ApiTest(unittest.TestCase):
             time.sleep(0.01)
         self.fail("no upload reservation for %s" % job_id)
 
+
+class ApiTest(ApiBase):
     # ---- tests ------------------------------------------------------------------------------------------------
 
     def test_lifecycle_to_detected(self):
@@ -844,10 +852,10 @@ class ApiTest(unittest.TestCase):
         self.assertIn('data-option="jset_version" data-group="jamoset"', html)
         js = self.raw("GET", "/static/maker.js").read().decode()
         self.assertIn('{key: "jset_version", group: "jamoset", label: "JSET version"}', js)
-        self.assertEqual(server.Handler._jset_flags({"options": {"jamoset": {"jset_version": 2}}}),
+        self.assertEqual(server.Handler._bake_flags({"options": {"jamoset": {"jset_version": 2}}}, "svf-jamo"),
                          ["--jset-version", "2"])
-        self.assertEqual(server.Handler._jset_flags({"options": {"jamoset": {"jset_version": None}}}), [])
-        self.assertEqual(server.Handler._jset_flags({}), [])
+        self.assertEqual(server.Handler._bake_flags({"options": {"jamoset": {"jset_version": None}}}, "svf-jamo"), [])
+        self.assertEqual(server.Handler._bake_flags({}, "dos-raw"), [])
 
     def test_page_shows_variable_width_and_spans_the_width(self):
         html = self.raw("GET", "/").read().decode()
@@ -1012,6 +1020,169 @@ class InstancePageTest(unittest.TestCase):
         after["fonts"]["f01"]["instance"] = {"wght": 700}
         self.assertEqual(server._changed_preview_fonts([VF_ENTRY], before, after), ["f01"])
         self.assertEqual(server._changed_preview_fonts([VF_ENTRY], before, before), [])
+
+
+REPO = os.path.dirname(MAKER_DIR)
+
+
+class FaceBytesTest(ApiBase):
+    """Task 6: the byte-serving GETs, /api/caps, the host check on them, the preview keys and mask_ok."""
+
+    def face_url(self, jid, step):
+        return "/api/jobs/%s/face/%s.svf" % (jid, step["id"])
+
+    def test_face_bytes_and_etag(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        step = job["steps"][0]
+        r = self.raw("GET", self.face_url(jid, step))
+        self.assertEqual((r.status, r.getheader("Content-Type"), r.getheader("Cache-Control")),
+                         (200, "application/octet-stream", "no-cache"))
+        self.assertEqual(r.read(), read(self.srv.store.path(jid, step["output"])))
+        again = self.raw("GET", self.face_url(jid, step), headers={"If-None-Match": r.getheader("ETag")})
+        self.assertEqual((again.status, again.read()), (304, b""))
+
+    def test_face_404s(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        step = job["steps"][0]
+        other = self.minimal_job()
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/face/%s.svf" % (other, step["id"])).status, 404)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/face/s99.svf" % jid).status, 404)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/face/..%%2F%s.svf" % (jid, step["id"])).status, 404)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/face/../%s.svf" % (jid, step["id"])).status, 404)
+
+        def force_prepare(j):
+            j["steps"][0]["kind"] = "prepare"
+        self.srv.store.update(jid, force_prepare)
+        self.assertEqual(self.raw("GET", self.face_url(jid, step)).status, 404)
+
+    def test_face_404_while_the_step_is_not_done(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        step = job["steps"][0]
+        self.assertEqual(self.raw("GET", self.face_url(jid, step)).status, 200)
+
+        def rerunning(j):
+            j["steps"][0]["state"] = "running"
+        self.srv.store.update(jid, rerunning)
+        self.assertTrue(os.path.isfile(self.srv.store.path(jid, step["output"])))      # the old file is still there
+        self.assertEqual(self.raw("GET", self.face_url(jid, step)).status, 404)
+
+    def test_new_gets_check_host(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        step = job["steps"][0]
+        fid = step["font"]
+        evil = {"Host": "evil.example"}
+        self.assertEqual(self.raw("GET", self.face_url(jid, step), headers=evil).status, 403)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, fid), headers=evil).status, 403)
+        self.assertEqual(self.raw("GET", "/api/repo/face/dos/NEODG16.SVF", headers=evil).status, 403)
+        self.assertEqual(self.raw("GET", "/api/caps", headers=evil).status, 200)
+        self.assertEqual(self.raw("GET", "/static/maker.js", headers=evil).status, 200)
+
+    def test_repo_face(self):
+        self.assertEqual(self.raw("GET", "/api/repo/face/dos/NEODG16.SVF").read(),
+                         read(os.path.join(REPO, "svf/dos/NEODG16.SVF")))
+        for bad in ("/api/repo/face/dos/neodg16.svf", "/api/repo/face/../NEODG16.SVF", "/api/repo/face/dos/NOPE.SVF",
+                    "/api/repo/face/dos/..%2F..%2FREADME.SVF"):
+            self.assertEqual(self.raw("GET", bad).status, 404, bad)
+
+    def test_caps_are_booleans_and_follow_the_environment(self):
+        self.assertEqual({k: type(v) for k, v in self.get("/api/caps").items()},
+                         {"wasm": bool, "mask_libs": bool, "recog": bool})
+        with tempfile.TemporaryDirectory() as d:
+            open(os.path.join(d, "recog.py"), "w").close()
+            self.assertEqual(capsmod.recog_dir({"SVF_RECOG_DIR": d}),
+                             d if importlib.util.find_spec("numpy") and importlib.util.find_spec("torch") else None)
+            self.assertIsNone(capsmod.recog_dir({"SVF_RECOG_DIR": os.path.join(d, "nope")}))
+        self.assertIsNone(capsmod.recog_dir({}))
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(capsmod.wasm_built(d))
+            os.makedirs(os.path.join(d, "wasm"))
+            for name in ("svf.js", "svf.wasm"):
+                open(os.path.join(d, "wasm", name), "w").close()
+            self.assertTrue(capsmod.wasm_built(d))
+        self.assertEqual(capsmod.mask_libs({}), capsmod.mask_libs({"JAMOSET_PYLIB": ""}))
+
+    def test_source_face_served_for_a_dos_raw_font(self):
+        jid = self.detected_job()
+        job = self.get("/api/jobs/%s" % jid)
+        dos = [f["id"] for f in job["fonts"] if f["path"].endswith("HAN.FNT")][0]
+        ttf = [f["id"] for f in job["fonts"] if f["path"].endswith("NanumGothic-Bold.ttf")][0]
+        s = job["settings"]
+        s["fonts"][dos]["dos_layout"] = "844"
+        self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(s).encode()).status, 200)
+        r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, dos))
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "application/octet-stream"))
+        face = jamoset.parse_svfn(r.read())
+        self.assertIsNotNone(face.jset)                       # a jamo face
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, ttf)).status, 404)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/source/f99.svf" % jid).status, 404)
+
+    def test_mask_ok_stamped_on_every_load(self):
+        jid = self.minimal_job()
+        with mock.patch.dict(self.srv.caps, {"mask_libs": True}):
+            fonts = self.get("/api/jobs/%s" % jid)["fonts"]
+            self.assertTrue(all(f["mask_ok"] for f in fonts if f["source_kind"].startswith("outline")))
+        with mock.patch.dict(self.srv.caps, {"mask_libs": False}):
+            self.assertFalse(any(f.get("mask_ok") for f in self.get("/api/jobs/%s" % jid)["fonts"]))
+
+    def test_mask_ok_is_not_saved(self):
+        jid = self.minimal_job()
+        with mock.patch.dict(self.srv.caps, {"mask_libs": True}):
+            self.get("/api/jobs/%s" % jid)
+        stored = self.srv.store.load(jid)
+        self.assertFalse(any("mask_ok" in f for f in stored["fonts"]))
+
+    def test_changed_preview_fonts_new_keys(self):
+        font = {"id": "f01", "path": "a.ttf", "face_index": 0, "source_kind": "outline", "sizes": [16],
+                "sizes_fixed": False, "licences": [], "companions": []}
+
+        def pair(mutate):
+            before = settings.defaults([font])
+            after = settings.defaults([font])
+            mutate(after["fonts"]["f01"], after["batch"])
+            return server._changed_preview_fonts([font], before, after)
+
+        keyed = {"bpp": lambda p, b: p.update(bpp=[2]), "range": lambda p, b: p.update(range="11172"),
+                 "preset": lambda p, b: p.update(preset="dos-l-1bpp"),
+                 "experimental": lambda p, b: p.update(experimental=True),
+                 "jamo_route": lambda p, b: p.update(jamo_route="experimental fit"),
+                 "width": lambda p, b: p.update(options={"mkfont": {"width": 20}}),
+                 "jamo_ascent": lambda p, b: p.update(options={"jamoset": {"jamo_ascent": 12}}),
+                 "batch bpp": lambda p, b: b.update(bpp=[2])}
+        for name, mutate in keyed.items():
+            self.assertEqual(pair(mutate), ["f01"], name)
+        free = {"ascent": lambda p, b: p.update(options={"mkfont": {"ascent": 12}}),
+                "clip_cell": lambda p, b: p.update(options={"mkfont": {"clip_cell": True}}),
+                "fit_cell": lambda p, b: p.update(options={"mkfont": {"fit_cell": True}}),
+                "dy": lambda p, b: p.update(dy={"0x41": 1}),
+                "aa_refine": lambda p, b: p.update(options={"jamoset": {"aa_refine": 3}}),
+                "latin_ascent": lambda p, b: p.update(options={"bdfface": {"latin_ascent": 12}})}
+        for name, mutate in free.items():
+            self.assertEqual(pair(mutate), [], name)
+
+    def test_bake_flags(self):
+        eff = {"options": {"jamoset": {"jset_version": 2, "jamo_ascent": 13, "embolden": True, "symbols": True}}}
+        self.assertEqual(server.Handler._bake_flags(eff, "dos-raw"),
+                         ["--jset-version", "2", "--ascent", "13", "--embolden", "--symbols"])
+        self.assertEqual(server.Handler._bake_flags(eff, "svf-jamo"), ["--jset-version", "2"])
+        self.assertEqual(server.Handler._bake_flags({"options": {}}, "dos-raw"), [])
+
+    def test_static_wasm_type_and_cache(self):
+        with tempfile.TemporaryDirectory() as d:
+            shutil.copytree(os.path.join(MAKER_DIR, "static"), os.path.join(d, "static"), ignore=shutil.ignore_patterns("wasm"))
+            os.makedirs(os.path.join(d, "static", "wasm"))
+            with open(os.path.join(d, "static", "wasm", "svf.wasm"), "wb") as f:
+                f.write(b"\0asm\1\0\0\0")
+            self.srv.static_dir = os.path.join(d, "static")
+            r = self.raw("GET", "/static/wasm/svf.wasm")
+            self.assertEqual((r.status, r.getheader("Content-Type"), r.getheader("Cache-Control")),
+                             (200, "application/wasm", "no-cache"))
+            self.assertTrue(r.getheader("ETag"))
+            self.assertEqual(self.raw("GET", "/static/wasm/svf.wasm", headers={"If-None-Match": r.getheader("ETag")}).status, 304)
 
 
 if __name__ == "__main__":

@@ -366,8 +366,9 @@ class Store:
 class Worker(threading.Thread):
     """One job at a time off a FIFO queue: `enqueue`, `position`, `cancel`, `recover`, `retain`, `run_job`."""
 
-    def __init__(self, store, repo_dir, svf_dir, tools_dir):
+    def __init__(self, store, repo_dir, svf_dir, tools_dir, caps=None):
         super().__init__(daemon=True, name="svf-maker-worker")
+        self.caps = caps if caps is not None else {}      # the server's capabilities (maker/caps.py)
         self.store = store
         self.repo_dir = repo_dir
         self.svf_dir = svf_dir
