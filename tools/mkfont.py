@@ -671,6 +671,52 @@ def clipped_ink(font, ch, bpp, ascent, cell_h):
 
 
 
+def probe_cell(boxes):
+    """--probe: (A0, cell_h) of the tall cell that cuts nothing: A0 = max(1, -min_top) rows above the baseline, cell_h =
+    A0 + max(0, max_bottom). (1, 1) without boxes."""
+    if not boxes:
+        return 1, 1
+    a0 = max(1, -min(b[1] for b in boxes.values()))
+    return a0, a0 + max(0, max(b[3] for b in boxes.values()))
+
+
+def _hex(cp):
+    return "0x%X" % cp
+
+
+def build_report(*, size, requested_size, cell_w, cell_h, ascent, auto_ascent, mode, latin, bpp, boxes, cut, nudged,
+                 probe, probe_face):
+    """The --report JSON as a dict (docs/superpowers/specs/2026-11-03-maker-controls-wasm-preview-design.md 8.2).
+
+    boxes: code point -> (left, top, right, bottom) as measure_boxes; mode "fit", "clip" or "nudge". cut (mode "clip"):
+    code point -> (full, fringe) clipped ink pixels of the glyphs the cell cuts (missing = (0, 0)); nudged (mode
+    "nudge"): the code points render() moved down. counts come from fit_counts at the final ascent."""
+    top, bottom, wide = fit_counts(boxes, cell_w, cell_h, ascent)
+    rep = {"tool": "mkfont", "probe": probe, "probe_face": probe_face, "size": size, "requested_size": requested_size,
+           "cell": [cell_w, cell_h], "ascent": ascent, "auto_ascent": auto_ascent, "mode": mode, "latin": latin,
+           "bpp": bpp, "boxes": {_hex(cp): list(b) for cp, b in boxes.items()}}
+    if mode == "clip":
+        rep["cut"] = {}
+        for cp in sorted(set(top) | set(bottom)):
+            full, fringe = (cut or {}).get(cp, (0, 0))
+            _, t, _, b = boxes[cp]
+            rep["cut"][_hex(cp)] = {"top": max(0, -t - ascent), "bottom": max(0, b + ascent - cell_h),
+                                    "full": full, "fringe": fringe}
+    rep["wide"] = [_hex(cp) for cp in wide]
+    if mode == "nudge":
+        rep["nudged"] = [_hex(cp) for cp in nudged or ()]
+    rep["counts"] = {"glyphs": len(boxes), "top": len(top), "bottom": len(bottom), "wide": len(wide),
+                     "cut": len(set(top) | set(bottom))}
+    return rep
+
+
+def write_report(path, rep):
+    import json
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(rep, f, ensure_ascii=False)
+        f.write("\n")
+
+
 def pack_glyph(img, cell_w, cell_h, bpp):
     px = img.load()
     out = bytearray()
@@ -748,6 +794,14 @@ def main():
                          "글자가 가장 적은 값) 에 그대로 두고, 셀 위아래로 나가는 잉크는 "
                          "자른다 (글자를 밀어 넣지 않는다). 잘린 글자 수와 픽셀 수 "
                          "(가득 찬 것 / 옅은 가장자리) 를 알린다")
+    ap.add_argument("--report", metavar="FILE.json", default="",
+                    help="글자마다 잉크 상자와 셀에서 잘리는 행을 적은 JSON 을 쓴다 (모든 모드)")
+    ap.add_argument("--probe", action="store_true",
+                    help="셀이 아무것도 자르지 않는 키 큰 셀로 굽고 (셀 높이와 ascent 는 잉크 상자로 정한다), "
+                         "상자 보고서를 쓴다. 키가 255줄을 넘으면 보고서만 쓴다. "
+                         "--cell/--ascent/--clip-cell/--fit-cell 과 함께 쓸 수 없다")
+    ap.add_argument("--probe-cell", type=int, default=0, metavar="H",
+                    help="--probe: 사용자의 셀 높이. 보고서의 auto_ascent 를 이 셀에 대해 잰다")
     ap.add_argument("--unicode", default="",
                     help="구울 글자 집합 (코드 포인트 순서, SVFN 버전 3). 16진 범위나 이름: "
                          + ", ".join(sorted(NAMED_RANGES)) +
@@ -794,6 +848,12 @@ def main():
         print("mkfont: version 1 (code page order) is gone: pass --unicode SET", file=sys.stderr)
         sys.exit(2)
     profile = jamoset.profile_arg(ap, args)
+    if args.probe and (args.cell or args.ascent or args.clip_cell or args.fit_cell):
+        print("mkfont: --probe sets the cell and ascent itself", file=sys.stderr)
+        sys.exit(2)
+    if args.probe_cell and not args.probe:
+        print("mkfont: --probe-cell needs --probe", file=sys.stderr)
+        sys.exit(2)
 
     global MONO_HINT
     MONO_HINT = args.mono_hint
@@ -874,18 +934,41 @@ def main():
     # 글꼴이 셀보다 크면 잉크가 실제로 차지하는 자리를 재서 그것을 셀에
     # 맞춘다 (choose_ascent_from()): 명목 크기로 계산하면 손글씨처럼 여백이
     # 큰 글꼴이 쓸데없이 눌린다.
-    if args.clip_cell and not args.fit_cell:
+    cut_ink = {}
+    probe_boxes = None
+    report_boxes = None     # --report: the boxes the ascent was chosen from, else measured at the end
+    auto_ascent = None
+    if args.probe:
+        _, probe_boxes = measure_boxes(args.input, size, unicode_cps, args.bpp)
+        ascent, cell_h = probe_cell(probe_boxes)
+        cell_w = args.width or cell_h
+        report_boxes = probe_boxes
+        auto_ascent = ascent
+        if args.probe_cell:
+            auto_ascent = fit_ascent(probe_boxes, args.probe_cell,
+                                     choose_ascent(font, args.probe_cell, latin=args.latin))[0]
+        if cell_h > 255:
+            if args.report:
+                write_report(args.report, build_report(
+                    size=size, requested_size=args.size, cell_w=cell_w, cell_h=cell_h, ascent=ascent,
+                    auto_ascent=auto_ascent, mode="clip", latin=args.latin, bpp=args.bpp, boxes=probe_boxes,
+                    cut={}, nudged=None, probe=True, probe_face=False))
+            print(f"--probe: ink spans {cell_h} rows, past 255: no face written")
+            return
+    elif args.clip_cell and not args.fit_cell:
         clip_chars = list(unicode_cps)
         _, clip_boxes = measure_boxes(args.input, size, clip_chars, args.bpp)
         if args.ascent:
             ascent = args.ascent
         else:
             ascent, _ = fit_ascent(clip_boxes, cell_h, choose_ascent(font, cell_h, latin=args.latin))
+        report_boxes = clip_boxes
         top, bottom, wide = fit_counts(clip_boxes, cell_w, cell_h, ascent)
         cut = sorted(set(top) | set(bottom))
         full = fringe = 0
         for cp in cut:
             f, g = clipped_ink(font, chr(cp), args.bpp, ascent, cell_h)
+            cut_ink[cp] = (f, g)
             full += f
             fringe += g
         print(f"--clip-cell: {size}px, ascent {ascent}: {len(clip_boxes)}자 중 {len(cut)}자가 셀 "
@@ -936,7 +1019,7 @@ def main():
         img, ink_x, ink_w = render(font, ch, cell_w, cell_h, ascent,
                                          args.bpp, center=False,
                                          mark_origin=True,
-                                         nudge=not args.clip_cell)
+                                         nudge=not (args.clip_cell or args.probe))
         absent = notdef_used is not None and ch is not None and img.tobytes() == notdef_used
         if unicode_cps and ch is not None and cmap_has(args.input if font is primary else args.fallback_ttf, ord(ch)) is False:
             absent = True   # the file's own cmap says no: a blank .notdef would pass the picture test
@@ -1003,6 +1086,20 @@ def main():
     print(f"  글리프 {count}개 (글꼴에 없어 뺀 글자 {len(unicode_cps) - count}개), 최대 잉크 폭 {ink_max}px")
     print(f"  크기 {size}px, ascent {ascent}")
     print(f"  {total:,} 바이트")
+
+    if args.report:
+        boxes = report_boxes
+        if boxes is None:
+            _, boxes = measure_boxes(args.input, size, unicode_cps, args.bpp)
+        mode = "clip" if args.probe else "fit" if args.fit_cell else "clip" if args.clip_cell else "nudge"
+        nudged = []
+        if mode == "nudge":
+            nudged = [cp for cp in boxes if primary.getbbox(chr(cp), anchor="ls")[1] + ascent < 0]
+        write_report(args.report, build_report(
+            size=size, requested_size=args.size, cell_w=cell_w, cell_h=cell_h, ascent=ascent,
+            auto_ascent=ascent if auto_ascent is None else auto_ascent, mode=mode, latin=args.latin, bpp=args.bpp,
+            boxes=boxes, cut=cut_ink,
+            nudged=nudged, probe=args.probe, probe_face=True))
 
 
 if __name__ == "__main__":

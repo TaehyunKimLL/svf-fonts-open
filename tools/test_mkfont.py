@@ -846,5 +846,124 @@ class CmapHasTest(unittest.TestCase):
         self.assertFalse(mkfont.cmap_has(ttf, 0x10FFFF))
 
 
+def tall_ttf(path):
+    """A synthetic TTF (unitsPerEm 1000): 'ga' at U+AC00 and 'A' at U+0041, each a rectangle x 100..600, y -180..740
+    (at 16 px 1 bpp the box rows are -12..3)."""
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+
+    def rect():
+        pen = TTGlyphPen(None)
+        pen.moveTo((100, -180))
+        pen.lineTo((100, 740))
+        pen.lineTo((600, 740))
+        pen.lineTo((600, -180))
+        pen.closePath()
+        return pen.glyph()
+
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder([".notdef", "A", "ga"])
+    fb.setupCharacterMap({0x41: "A", 0xAC00: "ga"})
+    fb.setupGlyf({".notdef": TTGlyphPen(None).glyph(), "A": rect(), "ga": rect()})
+    fb.setupHorizontalMetrics({".notdef": (500, 0), "A": (700, 100), "ga": (700, 100)})
+    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupOS2()
+    fb.setupPost()
+    fb.setupNameTable({"familyName": "Tall", "styleName": "Regular"})
+    fb.save(path)
+    return path
+
+
+@unittest.skipUnless(HAVE_FONTTOOLS, "fontTools not importable")
+class ReportTest(unittest.TestCase):
+    """--report FILE.json, --probe, --probe-cell."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.src = tall_ttf(os.path.join(self.tmp.name, "tall.ttf"))
+        self.out = os.path.join(self.tmp.name, "out.svf")
+        self.report = os.path.join(self.tmp.name, "report.json")
+
+    def run_mkfont(self, *flags):
+        import subprocess
+        return subprocess.run([sys.executable, "-P", os.path.join(HERE_DIR, "mkfont.py"), self.src, self.out,
+                               "--unicode", "ascii,AC00", "--report", self.report, *flags],
+                              capture_output=True, text=True)
+
+    def bake(self, *flags):
+        import json
+        r = self.run_mkfont(*flags)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(self.report, encoding="utf-8") as f:
+            return json.load(f)
+
+    def probe(self, *flags):
+        rep = self.bake(*flags)
+        if not os.path.exists(self.out):
+            return rep, None
+        with open(self.out, "rb") as f:
+            return rep, f.read()
+
+    def test_report_json(self):
+        rep = self.bake("--size", "16", "--bpp", "1", "--cell", "12", "--ascent", "10", "--clip-cell")
+        self.assertEqual(rep["boxes"]["0xAC00"][1:4:2], [-12, 3])
+        self.assertEqual(rep["cut"]["0xAC00"]["top"], 2)
+        self.assertEqual(rep["cut"]["0xAC00"]["bottom"], 1)
+        top, bottom, wide = mkfont.fit_counts({int(k, 16): v for k, v in rep["boxes"].items()}, 12, 12, 10)
+        self.assertEqual(rep["counts"], {"glyphs": len(rep["boxes"]), "top": len(top), "bottom": len(bottom),
+                                         "wide": len(wide), "cut": len(set(top) | set(bottom))})
+        self.assertEqual((rep["mode"], rep["ascent"], rep["cell"]), ("clip", 10, [12, 12]))
+        self.assertEqual(list(rep)[:3], ["tool", "probe", "probe_face"])
+        self.assertEqual((rep["tool"], rep["probe"], rep["probe_face"], rep["size"], rep["requested_size"],
+                          rep["bpp"], rep["latin"], rep["auto_ascent"]), ("mkfont", False, True, 16, 16, 1, False, 10))
+        self.assertGreater(rep["cut"]["0xAC00"]["full"], 0)
+        self.assertNotIn("nudged", rep)
+        self.assertEqual(rep["wide"], [])
+
+    def test_nudge_mode_lists_nudged(self):
+        rep = self.bake("--size", "16", "--bpp", "1", "--cell", "12", "--ascent", "10")
+        self.assertEqual(rep["mode"], "nudge")
+        self.assertIn("0xAC00", rep["nudged"])
+        self.assertNotIn("cut", rep)
+
+    def test_fit_cell_reports_the_lowered_size(self):
+        rep = self.bake("--size", "16", "--bpp", "1", "--cell", "12", "--fit-cell")
+        self.assertEqual((rep["mode"], rep["requested_size"]), ("fit", 16))
+        self.assertLess(rep["size"], 16)
+
+    def test_probe_mode(self):
+        from PIL import ImageFont
+        rep, face = self.probe("--size", "16", "--bpp", "1", "--width", "16", "--probe", "--probe-cell", "12")
+        f = jamoset.parse_svfn(face)
+        self.assertEqual((f.cell_h, f.ascent, rep["probe"], rep["probe_face"]), (15, 12, True, True))
+        boxes = {int(k, 16): v for k, v in rep["boxes"].items()}
+        font = ImageFont.truetype(self.src, 16)
+        self.assertEqual(rep["auto_ascent"], mkfont.fit_ascent(boxes, 12, mkfont.choose_ascent(font, 12, False))[0])
+        self.assertEqual(mkfont.fit_counts(boxes, 16, 15, 12), ([], [], []))        # nothing cut by construction
+
+    def test_probe_cell_function(self):
+        self.assertEqual(mkfont.probe_cell({}), (1, 1))
+        self.assertEqual(mkfont.probe_cell({1: (0, -12, 5, 3), 2: (0, -4, 5, 0)}), (12, 15))
+        self.assertEqual(mkfont.probe_cell({1: (0, 2, 5, 6)}), (1, 7))
+
+    def test_probe_past_255_rows_writes_only_the_report(self):
+        rep, face = self.probe("--size", "300", "--bpp", "1", "--width", "300", "--probe")
+        self.assertEqual((rep["probe_face"], face), (False, None))
+
+    def test_probe_refuses_cell_flags(self):
+        for flags in (["--cell", "12"], ["--ascent", "9"], ["--clip-cell"], ["--fit-cell"]):
+            with self.subTest(flags=flags):
+                r = self.run_mkfont("--size", "16", "--bpp", "1", "--probe", *flags)
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("--probe sets the cell and ascent itself", r.stderr)
+                self.assertFalse(os.path.exists(self.report))
+
+    def test_probe_cell_needs_probe(self):
+        r = self.run_mkfont("--size", "16", "--probe-cell", "12")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("--probe-cell", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -213,6 +213,9 @@ installed (bug; see the BDF and PCF recipes). `--chars-from` reads files written
 | `--ascent N` | 0 (= chosen) | baseline row from the cell top |
 | `--fit-cell` | off | shrink the size until all ink fits the cell |
 | `--clip-cell` | off | keep one baseline, clip ink outside the cell |
+| `--report FILE.json` | none | write a JSON report beside the face: per-glyph ink boxes, the rows a cell cuts (`--clip-cell`) or nudges, the counts and the chosen size/ascent (any mode) |
+| `--probe` | off | bake in a tall cell that cuts nothing (cell height and ascent come from the ink boxes) and write the `--report`; past 255 rows only the report is written; refuses `--cell`, `--ascent`, `--clip-cell`, `--fit-cell` (exit 2) |
+| `--probe-cell H` | 0 | with `--probe`: the caller's cell height, so the report's `auto_ascent` is the baseline `--clip-cell` would choose for that cell |
 | `--unicode SPEC` | "" | the code point list (this or `--chars-from` is required): hex ranges, a named set (`ascii`, `latin1`, `hangul`, `jamo`, `cjk-punct`, `kana`, `thai`, `ksx1001`, `ksx1001-nohanja`, `ksx1001-hangul`, `ksx1001-symbols`, `cp949`, `cp949-hangul`) or `file:PATH` |
 | `--chars-from FILE...` | none | union of the code points those files use |
 | `--limit SPEC` | "" | intersect the result with this code point set |
