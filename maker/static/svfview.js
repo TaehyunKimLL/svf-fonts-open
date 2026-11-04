@@ -189,7 +189,10 @@ export function codePoints(slot) {
   const m = need();
   const out = [];
   const count = infos[slot] ? infos[slot].count : 0;
-  for (let i = 0; i < count; i++) out.push(m._svfw_cmap_cp(slot, i));
+  for (let i = 0; i < count; i++) {
+    const cp = m._svfw_cmap_cp(slot, i);
+    if (cp >= 0) out.push(cp);
+  }
   return out;
 }
 
@@ -306,28 +309,36 @@ export function drawGlyphsInto(text, opts = {}) {
     }
     const mt = slot >= 0 ? metrics(slot, cp) : null;
     if (!mt || mt.rc < 0) continue;                     // no face has it: the pen moves by 0
-    let y = 0, dyScaled, ascent;
+    let y = 0, dyScaled, ascent, upAscent;
     if (slot === 0) {
       const composed = pieces(0, cp).length > 0;
       const dOld = mt.dy;
       const dNew = composed ? 0 : (dyMap[cp] ?? dOld);
       dyScaled = S(dNew);
-      ascent = S(A2);
-      const ascentTerm = opts.symbolsFixed && (cp === 0x2026 || cp === 0x25A1) ? 0 : S(A) - S(A2);
-      y = ascentTerm + S(dNew) - S(dOld);
+      ascent = upAscent = S(A2);
+      // A DOS raw face built with --symbols frames U+2026 and U+25A1 by its ascent, so a rebuild keeps them on the
+      // baseline: no ascent term. Below the header ascent their cell then sticks out above the others', so the box
+      // grows upward to hold it (a rebuild would re-frame and cut them: that part is approximate).
+      const fixedSymbol = opts.symbolsFixed && (cp === 0x2026 || cp === 0x25A1);
+      if (fixedSymbol) upAscent = Math.max(S(A), S(A2));
+      y = (fixedSymbol ? 0 : S(A) - S(A2)) + S(dNew) - S(dOld);
     } else {
       dyScaled = S(mt.dy);
-      ascent = S(infos[slot].ascent);
+      ascent = upAscent = S(infos[slot].ascent);
     }
     const cellH = D(infos[slot].cellH);
-    up = Math.max(up, ascent - dyScaled);
+    up = Math.max(up, upAscent - dyScaled);
     down = Math.max(down, cellH - ascent + dyScaled);
     placed.push({cp, x: pen, y});
     if (!isMark(cp)) pen += opts.pitch ?? S(mt.advance);
   }
-  const w = Math.min(pen, 32767) + 2, h = up + down + 2, baseline = up + 1;
+  const w = Math.min(pen, 32765) + 2, h = up + down + 2, baseline = up + 1;
   const pixels = withTarget(kind, w, h, opts, () => {
-    for (const p of placed) drawText(String.fromCodePoint(p.cp), 1 + p.x, baseline + p.y);
+    for (const p of placed) {
+      const x = 1 + p.x, y = baseline + p.y;
+      if (x >= w || x < -32768 || y < -32768 || y > 32767) continue;   // beyond the buffer (the glue takes int16)
+      drawText(String.fromCodePoint(p.cp), x, y);
+    }
   });
   return {w, h, baseline, pixels};
 }
@@ -337,15 +348,17 @@ export function drawGlyphsInto(text, opts = {}) {
 const INK = [0x1d, 0x21, 0x1c];
 const PAPER = [0xff, 0xff, 0xff];
 
-function toImageData(canvas, kind, r, opts) {
+/** The RGBA bytes of a drawn buffer @p r ({w, h, pixels}) for target @p kind (gray8, mono, mono_row, mono_page,
+ *  rgb565): coverage blended ink over paper, set bits as ink, 565 values as colours. Returns {rgba, drawn} where drawn
+ *  counts the pixels that are not blank. Pure (no DOM). */
+export function decodeRGBA(kind, r, opts = {}) {
   const {w, h, pixels} = r;
-  const ctx = canvas.getContext("2d");
-  const img = ctx.createImageData(w, h);
   const ink = opts.ink ?? INK, paper = opts.paper ?? PAPER;
-  const fg = opts.fg ?? 0xFFFF, bg = opts.bg ?? 0;
+  const bg = opts.bg ?? 0;
+  const g = geometry(kind, w, h);
+  const rgba = new Uint8ClampedArray(4 * w * h);
   let drawn = 0;
-  const put = (i, rgb) => { img.data[4 * i] = rgb[0]; img.data[4 * i + 1] = rgb[1]; img.data[4 * i + 2] = rgb[2]; img.data[4 * i + 3] = 255; };
-  const stride = geometry(kind, w, h).stride;
+  const put = (i, rgb) => { rgba[4 * i] = rgb[0]; rgba[4 * i + 1] = rgb[1]; rgba[4 * i + 2] = rgb[2]; rgba[4 * i + 3] = 255; };
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
@@ -354,23 +367,41 @@ function toImageData(canvas, kind, r, opts) {
         if (c) drawn++;
         put(i, [0, 1, 2].map((k) => Math.round(paper[k] + (ink[k] - paper[k]) * c / 255)));
       } else if (kind === "mono" || kind === "mono_row") {
-        const on = (pixels[y * stride + (x >> 3)] >> (7 - (x & 7))) & 1;
+        const on = (pixels[y * g.stride + (x >> 3)] >> (7 - (x & 7))) & 1;
         if (on) drawn++;
         put(i, on ? ink : paper);
-      } else {
-        const v = opts.bigEndian ? (pixels[y * stride + 2 * x] << 8) | pixels[y * stride + 2 * x + 1]
-                                 : pixels[y * stride + 2 * x] | (pixels[y * stride + 2 * x + 1] << 8);
+      } else if (kind === "mono_page") {
+        const on = (pixels[(y >> 3) * g.stride + x] >> (y & 7)) & 1;      // SSD1306 pages: bit y & 7 of buf[(y >> 3) * w + x]
+        if (on) drawn++;
+        put(i, on ? ink : paper);
+      } else if (kind === "rgb565") {
+        const v = opts.bigEndian ? (pixels[y * g.stride + 2 * x] << 8) | pixels[y * g.stride + 2 * x + 1]
+                                 : pixels[y * g.stride + 2 * x] | (pixels[y * g.stride + 2 * x + 1] << 8);
         if (v !== bg) drawn++;
         put(i, [((v >> 11) & 31) * 255 / 31, ((v >> 5) & 63) * 255 / 63, (v & 31) * 255 / 31].map(Math.round));
+      } else {
+        throw new Error("unknown target " + kind);
       }
     }
   }
-  canvas.width = w;
-  canvas.height = h;
+  return {rgba, drawn};
+}
+
+function toImageData(canvas, kind, r, opts) {
+  const {rgba, drawn} = decodeRGBA(kind, r, opts);
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(r.w, r.h);
+  img.data.set(rgba);
+  canvas.width = r.w;
+  canvas.height = r.h;
   ctx.putImageData(img, 0, 0);
   canvas.dataset.drawn = "1";
   canvas.dataset.ink = String(drawn);
-  void fg;
+}
+
+/** True for a value `String.fromCodePoint` takes and a face could draw: 0..0x10FFFF, no surrogate. */
+export function isCodePoint(cp) {
+  return Number.isInteger(cp) && cp >= 0 && cp <= 0x10FFFF && !(cp >= 0xD800 && cp <= 0xDFFF);
 }
 
 function onCanvas(canvas, draw, opts) {

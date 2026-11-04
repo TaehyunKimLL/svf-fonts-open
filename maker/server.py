@@ -355,7 +355,8 @@ _ROUTES = (
 )
 
 # The GET handlers that hand out font bytes: they run the Host check too (a DNS-rebinding page must not read them).
-_HOST_CHECKED = {"_job_face", "_job_source_face", "_repo_face", "_job_report", "_job_probe", "_job_identity"}
+_HOST_CHECKED = {"_job_face", "_job_source_face", "_repo_face", "_job_report", "_job_probe", "_job_identity",
+                 "_job_zip", "_job_get", "_job_preview"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -491,11 +492,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             job = self.server.store.load(job_id)
         except KeyError:
             raise _HttpError(404, "no job %s" % job_id)
-        mask_ok = bool(self.server.caps.get("mask_libs"))        # live every load, never saved
-        for font in job.get("fonts") or []:
-            if isinstance(font, dict) and font.get("source_kind") in ("outline", "outline-composite"):
-                font["mask_ok"] = mask_ok
+        job["fonts"] = self._stamped(job.get("fonts") or [])
         return job
+
+    def _stamped(self, fonts):
+        """Copies of @p fonts with `mask_ok` (the live `caps["mask_libs"]`) on every outline entry. A stored job never
+        holds the flag: a restart with other libraries must not serve a stale one, so every read of the fonts for a
+        decision (a GET, a settings PUT, a run) goes through here."""
+        mask_ok = bool(self.server.caps.get("mask_libs"))
+        out = []
+        for font in fonts:
+            if isinstance(font, dict) and font.get("source_kind") in ("outline", "outline-composite"):
+                font = dict(font, mask_ok=mask_ok)
+            out.append(font)
+        return out
 
     def _update(self, job_id, fn):
         """`store.update` with a job deleted under us reported as a 409 conflict, never a 500 (W1)."""
@@ -847,7 +857,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
                 raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
-            fonts = j.get("fonts") or []
+            fonts = self._stamped(j.get("fonts") or [])
             errors = settings.validate(fonts, body, upload_dir)
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
@@ -867,12 +877,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
                 raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
-            fonts = j.get("fonts") or []
+            fonts = self._stamped(j.get("fonts") or [])
             errors = settings.run_ready(fonts, j.get("settings") or {}, index, upload_dir)
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
             try:
-                steps = settings.plan_steps(j, job_dir, self.server.tools_dir, upload_dir)
+                steps = settings.plan_steps(dict(j, fonts=fonts), job_dir, self.server.tools_dir, upload_dir)
             except ValueError as exc:
                 raise _HttpError(400, str(exc))
             self._check_steps(job_dir, upload_dir, fonts, steps)
@@ -988,7 +998,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}
                     if font not in fonts:
                         raise _HttpError(404, "no source face")
-                    self._make_source_preview(fresh, job_dir, fonts[font])
+                    try:
+                        self._make_source_preview(fresh, job_dir, fonts[font])
+                    except _HttpError as exc:
+                        if exc.status == 409:                  # an unconfirmed DOS layout: no source face yet
+                            raise _HttpError(404, exc.message)
+                        raise
         if not os.path.isfile(path) or not _inside(job_dir, path):
             raise _HttpError(404, "no source face")
         self._serve_bytes(path, "application/octet-stream")

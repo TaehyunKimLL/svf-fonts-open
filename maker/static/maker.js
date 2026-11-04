@@ -18,6 +18,7 @@
 "use strict";
 
 import * as svfview from "./svfview.js";
+import {parseDyText, stepSig} from "./pagelib.js";
 
 const POLL_MS = 2000;
 const SAMPLE_TEXT = "다람쥐 헌 쳇바퀴에 타고파 ABC xyz 0123";   // detect.SAMPLE_TEXT
@@ -1092,6 +1093,8 @@ function overridePanel(font, per) {
 
 function buildFonts() {
   fontsEl.innerHTML = "";
+  sourceRedraws.length = 0;
+  sourceBytes = new Map();
   perOptionBoxes = [];
   if (!job || !(job.fonts || []).length) return;
   const head = el("thead", {}, el("tr", {},
@@ -1114,8 +1117,10 @@ function buildFonts() {
 
 const LATIN_FALLBACK_URL = "/api/repo/face/dos/NEODG16.SVF";
 const previewState = {text: SAMPLE_TEXT, scale: 1, target: "gray8", threshold: 128, guides: false};
-const previewRedraws = [];                           // the redraw functions of the cells on the page
-const faceBytes = new Map();                         // "job|url|state|seconds" -> Promise<Uint8Array>
+const sourceRedraws = [];                            // the redraw functions of the source canvases (rebuilt with the font table)
+const stepRows = new Map();                          // step id -> {sig, tr}: a finished step's row is kept across polls
+let sourceBytes = new Map();                         // url -> Promise<Uint8Array>, for one build of the font table
+let latinBytes = null;                               // the repo's Latin companion (immutable)
 let svfReady = null;                                 // svfview.load(), once
 let drawChain = Promise.resolve();                   // draws run one at a time: the module has one chain
 
@@ -1127,16 +1132,21 @@ function svfModule() {
   return svfReady;
 }
 
-function fetchBytes(url, stamp) {
-  const key = url + "|" + stamp;
-  if (!faceBytes.has(key)) {
-    faceBytes.set(key, fetch(url).then((response) => {
-      if (!response.ok) throw new Error(url + ": " + response.status);
-      return response.arrayBuffer();
-    }).then((buffer) => new Uint8Array(buffer)));
-    faceBytes.get(key).catch(() => faceBytes.delete(key));
+// A fresh read of @p url: the browser revalidates by ETag (the server answers 304), so a face the server re-baked or a
+// step a re-run rewrote is never served from an earlier fetch.
+function fetchFresh(url) {
+  return fetch(url, {cache: "no-cache"}).then((response) => {
+    if (!response.ok) throw new Error(url + ": " + response.status);
+    return response.arrayBuffer();
+  }).then((buffer) => new Uint8Array(buffer));
+}
+
+function repoLatin() {
+  if (!latinBytes) {
+    latinBytes = fetchFresh(LATIN_FALLBACK_URL);
+    latinBytes.catch(() => { latinBytes = null; });
   }
-  return faceBytes.get(key);
+  return latinBytes;
 }
 
 function faceUrl(step) {
@@ -1150,7 +1160,7 @@ function companionStep(step) {
     && other.size === step.size && other.state === "done") || null;
 }
 
-// Draw `fn` with the chain [bytes, companion?] open; `fn` returns what the caller needs. Serialized.
+// Draw `fn` with the chain `faces` open; serialized (the module has one chain and one scale).
 function withChain(faces, fn) {
   const run = drawChain.then(async () => {
     await svfModule();
@@ -1161,19 +1171,11 @@ function withChain(faces, fn) {
   return run;
 }
 
-async function stepChain(step) {
-  const stamp = step.state + "|" + step.seconds;
-  const face = await fetchBytes(faceUrl(step), stamp);
-  const mate = companionStep(step);
-  if (mate) return [face, await fetchBytes(faceUrl(mate), mate.state + "|" + mate.seconds)];
-  return [face, null];
-}
-
 function canvasOptions() {
   return {target: previewState.target, threshold: previewState.threshold};
 }
 
-function paintGuides(wrap, canvas, r, zoom) {
+function paintGuides(wrap, r, zoom) {
   for (const old of wrap.querySelectorAll(".guide")) old.remove();
   if (!previewState.guides || !r) return;
   const box = svfview.cellBox(0, r.baseline, r.ascentOverride);
@@ -1184,28 +1186,44 @@ function paintGuides(wrap, canvas, r, zoom) {
   }
 }
 
-// A small canvas with a baked source face of a DOS raw or SVF entry (GET .../source/<font>.svf).
+// A small canvas with a baked source face of a DOS raw or SVF entry (GET .../source/<font>.svf), redrawn with the
+// sample text and target controls. Its bytes are fetched afresh for each build of the font table.
 function sourceFaceCanvas(font) {
+  const holder = el("span", {class: "source-face"});
   const canvas = el("canvas", {class: "preview", "data-font": font.id});
+  holder.append(canvas);
   const url = "/api/jobs/" + encodeURIComponent(job.id) + "/source/" + encodeURIComponent(font.id) + ".svf";
   const draw = async () => {
     try {
-      const bytes = await fetchBytes(url, previewState.text.length + "|" + (settings.fonts[font.id] || {}).dos_layout);
-      const chain = [bytes];
-      await withChain(chain, () => {
+      if (!sourceBytes.has(url)) sourceBytes.set(url, fetchFresh(url));
+      const bytes = await sourceBytes.get(url);
+      await withChain([bytes], () => {
+        svfview.setScale(1, 1);
         svfview.drawLine(canvas, previewState.text, canvasOptions());
       });
     } catch (err) {
-      canvas.hidden = true;
+      if (err && err.message === svfview.NOTICE) {
+        holder.replaceChildren(el("span", {class: "sub", text: svfview.NOTICE}));
+      } else {
+        canvas.hidden = true;
+      }
     }
   };
   draw();
-  previewRedraws.push(draw);
-  return canvas;
+  sourceRedraws.push(draw);
+  return holder;
+}
+
+// The font's effective value of a jamoset option: its own, else the batch's.
+function jamosetOption(fontId, key) {
+  const own = (((settings.fonts || {})[fontId] || {}).options || {}).jamoset || {};
+  if (key in own) return own[key];
+  return (((settings.batch || {}).options || {}).jamoset || {})[key];
 }
 
 // The result cell of a done face step: the sample line drawn by the WASM renderer from the step's own bytes, with the
-// sample text, scale, target, threshold, guides, the glyph grid and (per kind) an ascent or dy to try.
+// sample text, scale, target, threshold, guides, the glyph grid and (per kind) an ascent or dy to try. Returns
+// {node, redraw}; the step's bytes are fetched once for the life of the cell (a re-run makes a new cell).
 function previewCell(step) {
   const box = el("div", {class: "svf-preview"});
   const font = (job.fonts || []).find((item) => item.id === step.font) || {};
@@ -1214,16 +1232,23 @@ function previewCell(step) {
   wrap.append(canvas);
   const fail = el("div", {class: "sub", hidden: true});
   const tryState = {ascent: null, dy: {}};
+  const mate = companionStep(step);
+  let bytes = null;
+  const chainBytes = () => {
+    if (!bytes) {
+      bytes = Promise.all([fetchFresh(faceUrl(step)), mate ? fetchFresh(faceUrl(mate)) : null]);
+      bytes.catch(() => { bytes = null; });
+    }
+    return bytes;
+  };
 
   const draw = async () => {
     fail.hidden = true;
     try {
-      const [face, mate] = await stepChain(step);
-      await withChain(mate ? [face, mate] : [face], async (infos) => {
-        let chain = infos;
-        if (!mate && !svfview.has(0, 0x41)) {                     // the face has no Latin: the repo's companion
-          const latin = await fetchBytes(LATIN_FALLBACK_URL, "repo");
-          chain = svfview.openChain([face, latin]);
+      const [face, companion] = await chainBytes();
+      await withChain(companion ? [face, companion] : [face], async () => {
+        if (!companion && !svfview.has(0, 0x41)) {                  // the face has no Latin: the repo's companion
+          svfview.openChain([face, await repoLatin()]);
         }
         svfview.setScale(previewState.scale, 1);
         const useGlyphs = tryState.ascent !== null || Object.keys(tryState.dy).length > 0;
@@ -1232,7 +1257,7 @@ function previewCell(step) {
         if (useGlyphs) {
           if (tryState.ascent !== null) opts.ascentOverride = tryState.ascent;
           opts.dy = tryState.dy;
-          opts.symbolsFixed = true;
+          opts.symbolsFixed = jamosetOption(step.font, "symbols") === true;
           r = svfview.drawGlyphs(canvas, previewState.text, opts);
           if (r) r.ascentOverride = tryState.ascent;
         } else {
@@ -1240,16 +1265,14 @@ function previewCell(step) {
         }
         canvas.style.imageRendering = "pixelated";
         canvas.style.width = canvas.width * 2 + "px";
-        paintGuides(wrap, canvas, r, 2);
-        void chain;
+        paintGuides(wrap, r, 2);
       });
     } catch (err) {
       canvas.dataset.error = String(err && err.message ? err.message : err);
-      fail.textContent = escapeControls(err && err.message === svfview.NOTICE ? svfview.NOTICE : canvas.dataset.error);
+      fail.textContent = escapeControls(canvas.dataset.error);
       fail.hidden = false;
     }
   };
-  previewRedraws.push(draw);
 
   // controls
   const text = el("input", {type: "text", size: "24", value: previewState.text, "aria-label": "sample text"});
@@ -1272,13 +1295,12 @@ function previewCell(step) {
   const controls = el("div", {class: "svf-controls"}, text, scale, target, threshold,
     el("label", {}, guides, " guides"));
 
-  const grid = glyphGrid(step);
+  const grid = glyphGrid(step, chainBytes);
   const toggle = el("button", {type: "button", text: "glyphs"});
   toggle.onclick = () => { grid.box.hidden = !grid.box.hidden; if (!grid.box.hidden) grid.show(); };
   controls.append(toggle);
 
-  const per = settings.fonts && settings.fonts[step.font];
-  if (step.kind === "jamo" && (font.source_kind === "dos-raw" || font.source_kind === "bdf-johab") && per) {
+  if (step.kind === "jamo" && (font.source_kind === "dos-raw" || font.source_kind === "bdf-johab")) {
     const ascent = el("input", {type: "text", inputmode: "numeric", size: "3", "aria-label": "ascent to try"});
     ascent.onchange = () => {
       const v = ascent.value.trim() === "" ? null : Number(ascent.value);
@@ -1287,22 +1309,25 @@ function previewCell(step) {
     };
     const apply = el("button", {type: "button", text: "apply ascent"});
     apply.onclick = () => {
-      if (tryState.ascent === null) return;
+      const per = perFont(step.font);
+      if (tryState.ascent === null || !per) return;
       applyOption(per, "jamoset", "jamo_ascent", tryState.ascent);
     };
     controls.append(el("label", {}, "ascent ", ascent), apply);
   }
-  if (step.kind === "precomposed" && per) {
+  if (step.kind === "precomposed") {
     const dy = el("input", {type: "text", size: "10", placeholder: "U+0041=1 g=-1", "aria-label": "dy to try"});
     dy.onchange = () => {
-      const parsed = parseDyText(dy.value);
-      tryState.dy = parsed || {};
+      tryState.dy = parseDyText(dy.value) || {};
       draw();
     };
     const apply = el("button", {type: "button", text: "apply dy"});
     apply.onclick = () => {
-      if (!Object.keys(tryState.dy).length) return;
-      per.dy = Object.assign({}, per.dy || {}, ...Object.entries(tryState.dy).map(([cp, v]) => ({["0x" + Number(cp).toString(16).toUpperCase()]: v})));
+      const per = perFont(step.font);
+      if (!per || !Object.keys(tryState.dy).length) return;
+      const merged = Object.assign({}, per.dy || {});
+      for (const [cp, v] of Object.entries(tryState.dy)) merged["0x" + Number(cp).toString(16).toUpperCase()] = v;
+      per.dy = merged;
       markDirty();
       notice("dy of " + step.font + " set; save the settings to keep it");
     };
@@ -1311,19 +1336,7 @@ function previewCell(step) {
 
   box.append(controls, wrap, fail, grid.box);
   draw();
-  return box;
-}
-
-// "U+0041=1 g=-1 0x67=2" -> {65: 1, 103: -1}; null when a token does not parse.
-function parseDyText(text) {
-  const out = {};
-  for (const token of text.split(/[\s,]+/).filter(Boolean)) {
-    const m = /^(?:U\+([0-9a-fA-F]+)|(0x[0-9a-fA-F]+|\d+)|(.))=(-?\d+)$/u.exec(token);
-    if (!m) return null;
-    const cp = m[1] ? parseInt(m[1], 16) : m[2] ? Number(m[2]) : m[3].codePointAt(0);
-    out[cp] = Number(m[4]);
-  }
-  return out;
+  return {node: box, redraw: draw};
 }
 
 // Write an advanced option into a font's own settings and rebuild the font table (the panel reads per.options).
@@ -1337,12 +1350,13 @@ function applyOption(per, group, key, value) {
 }
 
 function redrawPreviews() {
-  for (const redraw of previewRedraws) redraw();
+  for (const redraw of sourceRedraws) redraw();
+  for (const {redraw} of stepRows.values()) if (redraw) redraw();
 }
 
 // The glyph grid of a step's face: 16 a row at pitch cell_w + 2, 256 a page; a click shows the glyph's metrics and,
 // for a jamo face's composed code point, its pieces.
-function glyphGrid(step) {
+function glyphGrid(step, chainBytes) {
   const box = el("div", {class: "glyph-grid", hidden: true});
   const info = el("div", {class: "sub"});
   const nav = el("div", {});
@@ -1353,10 +1367,10 @@ function glyphGrid(step) {
   const show = async () => {
     holder.innerHTML = "";
     try {
-      const [face] = await stepChain(step);
+      const [face] = await chainBytes();
       await withChain([face], async (infos) => {
         svfview.setScale(1, 1);
-        list = syllableView ? svfview.syllables(0) : svfview.codePoints(0).filter((cp) => cp < 0xD800 || cp > 0xDFFF);
+        list = (syllableView ? svfview.syllables(0) : svfview.codePoints(0)).filter(svfview.isCodePoint);
         const pitch = infos[0].cellW + 2;
         const pageList = list.slice(page * 256, page * 256 + 256);
         for (let row = 0; row < pageList.length; row += 16) {
@@ -1445,23 +1459,52 @@ function stepRow(step) {
   tr.append(el("td", {}, el("pre", {class: "stderr", text: escapeControls(step.stderr_tail || "")})));
 
   const result = el("td", {});
+  let redraw = null;
   if (job && step.state === "done" && (step.kind === "precomposed" || step.kind === "jamo")) {
-    result.append(previewCell(step));
+    const cell = previewCell(step);
+    result.append(cell.node);
+    redraw = cell.redraw;
   }
   tr.append(result);
-  return tr;
+  return {tr, redraw};
 }
 
+// The steps table is updated, not rebuilt: a step whose row would come out the same keeps its DOM (the sample text
+// being typed, the glyph grid, the ascent to try) while the job polls; only a changed step gets a new row.
+let stepsJob = null;
+
 function buildSteps() {
-  stepsEl.innerHTML = "";
-  previewRedraws.length = 0;
-  if (!job || !(job.steps || []).length) return;
-  stepsEl.append(el("thead", {}, el("tr", {},
-    ...["id", "font", "kind", "size", "bpp", "name", "state", "seconds", "quality", "stderr", "result"]
-      .map((title) => el("th", {text: title})))));
-  const body = el("tbody");
-  for (const step of job.steps) body.append(stepRow(step));
-  stepsEl.append(body);
+  if (!job || !(job.steps || []).length) {
+    stepsEl.innerHTML = "";
+    stepRows.clear();
+    stepsJob = null;
+    return;
+  }
+  if (stepsJob !== job.id || !stepsEl.querySelector("tbody")) {
+    stepsEl.innerHTML = "";
+    stepRows.clear();
+    stepsJob = job.id;
+    stepsEl.append(el("thead", {}, el("tr", {},
+      ...["id", "font", "kind", "size", "bpp", "name", "state", "seconds", "quality", "stderr", "result"]
+        .map((title) => el("th", {text: title})))), el("tbody"));
+  }
+  const body = stepsEl.querySelector("tbody");
+  const seen = new Set();
+  const rows = [];
+  for (const step of job.steps) {
+    seen.add(step.id);
+    const sig = stepSig(step, companionStep(step)) + "|" + JSON.stringify((job.fonts || []).filter((f) => f.id === step.font).map((f) => f.source_kind));
+    const old = stepRows.get(step.id);
+    if (old && old.sig === sig) {
+      rows.push(old.tr);
+      continue;
+    }
+    const made = stepRow(step);
+    stepRows.set(step.id, {sig, tr: made.tr, redraw: made.redraw});
+    rows.push(made.tr);
+  }
+  for (const id of [...stepRows.keys()]) if (!seen.has(id)) stepRows.delete(id);
+  body.replaceChildren(...rows);
 }
 
 // ---- render ---------------------------------------------------------------------------------------------------

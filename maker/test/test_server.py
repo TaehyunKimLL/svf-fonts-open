@@ -999,6 +999,12 @@ class PreviewWiringTest(unittest.TestCase):
             for path in (MAKER_JS, SVFVIEW_JS):
                 self.assertEqual(subprocess.run(["node", "--check", path]).returncode, 0, path)
 
+    def test_page_sample_text_is_detects(self):
+        import detect
+        m = re.search(r'const SAMPLE_TEXT = "([^"]*)"', read_text(MAKER_JS))
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), detect.SAMPLE_TEXT)
+
     def test_no_code_but_the_oracle_helpers_writes_preview_png(self):
         for name in ("server.py", "jobs.py", "settings.py", "zipout.py"):
             self.assertNotIn("preview.png", read_text(os.path.join(MAKER_DIR, name)), name)
@@ -1105,6 +1111,24 @@ class FaceBytesTest(ApiBase):
         self.assertEqual(self.raw("GET", "/api/caps", headers=evil).status, 200)
         self.assertEqual(self.raw("GET", "/static/maker.js", headers=evil).status, 200)
 
+    def test_job_gets_check_host(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        evil = {"Host": "evil.example"}
+        for path in ("/api/jobs/%s/zip" % jid, "/api/jobs/%s" % jid,
+                     "/api/jobs/%s/preview/%s/source.png" % (jid, job["steps"][0]["font"])):
+            self.assertEqual(self.raw("GET", path, headers=evil).status, 403, path)
+            self.assertEqual(self.raw("GET", path).status, 200, path)
+        self.assertEqual(self.raw("GET", "/", headers=evil).status, 200)
+
+    def test_source_face_of_an_unconfirmed_dos_layout_is_a_404(self):
+        jid = self.detected_job()
+        job = self.get("/api/jobs/%s" % jid)
+        dos = [f["id"] for f in job["fonts"] if f["path"].endswith("HAN.FNT")][0]
+        r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, dos))
+        self.assertEqual(r.status, 404)
+        self.assertIn("confirm the DOS Johab layout", r.read().decode())
+
     def test_repo_face(self):
         self.assertEqual(self.raw("GET", "/api/repo/face/dos/NEODG16.SVF").read(),
                          read(os.path.join(REPO, "svf/dos/NEODG16.SVF")))
@@ -1151,6 +1175,30 @@ class FaceBytesTest(ApiBase):
             self.assertTrue(all(f["mask_ok"] for f in fonts if f["source_kind"].startswith("outline")))
         with mock.patch.dict(self.srv.caps, {"mask_libs": False}):
             self.assertFalse(any(f.get("mask_ok") for f in self.get("/api/jobs/%s" % jid)["fonts"]))
+
+    def mono_settings(self, jid):
+        s = self.get("/api/jobs/%s" % jid)["settings"]
+        for per in s["fonts"].values():
+            per.update(experimental=True, kinds=["jamo"], bpp=[1], options={"jamoset": {"binarize": "mono"}})
+        return json.dumps(s).encode()
+
+    def test_mask_ok_reaches_the_settings_put_and_the_run(self):
+        """A binarize mono PUT is refused without the mask libraries and accepted with them (the stamp is live)."""
+        jid = self.minimal_job()
+        body = self.mono_settings(jid)
+        with mock.patch.dict(self.srv.caps, {"mask_libs": False}):
+            r = self.raw("PUT", "/api/jobs/%s/settings" % jid, body=body)
+            self.assertEqual(r.status, 400)
+            self.assertIn("binarize mono needs freetype-py", r.read().decode())
+        with mock.patch.dict(self.srv.caps, {"mask_libs": True}):
+            self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=body).status, 200)
+            stored = self.srv.store.load(jid)
+            self.assertFalse(any("mask_ok" in f for f in stored["fonts"]))
+        # the run re-checks with the live caps: the saved mono choice is refused once the libraries are gone
+        with mock.patch.dict(self.srv.caps, {"mask_libs": False}):
+            r = self.raw("POST", "/api/jobs/%s/run" % jid)
+            self.assertEqual(r.status, 400)
+            self.assertIn("binarize mono needs freetype-py", r.read().decode())
 
     def test_mask_ok_is_not_saved(self):
         jid = self.minimal_job()

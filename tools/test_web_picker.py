@@ -1178,6 +1178,60 @@ out.w = r.w; out.h = r.h; out.baseline = r.baseline; out.hex = Buffer.from(r.pix
         self.assertNotEqual(self.draw([faces["A"]], text, (1, 1), "glyphs", {"ascentOverride": 16}),
                             self.draw([faces["B"]], text, (1, 1), "line"))
 
+    def ink(self, out):
+        return sum(1 for i in range(0, len(out["hex"]), 2) if out["hex"][i:i + 2] != "00")
+
+    def test_compositor_lowered_ascent_keeps_the_symbols_whole(self):
+        """Below the header ascent the two symbol cells would stick out above the canvas: the box grows instead."""
+        d = self.tmpdir()
+        raw = os.path.join(d, "raw.fnt")
+        fill = set(jamoset.slots_of(8, 4, 4, 160, 248))
+        data = bytearray(360 * 32)
+        for i in range(360):
+            if i not in fill:
+                data[i * 32] = data[i * 32 + 1] = 0xFF
+        with open(raw, "wb") as f:
+            f.write(data)
+        face = os.path.join(d, "A.svf")
+        r = subprocess.run([sys.executable, "-P", os.path.join(ROOT, "tools", "jamoset.py"), raw, "--layout", "844",
+                            "--symbols", "--check", "-o", face], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        whole = self.ink(self.draw([face], "\u2026\u25a1", (1, 1), "glyphs", {"symbolsFixed": True}))
+        self.assertGreater(whole, 0)
+        for new in (12, 10):
+            got = self.draw([face], "\u2026\u25a1", (1, 1), "glyphs", {"ascentOverride": new, "symbolsFixed": True})
+            self.assertEqual(self.ink(got), whole, new)
+
+    DECODE_JS = r"""
+const sv = await import(pathToFileURL(args[0]).href);
+sv.init(M);
+const spec = JSON.parse(args[1]);
+sv.openChain(spec.faces.map(p => new Uint8Array(readFileSync(p))));
+sv.setScale(1, 1);
+out.on = {};
+for (const kind of ['gray8', 'mono', 'mono_page', 'rgb565']) {
+  const r = sv.drawLineInto(spec.text, {target: kind});
+  const d = sv.decodeRGBA(kind, r, {});
+  out.on[kind] = Array.from({length: r.w * r.h}, (_, i) => d.rgba[4 * i] < 255 || d.rgba[4 * i + 1] < 255 ? 1 : 0).join('');
+  out.drawn = out.drawn || {}; out.drawn[kind] = d.drawn;
+}
+const g = sv.drawLineInto(spec.text, {target: 'gray8'});
+out.gray = Array.from({length: g.w * g.h}, (_, i) => g.pixels[i] >= 128 ? 1 : 0).join('');
+"""
+
+    def test_every_target_decodes_to_the_same_pixels(self):
+        out = self.run_script(self.DECODE_JS, SVFVIEW_JS, json.dumps({"faces": [face_path("NEODG16")], "text": "Ag\uac00 y"}))
+        self.assertIn("1", out["gray"])
+        for kind in ("mono", "mono_page", "gray8"):
+            self.assertEqual(out["on"][kind], out["gray"], kind)
+        self.assertEqual(len({out["drawn"][k] for k in ("gray8", "mono", "mono_page")}), 1)
+        self.assertGreater(out["drawn"]["rgb565"], 0)
+
+    def test_a_pen_past_the_buffer_draws_nothing_out_of_range(self):
+        out = self.draw([face_path("NEODG16")], "AAAAAA", (1, 1), "glyphs", {"pitch": 10000})
+        self.assertEqual(out["w"], 32767)
+        self.assertGreater(self.ink(out), 0)          # the first glyphs still draw
+
 
 class TestBuildScriptsWithoutEmcc(unittest.TestCase):
     """A missing emcc is refused before any output directory exists, naming the script that was run."""

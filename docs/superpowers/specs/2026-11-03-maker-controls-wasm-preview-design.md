@@ -913,3 +913,12 @@ lists `clean` for `experimental fit` at 2 bpp only and `panel_argv` emits `--no-
 drops it, `unicode_keep`) and counts it in `counts.gone`. `dy` keys are read as `tools/svfdy.json_dy` reads them (a
 one-character key is that character) and must be code points; the cell rules of `jamo_ascent`, `fit_baseline`,
 `latin_ascent` and `hangul_ascent` apply only to a font whose selected route reads the key.
+
+Group 2 review (Opus and AGY lanes): with `symbols` on, U+2026 and U+25A1 are drawn without the ascent term, as 6.4
+says, but "matches the rebuild" holds only for an ascent-to-try at or above the header ascent: below it jamoset re-frames
+and cuts the two symbols, which no pen offset reproduces, so the compositor keeps the cells whole (the box grows upward)
+and the preview is approximate there. `symbolsFixed` is passed only when the font's effective `symbols` option is on.
+`mask_ok` is stamped on every read of a job's fonts that decides something (GET, settings PUT, run), never stored. The
+byte GETs, the zip, the job JSON and the job list are host-checked. A source face of a DOS raw font with an unconfirmed
+layout is a 404 (6.2). The page keeps a finished step's row (its controls and glyph grid) across polls and fetches a
+face afresh (`cache: "no-cache"`, so the ETag validates it) when a cell is made.

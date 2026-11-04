@@ -16,7 +16,7 @@ MAKER_DIR = os.path.dirname(TEST_DIR)
 SVFVIEW_JS = os.path.join(MAKER_DIR, "static", "svfview.js")
 
 EXPORTS = ["NOTICE", "init", "load", "openChain", "setScale", "S", "drawLineInto", "drawGlyphsInto", "drawLine",
-           "drawGlyphs", "glyphCell", "pieces", "drawPiece", "codePoints", "syllables", "has", "metrics", "lineBox"]
+           "drawGlyphs", "glyphCell", "pieces", "drawPiece", "codePoints", "syllables", "has", "metrics", "lineBox", "cellBox", "decodeRGBA", "isCodePoint"]
 
 
 @unittest.skipUnless(shutil.which("node"), "no node: svfview.js is not checked")
