@@ -77,8 +77,9 @@ says so, and the choice is listed again under "Design issues found while plannin
 3. **Collisions: a re-run replaces a file the job no longer owns.** Job A wrote `svf/dos/X.SVF`. The user deleted
    it, and job B wrote another `X.SVF`. A re-run of A must refuse with a name clash, not replace B's file. The same
    goes for a re-run after a run that found the face identical. Pinned by
-   `test_own_earlier_replaced_only_when_unchanged` and `test_rerun_after_identical_keeps_ownership` (Task 7). See
-   design issue 5.
+   `test_own_earlier_replaced_only_when_unchanged`, `test_rerun_after_identical_keeps_ownership` and
+   `test_detect_keeps_owned` (Task 7). Ownership lives in the top-level `job["owned"]`, which `POST detect` and
+   `POST run` never reset (Tasks 6, 7). See design issues 5 and 16.
 4. **Token: a token that does not come in the one header.** Cases: a second `X-Maker-Token` header, a non-ASCII
    value, `?token=` in the URL, a 404 route that would leak whether a job id exists. Each must be 403 before
    routing. Pinned by `test_token_compare_is_bytes` and `test_token_check_runs_before_routing` (Task 1).
@@ -139,7 +140,9 @@ Not verified (the named tests or gates verify them): the HangulTalk 1.0 syntheti
 # Group A: hardening and the `Sources` refactor
 
 Task 1 (S2) runs alongside the chain 2 -> 3 -> 4, which touches disjoint files. Task 5 starts after Task 1 and
-Task 4 have both landed, so only one commit to `server.py` is in flight at a time.
+Task 4 have both landed, so only one commit to `server.py` is in flight at a time. **Every parallel lane has its own
+worktree** (one for Task 1, one for the chain 2-4), rebased onto the branch before it lands. G2 in a shared tree would
+run over the other lane's half-made edits. Land order: Task 1, then 2, 3, 4 (rebased), then 5.
 
 ### Task 1: token, loopback bind, `no-store`, CSP, `caps.local` (slice S2)
 
@@ -150,8 +153,9 @@ Task 4 have both landed, so only one commit to `server.py` is in flight at a tim
 **Interfaces:**
 - Produces:
   - `make_server(host, port, repo_dir, data_root, token=None)`. With a token: `ValueError("local mode binds
-    127.0.0.1 or ::1 only")` before the socket is made, unless `_is_loopback(host)`. Sets `server.token` (bytes or
-    None) and `server.caps["local"] = token is not None`.
+    127.0.0.1 or ::1 only")` raised **first**, before the store, `worker.recover()`, `worker.start()` and the socket
+    (no worker thread leaks), unless `_is_loopback(host)`. Sets `server.token` (bytes or None) and
+    `server.caps["local"] = token is not None`.
   - `_is_loopback(host: str) -> bool`. True for `ipaddress.ip_address(host).is_loopback` after the bracket strip.
     For `localhost`, true only when every address `socket.getaddrinfo(host, None)` returns is loopback. Any other
     name is False.
@@ -169,16 +173,21 @@ Task 4 have both landed, so only one commit to `server.py` is in flight at a tim
     today's.
   - `Handler._serve_bytes(path, content_type, no_store=False)`. With `no_store`, the header is
     `Cache-Control: no-store` (the `ETag` stays). `Handler._no_store(job: dict) -> bool` is
-    `job.get("source") == "local"`. `_job_face`, `_job_source_face`, `_job_report`, `_job_identity`, `_job_probe`
-    (`.svf` and `.json`) and `_job_preview` (`.png`, sent with `_serve_file(..., extra={"Cache-Control":
-    "no-store"})`) pass it. For an upload job, `_job_preview` keeps sending no `Cache-Control` (see design issue 4).
+    `job.get("source") == "local"`. `_job_face`, `_job_source_face`, `_job_report`, `_job_identity` and `_job_probe`
+    `.svf` pass it to `_serve_bytes`. The probe `.json` goes out through `_send(...)` (`server.py:1073`), so it gets
+    its own branch: `{"Cache-Control": "no-store" if no_store else "no-cache"}`. `_job_preview` sends `.png` with
+    `_serve_file(..., extra={"Cache-Control": "no-store"})` when `_no_store(job)`. For an upload job, `_job_preview`
+    keeps sending no `Cache-Control` (see design issue 4).
   - `CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob:
     data:; font-src 'self'; style-src 'self'"`. `_static` sends it as `Content-Security-Policy` on every static
     answer, token or not.
 
 - [ ] **Step 1: Write the failing tests** in `test_server.py`, in a new `class LocalBindTest(unittest.TestCase)` with
-  `TOKEN = "0123456789abcdef0123456789abcdef"`, a temp data root, and a helper
-  `start(host="127.0.0.1", token=TOKEN)` that returns a started server (stopped in `tearDown`):
+  `TOKEN = "0123456789abcdef0123456789abcdef"`, a temp data root, and two helpers of its own (it is not an
+  `ApiBase`): `start(self, host="127.0.0.1", token=TOKEN) -> server` returns a started server (stopped in
+  `tearDown`), and `raw(self, srv, method, path, body=None, headers=None) -> Reply` sends to `srv.port` the way
+  `ApiBase.raw` does. `setUp` saves `os.umask` and `tearDown` restores it (the token makes `make_server` set
+  `0o077`, Task 6):
 
 ```python
 def test_non_loopback_host_is_refused_with_the_token(self):
@@ -245,22 +254,25 @@ def test_csp_and_static_urls(self):
     # every file under maker/static/ except wasm/: after stripping /* */ and // comments (JS/CSS) and <!-- --> (HTML),
     # no match of r"https?://" and no match of r"""(?<![:\w])//[A-Za-z0-9.-]+\.[A-Za-z]{2,}""" (a protocol-relative URL)
 
-def test_no_store_on_a_local_flagged_job(self):
+def test_no_store_follows_the_predicate(self):
     jid = self.minimal_job(); job = self.run_to_done(jid)
     # GET face (first done step), report, probe .json and .svf (size/bpp of the step), preview/<fid>/source.png:
     #   collect the Cache-Control of each 200 answer: each is "no-cache" (the png: None)
-    self.srv.store.update(jid, lambda j: j.update(source="local"))
-    # the same GETs: each Cache-Control is "no-store"
+    with mock.patch.object(server.Handler, "_no_store", lambda self, job: True):
+        # the same GETs: each Cache-Control is "no-store"
 ```
 
-- [ ] **Step 2: Run** `python3 -m unittest discover -s maker/test -p test_server.py -k LocalBindTest -k test_csp -k no_store_on -v`.
+  The job stays an upload job. Only the predicate is patched, so the test stays valid once Task 6 gives local jobs
+  their own files directory. Task 8's `test_no_store_headers` proves the header on a real local job.
+
+- [ ] **Step 2: Run** `python3 -m unittest discover -s maker/test -p test_server.py -k LocalBindTest -k test_csp -k no_store_follows -v`.
   Expected: FAIL (`make_server() got an unexpected keyword argument 'token'`, no CSP header).
 - [ ] **Step 3: Implement** to the interface. `_HOST_CHECKED` stays for the no-token path. With a token, the `Host`
   check runs before `_route`.
 - [ ] **Step 4: Run** the new tests, then `python3 -m unittest discover -s maker/test -p test_page_dom.py`. Expected:
   `OK`. With Chrome on this host, the page must still load and draw under the CSP. If a page test fails on the CSP,
   widen only `style-src` (the spec allows that) and say so in the commit body.
-- [ ] **Step 5: Gates** G1, G2 (691), G3.
+- [ ] **Step 5: Gates** G1, G2 (693), G3.
 - [ ] **Step 6: Commit** `git add maker/server.py maker/caps.py maker/README.md maker/test/test_server.py && git commit -m "maker: per-launch token on every /api request, loopback-only bind with it, no-store for local bytes, CSP (t_cbd14d61)"`.
 
 Cannot verify here: the Electron shell adding the header (it does not exist yet). The tests send the header
@@ -339,14 +351,14 @@ construction" of 8.1.
 | server 655 | `_clear_previews` | F | `store.files_dir(job)/work/preview` (it loads the job) |
 | server 668-670, 695, 698, 769, 790, 807, 810, 812 | `_job_files`, `_unpack`, `_record_counts` | X | unchanged |
 | server 863, 869 | `_job_settings` | U | `settings.validate(fonts, body, store.sources(current))` |
-| server 881, 882, 889, 893, 897, 898 | `_job_run` | M+F+U | `job_dir` (M), `files_dir`, `sources`; `run_ready(..., sources)`, `plan_steps(..., files_dir, tools_dir, sources, ...)`, `_check_steps(files_dir, sources, fonts, steps)`, `_check_notes(fonts, steps, sources, files_dir)` |
+| server 881, 882, 889, 893, 897, 898 | `_job_run` | F+U | `job_dir` is dropped (it is only used as F after the conversion); `files_dir`, `sources`; `run_ready(..., sources)`, `plan_steps(..., files_dir, tools_dir, sources, ...)`, `_check_steps(files_dir, sources, fonts, steps)`, `_check_notes(fonts, steps, sources, files_dir)` |
 | server 906, 915, 919 | `_check_steps` | F+U | the output `_inside(files_dir, ...)`; the font path: `sources.abs_of(font.get("root", 0), path)` must not raise |
 | server 922, 931, 938 | `_check_notes` | F+U | `work_dir = files_dir/work`; `materialized_argv([step], sources, work_dir)` |
 | server 958, 965, 973 | `_job_preview` | F | `files_dir` |
 | server 985, 990, 991 | `_job_face` | F | `files_dir` (Task 8 adds the output-folder branch) |
-| server 998, 1002, 1003 | `_job_report` | F | `files_dir` (Task 8 adds `steps/`) |
+| server 998, 1002, 1003 | `_job_report` | F | `files_dir` (Task 8 adds `steps/` through `store.meta_dir(job)`) |
 | server 1014, 1024, 1025, 1030, 1031, 1034 | `_job_probe` | F+U | `files_dir`; `_prepared_source(entry, eff, sources, out_dir)`; `range_spec(eff, sources)`; `sources.inside(rabs)` replaces `_inside(upload_dir, rabs)` |
-| server 1094, 1098, 1099 | `_job_identity` | F | `files_dir` (Task 8 adds `steps/`) |
+| server 1094, 1098, 1099 | `_job_identity` | F | `files_dir` (Task 8 adds `steps/` through `store.meta_dir(job)`) |
 | server 1106, 1110, 1119, 1124 | `_job_source_face` | F | `files_dir` |
 | server 1138, 1142, 1143, 1147, 1148, 1155 | `_make_source_preview(job, job_dir, font)` | F+U | `(job, files_dir, font)`; `sources = store.sources(job)`; the plain path `sources.abs_of(font.get("root", 0), font["path"])`; `_companion_abs(eff, fonts, sources, out_dir)` |
 | server 1169, 1174 | `_prepared_source(font, eff, upload_dir, out_dir)` | U | `(font, eff, sources, out_dir)` |
@@ -364,7 +376,8 @@ check in this list before and after.
 
 **Interfaces:**
 - Produces (`maker/sources.py`, stdlib only):
-  - `FILE_CAP = 2000`, `LOCAL_FILE_CAP = 256 << 20`, `LOCAL_BYTES_CAP = 1 << 30`.
+  - `FILE_CAP = 2000`, `LOCAL_FILE_CAP = 256 << 20`, `LOCAL_BYTES_CAP = 1 << 30`, `LOCAL_FREE_MIN = 256 << 20`
+    (used by Task 7's free-space check; `server.py` imports it from here).
   - `class Sources(kind: str, roots: list[str], tmp_dir: str | None = None)`. `kind` is `"upload" | "local"`, and
     `ValueError` for any other value. `roots` is a list of absolute paths. An upload root is kept as given, and its
     checks compare `realpath`s exactly as today's code does. `tmp_dir` None means the system temp dir (upload jobs).
@@ -373,7 +386,8 @@ check in this list before and after.
     that pass strings stay as they are.
   - `abs_of(root: int, rel: str) -> str`. `root` must be an `int` (not `bool`) in range, and `rel` a non-empty `str`
     that is not absolute and contains no NUL. For a directory root: `os.path.join(roots[root], rel)`, whose
-    `realpath` must equal or be under `realpath(roots[root]) + os.sep`. For a file root: `rel` must equal
+    `realpath` must be **strictly** under `realpath(roots[root]) + os.sep` (today's `_upload_path` rule; the root
+    itself is refused). For a file root: `rel` must equal
     `os.path.basename(roots[root])`, and the root itself is returned. Anything else raises `ValueError("outside")`
     (callers keep their own messages).
   - `is_file_root(i) -> bool`.
@@ -382,17 +396,28 @@ check in this list before and after.
     `ValueError`.
   - `walk() -> tuple[list[tuple[int, str, str]], list[tuple[int, str, str]]]`. Returns `(files, refused)`, both in
     `(root, rel)` order. `files` are regular files: `(root, rel, abs)`. A file root yields
-    `(i, basename, root)`. `os.walk(followlinks=False)`: a symlinked file or directory goes into `refused` with
-    `"symlink, skipped"`, and device, socket and FIFO entries are dropped silently. For `kind == "local"` the caps
+    `(i, basename, root)`. `os.walk(followlinks=False)`: a symlinked file goes into `refused` with
+    `"symlink, skipped"` (both kinds, today's scan rule). A symlinked **directory** goes into `refused` for a local
+    root only; an upload root keeps omitting it silently, as `os.walk` does today. Device, socket and FIFO entries are
+    dropped silently. For `kind == "local"` the caps
     apply. A file over `LOCAL_FILE_CAP` is refused with `"too large, skipped"`. The walk stops at `FILE_CAP` files,
     or once `LOCAL_BYTES_CAP` bytes are passed, adding one refusal `(root, "", "more than %d files: choose a smaller
     folder" % FILE_CAP)` (bytes: `"more than 1 GiB: choose a smaller folder"`). An upload root walks without caps,
     as `scan` did.
 - Produces (`maker/detect.py`): `scan(sources, local=False)`. With an upload `Sources`, the entries are byte-for-byte
   today's (no `root` key). With a local `Sources`, every entry has `"root": i`, its `path` is root-relative, and
-  `entry["licences"][]` carry `"root"`. The internal tables (`abs_of`, `groups`, `dos_folders`, the `eng` folder
-  rule, licence folders) are keyed by `(root, rel)`. Ids are positional in `(root, rel)` order. `local=True` changes
-  nothing else yet (Task 6).
+  `entry["licences"][]` carry `"root"`. `abs_of` and `groups` are keyed by `(root, rel)`. Ids are positional in
+  `(root, rel)` order.
+  - **Folder key.** The "same folder" tables (`dos_folders`, the `eng` folder rule, the licence folders) are keyed by
+    `folder_of(abs) = os.path.realpath(os.path.dirname(abs))`. This is the same for an upload (one root). Two
+    directory roots stay two folders, since their real directories differ. Two **file** roots picked from one
+    directory share a folder, so `/fonts/Munjo.ttf` and `/fonts/OFL.txt` picked together pair up.
+  - **Licence ceiling.** `find_licences` walks upward from a file's folder to the ceiling of its root and no
+    further. The ceiling is the root itself for a directory root, and the file's own parent for a file root (it
+    does not walk up). A file root's licence is therefore only a licence file the user **also picked**, as another
+    file root in the same directory (design issue 15). The server never lists or opens a sibling it was not given
+    (spec 10.6).
+  - `local=True` changes nothing else yet (Task 6).
 
 - [ ] **Step 1: Write the failing tests.** `test_sources.py`, `class SourcesTest`:
 
@@ -408,6 +433,7 @@ def test_file_root(self):
 def test_two_roots_same_rel(self):
     s = Sources("local", [A, B])                    # both hold OFL.txt
     self.assertEqual((s.abs_of(0, "OFL.txt"), s.abs_of(1, "OFL.txt")), (A + "/OFL.txt", B + "/OFL.txt"))
+    with self.assertRaises(ValueError): s.abs_of(0, ".")                              # the root itself: refused
     self.assertEqual(s.rel_of(B + "/OFL.txt"), (1, "OFL.txt"))
 def test_walk_skips_links_and_devices(self):
     # dir root with x.ttf, link -> x.ttf, sub -> (a dir symlink), fifo (os.mkfifo):
@@ -433,16 +459,26 @@ def test_scan_two_roots_keeps_folders_apart(self):
     self.assertEqual([(f["root"], f["id"]) for f in ttfs], [(0, ttfs[0]["id"]), (1, ttfs[1]["id"])])
     for f in ttfs:
         self.assertEqual([(l["root"], l["path"]) for l in f["licences"]], [(f["root"], "OFL.txt")])
-def test_upload_scan_unchanged_by_sources(self):
-    # the FIXTURE tree uploaded: detect.scan(dir) == detect.scan(Sources("upload", [dir])), no entry has "root"
+def test_file_roots_in_one_folder_pair_up(self):
+    # tmp/fonts/Munjo.ttf (inputfx.ttf), tmp/fonts/OFL.txt, tmp/fonts/NOTES.txt (licence text, not picked)
+    with mock.patch("builtins.open", wraps=open) as spy:
+        fonts = detect.scan(Sources("local", [fonts_dir + "/Munjo.ttf", fonts_dir + "/OFL.txt"]))
+    ttf = next(f for f in fonts if f["format"] == "ttf")
+    self.assertEqual(ttf["licences"], [{"root": 1, "path": "OFL.txt", "first_line": mock.ANY}])
+    self.assertNotIn(fonts_dir + "/NOTES.txt", [c.args[0] for c in spy.call_args_list])   # never opened
+    fonts = detect.scan(Sources("local", [fonts_dir + "/Munjo.ttf"]))
+    self.assertEqual(fonts[0]["licences"], [])                                      # alone: no licence found
 ```
 
+  The proof that the upload scan is unchanged is the unmodified `test_detect.py` and `test_detect_inputs.py` (91 +
+  34 tests), not a comparison of the new code with itself.
+
 - [ ] **Step 2: Run** `python3 -m unittest discover -s maker/test -p 'test_sources.py' -v` and
-  `... -p test_detect_inputs.py -k two_roots -k unchanged_by_sources`. Expected: FAIL (`No module named 'sources'`).
+  `... -p test_detect_inputs.py -k two_roots -k file_roots_in_one_folder`. Expected: FAIL (`No module named 'sources'`).
 - [ ] **Step 3: Implement** `sources.py` and the detect rows of the S1 hit list.
 - [ ] **Step 4: Run** `test_sources.py`, `test_detect.py`, `test_detect_inputs.py`. Expected: `OK`, with every
   existing detect test unchanged.
-- [ ] **Step 5: Gates** G1, G2 (699), G3.
+- [ ] **Step 5: Gates** G1, G2 (702), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: Sources, the one resolver for input paths; scan walks it (t_cbd14d61)"`.
 
 Cannot verify here: nothing beyond Linux symlink semantics. A macOS firmlink is resolved by `realpath` the same way,
@@ -495,7 +531,7 @@ def test_upload_path_message_unchanged(self):
   Expected: FAIL.
 - [ ] **Step 3: Implement** the settings rows of the S1 hit list and the root validation.
 - [ ] **Step 4: Run** `test_settings.py`, `test_plan_inputs.py`. Expected: `OK`, the existing tests untouched.
-- [ ] **Step 5: Gates** G1, G2 (704), G3.
+- [ ] **Step 5: Gates** G1, G2 (707), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: settings resolve every input path through Sources with its root (t_cbd14d61)"`.
 
 Cannot verify here: nothing; all of it is in-process.
@@ -507,6 +543,8 @@ Cannot verify here: nothing; all of it is in-process.
 
 **Interfaces:**
 - Produces (`jobs.Store`):
+  - `meta_dir(job_id: str) -> str` is `self.path(job_id)`: the name every **metadata-directory** read in a handler
+    uses from now on (`log.md`, `steps/`), so a handler never calls `store.path(` itself.
   - `files_dir(job: dict) -> str`. Returns `self.path(job["id"])` for `job.get("source", "upload") == "upload"`.
     (Task 6 adds the local branch.)
   - `sources(job: dict) -> Sources`. Returns `Sources("upload", [self.path(job["id"], "upload")])`. (Task 6 adds the
@@ -544,7 +582,7 @@ def test_write_zip_reads_faces_from_files_dir(self):
 - [ ] **Step 2: Run** them. Expected: FAIL (`Store has no attribute files_dir`).
 - [ ] **Step 3: Implement** the jobs and zipout rows of the S1 hit list.
 - [ ] **Step 4: Run** `test_jobs.py`, `test_zipout.py`, `test_plan_inputs.py`, `test_v3_output.py`. Expected: `OK`.
-- [ ] **Step 5: Gates** G1, G2 (708), G3.
+- [ ] **Step 5: Gates** G1, G2 (711), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: the worker and the zip read inputs through Sources and work files from the files directory (t_cbd14d61)"`.
 
 Cannot verify here: nothing.
@@ -563,6 +601,12 @@ Cannot verify here: nothing.
   `_kept_settings(old, fonts, old_fonts, roots=None, old_roots=None)`: for local jobs (`roots` given), the key is
   `(old_roots[e["root"]]["path"], e["path"], e["face_index"])`, mapped onto
   `(roots[f["root"]]["path"], f["path"], f["face_index"])`. For upload jobs it stays `(path, face_index)`.
+  Root-indexed settings are remapped through `old index -> old root path -> new index`: a kept per-font
+  `licence: {"kind": "upload", "root": i}`, a per-font `range_root`, and the batch `range_root`. When the old root
+  is gone, the licence falls back to the font's fresh default, and a range falls back to no range (`range` and
+  `range_root` dropped). The full signature is `_kept_settings(old, fonts, old_fonts, roots=None, old_roots=None,
+  local=False)`, and it calls `settings.defaults(fonts, local=local)` (the `local` keyword exists from Task 6; Task 5
+  passes it through, and `defaults` ignores it until then).
 
 - [ ] **Step 1: Write the failing tests** in `test_server.py`:
 
@@ -575,6 +619,11 @@ def test_kept_settings_by_root_path_for_local(self):
     kept = server._kept_settings(old, new_fonts, old_fonts, roots=roots, old_roots=old_roots)
     self.assertEqual([kept["fonts"][f]["dest"] for f in ("f01", "f03")], ["games/b", "games/a"])
     self.assertEqual(kept["fonts"]["f02"]["dest"], settings.defaults(new_fonts)["fonts"]["f02"].get("dest", "dos"))
+def test_kept_settings_remaps_root_indices(self):
+    # old f01 (root 0 = /a) has licence {"kind": "upload", "root": 0, "path": "OFL.txt"} and range_root 0, batch
+    #   range_root 1 (/b); after the roots are reordered to [/b, /c, /a]: f03's licence root == 2, range_root == 2,
+    #   batch range_root == 0; with /a removed from the roots: the licence is the fresh default, range and range_root
+    #   are gone
 # ApiTest
 def test_files_dir_is_the_only_work_root(self):
     other = tempfile.mkdtemp()
@@ -584,13 +633,17 @@ def test_files_dir_is_the_only_work_root(self):
     # every work/ file is under `other`; data/jobs/<jid>/ holds job.json, log.md, upload/, out/ (the zip) and nothing else
 def test_no_upload_path_outside_the_upload_handlers(self):
     # inspect.getsource of every Handler method except _job_files, _unpack, _record_counts, _reserve_upload,
-    # _release_upload, _receive, _job_zip: no '"upload"' literal and no "store.path(" call
+    # _release_upload, _receive, _job_zip: no match of r"""(store\.path|os\.path\.join)\([^)]*["']upload["']"""
+    # (an upload directory built by hand) and no "store.path(" call (metadata reads go through store.meta_dir)
 ```
+
+  This rule stays true in every later task. Task 6's `_job_create` compares the string `"upload"` but builds no
+  path. Task 8's `steps/` reads go through `store.meta_dir(job)`. `_job_run` no longer holds `job_dir`.
 
 - [ ] **Step 2: Run** them. Expected: FAIL.
 - [ ] **Step 3: Implement** the server rows of the S1 hit list.
 - [ ] **Step 4: Run** `test_server.py`, `test_server_signals.py`, `test_page_dom.py`. Expected: `OK`.
-- [ ] **Step 5: Gates** G1, G2 (711), G3.
+- [ ] **Step 5: Gates** G1, G2 (715), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: every handler resolves inputs through Sources and work files through the files directory (t_cbd14d61)"`.
 
 Cannot verify here: nothing.
@@ -604,7 +657,8 @@ edited (`git diff ce976f8 -- maker/test` shows only additions in Tasks 1-5).
 # Group B: the local job
 
 Tasks 6 -> 7 -> 8 run in order (they share `server.py`, `jobs.py`, `settings.py`). Task 10 (unwired Mac code: only
-`macfx.py`, `srcprep.py` and their tests) may run alongside them.
+`macfx.py`, `srcprep.py` and their tests) may run alongside them **in its own worktree**, and lands after Task 8,
+rebased.
 
 ### Task 6: create, sources, detect (slice S3, part 1)
 
@@ -612,9 +666,10 @@ Tasks 6 -> 7 -> 8 run in order (they share `server.py`, `jobs.py`, `settings.py`
 - Modify: `maker/sources.py` (path rules), `maker/jobs.py` (`Store.create`, `files_dir`, `sources`),
   `maker/server.py` (`_job_create`, `_job_sources`, `_job_files` 409, `_job_detect`, `_job_get`, umask),
   `maker/detect.py` (local labels, archive label, `tmp_dir`), `maker/settings.py` (default text licence, licence root
-  in defaults), `maker/preview.py` (no change of rule: callers pass `env`)
+  in defaults), `maker/preview.py` (`env` passthrough in `bake_source_face`)
 - Create: `maker/test/localfx.py`, `maker/test/test_local.py`
-- Modify: `maker/test/test_detect_inputs.py`, `maker/test/test_server.py` (`LocalBindTest.test_origin_null_on_put_sources`)
+- Modify: `maker/test/test_detect_inputs.py`, `maker/test/test_server.py` (`LocalBindTest.test_origin_null_on_put_sources`;
+  `test_kept_settings_by_root_path_for_local` gains the `local=True` default-licence case)
 
 **Interfaces:**
 - Produces (`maker/sources.py`):
@@ -633,8 +688,13 @@ Tasks 6 -> 7 -> 8 run in order (they share `server.py`, `jobs.py`, `settings.py`
     realpath'd. Unset or empty gives None.
 - Produces (`jobs`):
   - `Store.create(source="upload", output_dir=None, output_id=None)`. A local job gets `source`, `output_dir`,
-    `output_id` (a list of 2 ints), `roots: []`, `upload: {"files": 0, "bytes": 0, "refused": []}`, and **no**
-    `upload/ work/ out/`. Only `job.json` is written.
+    `output_id` (a list of 2 ints), `roots: []`, `owned: {}`, `upload: {"files": 0, "bytes": 0, "refused": []}`,
+    and **no** `upload/ work/ out/`. Only `job.json` is written. `owned` is the job's ownership record
+    (output-relative path -> sha256 of the bytes this job wrote there). It is a **top-level** key that no state
+    transition resets: `POST detect` and `POST run` both set `result=None` (`server.py:607-609`, `:899`), so
+    ownership cannot live in `result` (Task 7 fills it).
+  - `Store.list()` items gain `"source"` (default `"upload"`) and `"output_id"` (or None), so the one-active-job
+    check, `recover` and the sweeps need no per-job `load` to find local jobs.
   - `Store.files_dir(job)` is `<output_dir>/.svf-maker-<id>` for a local job.
   - `Store.ensure_files_dir(job) -> str` checks `stat_id(output_dir) == tuple(job["output_id"])`, else raises
     `OutputGone("output folder is gone or changed")`. It then runs `os.makedirs(files_dir/work/tmp, mode=0o700)` and
@@ -656,22 +716,36 @@ Tasks 6 -> 7 -> 8 run in order (they share `server.py`, `jobs.py`, `settings.py`
   - `PUT /api/jobs/<id>/files` on a local job: 409 `"job <id> is a local job"`.
   - `POST detect` on a local job scans `store.sources(job)` with `local=True`, records
     `font["file_id"] = [st_dev, st_ino, st_size]` per entry (from `os.lstat`), and keeps settings through
-    `_kept_settings(..., roots=..., old_roots=...)`.
+    `_kept_settings(..., roots=..., old_roots=..., local=True)`. The transition keeps `job["owned"]` untouched.
+    For a local job, each entry's `error` (a traceback) is appended to `log.md` in the metadata directory at detect
+    time, and `job.json` keeps only `font["error_type"]` (the exception class name).
   - `GET /api/jobs/<id>` of a local job adds `source`, `output_dir` and `roots`, and drops every `font["error"]`.
-  - `make_server(..., token)` calls `os.umask(0o077)` once when the token is set.
-  - A local job's previews, probe and source bakes call `preview.run_bounded(..., env=self._tool_env(job))`.
-    `_tool_env(job)` is `preview.ENV` plus `TMPDIR = files_dir/work/tmp` for a local job, else `None`. Every
-    preview, probe and source-face path of a local job first calls `ensure_files_dir`, and turns `OutputGone` into
-    404 `"output folder is gone or changed"`.
+  - `make_server(..., token)` calls `os.umask(0o077)` once when the token is set. The umask is process-global, so
+    `LocalBase` and `LocalBindTest` save it in `setUp` and restore it in `tearDown`, and the rest of the discovery
+    run keeps the default.
+  - `_tool_env(job)` is `dict(preview.ENV, TMPDIR=files_dir/work/tmp, PYTHONDONTWRITEBYTECODE="1")` for a local job
+    (design issue 10), else `None`. It reaches **every** tool start of a request thread:
+    - `preview.bake_source_face(..., env=None)` gains the keyword and passes it to its `run_bounded` calls;
+    - `Handler._run_probe(argv, cwd, out_svf, out_json, env=None)`;
+    - `Handler._prepared_source(font, eff, sources, out_dir, env=None)`'s conversion loop;
+    - `preview.source_png` starts no tool (Pillow in-process) and needs nothing.
+  - Every preview, probe and source-face path of a local job first calls `ensure_files_dir`, and turns `OutputGone`
+    into 404 `"output folder is gone or changed"`.
 - Produces (`detect.scan(sources, local=True)`):
   - `"unknown (%s)" % hex` becomes `"unknown"`.
+  - `_mac_entries`' `"unknown (Mac resource fork: %s)" % e` becomes `"unknown (Mac resource fork: %s)" %
+    type(e).__name__`, since a `PrepError` text can quote resource types read from the file.
+  - The `TooLarge` label `str(e)` stays: it is the maker's own message (a size and a cap), with no input bytes.
   - `unreadable: <Type>: <message>` becomes `unreadable: <Type>`.
   - `"; cannot prepare: %s"` becomes `"; cannot prepare (%s)" % type(ex).__name__`.
   - An archive is a kept entry with `format: "archive"`, `source_kind: "other"`, label `"archive: extract it first,
     then choose the folder"`.
   - `_bdf_glyphs(path, unicode_enc=None, data=None, tmp_dir=None)` passes `dir=tmp_dir` to `mkstemp`, and `scan`
     passes `sources.tmp_dir`.
-  - `font["error"]` (the traceback) stays in the entry for `log.md`.
+  - `font["error"]` (the traceback) stays in the scan's entry; the server moves it to `log.md` (above).
+  - `licences[].first_line` (the first 120 characters of a text accepted as a licence) is kept in `job.json`. It is
+    the one piece of an input's text that reaches the data directory, as spec 8.2 item 3 states and accepts; the user
+    needs it to choose.
 - Produces (`settings.defaults(fonts, local=False, today=None)`):
   - With `local=True`, a font with no licence file gets `licence = {"kind": "text", "text": "%s: proprietary font,
     converted on %s for the owner's own use; not for redistribution." % (family, today)}`, where `today` defaults to
@@ -681,12 +755,16 @@ Tasks 6 -> 7 -> 8 run in order (they share `server.py`, `jobs.py`, `settings.py`
 - Produces (`maker/test/localfx.py`):
   - `local_tree(tmp) -> dict`. It writes `tmp/in/a/` (a TTF, `inputfx.ttf`, + `OFL.txt`), `tmp/in/b/` (a DOS raw
     844 16 px `fixtures._dos_raw` + an 8x16 `eng`), and `tmp/in/c/hanterm.bdf.gz` (gzip of `fixtures._bdf`'s johab
-    BDF). It returns `{"in": ..., "out": tmp/out (made), "roots": [tmp/in/a, tmp/in/b, tmp/in/c]}`. Task 11 extends
-    it with the Mac files.
+    BDF): five files. It returns `{"in": ..., "out": tmp/out (made), "roots": [tmp/in/a, tmp/in/b, tmp/in/c]}`.
+    Task 11 extends it with the Mac files.
+  - `walk_rel(root, skip_prefix=None) -> set[str]` returns the `/`-separated relative paths of every file under
+    `root`, leaving out a top-level directory whose name starts with `skip_prefix`.
   - `read_only(test, path)` chmods dirs 0o555 and files 0o444, and registers a cleanup that restores 0o755/0o644.
   - `class LocalBase(unittest.TestCase)` runs `setUp` with `make_server("127.0.0.1", 0, REPO, data, token=TOKEN)`.
-    Helpers `api(method, path, obj=None) -> (status, json)` send the header, `local_job(roots, out) -> id` creates,
-    puts the sources and detects, and `run_to_done(jid)`.
+    `setUp` and `tearDown` save and restore `os.umask`. Helpers: `api(method, path, obj=None) -> (status, json)`
+    sends the header; `local_job(roots, out) -> id` creates, puts the sources and detects; `run_to_done(jid)`;
+    `rerun(jid, edit=None)` does `POST detect`, applies `edit(settings)` through `PUT settings`, then `POST run` and
+    waits (a done job takes neither `PUT settings` nor `POST run`, `server.py:859, 885`).
 
 - [ ] **Step 1: Write the failing tests** in `test_local.py` (`class LocalJobTest(LocalBase)`):
 
@@ -715,13 +793,13 @@ def test_one_job_per_output_folder_at_create(self):
     self.api("DELETE", "/api/jobs/%s" % a)
     self.assertEqual(self.api("POST", "/api/jobs", {"source": "local", "output_dir": out})[0], 200)
 def test_put_sources_and_detect(self):
-    # answer: roots == [{"path": realpath, "kind": "dir", "name": "a"}, ...], files == 6, refused == []
+    # answer: roots == [{"path": realpath, "kind": "dir", "name": "a"}, ...], files == 5, refused == []
     # GET job: every font has root and a root-relative path; no font has "error"; ids f01.. in (root, rel) order
 def test_unreadable_label_names_the_type_only(self):
     # tmp/in/d/bad.ttf = b"\x00\x01\x00\x00" + b"\xff\xfe" * 40 (fontTools fails); tmp/in/d/x.bin = 64 random bytes;
     # tmp/in/d/z.zip (a zipfile): labels "unreadable: <Type>" exactly (re r"^unreadable: [A-Za-z_]+$"), "unknown",
     # "archive: extract it first, then choose the folder"; GET job JSON text contains no hex of x.bin's head and no ': '
-    # after the type
+    # after the type; job.json holds error_type, not error; log.md holds the traceback
 def test_local_default_text_licence(self):
     # the DOS raw font of tmp/in/b (no licence beside it): licence kind "text", text matches
     # r"^\S+: proprietary font, converted on \d{4}-\d\d-\d\d for the owner's own use; not for redistribution\.$",
@@ -731,12 +809,15 @@ def test_previews_of_a_local_job_stay_in_files_dir(self):
     real = preview.run_bounded
     with mock.patch.object(preview, "run_bounded", lambda argv, cwd, timeout, env=None: (seen.append((cwd, env)), real(argv, cwd, timeout, env))[1]):
         # GET preview/<ttf>/source.png, GET probe/<ttf>/16/1.json, GET source/<dos>.svf (after setting dos_layout 844)
+    self.assertTrue(seen)                         # the probe and the DOS bake both started tools
     for cwd, env in seen:
-        self.assertTrue(cwd.startswith(fd)); self.assertEqual(env["TMPDIR"], os.path.join(fd, "work", "tmp"))
+        self.assertTrue(cwd.startswith(fd)); self.assertIsNotNone(env)
+        self.assertEqual(env["TMPDIR"], os.path.join(fd, "work", "tmp")); self.assertEqual(env["PYTHONDONTWRITEBYTECODE"], "1")
         self.assertEqual(env["HOME"], os.environ.get("HOME", "/"))
 def test_no_upload_copy(self):
-    # first form: after sources, detect and the three previews above: data/jobs/<id>/ == {"job.json"} (log.md comes
-    # with run); no file under data_root has the sha256 of an input; job.json text has no input's head hex or base64
+    # first form: after sources, detect and the three previews above: data/jobs/<id>/ is a subset of
+    # {"job.json", "log.md"}; no file under data_root has the sha256 of an input; job.json text has no input's head hex
+    # or base64
 ```
 
   `test_detect_inputs.py`:
@@ -761,7 +842,7 @@ def test_origin_null_on_put_sources(self):
 - [ ] **Step 3: Implement** to the interfaces.
 - [ ] **Step 4: Run** `test_local.py`, `test_detect_inputs.py`, `test_server.py`, `test_settings.py`. Expected:
   `OK`.
-- [ ] **Step 5: Gates** G1, G2 (720), G3.
+- [ ] **Step 5: Gates** G1, G2 (729), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: local jobs: path-checked sources and output folder, files directory, scan over roots without input bytes in labels (t_cbd14d61)"`.
 
 Cannot verify here: a case-insensitive filesystem or a bind mount (the inode rule covers both, but only the symlink
@@ -782,17 +863,28 @@ spelling is tested), a removable drive, and macOS `/tmp -> /private/tmp`.
     `"<dest>/<NAME>"` paths. A face, note or licence name in it is exempt from `"already exists in svf/<dest>;
     choose another name"`, `_clash_errors` and `_licence_present_ok`.
 - Produces (`zipout`):
-  - `collect(job, files_dir, index, fonts_by_id, effective, repo_dir, sources, own_earlier=frozenset(), tools_dir=None)
-    -> (entries: dict[str, bytes], sidecar: list[tuple[str, bytes]], result: dict, faces: list)`. This is today's
-    `_write_zip` up to the sidecar texts. `check_face`'s `"clash"` and `_text_entry`'s `NameClash` are skipped for a
+  - `collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, sources, own_earlier=frozenset(),
+    tools_dir=None) -> (entries: dict[str, bytes], sidecar: list[tuple[str, bytes]], result: dict, faces: list)`.
+    This is today's `_write_zip` up to the sidecar texts. `job_dir` is the metadata directory: `log.md` is read
+    from it for `BUILD.md` (`zipout.py:598`), and a refused note is appended to it (`:569`). `files_dir` is where the
+    faces are read. `check_face`'s `"clash"` and `_text_entry`'s `NameClash` are skipped for a
     rel in `own_earlier`. Sidecar names are bare (`"BUILD.md"`, ...). `write_zip` prefixes `svf-maker-<id>/`.
   - `write_zip(...)` is `collect` + today's archive write. Unchanged output: every `test_zipout` assertion stays.
-  - `write_tree(job, entries, sidecar, output_dir, output_id, owned: dict[str, str]) -> list[str]`. `owned` maps an
-    output-relative path to the sha256 this job wrote there. For each entry it writes `<path>.tmp` and then:
+  - `write_tree(job, entries, sidecar, output_dir, output_id, owned: dict[str, str], on_landed) -> list[str]`.
+    `owned` is `job["owned"]` (output-relative path -> the sha256 this job wrote there). `on_landed(rel, sha256)` is
+    called as each file lands; the worker records it in `job["owned"]` and saves, so a partial landing is owned too.
+    For each entry it writes `<path>.tmp` (fsynced) and then:
     - if `path` is in `owned` and the current file's sha256 equals `owned[path]` (or the file is absent):
-      `os.replace`;
-    - if it is in `owned` with other current bytes: `NameClash`;
-    - otherwise `os.link(tmp, path)`, where `FileExistsError` is a `NameClash`; then remove the tmp.
+      `os.replace(tmp, path)`;
+    - if it is in `owned` with other current bytes: `NameClash` (someone else's file now);
+    - otherwise, a new name: `os.link(tmp, path)`, where `FileExistsError` is a `NameClash`; then remove the tmp.
+    - **No hard links** (FAT/exFAT sticks, many SMB/NAS mounts): when `os.link` raises `OSError` with `errno` in
+      `(EPERM, ENOTSUP, EOPNOTSUPP, ENOSYS, EMLINK)`, the fallback is "claim, copy, verify, rename". It claims the
+      name with `os.open(path, O_CREAT | O_EXCL | O_WRONLY, 0o600)`, where `FileExistsError` is a `NameClash` (the
+      same atomic no-clobber guarantee `link` gave), and closes it empty. Then `os.replace(tmp, path)` swaps in the
+      content atomically over its own claim. Then it re-reads `path` and requires its sha256 to equal the entry's.
+      Otherwise it raises `OSError(EIO, "verify failed")`. On any failure after the claim, it removes `path` only if
+      the path still holds its own claim or its own bytes.
     `build-<id>/*` is always `os.replace`d. It runs `os.stat(output_dir)` against `output_id` first (raising
     `jobs.OutputGone`). It creates `svf/<dest>/` and `build-<id>/` only. On any exception it removes the `.tmp`
     files. Returns the list of output-relative paths that landed, with partial results kept on failure (attached to
@@ -802,69 +894,94 @@ spelling is tested), a removable drive, and macOS `/tmp -> /private/tmp`.
     under `tools_dir` becomes `"tools/" + basename`, and under `maker/` `"maker/" + basename`. A copy step names the
     basename of the font's path.
 - Produces (`jobs.Worker`, a local job):
-  - `_write_output` builds `own_earlier = {p[len("svf/"):] for p in previous result.files if p.startswith("svf/")}`.
-    It builds `owned` from the previous `result["owned"]` (`{path: sha256}`) and uses
-    `naming.RepoIndex(<output_dir>/svf)`. It calls `collect`, then `write_tree`.
-  - `result = {"files": landed + kept, "owned": {...}, "written": [...faces...], "skipped": [...],
-    "failed_steps": [...], "output_dir": ...}`. `kept` is every `own_earlier` path a step of this run found
-    `identical_to` (the job still owns it). A done step gains `"written": "svf/<dest>/<NAME>"`, or keeps
-    `identical_to`.
+  - `own_earlier(job) -> frozenset[str]` (in `jobs`, used by the worker and by `server._job_run`) is
+    `{rel[len("svf/"):] for rel in job.get("owned", {}) if rel.startswith("svf/")}`. It is read from the top-level
+    `job["owned"]` of Task 6, which `POST detect` and `POST run` never reset. The previous `result` is gone by then.
+  - `_write_output` uses `naming.RepoIndex(<output_dir>/svf)`, calls `collect(..., own_earlier(job))`, then
+    `write_tree(..., job["owned"], on_landed)`.
+  - `result = {"files": landed + kept, "written": [...faces...], "skipped": [...], "failed_steps": [...],
+    "output_dir": ...}`. `kept` is every owned path a step of this run found `identical_to` (the job still owns it,
+    and `job["owned"]` keeps its sha256). A done step gains `"written": "svf/<dest>/<NAME>"`, or keeps
+    `identical_to`. An owned path the user deleted stays in `owned`, and `write_tree` treats an absent file as
+    replaceable.
   - A `NameClash` or `OutputGone` fails the job with its message. An `OSError` in `write_tree` fails it with
     `"%s: %s" % (type, strerror)` and `result.files` = what landed.
-  - The env of `run_command` for a local job is `jobs.ENV` plus `TMPDIR=files_dir/work/tmp` and
-    `PYTHONDONTWRITEBYTECODE=1`. Task 6's `_tool_env` gains `PYTHONDONTWRITEBYTECODE=1` too (design issue 10).
+  - `Worker._job_env(job) -> dict | None` is `dict(ENV, TMPDIR=files_dir/work/tmp, PYTHONDONTWRITEBYTECODE="1")`
+    for a local job, else None. It is passed to every `run_command` of the job, **including** `_identity`'s
+    recogniser run, which today builds its own `dict(ENV, SVF_RECOG_DIR=recog)` (`jobs.py:771`) and now uses
+    `dict(self._job_env(job) or ENV, SVF_RECOG_DIR=recog)`.
   - `_run_steps` fails a step whose `needs` names a step in state `failed` with `"companion source failed"` before
     running it.
 - Produces (`server._job_run`, a local job, under the job lock):
   - `ensure_files_dir`, where `OutputGone` is 409 `"output folder is gone or changed"`.
   - Every root still passes `check_path`.
-  - Every selected font's `file_id` must equal a fresh `os.lstat` (same dev, ino, size, regular). A change is 409
-    `"%s: the input changed since detection: detect again" % font["path"]`.
+  - Every entry a planned step reads must have a `file_id` equal to a fresh `os.lstat` (same dev, ino, size,
+    regular). That means each selected font, its `latin_companion` and (Task 11) `htbl_companion` entries, the entry
+    of an `upload` licence it names, and the list entry of a `file` range. A change is 409 `"%s: the input changed
+    since detection: detect again" % entry["path"]`.
   - The one-active-job rule is checked again (409).
-  - `shutil.disk_usage(output_dir).free >= LOCAL_FREE_MIN + sum(selected input sizes)`, else 409 `"not enough free
-    space in %s" % output_dir`. `LOCAL_FREE_MIN = 256 << 20`.
-  - `run_ready(..., own_earlier)` against `RepoIndex(<output_dir>/svf)`.
+  - `shutil.disk_usage(output_dir).free >= sources.LOCAL_FREE_MIN + sum(selected input sizes)`, else 409 `"not
+    enough free space in %s" % output_dir`.
+  - `run_ready(..., own_earlier=jobs.own_earlier(j))` against `RepoIndex(<output_dir>/svf)`.
   - `_check_steps` refuses a `needs` id that is not an earlier step (500-style `ValueError`, as the output check
     does).
   - `_check_notes` uses the `note_commands` rewrite.
 
 - [ ] **Step 1: Write the failing tests** (`test_local.py`, `class LocalRunTest(LocalBase)`). Each selects the TTF of
   `tmp/in/a` (mkfont 16 px 1 bpp, dest `dos`) and the DOS raw font of `tmp/in/b` (`dos_layout` 844, jamo, dest
-  `jamo-extra`, its text licence), and runs:
+  `jamo-extra`, its text licence), and runs. Every "re-run" below is `self.rerun(jid, edit)`: `POST detect`,
+  `PUT settings`, `POST run`, the only path the server offers from `done`.
 
 ```python
 def test_run_writes_the_tree(self):
     job = self.run_to_done(jid)
     self.assertNotIn("zip", job["result"])
-    self.assertEqual(sorted(job["result"]["files"]), sorted(walk_rel(self.out, skip=".svf-maker-")))
+    self.assertEqual(sorted(job["result"]["files"]), sorted(walk_rel(self.out, skip_prefix=".svf-maker-")))
+    self.assertEqual(set(self.srv.store.load(jid)["owned"]), set(job["result"]["files"]))
     # walk_rel(out) == {svf/dos/<TTF face>, svf/dos/<note>, svf/dos/OFL<..>.TXT, svf/jamo-extra/<DOS face>,
     #   svf/jamo-extra/<note>, svf/jamo-extra/LIC<..>.TXT, build-<id>/BUILD.md, build-<id>/LICENCES.tsv.lines,
     #   build-<id>/FAMILIES.tsv.lines, build-<id>/FACES.TSV.lines}
     self.assertEqual(self.api("GET", "/api/jobs/%s/zip" % jid)[0], 404)
+def test_detect_keeps_owned(self):
+    owned = self.srv.store.load(jid)["owned"]        # after run 1
+    self.api("POST", "/api/jobs/%s/detect" % jid)
+    self.assertEqual(self.srv.store.load(jid)["owned"], owned); self.assertIsNone(self.srv.store.load(jid)["result"])
 def test_collisions(self):
-    # re-run (POST run) with the clock a day later (mock zipout._utc_now): run_ready passes, face and note rewritten,
-    #   build-<id>/BUILD.md rewritten; a changed setting (mkfont ascent) likewise; a second job, same folder, same face
-    #   name, other bytes (another TTF): failed, error contains "name clash: svf/dos/<NAME>", first face's bytes and
-    #   build record unchanged; a third job whose face bytes equal the first face under another name: step
-    #   identical_to == "dos/<NAME>"
+    # self.rerun with the clock a day later (mock zipout._utc_now): run_ready passes, face and note rewritten,
+    #   build-<id>/BUILD.md rewritten; self.rerun with a changed setting (mkfont ascent) likewise;
+    # a second job B (after A is done), same folder, same face name, other bytes (another TTF): POST run is refused
+    #   synchronously by run_ready: status 400, error == "f01: <NAME> already exists in svf/dos; choose another name";
+    #   B stays "detected"; A's face bytes and build-<A>/ unchanged
+    # a third job whose face bytes equal A's face under another name: done, step identical_to == "dos/<NAME>"
 def test_rerun_after_identical_keeps_ownership(self):
-    # run 1 writes X; run 2 unchanged -> identical_to own X, X in result.files; run 3 with a changed ascent -> X replaced
+    # run 1 writes X; rerun unchanged -> identical_to own X, X in result.files and in owned;
+    # rerun with a changed ascent -> X replaced (new bytes, owned[X] updated)
 def test_own_earlier_replaced_only_when_unchanged(self):
-    # run 1 writes X; the test overwrites X with other bytes (as another job would); re-run -> failed "name clash"
+    # run 1 writes X; the test overwrites X with other bytes (as another job would); rerun -> POST run passes
+    #   run_ready (X is owned), the job ends failed with "name clash: svf/dos/<NAME>", X keeps the other bytes"
 def test_one_job_per_output_folder_two_servers(self):
     # a second LocalBase server (own data root) runs a job writing the same new name concurrently: the os.link of
     # the later one fails -> its job failed with "name clash", the first file's bytes untouched (sequence it with
     # mock: the second server's write_tree runs after the first wrote, its index built before)
+def test_write_tree_without_hard_links(self):
+    # mock os.link to raise OSError(errno.EPERM): the run is done, the tree as in test_run_writes_the_tree, every
+    #   written file's sha256 equals owned[...]; no "*.tmp" left; with a planted file at the target name created between
+    #   the index and the write (mock): failed "name clash", the planted bytes untouched
 def test_notes_and_logs(self):
-    # roots under a 300-byte path (nested dirs of 50-char names): every note line <= 512 bytes; no note line contains
-    # "/" + a path component of tmp, nor os.sep at a token start; the command lines start "python3 -P tools/" or
+    # roots under a 300-byte path (nested dirs of 50-char names, the first one a unique name such as
+    # "local-notes-<uuid4 hex>"): every note line <= 512 bytes; no note line contains that unique component, the
+    # test's tmp prefix, $HOME, nor a token starting with os.sep; the command lines start "python3 -P tools/" or
     # "python3 -P maker/"; log.md (metadata dir) contains the full root path (D4)
 def test_input_changed_since_detection(self):
-    # append a byte to the TTF after detect: POST run 409, error "a/<ttf>: the input changed since detection: detect again"
+    # append a byte to the TTF after detect: POST run 409, error "<ttf name>: the input changed since detection: detect
+    #   again" (the root-relative path); the same for the DOS font's eng companion (8x16 file in tmp/in/b) and for the
+    #   TTF's OFL.txt licence
 def test_not_enough_free_space(self):
     with mock.patch("shutil.disk_usage", return_value=(0, 0, 1)):  # POST run 409 "not enough free space in <out>"
 def test_run_env_has_tmpdir_and_no_bytecode(self):
-    # mock jobs.run_command to record env: every call has TMPDIR == fd/work/tmp and PYTHONDONTWRITEBYTECODE == "1"
+    # mock jobs.run_command to record env: every call has TMPDIR == fd/work/tmp and PYTHONDONTWRITEBYTECODE == "1";
+    # with the stub recogniser of test_jobs (SVF_RECOG_DIR stub, RECOG_ARRAYS "lists", caps recog on) the identity
+    # run's env has both too, plus SVF_RECOG_DIR
 def test_write_tree_disk_full(self):
     # mock os.link to raise OSError(errno.ENOSPC) on the second call: job failed, error starts "OSError", result.files
     #   lists the first face only, no "*.tmp" under out
@@ -884,11 +1001,12 @@ def test_check_steps_refuses_a_later_needs(self):
 - [ ] **Step 3: Implement** to the interfaces.
 - [ ] **Step 4: Run** `test_local.py`, `test_jobs.py`, `test_zipout.py`, `test_server.py`, `test_server_signals.py`.
   Expected: `OK`. Every `test_zipout` assertion on the zip's layout is unchanged.
-- [ ] **Step 5: Gates** G1, G2 (729), G3.
+- [ ] **Step 5: Gates** G1, G2 (745), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: a local run writes svf/ and build-<id>/ into the output folder; own-earlier replace, link for new names, notes without paths (t_cbd14d61)"`.
 
-Cannot verify here: a real disk-full condition (mocked), and two maker launches on two machines over a network share
-(two servers in one process stand in).
+Cannot verify here: a real disk-full condition (mocked); a real FAT/exFAT stick or SMB/NAS mount without hard links
+(the fallback is exercised by mocking `os.link` to raise `EPERM`); and two maker launches on two machines over a
+network share (two servers in one process stand in).
 
 ### Task 8: sweeps and serving from the output folder (slice S3, part 3)
 
@@ -898,16 +1016,28 @@ Cannot verify here: a real disk-full condition (mocked), and two maker launches 
 
 **Interfaces:**
 - Produces (`jobs`):
-  - `Store.sweep_files(job) -> bool`. If `output_id` matches, it runs `shutil.rmtree(files_dir)`. On failure, or when
-    the folder is gone or changed, it appends `files_dir` to `<data_root>/pending-sweeps.json` (a JSON list, written
-    through `.tmp` + `os.replace` under a store-wide lock) and logs `"sweep: <path>: <reason>"` to `log.md` when the
-    metadata directory exists. It never raises. It returns True when the directory is gone.
-  - `Store.retry_pending_sweeps()` retries each listed path. It removes a path only when the directory is gone or the
-    retry succeeds. It refuses to `rmtree` a listed path whose basename does not match `^\.svf-maker-[0-9a-f]{12}$`.
+  - `Store.sweep_files(job) -> bool`. If `output_id` matches, it runs `shutil.rmtree(files_dir)`, holding the job's
+    preview locks (`server._preview_lock` for each font id, through a `store.on_sweep` hook the server sets as it
+    sets `on_delete`). That way a preview GET cannot re-make the directory while `rmtree` runs, from the start-up
+    thread or the idle sweeper. On failure, or when the folder is gone or changed, it appends
+    `{"path": files_dir, "output_dir": output_dir, "output_id": [dev, ino], "job": id}` to
+    `<data_root>/pending-sweeps.json` (a JSON list, written through `.tmp` + `os.replace` under a store-wide lock)
+    and logs `"sweep: <path>: <reason>"` to `log.md` when the metadata directory exists. It never raises. It returns
+    True when the directory is gone.
+  - `Store.retry_pending_sweeps()` retries each entry. It deletes **only** when all of these hold:
+    - the basename is `".svf-maker-" + entry["job"]` and matches `^\.svf-maker-[0-9a-f]{12}$`;
+    - `os.path.dirname(path) == entry["output_dir"]`;
+    - `stat_id(entry["output_dir"]) == tuple(entry["output_id"])`, so an output folder that was replaced, re-created
+      or re-mounted elsewhere is never touched;
+    - the path itself is a real directory (`lstat`, not a link).
+    It drops an entry when the directory is gone, when the retry succeeds, or when any check fails (a replaced output
+    folder will never become the original again, so the entry is stale). A failed check is logged to stderr with the
+    path and is never deleted.
   - `Store.delete(job_id)` runs, for a local job, `sweep_files` **before** the `rmtree` of the metadata directory.
   - At the end of `run_job` (in a `finally`, after `_write_output`), for a local job: move each `work/sNN/report.json`
-    -> `<job_dir>/steps/sNN.report.json` and `work/sNN/identity.json` -> `<job_dir>/steps/sNN.identity.json`, set
-    `step["report"] = "steps/sNN.report.json"`, then `sweep_files`.
+    -> `<store.meta_dir(id)>/steps/sNN.report.json` and `work/sNN/identity.json` ->
+    `<store.meta_dir(id)>/steps/sNN.identity.json`, set `step["report"] = "steps/sNN.report.json"`, then
+    `sweep_files`.
   - `Worker.recover()`: a `running` local job becomes `failed`/`"interrupted"`, as today. A **queued local job** also
     becomes `failed`/`"interrupted"` and is not re-enqueued (design issue 9). The sweeps of every local job and
     `retry_pending_sweeps` run on a daemon thread `make_server` starts after the bind
@@ -918,8 +1048,8 @@ Cannot verify here: a real disk-full condition (mocked), and two maker launches 
   - `_job_face` of a `done` local job serves `<output_dir>/<step["written"]>`, or `<output_dir>/svf/<identical_to>`,
     after `_inside(output_dir, ...)`, a regular file, and `output_id` unchanged. Otherwise 404 `"face not in the
     output folder"`. For any other state, it serves the files directory as before.
-  - `_job_report`/`_job_identity` of a local job read `<job_dir>/steps/sNN.{report,identity}.json` when the step has
-    them.
+  - `_job_report`/`_job_identity` of a local job read `<store.meta_dir(job)>/steps/sNN.{report,identity}.json` when
+    the step has them (through `meta_dir`, so Task 5's `test_no_upload_path_outside_the_upload_handlers` holds).
   - `_job_zip` of a local job: 404 `"a local job writes a folder"`.
   - Every preview, probe or source GET of a local job re-makes the files directory through `ensure_files_dir` and
     records `server.touched[job_id] = time.monotonic()`.
@@ -941,6 +1071,11 @@ def test_pending_sweeps_retried(self):
     # mock shutil.rmtree to raise OSError once: DELETE succeeds, pending-sweeps.json lists fd; the next sweep point
     #   (srv.store.retry_pending_sweeps()) removes fd and empties the list; a planted entry "/tmp/x" (wrong name) stays
     #   untouched and is dropped from the list
+def test_pending_sweep_of_a_replaced_output_folder(self):
+    # mock shutil.rmtree to fail once: DELETE leaves an entry for out/.svf-maker-<id>; the test renames out ->
+    #   out.old and makes a new out holding a directory .svf-maker-<id>/ with a file keep.txt (the same basename);
+    #   retry_pending_sweeps(): out/.svf-maker-<id>/keep.txt still exists, the entry is dropped; the same with out
+    #   replaced by a symlink to another folder holding that name: untouched
 def test_idle_sweep(self):
     # detected local job, a probe GET, then srv.sweep_idle(now=time.monotonic() + LOCAL_IDLE_SWEEP_S + 1): fd gone;
     #   a later probe GET re-makes it and answers 200
@@ -969,7 +1104,7 @@ def test_no_upload_copy(self):            # final form: the full job; data/jobs/
 - [ ] **Step 2: Run** `test_local.py -k LocalSweep`. Expected: FAIL.
 - [ ] **Step 3: Implement** to the interfaces.
 - [ ] **Step 4: Run** `test_local.py`, `test_jobs.py`, `test_server.py`, `test_server_signals.py`. Expected: `OK`.
-- [ ] **Step 5: Gates** G1, G2 (737), G3.
+- [ ] **Step 5: Gates** G1, G2 (755), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: local files directory swept at job end, delete, stop, start and idle; results served from the output folder (t_cbd14d61)"`.
 
 Cannot verify here: a dead network mount at start-up (the thread is tested with a planted directory), a sync client
@@ -992,10 +1127,14 @@ tested by a second server on the same data root).
     `htbl_fork(seed=1) = resource_fork({("HTBL", 1): htbl_raw(seed)})`.
   - `jm(fork) = jm_archive(<lh5 literal payload of fork>, len(fork))`, built with `lh5_block` as
     `TestJM` builds its payload.
-  - `appledouble(fork)` and `macbinary(fork)` re-export `inputfx`.
-  - `suitcase(size=12) = _fork({("FOND", 1): fond(size), ("NFNT", 2): _nfnt(...)})`. The FOND lists one plain
-    strike at `size` pointing at NFNT 2. The 12 px cell matches `synthetic`'s `H`.
-  - `nfnt_only() = _fork({("NFNT", 2): _nfnt(...)})`.
+  - `appledouble(fork)` and `macbinary(fork)` re-export `inputfx` (whose fork builder is `inputfx.fork`).
+  - `suitcase(size=12)` builds the FOND inline, the way `tools/test_macfbit_svf.py:244` (`TestLatin`) does:
+    `bytearray(52) + struct.pack(">HHHH", 0, size, 0, 300)` (one plain-style entry: size `size`, NFNT id 300). It
+    returns `test_macfbit_svf._fork({("FOND", 1): fond, ("NFNT", 300): test_macfbit_svf._nfnt(CHARS)})` with
+    `CHARS` the two-glyph table of `TestLatin` (`0x41`, `0x67`). The NFNT strike itself is 5 rows high (that is
+    `_nfnt`'s fixed height). The FOND's listed size (12, matching `synthetic`'s `H`) is what
+    `macfbit_svf.nfnt_for_size` and the maker's `mac["strikes"]` read.
+  - `nfnt_only() = test_macfbit_svf._fork({("NFNT", 300): test_macfbit_svf._nfnt(CHARS)})`.
   - `fbit1_fork() -> bytes` is the HangulTalk 1.0 font of spec 12.1. The fixture is drafted here and is not
     required to pass `--check` until Task 12.
   - `hangul_pft() = bytes(range(256)) * 156 + bytes(64)` (40,000 bytes, written as `HANGUL24.PFT`).
@@ -1010,15 +1149,16 @@ tested by a second server on the same data root).
 - [ ] **Step 1: Write the failing tests:**
 
 ```python
-# test_srcprep.py MacPrepTest
+# test_srcprep.py MacPrepTest; helper cli(self, sub, data) -> (exit code, OUT bytes or b"") writes data to a temp IN,
+# runs `python3 -P maker/srcprep.py <sub> IN OUT`, reads OUT when it exists
 def test_mac_fork_unwraps(self):
     for wrapped in (macfx.appledouble(f), macfx.macbinary(f)):        # f = macfx.fbit3_fork()
         self.assertEqual(self.cli("mac-fork", wrapped), (0, f))
     self.assertEqual(self.cli("mac-fork", f), (0, f))
 def test_mac_fork_refuses_oversized(self):
-    with mock.patch.object(srcprep, "MAX_BYTES", 100): self.assertEqual(srcprep_apply(f, "mac-fork").__class__, PrepError)  # via _apply_op
-    # and the CLI on a fork whose resource lengths sum past MAX_BYTES (patched env not possible in a subprocess):
-    #   a hand-made fork with two refs to one 64-byte body and MAX_RESOURCES patched in-process -> PrepError
+    with mock.patch.object(srcprep, "MAX_BYTES", 100):
+        with self.assertRaises(srcprep.PrepError): srcprep._apply_op(f, {"op": "mac-fork"})
+    # the CLI cannot be patched in a subprocess; the in-process _apply_op path is the same _fork_guard call
 def test_mac_htbl(self):
     self.assertEqual(self.cli("mac-htbl", macfx.htbl_fork()), (0, macfx.htbl_raw()))
     self.assertEqual(self.cli("mac-htbl", macfx.htbl_raw()), (0, macfx.htbl_raw()))
@@ -1041,7 +1181,7 @@ def test_fbit1_header(self):
 - [ ] **Step 3: Implement** the subcommands, `_apply_op` and `macfx.py`.
 - [ ] **Step 4: Run** `test_srcprep.py`, `test_macfx.py`, then `~/.local/bin/heavy python3 -m unittest discover -s
   tools -p 'test_macfbit*.py'`. Expected: `OK` (tools untouched).
-- [ ] **Step 5: Gates** G1, G2 (743 if it lands after Task 8; 6 tests of its own), G3.
+- [ ] **Step 5: Gates** G1, G2 (761 if it lands after Task 8; 6 tests of its own), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: srcprep mac-fork and mac-htbl, synthetic Mac fixtures (t_cbd14d61)"`.
 
 Cannot verify here: a real fork from a HangulTalk disk (`SVF_MAKER_REAL_MAC1`/`MAC3`, Task 15).
@@ -1055,7 +1195,7 @@ re-made / pending).
 # Group C: the page and the Mac kinds
 
 Tasks 11 -> 12 -> 13 run in order. Task 9 (page files only: `index.html`, the sources-panel region of `maker.js`,
-`pagedrive.mjs`, `test_page_dom.py`) may run in a **separate worktree** alongside them. It lands after Task 11 and is
+`pagedrive.mjs`, `test_page_dom.py`) may run in a **separate worktree** alongside them. It lands after Task 13 and is
 rebased onto it. Both edit `maker.js` in disjoint regions (Task 11: the JSON tables and the HTBL select; Task 9: the
 upload/sources panel and the state line), and G3 runs at each commit.
 
@@ -1069,6 +1209,9 @@ upload/sources panel and the state line), and G3 runs at each commit.
 - Consumes: `GET /api/caps` `local` (Task 1); the local endpoints (Tasks 6-8).
 - Produces (page):
   - At load the page calls `fetch("/api/caps")` and sets `state.local = caps.local === true`.
+  - `index.html` has no upload panel element today: the `<aside>` holds the upload controls and `#jobs` together.
+    Task 9 wraps the upload rows (not `#jobs`) in a new `<div id="upload-panel">` and adds a sibling
+    `<div id="sources-panel" hidden>`.
   - With `state.local`, `#upload-panel` is hidden and `#sources-panel` is shown, holding a `<ul id="source-roots">`
     and the buttons `#choose-files`, `#choose-folder`, `#choose-output`. When `window.svfMaker` exists they call
     `pickFiles()`, `pickFolder()` and `pickOutputDir()`. `[]`/`null` changes nothing.
@@ -1116,7 +1259,7 @@ def test_sync_caveat_is_shown(self):  # the caveat text is in index.html's sourc
 - [ ] **Step 3: Implement** to the interfaces. `smoke_dom.py` is unchanged.
 - [ ] **Step 4: Run** `test_page_dom.py` (all of it: the upload-mode tests must still pass), `python3
   maker/test/smoke_dom.py`, and `node --check maker/static/maker.js`. Expected: `OK`.
-- [ ] **Step 5: Gates** G1, G2 (772, landing after Task 13), G3.
+- [ ] **Step 5: Gates** G1, G2 (791, landing after Task 13), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker page: sources panel for local mode, shell bridge hooks, written-to line and open folder (t_cbd14d61)"`.
 
 Cannot verify here: Electron, its preload and `contextIsolation`, native dialogs, and `shell.showItemInFolder`. The
@@ -1126,7 +1269,7 @@ fake bridge stands in for all of them. Without Chrome or node the tests skip (bo
 
 **Files:**
 - Modify: `maker/detect.py`, `maker/routes.py`, `maker/settings.py`, `maker/presets.py`, `maker/server.py`,
-  `maker/preview.py`, `maker/static/maker.js`, `maker/test/localfx.py`
+  `maker/preview.py`, `maker/static/maker.js`, `maker/test/localfx.py`, `maker/test/inputkinds.py`
 - Modify tests: `test_detect_inputs.py`, `test_routes.py`, `test_settings.py`, `test_server.py` (drift test,
   `canonical_fonts`, `test_page_layouts_cover_route_layouts`), `test_plan_inputs.py`
 
@@ -1194,7 +1337,8 @@ fake bridge stands in for all of them. Without Chrome or node the tests skip (bo
     or answers 409 `"choose the HTBL table"`, then `self._render_preview(None, out_svf, out_png)`.
   - `_job_source_face`'s kinds gain `"mac-fbit3"`. `_kept_settings` remaps `htbl_companion` as it remaps
     `latin_companion`.
-- Produces (`preview.bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=(), htbl_abs=None)`):
+- Produces (`preview.bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=(), env=None, htbl_abs=None)`,
+  keeping Task 6's `env`):
   for `mac-fbit3` it runs the direct route's command at the first size (no `htbl_abs`: False).
 - Produces (`maker.js`):
   - `ROUTES["mac-fbit3"]` (the three rows).
@@ -1208,6 +1352,9 @@ fake bridge stands in for all of them. Without Chrome or node the tests skip (bo
     paths).
 - Produces (drift test): `TOOL_OF_LABEL["mac fbit 7.1 bdf + mkfont"] = "ascent"`. `canonical_fonts()` adds
   `mac={"generation": 3}` to its base and a `mac-suitcase`/`mac-htbl` entry each, through `ALL_SOURCES`.
+- Produces (`maker/test/inputkinds.py`): `assert_facecheck_tree(test, out_dir)`, the tree form of
+  `assert_facecheck` (which takes a zip path). It copies `out_dir/svf` into a temp git checkout as `svf/`, then
+  runs the same `git init/add/commit`, `manifest` and `verify` and the version-3 parse.
 - Produces (`localfx.local_tree(tmp, mac=True)`): `in/mac/` holds `Seoul12.rsrc` (= `fbit3_fork(1)`),
   `InputBackSupport.rsrc` (= `htbl_fork(1)`), `Suitcase.rsrc` (= `suitcase(12)`), `ad/._Seoul12` +
   `ad/._InputBackSupport` (AppleDouble), `mb/Seoul12.bin` + `mb/IBS.bin` (MacBinary), `jm/Seoul12` (= `jm(...)`, no
@@ -1259,12 +1406,14 @@ def test_companion_source_planned_once(self):
     #   step with font == the HTBL id; both face steps' needs contain its id
 # test_server.py
 def test_page_layouts_cover_route_layouts(self):
-    # every layout of every route of canonical_fonts() (route.layouts, plus the dos candidates) is in maker.js LAYOUTS
+    # every layout of every route of canonical_fonts() whose source_kind is not "dos-raw" (route.layouts) is in
+    # maker.js LAYOUTS; dos-raw is exempt as in settings._route_errors (its layout is dos_layout, and canonical_fonts
+    # holds a 844-ihnm candidate that LAYOUTS rightly does not list)
 # test_plan_inputs.py MacEndToEndTest (local jobs through localfx.LocalBase + HTTP)
 def test_mac71_direct_written_and_verified(self):
     # Seoul12.rsrc + InputBackSupport.rsrc, direct: done; `macfbit_svf.py verify <out face> <fbit3_raw file> <htbl_raw
-    #   file>` exits 0 (both files written by the test into tmp/check); facecheck (the svf/ tree of out committed into a
-    #   temp git as assert_facecheck does) passes
+    #   file>` exits 0 (both files written by the test into tmp/check); inputkinds.assert_facecheck_tree(self, out)
+    #   passes
 def test_mac71_wrapped_and_jm(self):
     # AppleDouble pair, MacBinary pair, JM font + raw htbl1: each done; their source steps' tools are
     #   ["srcprep.py mac-fork", "macfbit3.py"] / ["srcprep.py mac-fork", "srcprep.py mac-htbl"] (step_tools)
@@ -1287,7 +1436,7 @@ def test_mac71_source_face(self):
 - [ ] **Step 4: Run** `test_detect_inputs.py`, `test_routes.py`, `test_settings.py`, `test_server.py`,
   `test_plan_inputs.py -k Mac`, then `~/.local/bin/heavy python3 -m unittest discover -s tools -p
   'test_macfbit*.py'`. Expected: `OK`.
-- [ ] **Step 5: Gates** G1, G2 (760), G3.
+- [ ] **Step 5: Gates** G1, G2 (778), G3.
 - [ ] **Step 6: Commit** `git commit -m "maker: Mac HangulTalk 7.1 type-3 fbit in local mode: detection, HTBL and suitcase companions, three routes, page tables (t_cbd14d61)"`.
 
 Cannot verify here: a real 7.1.2 CD tree and a real `HTBL` table (`MACFBIT3_CD712`, `SVF_MAKER_REAL_MAC3`, Task 15),
@@ -1311,6 +1460,9 @@ and the 9,816-byte raw table size on a real file.
   - `routes`: `Route("jamo", "mac fbit 1.0", True, ["mac-fbit-45sets"], [1], sizes, None, None, _mac10_commands)`.
     The command is `PY + [jamoset.py, "--layout", "mac-fbit-45sets", src, "--check", "-o", out]` + the extras.
   - The source step's last file for `mac-fbit1` is `<original stem>.rsrc` (`source_commands(..., last_name=)`).
+    `original stem` is `_stem(rel)` with an AppleDouble `._` prefix removed and a MacBinary `.bin` suffix removed
+    (`_stem` already drops the last extension): `ad/._Munjo16` -> `Munjo16.rsrc`, `mb/Munjo16.bin` -> `Munjo16.rsrc`.
+  - `server._job_source_face`'s kinds gain `"mac-fbit1"` (as Task 11 does for `mac-fbit3`), or the GET is 404.
   - `settings`: `_font_layout(mac-fbit1) = "mac-fbit-45sets"`. `_SOURCE_WORDS["mac-fbit1"] = "Mac fbit"`.
     `jamo_ascent` is validated against `jamo_cell = sizes[0]` for `mac-fbit1`, and `used & {"dos raw", "hanterm",
     "mac fbit 1.0"}`.
@@ -1346,7 +1498,7 @@ def test_mac10_end_to_end(self):              # (a) or env-gated (b): done; --ch
 - [ ] **Step 4: Implement** to the interfaces, with the tables in the same commit.
 - [ ] **Step 5: Run** the Task 11 test list again, plus `~/.local/bin/heavy python3 -m unittest discover -s tools -p
   test_jamoset.py`. Expected: `OK`.
-- [ ] **Step 6: Gates** G1, G2 (766), G3.
+- [ ] **Step 6: Gates** G1, G2 (784), G3.
 - [ ] **Step 7: Commit** `git commit -m "maker: Mac HangulTalk 1.0 fbit in local mode (jamoset mac-fbit-45sets) (t_cbd14d61)"`.
 
 Cannot verify here: a real HangulTalk 1.0 font (`JOHAB_FONTS`, `SVF_MAKER_REAL_MAC1`) and its golden file. Under (b),
@@ -1366,7 +1518,7 @@ the composition itself on any 1.0 font.
   `test_detect_inputs.test_named_fork_off_elsewhere`: with `sys.platform` patched to `"linux"`, a file with an empty
   data fork is `unknown`, and no `..namedfork` path is opened (`builtins.open` spy).
 - [ ] **Step 2: Run, implement, run.** On this host the real-file test skips and the "off elsewhere" test passes.
-- [ ] **Step 3: Gates** G1, G2 (767), G3. **Commit** `git commit -m "maker: macOS named resource forks in local mode, darwin only, env-gated test (t_cbd14d61)"`.
+- [ ] **Step 3: Gates** G1, G2 (786), G3. **Commit** `git commit -m "maker: macOS named resource forks in local mode, darwin only, env-gated test (t_cbd14d61)"`.
 
 Cannot verify here: all of it (no macOS). If the reviewer prefers not to ship unverifiable code, Task 13 is dropped,
 and later counts are one lower.
@@ -1405,6 +1557,10 @@ Tasks 14 -> 15 -> 16 run in order.
   - the sentence `the maker makes no outbound connection and sends nothing anywhere (no telemetry, no crash upload,
     no update check); the tests pin that.`
   - the Mac rows of 9.2, and the HWP line `HANGUL*.PFT is not read; ASCII.PFT is a companion`.
+  - one line on the optional identity check: `SVF_RECOG_DIR` names the user's own `recog.py`. The maker's
+    no-network tests do not cover that external code.
+  - one line on file roots: a licence file next to a font picked as a single file is used only when it is picked
+    too (or the folder is chosen).
   `docs/recipes.md` "Classic Mac Korean bitmap fonts" gets one line pointing at the maker's local mode.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -1423,7 +1579,7 @@ def test_readme_and_notice_wording(self):
 ```
 
 - [ ] **Step 2: Run, implement, run** `test_detect_inputs.py` and `test_server.py -k wording`. Expected: `OK`.
-- [ ] **Step 3: Gates** G1, G2 (776), G3.
+- [ ] **Step 3: Gates** G1, G2 (795), G3.
 - [ ] **Step 4: Commit** `git add maker/detect.py maker/test maker/README.md NOTICE.md docs/recipes.md && git commit -m "maker: HWP .PFT named in local mode, 12x24 ASCII.PFT from anywhere in the batch; NOTICE and README local mode (t_cbd14d61)"`.
 
 Cannot verify here: a real HWP `HANGUL*.PFT` or `ASCII.PFT` (`SVF_MAKER_REAL_PFT` exists and still gates it), and the
@@ -1464,11 +1620,14 @@ def test_real_mac3(self):   # SVF_MAKER_REAL_MAC3=<dir with Seoul12.fbit or the 
   which is harmless and fast enough.
 - [ ] **Step 2: Run** `test_local.py -k network -k static_no`, then `test_real_inputs.py`. Expected: `OK`. The netns
   test skips here with its message, and the real tests skip naming their variables.
-- [ ] **Step 3: Gates** G1, G2 (782), G3.
+- [ ] **Step 3: Gates** G1, G2 (801), G3.
 - [ ] **Step 4: Commit** `git commit -m "maker: no-network proofs (static imports, in-process socket guard, netns where permitted) and real Mac gates (t_cbd14d61)"`.
 
 Cannot verify here: the network namespace run (`unshare -rn` is refused on this host), the real Mac files, and the
-shell's request filter (10.6, card t_f04f1355).
+shell's request filter (10.6, card t_f04f1355). How the gate degrades here: the in-process socket guard cannot see
+tool **subprocesses**, so on this host "no network" for the tool children rests on the static import scan alone.
+Neither the scan nor the guard covers the external `recog.py` that `recog_score.py` loads from `SVF_RECOG_DIR`. That
+file is the user's own and outside this repository; the README says so.
 
 ### Task 16: closing gates and the audit
 
@@ -1479,7 +1638,7 @@ shell's request filter (10.6, card t_f04f1355).
 - [ ] **Step 1: Rewrite** the audit rows and gap 6. Name the task that closed each, and say for 1.0 which outcome of
   Task 12 Step 1 held.
 - [ ] **Step 2: Run the closing gates:**
-  - G1, then G2 (expected 782), G3.
+  - G1, then G2 (expected 801), G3.
   - `~/.local/bin/heavy make -C c check`.
   - `~/.local/bin/heavy python3 -m unittest discover -s tools -p 'test_macfbit*.py'`, and `tools -p
     test_jamoset.py`.
@@ -1506,15 +1665,15 @@ measurement:
 
 | Group | Tasks | Order and parallelism | Review |
 |---|---|---|---|
-| A hardening and Sources | 1, 2, 3, 4, 5 | 1 alongside the chain 2 -> 3 -> 4 (disjoint files); 5 after 1 and 4 (`server.py`) | one review after 5: token, every `realpath` check before/after |
-| B local job | 6, 7, 8, 10 | 6 -> 7 -> 8 sequential (`server.py`, `jobs.py`, `settings.py`); 10 alongside (only `macfx.py`, `srcprep.py`, their tests) | one review after 8 and 10: privacy, path rules, collisions, sweeps |
-| C page and Mac kinds | 11, 12, 13, 9 | 11 -> 12 -> 13 sequential; 9 in a separate worktree alongside, landed after 11 and rebased (disjoint `maker.js` regions; G3 at each commit) | one review after all four: drift tables, page hiding rule |
+| A hardening and Sources | 1, 2, 3, 4, 5 | 1 alongside the chain 2 -> 3 -> 4 (disjoint files, separate worktrees); 5 after 1 and 4 (`server.py`) | one review after 5: token, every `realpath` check before/after |
+| B local job | 6, 7, 8, 10 | 6 -> 7 -> 8 sequential (`server.py`, `jobs.py`, `settings.py`); 10 alongside in its own worktree (only `macfx.py`, `srcprep.py`, their tests), landed after 8 | one review after 8 and 10: privacy, path rules, collisions and ownership across detect/run (`job["owned"]`), sweeps |
+| C page and Mac kinds | 11, 12, 13, 9 | 11 -> 12 -> 13 sequential; 9 in a separate worktree alongside, landed after 13 and rebased (disjoint `maker.js` regions; G3 at each commit) | one review after all four: drift tables, page hiding rule |
 | D HWP, proofs, closing | 14, 15, 16 | sequential (14 edits `detect.py` after 11/12) | one review after 16 against the closing measurement |
 
 This is the spec's order (section 13): S2 with S1, S2 landed first; then S3 split by endpoint; then S4 alongside S5's
 wiring, with S5's unwired code drafted alongside S3; then S6, S7, and the closing commit. No two tasks edit
-`settings.py`, `detect.py`, `jobs.py` or `server.py` at the same time. G2 counts assume the order 1-8, 10, 11, 12, 13,
-9, 14, 15, 16. A task that lands in another order states its observed count.
+`settings.py`, `detect.py`, `jobs.py` or `server.py` at the same time. G2 counts assume the landing order 1-8, 10, 11,
+12, 13, 9, 14, 15, 16 (Task 6 removes no test: Task 1's no-store test is written to survive it). A task that lands in another order states its observed count.
 
 ## Design issues found while planning
 
@@ -1538,7 +1697,7 @@ wiring, with S5's unwired code drafted alongside S3; then S6, S7, and the closin
    its current bytes, so it would replace a file another job wrote after the user deleted the original. And after a
    run in which the face was `identical_to` its own earlier file, that path is not in `result.files` (`written` lists
    new writes), so the next run would clash with its own file. The plan keeps D6's rule and adds two things. First,
-   ownership is checked by the sha256 the job wrote (`result.owned`). Second, `own_earlier` paths a run found
+   ownership is checked by the sha256 the job wrote (`job["owned"]`). Second, `own_earlier` paths a run found
    identical stay owned (Task 7, Review Focus 3). This is a reading of "this job wrote it", not a new rule; say so if
    the controller reads D6 otherwise.
 6. **"A local kind" in 8.6.** The default text licence applies to "a local kind that has no licence file beside it".
@@ -1572,3 +1731,66 @@ wiring, with S5's unwired code drafted alongside S3; then S6, S7, and the closin
     size]` at detect (Task 6).
 14. **Two sections numbered 16** (the rulings and the changes list). This is cosmetic, but the plan cites "the
     rulings (the first 16)".
+15. **Licences of a file root.** Spec 8.2 item 5 runs licence detection "over the roots" with each root as the
+    ceiling. For a root that is a single file, that finds nothing: a picked `/fonts/Munjo.ttf` would never see
+    `/fonts/OFL.txt`. Reading the sibling without being given it would break 10.6 ("never reads a path it was not
+    given"). The plan keys the "same folder" rules by the real parent directory, so file roots picked together from
+    one directory pair up (the font and its `OFL.txt` picked in one `pickFiles` dialog). A font picked alone gets
+    the default text licence (D7). The README and the page say "pick the licence file too, or choose the folder"
+    (Tasks 2, 9, 14).
+16. **Where ownership lives.** Spec 7.3 says the exemption comes from "this job's own `result.files` from its
+    previous run". But a done job can only be re-run through `POST detect` and then `POST run`
+    (`server.py:859, 885`), and both set `result=None` (`server.py:607-609`, `:899`). The previous run's files are
+    always gone by the time `run_ready` looks. The plan keeps ownership in a top-level `job["owned"]` (path ->
+    sha256) that no transition resets, and that `write_tree` updates as files land (Tasks 6, 7). This replaces the
+    spec's wording, not its rule.
+17. **Hard links on removable media.** Spec 7.3 and 8.5 write new names with `os.link`. That fails on FAT/exFAT and
+    many SMB/NAS mounts, which are the usual way faces reach a DOS machine. The plan defines a fallback with the same
+    no-clobber guarantee: claim with `O_CREAT|O_EXCL`, copy through a tmp, `os.replace` over its own claim, and
+    verify by sha256 (Task 7).
+18. **Pending sweeps after the output folder is replaced.** Spec 8.3's `pending-sweeps.json` is "a list of
+    directory paths". A retry by path alone would delete a directory of the same name in a **new** folder at the old
+    path (for example a re-created folder, or another drive mounted at the same point). The plan stores the output
+    folder's `(st_dev, st_ino)` with each entry, deletes only when it still matches, and drops stale entries untouched
+    (Task 8).
+
+## Review dispositions
+
+Three reviews of `939cf9a`: Opus (`/home/thkim/work/scratch/review-lanes/maker-local-plan/opus-report.md`:
+Critical 1, Important 7, Minor 16), agy (`.../maker-local-plan-agy/out.md`: 1 critical, 2 important, 3 minor), and SOL
+(two High items, relayed by the coordinator). Each finding was checked against the tree at `939cf9a`. Duplicates are
+merged.
+
+| Finding | Verified | Done |
+|---|---|---|
+| Opus C1 / agy 1: `POST detect` and `POST run` set `result=None`, so the run never sees the previous `result.files`/`owned` | yes (`server.py:607-609, 859, 885, 899`) | Top-level `job["owned"]` made at create (Task 6), kept by detect and run, filled by `write_tree`'s `on_landed`, read by `jobs.own_earlier(job)` in `_job_run` and the worker (Task 7). Re-runs in the tests go through `LocalBase.rerun` (detect, settings, run). New `test_detect_keeps_owned`. Design issue 16. |
+| Opus I1: `bake_source_face`, `_run_probe`, `_prepared_source` start tools with no env | yes (`server.py:1077, 1188`, `preview.py:191`) | Task 6: `env` keyword on all three, `preview.py` moved to "modify", the preview test asserts a non-None env for every start. Task 11's signature keeps `env`. |
+| Opus I2: `_identity` builds its own env | yes (`jobs.py:771`) | Task 7: `Worker._job_env(job)` used by every `run_command`, identity included; the env test covers the stub recogniser. |
+| Opus I3: `test_page_layouts_cover_route_layouts` fails on `844-ihnm` | yes (`test_server.py:126`) | Task 11: dos-raw routes exempt, as `_route_errors` does. |
+| Opus I4: Task 1's no-store test breaks once local jobs need an output folder | yes | Task 1: the test patches `Handler._no_store` on an upload job, so it holds at every task; Task 8's test covers real local jobs. |
+| Opus I5: `test_no_upload_path_outside_the_upload_handlers` breaks on `_job_run`, `_job_create`, `steps/` reads | yes | Task 4 adds `Store.meta_dir`; Task 5's test forbids only hand-built upload paths and `store.path(`; `_job_run` drops `job_dir` (S1 table); Task 8 reads `steps/` through `meta_dir`. |
+| Opus I6: `_kept_settings` keeps stale root indices; no `local=True` | yes (`server.py:227-268`) | Task 5: licence `root`, per-font and batch `range_root` remapped by root path (fallbacks defined), `local` passed to `defaults`; `test_kept_settings_remaps_root_indices`; Task 6 passes `local=True`. |
+| Opus I7: `os.link` fails on FAT/exFAT/SMB | yes (by filesystem semantics; not testable here) | Task 7: fallback (O_EXCL claim, tmp, `os.replace`, sha256 verify), `test_write_tree_without_hard_links`; "Cannot verify" updated. Design issue 17. |
+| agy 2: `collect` lacks `job_dir` for `log.md` | yes (`zipout.py:569, 598`) | Task 7: `collect(job, job_dir, files_dir, ...)`. |
+| agy 3: the second conflicting job is refused by `run_ready`, not failed at write | yes (`server.py:889`) | Task 7 `test_collisions`: 400 with "already exists in svf/dos; choose another name", job stays `detected`. The write-time clash stays in `test_own_earlier_replaced_only_when_unchanged` and the two-server test. |
+| agy 4 / Opus m7: `local_tree` writes 5 files, not 6 | yes | Task 6: `files == 5`, "five files" stated in `local_tree`. |
+| agy 5: `LOCAL_FREE_MIN` undefined | yes | Task 2 defines it in `sources.py`; Task 7 imports it. |
+| agy 6: `LocalBindTest` helper signature | yes (`ApiBase.raw` has no `srv`) | Task 1: `start` and `raw(self, srv, method, path, body=None, headers=None)` defined. |
+| SOL a: pending sweep by path alone could delete an unrelated directory | yes (spec 8.3 stores paths only) | Task 8: entries carry `output_dir`, `output_id`, `job`; retry checks basename, parent, folder identity, no link; `test_pending_sweep_of_a_replaced_output_folder`. Design issue 18. |
+| SOL b: a file root cannot find an adjacent `OFL.txt` | yes (`find_licences` ceiling) | Task 2: folder key = real parent dir, file-root ceiling = its parent, siblings never opened unless picked; `test_file_roots_in_one_folder_pair_up`; README line (Task 14). Design issue 15 (explicit selection chosen over sibling reading, per 10.6). |
+| Opus m1: the change check covers selected fonts only | yes | Task 7: every entry a planned step reads (companions, licence file, range list); the test covers the eng companion and the licence. |
+| Opus m2: `_mac_entries` label quotes `PrepError`; traceback stored in `job.json` | yes (`detect.py:674`) | Task 6: type-only Mac label, `TooLarge` named as harmless, `error` moved to `log.md` with `error_type` in `job.json`, `first_line` named as accepted metadata. |
+| Opus m3: `abs_of` accepts the root itself; walk would list dir links for uploads | yes (`settings.py:1256-1260`) | Task 2: strictly under; upload walk omits dir links silently; a test for `abs_of(0, ".")`. |
+| Opus m4: `os.umask` is process-global in tests | yes | Tasks 1, 6: `LocalBindTest` and `LocalBase` save and restore it. |
+| Opus m5: the loopback refusal must precede `recover`/`start` | yes (`server.py:313-323`) | Task 1: raised first. |
+| Opus m6: sweeps race a preview GET re-making the directory | yes | Task 8: `sweep_files` holds the job's preview locks via `store.on_sweep`. |
+| Opus m8: cited names that do not exist (`#upload-panel`, `cli`, `srcprep_apply`, `walk_rel`, tree facecheck, `fond`, `_nfnt` rows, `_fork` home) | yes | Tasks 6, 9, 10, 11: `walk_rel` and `assert_facecheck_tree` defined, `#upload-panel` wrapper specified, `cli` helper defined, pseudo-call replaced, FOND built inline as `TestLatin` does, 5-row NFNT stated, builder homes named. |
+| Opus m9: probe `.json` goes through `_send`, not `_serve_bytes` | yes (`server.py:1073`) | Task 1: its own `no_store` branch. |
+| Opus m10: `_stem("ad/._Munjo16")` keeps `._` | yes (`detect.py:183`) | Task 12: `._` and `.bin` stripped for the prepared name. |
+| Opus m11: `_job_source_face` lacks `mac-fbit1` | yes (`server.py:1108`) | Task 12 adds it. |
+| Opus m12: counts off; Task 9's landing point ambiguous | yes | Counts recomputed (693 ... 801); Task 9 lands after Task 13 everywhere. |
+| Opus m13: parallel lanes in one tree | yes | Groups A, B, C: each parallel lane in its own worktree, rebased before landing. |
+| Opus m14: a self-comparing test; a fragile note assertion | yes | Task 2: the self-comparison replaced by the file-root test, the unmodified detect tests named as the proof; Task 7: a unique `uuid4` component. |
+| Opus m15: the socket guard misses subprocesses; external `recog.py` | yes | Task 15 "Cannot verify" states the degradation; README line (Task 14). |
+| Opus m16: `Store.list` lacks `source`/`output_id` | yes (`jobs.py:342`) | Task 6: `list()` items gain both. |
+| Opus "server 176 is not a hit" | yes (harmless) | Kept: the signature changes there; the 175 count stands. |
