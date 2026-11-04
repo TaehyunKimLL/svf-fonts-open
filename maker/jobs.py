@@ -38,6 +38,7 @@ import quality
 import routes
 import settings
 import zipout
+from sources import Sources
 
 # The Global Constraints limits, verbatim.
 STEP_TIMEOUT = 600
@@ -216,39 +217,39 @@ def run_command(argv, cwd, timeout, cancel, env=None):
 
 # ---- the F-gz rewrite ------------------------------------------------------------------------------------------
 
-def _materialized_token(token, upload_root, work_dir, font_id):
-    """@p token, or the decompressed path when it names a non-PCF `.gz` upload under @p upload_root.
+def _materialized_token(token, sources, work_dir, font_id):
+    """@p token, or the decompressed path when it names a non-PCF `.gz` source under a root of @p sources.
 
-    The upload is matched by `os.path.realpath`, so a trailing slash, a `..` or a symlinked upload directory is
+    The source is matched by `os.path.realpath` (`Sources.inside`), so a trailing slash, a `..` or a symlinked upload directory is
     rewritten too (M3). The decompressed copy is `<work_dir>/<font id>/<name without .gz>`: the path
     `preview.materialize` writes and the worker passes on (`_plain_source`). A `.pcf.gz` source stays compressed
     (FreeType reads it), so it is left alone.
     """
     if not isinstance(token, str):
         return token
-    resolved = os.path.realpath(token)
-    if not resolved.startswith(upload_root + os.sep):
+    if not sources.inside(token):
         return token
+    resolved = os.path.realpath(token)
     name = os.path.basename(resolved)
     if not name.endswith(".gz") or name.endswith(".pcf.gz"):
         return token
     return os.path.join(work_dir, font_id, name[:-3])
 
 
-def materialized_argv(steps, upload_dir, work_dir):
+def materialized_argv(steps, sources, work_dir):
     """The command argvs @p steps run with, in run order, each `.gz` upload replaced by its decompressed path.
 
     `POST /run`'s note check (Task 13) builds its steps with `settings.plan_steps` and calls this to see the command
     lines the tools really get, so a note it accepts is not refused later at the zip step (the Task 9 note). Each
     returned item is one command's argv (a list of tokens); `zipout`'s `shlex.join` form is the note's command line.
-    A step with no argv (a copy) contributes nothing. @p upload_dir is compared by realpath (see
+    A step with no argv (a copy) contributes nothing. @p sources (a `Sources` or an upload directory string) is compared by realpath (see
     `_materialized_token`) and @p work_dir is the job's `work/` directory.
     """
-    root = os.path.realpath(upload_dir)
+    sources = Sources.coerce(sources)
     out = []
     for step in steps:
         for argv in step.get("argv") or []:
-            out.append([_materialized_token(token, root, work_dir, step.get("font") or "f") for token in argv])
+            out.append([_materialized_token(token, sources, work_dir, step.get("font") or "f") for token in argv])
     return out
 
 
@@ -278,6 +279,18 @@ class Store:
         if not isinstance(job_id, str) or not _ID_RE.match(job_id):
             raise KeyError(job_id)
         return os.path.join(self.jobs_dir, job_id, *parts)
+
+    def meta_dir(self, job_id):
+        """The job's metadata directory (`job.json`, `log.md`, `steps/`): `path(job_id)`."""
+        return self.path(job_id)
+
+    def files_dir(self, job):
+        """Where the job's `work/` and `out/` live: its own directory for an upload job."""
+        return self.path(job["id"])
+
+    def sources(self, job):
+        """The `Sources` the job reads its inputs from: its `upload/` directory for an upload job."""
+        return Sources("upload", [self.path(job["id"], "upload")])
 
     def create(self):
         """A Job in state `uploading` (Shared data shapes), with its directory and `upload/ work/ out/` made."""
@@ -559,6 +572,8 @@ class Worker(threading.Thread):
         """
         job = self.store.load(job_id)
         job_dir = self.store.path(job_id)
+        files_dir = self.store.files_dir(job)
+        sources = self.store.sources(job)
         cancel = self.cancels.get(job_id)
         if cancel is None:                          # a direct caller has no event yet
             cancel = threading.Event()
@@ -566,20 +581,22 @@ class Worker(threading.Thread):
         job["error"] = None
         self.store.save(job)
         try:
-            self._run_steps(job, job_dir, cancel)
+            self._run_steps(job, job_dir, files_dir, sources, cancel)
         except Exception as exc:
             self._job_failed(job_id, job_dir, exc)
 
-    def _run_steps(self, job, job_dir, cancel):
+    def _run_steps(self, job, job_dir, files_dir, sources, cancel):
         """`run_job`'s body, once the job is `running` and its cancel event is settled."""
         zipout.append_log(job_dir, zipout.log_header(job, zipout.repo_head(self.repo_dir)))
         fonts = job.get("fonts") or []
         fonts_by_id = {font["id"]: font for font in fonts}
-        upload_dir = os.path.join(job_dir, "upload")
         gz_upload = {}                              # the realpath of a `.gz` upload -> its font (the M3 rewrite)
         for font in fonts:
             if font.get("gzip"):
-                gz_upload[os.path.realpath(os.path.join(upload_dir, font.get("path") or ""))] = font
+                try:
+                    gz_upload[os.path.realpath(sources.abs_of(font.get("root", 0), font.get("path")))] = font
+                except ValueError:
+                    pass                                # a path outside the roots is refused when its step is planned
         plain = {}                                  # font id -> the decompressed copy of a .gz source
         started = time.monotonic()
         steps = job.get("steps") or []
@@ -597,7 +614,7 @@ class Worker(threading.Thread):
                 self._fail_steps(job, job_dir, steps[index:], "job timeout")
                 job["error"] = job.get("error") or "job timeout"   # the first error wins (M4/V7)
                 break
-            self._run_step(job, job_dir, upload_dir, gz_upload, plain, fonts_by_id, step, cancel)
+            self._run_step(job, job_dir, files_dir, sources, gz_upload, plain, fonts_by_id, step, cancel)
             if step.get("state") == "failed" and step.get("kind") == "source":
                 for later in steps[index + 1:]:
                     if later.get("state") != "failed" and later.get("font") == step.get("font"):
@@ -612,7 +629,7 @@ class Worker(threading.Thread):
             job["error"] = "interrupted" if self._stopping else "cancelled"
             self.store.save(job)
             return
-        self._write_zip(job, job_dir, fonts, fonts_by_id, steps)
+        self._write_output(job, job_dir, files_dir, sources, fonts, fonts_by_id, steps)
 
     def _job_failed(self, job_id, job_dir, exc):
         """A job whose body raised: `failed` with `"<ExcType>: <message>"`, its unfinished steps failed with it (I2).
@@ -642,17 +659,17 @@ class Worker(threading.Thread):
         except Exception:
             traceback.print_exc()
 
-    def _run_step(self, job, job_dir, upload_dir, gz_upload, plain, fonts_by_id, step, cancel):
+    def _run_step(self, job, job_dir, files_dir, sources, gz_upload, plain, fonts_by_id, step, cancel):
         """Run one step: `running`, its commands (or its copy), its facts, its preview, its log block and a save."""
         step["state"] = "running"
         step["identity"] = None                     # the scores of an earlier run are not this build's
         self.store.save(job)
         font = fonts_by_id.get(step.get("font")) or {}
-        stdout, stderr, error = self._execute(job_dir, upload_dir, gz_upload, plain, step, font, cancel)
+        stdout, stderr, error = self._execute(files_dir, sources, gz_upload, plain, step, font, cancel)
         if error == "cancelled" and self._stopping:
             error = "interrupted"                   # the server stopped, not the owner
         if error is None and step.get("kind") not in ("prepare", "source"):
-            error = self._read_back(job, job_dir, upload_dir, plain, step, font, cancel, stdout)
+            error = self._read_back(job, files_dir, sources, plain, step, font, cancel, stdout)
         if error is not None:
             step["state"] = "failed"
             step["error"] = error
@@ -662,7 +679,7 @@ class Worker(threading.Thread):
         zipout.append_log(job_dir, zipout.log_step(step, stdout, stderr))
         self.store.save(job)
 
-    def _execute(self, job_dir, upload_dir, gz_upload, plain, step, font, cancel):
+    def _execute(self, files_dir, sources, gz_upload, plain, step, font, cancel):
         """Run the step's commands (or its copy); return `(stdout, stderr, the error or None)`.
 
         A step with no argv is the maker's own copy of its font's source (a route that ships the face as it is), not a
@@ -671,11 +688,11 @@ class Worker(threading.Thread):
         replaced by its decompressed copy in the argv the log then names (the F-gz ruling).
         """
         argvs = step.get("argv") or []
-        out_abs = os.path.join(job_dir, step.get("output") or "")
+        out_abs = os.path.join(files_dir, step.get("output") or "")
         self._clear_outputs(os.path.dirname(out_abs), out_abs, step)      # a copy step too: no stale report or scores
         if not argvs:
             try:
-                source = self._plain_source(font, job_dir, upload_dir, plain)
+                source = self._plain_source(font, files_dir, sources, plain)
                 os.makedirs(os.path.dirname(out_abs), exist_ok=True)
                 shutil.copyfile(source, out_abs)
             except _SOURCE_ERRORS as exc:
@@ -684,7 +701,7 @@ class Worker(threading.Thread):
             step["seconds"] = 0.0
             return "", "", None
         try:
-            step["argv"] = [[self._plain_token(token, job_dir, upload_dir, gz_upload, plain) for token in argv]
+            step["argv"] = [[self._plain_token(token, files_dir, sources, gz_upload, plain) for token in argv]
                             for argv in argvs]
         except _SOURCE_ERRORS as exc:
             return "", "", str(exc) or exc.__class__.__name__
@@ -722,14 +739,14 @@ class Worker(threading.Thread):
             except OSError:
                 shutil.rmtree(path, ignore_errors=True)
 
-    def _read_back(self, job, job_dir, upload_dir, plain, step, font, cancel=None, stdout=""):
+    def _read_back(self, job, files_dir, sources, plain, step, font, cancel=None, stdout=""):
         """Read a produced face back: its facts and its quality numbers; return an error or None.
 
         `quality.face_facts` comes first and `quality.measure` only when it succeeded (measure does not re-validate
         the bytes), and a ValueError from either fails the step with its message (the Task 8 ruling). A `jamo` step
         whose route names a reference is scored against it. The page draws the face itself (WASM); no picture is written.
         """
-        out_abs = os.path.join(job_dir, step.get("output") or "")
+        out_abs = os.path.join(files_dir, step.get("output") or "")
         data = _read_bytes(out_abs)
         if data is None:
             return "no output"
@@ -737,18 +754,18 @@ class Worker(threading.Thread):
             step["facts"] = quality.face_facts(data)
             reference = self._reference(job, font, step)
             if step.get("kind") == "jamo" and reference:
-                source = (self._prepared_source(job, job_dir, step.get("font"))
-                          or self._plain_source(font, job_dir, upload_dir, plain))
+                source = (self._prepared_source(job, files_dir, step.get("font"))
+                          or self._plain_source(font, files_dir, sources, plain))
                 step["quality"] = quality.measure(data, reference, source, step.get("size"))
         except ValueError as exc:
             return str(exc)
         except _SOURCE_ERRORS as exc:
             return str(exc) or exc.__class__.__name__
         if step.get("kind") == "jamo":
-            step["identity"] = self._identity(job_dir, step, cancel or threading.Event(), stdout)
+            step["identity"] = self._identity(files_dir, step, cancel or threading.Event(), stdout)
         return None
 
-    def _identity(self, job_dir, step, cancel, stdout):
+    def _identity(self, files_dir, step, cancel, stdout):
         """The identity check of a `jamo` step (spec 9.3): `maker/recog_score.py` run as a subprocess with the recogniser's
         folder in its environment, `RECOG_TIMEOUT` and the job's cancel. Never fails the step: the result is
         `{"available": true, ...the face summary}`, `{"available": false, "error": ...}` (a non-zero exit, a timeout, an
@@ -758,7 +775,7 @@ class Worker(threading.Thread):
         if recog is None:
             line = next((l for l in (stdout or "").splitlines() if l.startswith("check:")), "")
             return {"available": False, "structural": line}
-        step_dir = os.path.join(job_dir, "work", step.get("id") or "")
+        step_dir = os.path.join(files_dir, "work", step.get("id") or "")
         out_json = os.path.join(step_dir, "identity.json")
         work = os.path.join(step_dir, "identity")
         try:
@@ -767,7 +784,7 @@ class Worker(threading.Thread):
             pass
         os.makedirs(work, exist_ok=True)
         argv = routes.PY + [os.path.join(os.path.dirname(os.path.abspath(__file__)), "recog_score.py"),
-                            os.path.join(job_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
+                            os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
                             "--arrays", RECOG_ARRAYS]
         result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(ENV, SVF_RECOG_DIR=recog))
         if result["error"] is not None or result["exit"] != 0:
@@ -801,14 +818,14 @@ class Worker(threading.Thread):
         return route.reference if route is not None else None
 
     @staticmethod
-    def _prepared_source(job, job_dir, font_id):
+    def _prepared_source(job, files_dir, font_id):
         """The file a `done` `source` step of @p font_id wrote (the font as the tools read it), else `None`."""
         for step in job.get("steps") or []:
             if step.get("font") == font_id and step.get("kind") == "source" and step.get("state") == "done":
-                return os.path.join(job_dir, step.get("output") or "")
+                return os.path.join(files_dir, step.get("output") or "")
         return None
 
-    def _plain_source(self, font, job_dir, upload_dir, plain):
+    def _plain_source(self, font, files_dir, sources, plain):
         """The path a tool must read for @p font: its upload file, or the decompressed copy of a `.gz` source.
 
         The F-gz ruling: a non-PCF `.gz` source (its entry carries `"gzip": true`) is decompressed once into
@@ -816,17 +833,17 @@ class Worker(threading.Thread):
         `detect.MAX_DECOMPRESSED` and replaces an earlier one atomically; a PCF entry carries no `gzip` flag
         (FreeType reads a `.pcf.gz` itself), so it keeps its own path.
         """
-        source = os.path.join(upload_dir, font.get("path") or "")
+        source = sources.abs_of(font.get("root", 0), font.get("path"))
         if not font.get("gzip"):
             return source
         font_id = font.get("id") or "f"
         if font_id not in plain:
-            work = os.path.join(job_dir, "work", font_id)
+            work = os.path.join(files_dir, "work", font_id)
             os.makedirs(work, exist_ok=True)
             plain[font_id] = preview.materialize(source, work)
         return plain[font_id]
 
-    def _plain_token(self, token, job_dir, upload_dir, gz_upload, plain):
+    def _plain_token(self, token, files_dir, sources, gz_upload, plain):
         """@p token, or the decompressed path when it names a `.gz` source (`settings.plan_steps`' argv form).
 
         The token is matched by `os.path.realpath` against the `.gz` uploads' realpaths, so an equivalent but
@@ -835,9 +852,9 @@ class Worker(threading.Thread):
         font = gz_upload.get(os.path.realpath(token)) if isinstance(token, str) else None
         if font is None:
             return token
-        return self._plain_source(font, job_dir, upload_dir, plain)
+        return self._plain_source(font, files_dir, sources, plain)
 
-    def _write_zip(self, job, job_dir, fonts, fonts_by_id, steps):
+    def _write_output(self, job, job_dir, files_dir, sources, fonts, fonts_by_id, steps):
         """`zipout.write_zip` for @p job and the Job's final state; a refusal fails the job with its message.
 
         `write_zip` never returns None: it raises `NameClash` (the job's error names the path), `NoteRefused` (it set
@@ -854,7 +871,7 @@ class Worker(threading.Thread):
 
         try:
             result = zipout.write_zip(job, job_dir, naming.RepoIndex(self.svf_dir), fonts_by_id, effective,
-                                      self.repo_dir)
+                                      self.repo_dir, files_dir=files_dir, sources=sources)
         except zipout.NameClash as exc:
             job["state"] = "failed"
             job["error"] = "name clash: %s" % exc.path

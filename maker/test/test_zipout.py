@@ -19,6 +19,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
 import copy
 import importlib.util
 import json
+import shutil
 import tempfile
 import unittest
 import warnings
@@ -29,6 +30,7 @@ import fixtures
 import naming
 import quality
 import zipout
+from sources import Sources
 
 # The hand-built job dir and job; `setUp` fills them so every test starts from the same state.
 JOB = JD = IDX = FONTS = EFF = REPO = None
@@ -160,6 +162,34 @@ class _ZipBase(unittest.TestCase):
         zipout.append_log(JD, zipout.log_header(JOB, "abc"))
         for step in JOB["steps"]:
             zipout.append_log(JD, zipout.log_step(step, "stdout\n", "stderr\n"))
+
+
+class SourcesZipTest(_ZipBase):
+    def test_licence_bytes_by_root(self):
+        a, b = os.path.join(JD, "A"), os.path.join(JD, "B")
+        _write(os.path.join(a, "OFL.txt"), b"licence A\n")
+        _write(os.path.join(b, "OFL.txt"), b"licence B\n")
+        s = Sources("local", [a, b])
+        eff = {"licence": {"kind": "upload", "root": 1, "path": "OFL.txt"}}
+        self.assertEqual(zipout._licence_bytes(s, REPO, eff), b"licence B\n")
+        self.assertEqual(zipout._licence_bytes(s, REPO, {"licence": {"kind": "upload", "path": "OFL.txt"}}),
+                         b"licence A\n")
+        with self.assertRaisesRegex(ValueError, "outside the upload directory"):
+            zipout._licence_bytes(s, REPO, {"licence": {"kind": "upload", "root": 1, "path": "../A/OFL.txt"}})
+
+    def test_write_zip_reads_faces_from_files_dir(self):
+        fd = tempfile.mkdtemp(prefix="svf-zip-files-")
+        self.addCleanup(shutil.rmtree, fd, ignore_errors=True)
+        for step in JOB["steps"]:
+            if step.get("kind") in ("precomposed", "jamo"):
+                os.makedirs(os.path.join(fd, os.path.dirname(step["output"])))
+                os.replace(os.path.join(JD, step["output"]), os.path.join(fd, step["output"]))
+        res = zipout.write_zip(JOB, JD, IDX, FONTS, EFF, REPO, files_dir=fd, sources=Sources("upload", [JD + "/upload"]))
+        with zipfile.ZipFile(os.path.join(JD, "out", "%s.zip" % JOB["id"])) as z:
+            names = z.namelist()
+            build = z.read("svf-maker-%s/BUILD.md" % JOB["id"]).decode("utf-8")
+        self.assertIn("svf/dos/NEWONE.SVF", names)
+        self.assertEqual(build[:40], open(os.path.join(JD, "log.md"), encoding="utf-8").read()[:40])
 
 
 class ZipTest(_ZipBase):

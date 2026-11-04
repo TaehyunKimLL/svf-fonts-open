@@ -28,6 +28,7 @@ import caps
 import jobs
 import quality
 import test_recog_score
+from sources import Sources
 
 REPO = REPO_DIR
 SVF = os.path.join(REPO, "svf")
@@ -85,6 +86,23 @@ class StoreTest(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_files_dir_and_sources_of_an_upload_job(self):
+        job = self.store.create()
+        self.assertEqual(self.store.files_dir(job), self.store.path(job["id"]))
+        self.assertEqual(self.store.meta_dir(job["id"]), self.store.path(job["id"]))
+        src = self.store.sources(job)
+        self.assertEqual((src.kind, src.roots), ("upload", [self.store.path(job["id"], "upload")]))
+
+    def test_materialized_argv_takes_sources(self):
+        a, b = os.path.join(self.root, "A"), os.path.join(self.root, "B")
+        for d in (a, b):
+            os.makedirs(d)
+        with open(os.path.join(b, "x.bdf.gz"), "wb") as f:
+            f.write(gzip.compress(b"x"))
+        s = Sources("local", [a, b])
+        argv = jobs.materialized_argv([{"font": "f02", "argv": [["t", b + "/x.bdf.gz"]]}], s, "/w")
+        self.assertEqual(argv, [["t", "/w/f02/x.bdf"]])
 
     def test_create_load_save_list_delete(self):
         j = self.store.create()

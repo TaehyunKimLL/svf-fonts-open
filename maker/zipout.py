@@ -30,6 +30,7 @@ import zipfile
 import naming
 import presets
 import settings
+from sources import Sources
 
 # Every zip entry is stamped with this mtime so the archive's bytes are reproducible (Global Constraints).
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
@@ -289,12 +290,12 @@ def _read_text(path):
         return ""
 
 
-def _licence_bytes(job_dir, repo_dir, eff):
+def _licence_bytes(sources, repo_dir, eff):
     """The chosen licence's bytes: an upload's file, the `svf/` file a `repo` path names, or a `text` as UTF-8.
 
     `None` when there is no licence or it cannot be read (the lines then name the chosen name and nothing is
     written; `settings.run_ready` refuses a selected font without a readable licence before the job runs). An
-    `upload` path that resolves outside `<job_dir>/upload` raises `ValueError`: `write_zip` is the last gate before
+    `upload` path that resolves outside its root of @p sources raises `ValueError`: `write_zip` is the last gate before
     the zip is unpacked into the owner's checkout (J8).
     """
     licence = eff.get("licence")
@@ -314,9 +315,9 @@ def _licence_bytes(job_dir, repo_dir, eff):
             raise ValueError("zipout: licence path %r is outside svf/" % (path,))
         return _read(full)
     if kind == "upload":
-        root = os.path.realpath(os.path.join(job_dir, "upload"))
-        full = os.path.realpath(os.path.join(root, path))
-        if full != root and not full.startswith(root + os.sep):
+        try:
+            full = Sources.coerce(sources).abs_of(licence.get("root", 0), path)
+        except ValueError:
             raise ValueError("zipout: licence path %r is outside the upload directory" % (path,))
         return _read(full)
     return None
@@ -465,7 +466,7 @@ def _split_rel(rel):
     return dest, name
 
 
-def write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir):
+def write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, files_dir=None, sources=None):
     """Write `svf-maker-<id>.zip` for @p job's `done` faces and return the Job's `result` dict.
 
     A `precomposed`/`jamo` step whose output is byte-equal to a shipped file is skipped (`step["identical_to"]` is
@@ -485,18 +486,22 @@ def write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir):
     A note `naming.note_text` refuses (a control character or a line over 512 bytes) sets `job["error"]` to
     `"note for <font>: <message>"`, appends it to the log and raises `NoteRefused(message)`. Any failure restores the
     `identical_to` values this call set, so a failed call leaves the steps as they were. The caller saves the job
-    afterwards: `identical_to` is set on its steps.
+    afterwards: `identical_to` is set on its steps. @p job_dir is the metadata directory (`log.md`, `out/`);
+    @p files_dir (default @p job_dir) is where the faces are read; @p sources (default the job's `upload/`) is where
+    an uploaded licence is read.
     """
+    files_dir = job_dir if files_dir is None else files_dir
+    sources = Sources("upload", [os.path.join(job_dir, "upload")]) if sources is None else Sources.coerce(sources)
     touched = []                                         # (step, the identical_to it had) to restore on failure
     try:
-        return _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched)
+        return _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, files_dir, sources)
     except BaseException:
         for step, previous in touched:
             step["identical_to"] = previous
         raise
 
 
-def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched):
+def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, files_dir, sources):
     """`write_zip`'s body; @p touched collects the steps whose `identical_to` a failure must restore."""
     job_id = job.get("id") or ""
     steps = job.get("steps") or []
@@ -513,7 +518,7 @@ def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched):
         dest, name = eff.get("dest"), step.get("name")
         _check_dest(dest)
         _check_face_name(name)
-        data = _read(os.path.join(job_dir, step.get("output") or ""))
+        data = _read(os.path.join(files_dir, step.get("output") or ""))
         if data is None:
             raise ValueError("zipout: step %s is done but its face %r cannot be read" % (step.get("id"), step.get("output")))
         status, rel = index.check_face(dest, name, data)
@@ -552,7 +557,7 @@ def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched):
         dest = mine[0]["dest"]
         licence_name = eff.get("licence_name") if isinstance(eff.get("licence_name"), str) else ""
         note_name = eff.get("note_name") if isinstance(eff.get("note_name"), str) else ""
-        licence_data = _licence_bytes(job_dir, repo_dir, eff)
+        licence_data = _licence_bytes(sources, repo_dir, eff)
         if licence_data is None and isinstance(eff.get("licence"), dict):
             raise ValueError("zipout: the licence of %s cannot be read" % (font_id,))
         licence_entry, licence_ref = _text_entry(licence_data, dest, licence_name, index, font_id)
