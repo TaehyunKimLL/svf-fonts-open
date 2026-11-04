@@ -31,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import jamoset  # noqa: E402
+import svfdy  # noqa: E402
 import svfline  # noqa: E402
 
 SVF_DIR = os.path.join(ROOT, "svf")
@@ -554,6 +555,7 @@ EMSDK = os.environ.get("EMSDK") or os.path.expanduser("~/opt/emsdk")
 EMCC = os.path.join(EMSDK, "upstream", "emscripten", "emcc")
 BUILD_SH = os.path.join(WEB_DIR, "build.sh")
 RENDER_MJS = os.path.join(WEB_DIR, "test", "render.mjs")
+SVFVIEW_JS = os.path.join(ROOT, "maker", "static", "svfview.js")
 SVF_ERR = ["SVF_OK", "SVF_E_MAGIC", "SVF_E_VERSION", "SVF_E_BPP", "SVF_E_RANGE", "SVF_E_NOMEM", "SVF_E_IO", "SVF_E_ARG", "SVF_E_LAYOUT"]
 
 
@@ -1026,6 +1028,155 @@ out.box = Array.from(M.HEAP32.subarray(o >> 2, (o >> 2) + 4));
                     self.assertEqual(a.read(), b.read(), name)
         finally:
             shutil.rmtree(out, ignore_errors=True)
+
+
+    # ---- maker/static/svfview.js: the per-glyph compositor ---------------------------------------------------------
+
+    GLYPHS_JS = r"""
+const sv = await import(pathToFileURL(args[0]).href);
+sv.init(M);
+const spec = JSON.parse(args[1]);
+sv.openChain(spec.faces.map(p => new Uint8Array(readFileSync(p))));
+sv.setScale(spec.scale[0], spec.scale[1]);
+const r = spec.mode === 'line' ? sv.drawLineInto(spec.text, spec.opts) : sv.drawGlyphsInto(spec.text, spec.opts);
+out.w = r.w; out.h = r.h; out.baseline = r.baseline; out.hex = Buffer.from(r.pixels).toString('hex');
+"""
+
+    CHAIN = ["dos/MARUS20.SVF", "dos/NEODG16.SVF"]       # stored dy over a second slot
+    TEXT = "Ag가 gy\u00e9"                                # Latin, a syllable, a glyph only slot 1 has
+    SCALES = ((1, 1), (2, 1), (3, 2))
+
+    def draw(self, paths, text, scale, mode, opts=None):
+        out = self.run_script(self.GLYPHS_JS, SVFVIEW_JS, json.dumps({"faces": paths, "text": text, "scale": list(scale),
+                                                                       "mode": mode, "opts": opts or {}}))
+        return out
+
+    def glyphs(self, paths, text, scale, opts):
+        return {"line": self.draw(paths, text, scale, "line"), "glyphs": self.draw(paths, text, scale, "glyphs", opts)}
+
+    def tmpdir(self):
+        d = tempfile.mkdtemp(prefix="svf-compositor-")
+        self.addCleanup(shutil.rmtree, d, True)
+        return d
+
+    def write_face(self, data, ascent=None):
+        """A temp face holding @p data, its header ascent byte (offset 16) replaced by @p ascent when given."""
+        data = bytearray(data)
+        if ascent is not None:
+            data[16] = ascent
+            self.assertEqual(jamoset.parse_svfn(bytes(data)).ascent, ascent)
+        fd, path = tempfile.mkstemp(suffix=".SVF", dir=self.tmpdir())
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        return path
+
+    def read_face(self, path):
+        with open(path, "rb") as f:
+            return f.read()
+
+    def test_compositor_equals_line_without_overrides(self):
+        paths = [face_path("MARUS20"), face_path("NEODG16")]
+        for scale in self.SCALES:
+            with self.subTest(scale=scale):
+                out = self.glyphs(paths, self.TEXT, scale, {})
+                self.assertTrue(any(c != "0" for c in out["line"]["hex"]), "nothing drawn")
+                self.assertEqual(out["glyphs"], out["line"])
+
+    def test_line_equals_svfline(self):
+        paths = [face_path("MARUS20"), face_path("NEODG16")]
+        for scale in self.SCALES:
+            with self.subTest(scale=scale):
+                out = self.draw(paths, self.TEXT, scale, "line")
+                width, ascent, descent = svfline.measure(paths, self.TEXT, scale=scale)
+                w, h, x, baseline = width + 2, ascent + descent + 2, 1, ascent + 1
+                self.assertEqual((out["w"], out["h"], out["baseline"]), (w, h, baseline))
+                self.assertEqual(bytes.fromhex(out["hex"]), bytes(svfline.layout(paths, self.TEXT, x, baseline, w, h, scale=scale)))
+
+    def test_compositor_ascent_override_equals_the_patched_header(self):
+        paths = [face_path("MARUS20"), face_path("NEODG16")]
+        a = jamoset.parse_svfn(self.read_face(paths[0])).ascent
+        for new in (a + 2, a - 2):
+            patched = self.write_face(self.read_face(paths[0]), new)
+            for scale in self.SCALES:
+                with self.subTest(ascent=new, scale=scale):
+                    got = self.draw(paths, self.TEXT, scale, "glyphs", {"ascentOverride": new})
+                    self.assertEqual(got, self.draw([patched, paths[1]], self.TEXT, scale, "line"))
+
+    def test_compositor_dy_equals_svfdy(self):
+        paths = [face_path("MARUS20"), face_path("NEODG16")]
+        raw = self.read_face(paths[0])
+        a = jamoset.parse_svfn(raw).ascent
+        want = {0x67: 1, 0x41: -1}
+        for ascent in (None, a + 2):
+            fixed = self.write_face(svfdy.apply(raw, want)[0], ascent)
+            for scale in self.SCALES:
+                with self.subTest(ascent=ascent, scale=scale):
+                    opts = {"dy": {str(cp): v for cp, v in want.items()}}
+                    if ascent is not None:
+                        opts["ascentOverride"] = ascent
+                    self.assertEqual(self.draw(paths, self.TEXT, scale, "glyphs", opts),
+                                     self.draw([fixed, paths[1]], self.TEXT, scale, "line"))
+
+    def marks_chain(self):
+        d = self.tmpdir()
+        out = os.path.join(d, "EBG20.SVF")
+        src = os.path.join(ROOT, "ttf", "ebgaramond", "EBGaramond-VF.ttf")
+        r = subprocess.run([sys.executable, "-P", os.path.join(ROOT, "tools", "mkfont.py"), src, out, "--size", "20",
+                            "--bpp", "1", "--unicode", "0020-007E,00A1,00E9,00F2,0300-0304"],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        face = jamoset.parse_svfn(self.read_face(out))
+        self.assertTrue(face.flags & (1 << 2), "marks at origin")
+        self.assertIn(0x301, face.glyphs)
+        return out, face_path("NEODG16")
+
+    def test_compositor_marks(self):
+        base, latin = self.marks_chain()
+        raw = self.read_face(base)
+        text = "A\u00e9\u00f2\u0302 gy \u00a1 e\u0301"
+        for want in ({0x65: 1}, {0x301: 1}, {0x65: 1, 0x301: -1}):
+            fixed = self.write_face(svfdy.apply(raw, want)[0])
+            for scale in self.SCALES:
+                with self.subTest(dy=want, scale=scale):
+                    got = self.draw([base, latin], text, scale, "glyphs", {"dy": {str(k): v for k, v in want.items()}})
+                    ref = self.draw([fixed, latin], text, scale, "line")
+                    self.assertTrue(any(c != "0" for c in ref["hex"]))
+                    self.assertEqual(got, ref)
+
+    def test_compositor_mark_after_a_missing_code_point(self):
+        base, latin = self.marks_chain()
+        fixed = self.write_face(svfdy.apply(self.read_face(base), {0x301: 1})[0])
+        text = "A\U0001F600\u0301g"
+        got = self.draw([base, latin], text, (3, 2), "glyphs", {"dy": {"769": 1}})
+        self.assertEqual(got, self.draw([fixed, latin], text, (3, 2), "line"))
+
+    def test_compositor_dos_raw_symbols_under_an_ascent_override(self):
+        d = self.tmpdir()
+        raw = os.path.join(d, "raw.fnt")
+        fill = set(jamoset.slots_of(8, 4, 4, 160, 248))
+        data = bytearray(360 * 32)
+        for i in range(360):
+            if i not in fill:
+                data[i * 32] = data[i * 32 + 1] = 0xFF
+        with open(raw, "wb") as f:
+            f.write(data)
+        faces = {}
+        for name, extra in (("A", []), ("B", ["--ascent", "16"])):
+            faces[name] = os.path.join(d, name + ".svf")
+            r = subprocess.run([sys.executable, "-P", os.path.join(ROOT, "tools", "jamoset.py"), raw, "--layout", "844",
+                                "--symbols", "--check", "-o", faces[name]] + extra, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(jamoset.parse_svfn(self.read_face(faces["A"])).ascent, 14)
+        text = "가\u2026\u25a1A"
+        for scale in self.SCALES:
+            with self.subTest(scale=scale):
+                got = self.draw([faces["A"]], text, scale, "glyphs", {"ascentOverride": 16, "symbolsFixed": True})
+                ref = self.draw([faces["B"]], text, scale, "line")
+                self.assertTrue(any(c != "0" for c in ref["hex"]))
+                self.assertEqual(got, ref)
+        # without symbolsFixed the two symbol glyphs move with the header and do not match the rebuild
+        self.assertNotEqual(self.draw([faces["A"]], text, (1, 1), "glyphs", {"ascentOverride": 16}),
+                            self.draw([faces["B"]], text, (1, 1), "line"))
 
 
 class TestBuildScriptsWithoutEmcc(unittest.TestCase):
