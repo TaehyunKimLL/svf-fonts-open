@@ -19,6 +19,12 @@ Exports:
 | `svfw_info(slot, out)` | int32 out[0..7] = bpp, cell_w, cell_h, ascent, flags, status, glyph count, is_jamo; SVF_E_ARG for a slot not open |
 | `svfw_has(slot, cp)` | `svf_has` of the slot's face: 1 or 0 (0 for a slot not open) |
 | `svfw_order(first)` | the chain tries slot first first, the others after it in slot order (`svfw_order(0)`: slot order); no reopen; SVF_E_ARG for a slot not open; `svfw_open`/`svfw_reset` restore slot order |
+| `svfw_metrics(slot, cp, out)` | `svf_metrics_of`: 1 (metrics table), 0 (none), -1 (no glyph, slot not open or out NULL); int32 out[0..3] = advance, bearing_x, ink_w, dy |
+| `svfw_cell_bytes(slot)` | `svf_cell_bytes` of the slot's face; 0 for a slot not open |
+| `svfw_glyph(slot, cp, cell, len)` | `svf_glyph` (a syllable of a JSET face is composed); its `svf_err`, SVF_E_ARG for a slot not open or cell NULL |
+| `svfw_pieces(slot, cp, out)` | `svf_jamo_pieces`: the count 0..3, uint16 out[0..2] = piece numbers (0xFFFF blank); 0 for a slot not open or out NULL |
+| `svfw_cmap_cp(slot, i)` | the code point of entry i of the code point table (file order); -1 past the table, below 0 or for a slot not open |
+| `svfw_line_box(text, len, x, baseline, out)` | `svf_measure_utf8` on the chain: int32 out = x, baseline - ascent, width, baseline + descent; its `svf_err` |
 
 Face bytes must stay in the module's memory while a slot uses them: call `svfw_reset` before freeing them.
 
@@ -27,7 +33,7 @@ to 14x); a draw that needs more mallocs a buffer of exactly the need before draw
 frees the previous one if it was malloced. A failed malloc returns SVF_E_NOMEM, draws nothing and keeps the previous
 buffer. Only this port allocates: `c/src` never does (`make -C c check`, no-malloc).
 
-Build (emsdk as `c/cross/install-toolchains.sh` installs it; this is the line `web/build.sh` runs):
+Build (emsdk as `c/cross/install-toolchains.sh` installs it; this is the line `web/build.sh` and `maker/build-wasm.sh` run, kept in `emcc-flags.sh`):
 
     EM_CONFIG=~/opt/emsdk/.emscripten ~/opt/emsdk/upstream/emscripten/emcc -std=c99 -Wall -Wextra -Werror -O2 \
         -Ic/include c/ports/web/svf_web.c c/src/*.c -o svf.js -sMODULARIZE -sEXPORT_ES6 -sEXPORT_NAME=SvfModule \

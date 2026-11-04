@@ -26,6 +26,19 @@
  *                                       (svfw_order(0) is slot order again); no face is reopened. SVF_E_ARG for a slot
  *                                       not open or a chain with an unopened slot. svfw_open and svfw_reset restore
  *                                       slot order. svfw_info and svfw_has always name slots, whatever the order.
+ *   svfw_metrics(slot, cp, out)         svf_metrics_of of the face in slot: 1 (metrics table), 0 (none: the defaults), -1
+ *                                       (no glyph for cp, a slot not open or out NULL; out untouched). out[0..3] (int32)
+ *                                       = advance, bearing_x, ink_w, dy.
+ *   svfw_cell_bytes(slot)               svf_cell_bytes of the face in slot; 0 for a slot not open.
+ *   svfw_glyph(slot, cp, cell, len)     svf_glyph: the cell of cp (composed for a syllable of a JSET face) into cell, len
+ *                                       bytes; returns its svf_err (SVF_E_ARG for a slot not open or cell NULL).
+ *   svfw_pieces(slot, cp, out)          svf_jamo_pieces: the count 0..3, out[0..2] (uint16) = piece numbers (0xFFFF is
+ *                                       blank); 0 for a slot not open or out NULL.
+ *   svfw_cmap_cp(slot, i)               the code point of code point table entry i (file order); -1 for i < 0,
+ *                                       i >= the glyph count or a slot not open.
+ *   svfw_line_box(text, len, x, baseline, out)
+ *                                       svf_measure_utf8 on the chain: out[0..3] (int32) = x, baseline - ascent, width,
+ *                                       baseline + descent; returns its svf_err (SVF_E_ARG for len < 0 or out NULL).
  *
  * Scratch: svfw_draw needs svf_chain_scratch_bytes of the chain. The first buffer is a static 64 KB; a draw that needs
  * more mallocs a buffer of exactly the need first (freeing the previous one if it was malloced). A failed malloc
@@ -197,4 +210,69 @@ EMSCRIPTEN_KEEPALIVE int svfw_order(int first)
 			return SVF_E_ARG;
 	order(first);
 	return SVF_OK;
+}
+
+EMSCRIPTEN_KEEPALIVE int svfw_metrics(int slot, uint32_t cp, int32_t *out)
+{
+	svf_metrics m;
+	int r;
+
+	if (slot < 0 || slot >= SVFW_FACES || !opened[slot] || !out)
+		return -1;
+	r = svf_metrics_of(&faces[slot], cp, &m);
+	if (r >= 0) {
+		out[0] = m.advance;
+		out[1] = m.bearing_x;
+		out[2] = m.ink_w;
+		out[3] = m.dy;
+	}
+	return r;
+}
+
+EMSCRIPTEN_KEEPALIVE int svfw_cell_bytes(int slot)
+{
+	if (slot < 0 || slot >= SVFW_FACES || !opened[slot])
+		return 0;
+	return (int)svf_cell_bytes(&faces[slot]);
+}
+
+EMSCRIPTEN_KEEPALIVE int svfw_glyph(int slot, uint32_t cp, uint8_t *cell, uint32_t len)
+{
+	if (slot < 0 || slot >= SVFW_FACES || !opened[slot] || !cell)
+		return SVF_E_ARG;
+	return svf_glyph(&faces[slot], cp, cell, len);
+}
+
+EMSCRIPTEN_KEEPALIVE int svfw_pieces(int slot, uint32_t cp, uint16_t *out)
+{
+	if (slot < 0 || slot >= SVFW_FACES || !opened[slot] || !out)
+		return 0;
+	return svf_jamo_pieces(&faces[slot], cp, out);
+}
+
+EMSCRIPTEN_KEEPALIVE int svfw_cmap_cp(int slot, int i)
+{
+	uint32_t cp;
+
+	if (slot < 0 || slot >= SVFW_FACES || !opened[slot] || i < 0 || i >= svf_glyph_count(&faces[slot]))
+		return -1;
+	cp = svf_cmap_cp(&faces[slot], (uint16_t)i);
+	return cp == 0xFFFFFFFFu ? -1 : (int)cp;
+}
+
+EMSCRIPTEN_KEEPALIVE int svfw_line_box(const char *text, int len, int x, int baseline, int32_t *out)
+{
+	svf_extent e;
+	svf_err r;
+
+	if (len < 0 || !out)
+		return SVF_E_ARG;
+	r = svf_measure_utf8(&chain, text, (size_t)len, &e);
+	if (r == SVF_OK) {
+		out[0] = x;
+		out[1] = baseline - e.ascent;
+		out[2] = e.width;
+		out[3] = baseline + e.descent;
+	}
+	return r;
 }

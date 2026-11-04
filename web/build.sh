@@ -9,18 +9,12 @@ set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(dirname "$HERE")
 OUT=${1:-$HERE/dist}
-EMSDK=${EMSDK:-$HOME/opt/emsdk}
-EMCC=$EMSDK/upstream/emscripten/emcc
-C=$ROOT/c
+. "$ROOT/c/ports/web/emcc-flags.sh"
 
-[ -x "$EMCC" ] || { echo "build.sh: no emcc at $EMCC (c/cross/install-toolchains.sh, or set EMSDK)" >&2; exit 1; }
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 
-EM_CONFIG="$EMSDK/.emscripten" "$EMCC" -std=c99 -Wall -Wextra -Werror -O2 -I"$C/include" \
-	"$C/ports/web/svf_web.c" "$C"/src/*.c -o "$OUT/svf.js" -sMODULARIZE -sEXPORT_ES6 -sEXPORT_NAME=SvfModule \
-	-sENVIRONMENT=web,node -sEXPORTED_FUNCTIONS=_malloc,_free -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP16,HEAP32 \
-	-sALLOW_MEMORY_GROWTH
+svf_web_compile "$ROOT" "$OUT"
 
 python3 -B "$HERE/mkindex.py" "$ROOT/svf" "$OUT/faces.json" >/dev/null
 

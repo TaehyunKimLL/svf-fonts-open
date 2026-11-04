@@ -3,3 +3,4 @@ __pycache__/
 web/dist/
 web/test/node_modules/
 web/test/out/
+maker/static/wasm/

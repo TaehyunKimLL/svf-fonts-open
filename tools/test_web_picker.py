@@ -905,6 +905,128 @@ out.order_last = M._svfw_order(1);
         finally:
             shutil.rmtree(out, ignore_errors=True)
 
+    EXPORTS_JS = r"""
+const paths = JSON.parse(args[0]), cps = JSON.parse(args[1]);
+paths.forEach((p, slot) => { const d = readFileSync(p); out['open' + slot] = M._svfw_open(slot, put(d), d.length); });
+const m = M._malloc(16), info = M._malloc(32), p3 = M._malloc(8);
+M._svfw_info(0, info);
+const count = M.HEAP32[(info >> 2) + 6];
+const cellBytes = M._svfw_cell_bytes(0);
+out.cell_bytes = cellBytes;
+out.cmap = []; for (let i = 0; i < count; i++) out.cmap.push(M._svfw_cmap_cp(0, i));
+out.cmap_m1 = M._svfw_cmap_cp(0, -1); out.cmap_count = M._svfw_cmap_cp(0, count); out.cmap_65536 = M._svfw_cmap_cp(0, 65536);
+out.metrics = {}; out.glyph = {}; out.pieces = {};
+const cell = M._malloc(cellBytes * 2 + 8);
+for (const cp of cps) {
+  const rc = M._svfw_metrics(0, cp, m);
+  out.metrics[cp] = [rc, ...Array.from(M.HEAP32.subarray(m >> 2, (m >> 2) + 4))];
+  const e = M._svfw_glyph(0, cp, cell, cellBytes * 2);
+  out.glyph[cp] = e === 0 ? Buffer.from(M.HEAPU8.subarray(cell, cell + cellBytes)).toString('hex') : e;
+  const n = M._svfw_pieces(0, cp, p3);
+  out.pieces[cp] = Array.from(new Uint16Array(M.HEAPU8.buffer.slice(p3, p3 + 6))).slice(0, n);
+}
+"""
+
+    def face_bytes_2bpp(self, tmp):
+        src = os.path.join(ROOT, "ttf", "nanumgothic", "NanumGothic-Regular.ttf")
+        out = os.path.join(tmp, "NG16.SVF")
+        r = subprocess.run([sys.executable, "-P", os.path.join(HERE, "mkfont.py"), src, out, "--size", "16",
+                            "--bpp", "2", "--unicode", "ascii,AC00-AC0F"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return out
+
+    def test_glyph_metrics_pieces_cmap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            faces = [face_path("NEODG16"), face_path("NEODG16A"), face_path("MARUS20"), self.face_bytes_2bpp(tmp)]
+            for path in faces:
+                with self.subTest(face=os.path.basename(path)):
+                    with open(path, "rb") as fh:
+                        raw = fh.read()
+                    f = jamoset.parse_svfn(raw)
+                    stored = [cp for cp in f.glyphs if cp < jamoset.PIECE_BASE]
+                    sample = stored[:: max(1, len(stored) // 40)] + [0x20, 0x41, 0xAC00, 0xE000, 0x10FFFF]
+                    out = self.run_script(self.EXPORTS_JS, json.dumps([path]), json.dumps(sample))
+                    self.assertEqual(out["cmap"], list(f.glyphs))
+                    self.assertEqual([out["cmap_m1"], out["cmap_count"], out["cmap_65536"]], [-1, -1, -1])
+                    face = svfline.Face(raw)
+                    self.assertEqual(out["cell_bytes"], face.pitch * face.cell_h)
+                    for cp in sample:
+                        if cp in f.glyphs and cp < jamoset.PIECE_BASE:
+                            self.assertEqual(bytes.fromhex(out["glyph"][str(cp)]), f.glyphs[cp])
+                            self.assertEqual(out["metrics"][str(cp)],
+                                             [1 if face.has_metrics else 0, *face.metrics(cp)])
+                        elif not face.has(cp):
+                            self.assertEqual(out["metrics"][str(cp)][0], -1)
+                            self.assertEqual(out["glyph"][str(cp)], 4)  # SVF_E_RANGE
+            path = face_path("NEODG16A")
+            with open(path, "rb") as fh:
+                a = jamoset.parse_svfn(fh.read())
+            t = jamoset.unpack(a.jset)
+            out = self.run_script(self.EXPORTS_JS, json.dumps([path]), json.dumps([0xAC00, 0xD7A3, 0x3131]))
+            for cp in (0xAC00, 0xD7A3):
+                self.assertEqual(bytes.fromhex(out["glyph"][str(cp)]), jamoset.compose(a, t, cp))
+                self.assertEqual(out["pieces"][str(cp)], jamoset.pieces_of(t, cp))
+                self.assertEqual(out["metrics"][str(cp)],
+                                 [1, svfline.measure([path], chr(cp))[0], 0, a.cell_w, 0])
+
+    def test_unopened_slot_answers(self):
+        out = self.run_script(r"""
+const d = readFileSync(args[0]);
+out.open = M._svfw_open(0, put(d), d.length);
+const m = M._malloc(16), cell = M._malloc(512), p3 = M._malloc(8);
+M.HEAP32.fill(7777, m >> 2, (m >> 2) + 4);
+out.metrics = M._svfw_metrics(1, 0x41, m);
+out.untouched = Array.from(M.HEAP32.subarray(m >> 2, (m >> 2) + 4));
+out.null_out = M._svfw_metrics(0, 0x41, 0);
+out.cell_bytes = M._svfw_cell_bytes(1);
+out.glyph = M._svfw_glyph(1, 0x41, cell, 512);
+out.glyph_null = M._svfw_glyph(0, 0x41, 0, 512);
+out.pieces = M._svfw_pieces(1, 0xAC00, p3);
+out.pieces_null = M._svfw_pieces(0, 0xAC00, 0);
+out.cmap = M._svfw_cmap_cp(1, 0);
+out.has = M._svfw_has(1, 0x41);
+out.line_neg = M._svfw_line_box(0, -1, 0, 0, m);
+out.line_null = M._svfw_line_box(0, 0, 0, 0, 0);
+""", face_path("NEODG16"))
+        self.assertEqual(out["open"], 0)
+        self.assertEqual((out["metrics"], out["untouched"], out["null_out"]), (-1, [7777] * 4, -1))
+        self.assertEqual((out["cell_bytes"], out["glyph"], out["glyph_null"]), (0, 7, 7))
+        self.assertEqual((out["pieces"], out["pieces_null"], out["cmap"], out["has"]), (0, 0, -1, 0))
+        self.assertEqual((out["line_neg"], out["line_null"]), (7, 7))
+
+    def line_box(self, paths, text, scale, x, baseline):
+        out = self.run_script(r"""
+const paths = JSON.parse(args[0]), text = new TextEncoder().encode(args[1]);
+paths.forEach((p, slot) => { const d = readFileSync(p); M._svfw_open(slot, put(d), d.length); });
+M._svfw_scale(Number(args[2]), Number(args[3]));
+const o = M._malloc(16);
+out.rc = M._svfw_line_box(put(text), text.length, Number(args[4]), Number(args[5]), o);
+out.box = Array.from(M.HEAP32.subarray(o >> 2, (o >> 2) + 4));
+""", json.dumps(paths), text, str(scale[0]), str(scale[1]), str(x), str(baseline))
+        self.assertEqual(out["rc"], 0)
+        return out["box"]
+
+    def test_line_box_matches_svfline(self):
+        for scale in ((1, 1), (2, 1), (3, 2)):
+            paths = [face_path("MARUS20"), face_path("NEODG16")]
+            w, asc, desc = svfline.measure(paths, "Ag가 gy", scale=scale)
+            self.assertEqual(self.line_box(paths, "Ag가 gy", scale, x=1, baseline=40), [1, 40 - asc, w, 40 + desc])
+
+    def test_maker_build_matches_web_build(self):
+        built_dist()
+        out = tempfile.mkdtemp(prefix="svf-maker-wasm-")
+        try:
+            r = subprocess.run(["bash", os.path.join(ROOT, "maker", "build-wasm.sh")], capture_output=True, text=True,
+                               env=dict(os.environ, EMSDK=EMSDK, SVF_WASM_OUT=out))
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertRegex(r.stdout, r"^svf\.wasm \d+ bytes, svf\.js \d+ bytes\n$")
+            self.assertEqual(sorted(os.listdir(out)), ["svf.js", "svf.wasm"])
+            for name in ("svf.wasm", "svf.js"):
+                with open(os.path.join(out, name), "rb") as a, open(os.path.join(_built["dir"], name), "rb") as b:
+                    self.assertEqual(a.read(), b.read(), name)
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+
 
 COPYFACES = os.path.join(WEB_DIR, "copyfaces.py")
 
