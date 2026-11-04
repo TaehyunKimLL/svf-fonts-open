@@ -13,6 +13,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
         sys.path.insert(0, _p)
 
 import copy
+import hashlib
 import shutil
 import signal
 import tempfile
@@ -24,6 +25,8 @@ import fixtures
 import naming
 import routes
 import settings
+import inputfx
+from sources import Sources
 from test_routes import FONT_COMPOSITE, FONT_DOS, FONT_JOHAB, FONT_KSC, FONT_TTF
 
 ROOT = None
@@ -826,6 +829,141 @@ class StepsTest(unittest.TestCase):
             with self.assertRaises(ValueError) as cm:
                 settings.plan_steps({"fonts": fonts, "settings": s}, jd, "/T", ROOT)
             self.assertEqual(str(cm.exception), dos + ": ../evil.fnt is outside the upload")
+
+
+class SourcesSettingsTest(unittest.TestCase):
+    """Settings over a local `Sources` of two roots A and B, each holding its own OFL.txt and a TTF."""
+
+    A_OFL = b"SIL Open Font License, Version 1.1 (root A)\n"
+    B_OFL = b"SIL Open Font License, Version 1.1 (root B)\n"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        tmp = os.path.realpath(self._tmp.name)
+        self.A, self.B = os.path.join(tmp, "A"), os.path.join(tmp, "B")
+        for root, text, box in ((self.A, self.A_OFL, (50, 0, 950, 800)), (self.B, self.B_OFL, (300, 0, 700, 400))):
+            os.makedirs(root)
+            with open(os.path.join(root, "OFL.txt"), "wb") as f:
+                f.write(text)
+            with open(os.path.join(root, "Munjo.ttf"), "wb") as f:
+                f.write(inputfx.ttf("Munjo", box))
+        self.src = Sources("local", [self.A, self.B])
+        self.fonts = detect.scan(self.src)
+        self.fa = next(f for f in self.fonts if f["format"] == "ttf" and f["root"] == 0)
+        self.fb = next(f for f in self.fonts if f["format"] == "ttf" and f["root"] == 1)
+        self.index = naming.RepoIndex(os.path.join(REPO_DIR, "svf"))
+
+    def settings_with(self, **per_a):
+        st = settings.defaults(self.fonts)
+        for f in (self.fa, self.fb):
+            st["fonts"][f["id"]]["licence"] = {"kind": "upload", "root": f["root"], "path": "OFL.txt"}
+            st["fonts"][f["id"]]["selected"] = True
+            st["fonts"][f["id"]]["dest"] = "new/%s" % ("a" if f["root"] == 0 else "b")
+        st["fonts"][self.fa["id"]].update(per_a)
+        return st
+
+    def test_licence_resolves_to_its_own_root(self):
+        st = self.settings_with()
+        paths = settings._licence_paths(self.fonts)
+        shas = {f["root"]: settings._licence_sha(self.index, st["fonts"][f["id"]]["licence"], self.src, paths)
+                for f in (self.fa, self.fb)}
+        self.assertEqual(shas[0], hashlib.sha256(self.A_OFL).hexdigest())
+        self.assertEqual(shas[1], hashlib.sha256(self.B_OFL).hexdigest())
+        self.assertEqual(settings.validate(self.fonts, st, self.src), [])
+
+    def test_licence_root_errors(self):
+        fa = self.fa["id"]
+        st = self.settings_with(licence={"kind": "upload", "root": 2, "path": "OFL.txt"})
+        self.assertIn("%s: licence root 2 is not a source" % fa, settings.validate(self.fonts, st, self.src))
+        st = self.settings_with(licence={"kind": "upload", "path": "OFL.txt"})
+        self.assertIn("%s: licence root None is not a source" % fa, settings.validate(self.fonts, st, self.src))
+        st = self.settings_with(licence={"kind": "upload", "root": True, "path": "OFL.txt"})
+        self.assertIn("%s: licence root True is not a source" % fa, settings.validate(self.fonts, st, self.src))
+        up = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, up, ignore_errors=True)
+        with open(os.path.join(up, "OFL.txt"), "wb") as f:
+            f.write(self.A_OFL)
+        with open(os.path.join(up, "Munjo.ttf"), "wb") as f:
+            f.write(inputfx.ttf("Munjo", (50, 0, 950, 800)))
+        ufonts = detect.scan(up)
+        ust = settings.defaults(ufonts)
+        uid = next(f["id"] for f in ufonts if f["format"] == "ttf")
+        self.assertEqual(settings.validate(ufonts, ust, up), [])
+        ust["fonts"][uid]["licence"] = {"kind": "upload", "root": 0, "path": "OFL.txt"}
+        self.assertIn("%s: licence root 0 is not a source" % uid, settings.validate(ufonts, ust, up))
+
+    def list_fonts(self):
+        with open(os.path.join(self.A, "list.txt"), "w", encoding="utf-8") as f:
+            f.write("\uac00\n")
+        fonts = detect.scan(self.src)
+        return fonts, next(f for f in fonts if f["format"] == "list")
+
+    def test_range_root_errors(self):
+        fonts, lst = self.list_fonts()
+        fa = next(f for f in fonts if f["format"] == "ttf" and f["root"] == 0)["id"]
+        st = settings.defaults(fonts)
+        st["fonts"][fa]["range"] = "list.txt"
+        self.assertEqual([e for e in settings.validate(fonts, st, self.src) if "range" in e], [])
+        st["fonts"][fa]["range_root"] = 5
+        self.assertIn("%s: range root 5 is not a source" % fa, settings.validate(fonts, st, self.src))
+        st["fonts"][fa]["range_root"] = 0
+        self.assertEqual([e for e in settings.validate(fonts, st, self.src) if "range" in e], [])
+        st = settings.defaults(fonts)
+        st["batch"]["range"] = "list.txt"
+        st["batch"]["range_root"] = 5
+        self.assertIn("batch: range root 5 is not a source", settings.validate(fonts, st, self.src))
+        st["batch"]["range_root"] = 0
+        self.assertEqual([e for e in settings.validate(fonts, st, self.src) if "range" in e], [])
+        # an upload job refuses the key
+        up = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, up, ignore_errors=True)
+        with open(os.path.join(up, "list.txt"), "w", encoding="utf-8") as f:
+            f.write("\uac00\n")
+        with open(os.path.join(up, "Munjo.ttf"), "wb") as f:
+            f.write(inputfx.ttf("Munjo", (50, 0, 950, 800)))
+        ufonts = detect.scan(up)
+        ust = settings.defaults(ufonts)
+        uid = next(f["id"] for f in ufonts if f["format"] == "ttf")
+        ust["fonts"][uid]["range"] = "list.txt"
+        ust["fonts"][uid]["range_root"] = 0
+        self.assertIn("%s: range root 0 is not a source" % uid, settings.validate(ufonts, ust, up))
+        ust["batch"]["range_root"] = 0
+        self.assertIn("batch: range root 0 is not a source", settings.validate(ufonts, ust, up))
+
+    def test_range_spec_reads_its_root(self):
+        fonts, lst = self.list_fonts()
+        spec = settings.range_spec({"range": "list.txt", "range_root": 0}, self.src)
+        self.assertEqual(spec, ("file", os.path.join(self.A, "list.txt")))
+        self.assertEqual(settings.range_spec({"range": "list.txt", "range_root": 5}, self.src), ("file", None))
+        self.assertEqual(settings.range_spec({"range": "list.txt"}, self.A), ("file", os.path.join(self.A, "list.txt")))
+
+    def test_plan_steps_reads_each_root(self):
+        st = self.settings_with()
+        for f in (self.fa, self.fb):
+            st["fonts"][f["id"]]["kinds"] = ["precomposed"]
+            st["fonts"][f["id"]]["sizes"] = [16]
+            st["fonts"][f["id"]]["bpp"] = [1]
+        files_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, files_dir, ignore_errors=True)
+        job = {"fonts": self.fonts, "settings": st}
+        steps = settings.plan_steps(job, files_dir, REPO_TOOLS, self.src)
+        by_font = {s["font"]: s for s in steps}
+        flat = lambda step: [tok for argv in step["argv"] for tok in argv]
+        self.assertIn(os.path.join(self.A, "Munjo.ttf"), flat(by_font[self.fa["id"]]))
+        self.assertIn(os.path.join(self.B, "Munjo.ttf"), flat(by_font[self.fb["id"]]))
+        self.assertTrue(os.path.isdir(os.path.join(files_dir, "work")))
+
+    def test_upload_path_message_unchanged(self):
+        with self.assertRaisesRegex(ValueError, r"^f01: \.\./x is outside the upload$"):
+            settings._upload_path("f01", "../x", "/tmp/u")
+        with self.assertRaisesRegex(ValueError, r"^f01: \.\./A/Munjo\.ttf is outside the upload$"):
+            settings._upload_path("f01", "../A/Munjo.ttf", self.src, 1)
+        self.assertEqual(settings._upload_path("f01", "Munjo.ttf", self.src, 1), os.path.join(self.B, "Munjo.ttf"))
+
+    def test_run_ready_still_needs_sources(self):
+        with self.assertRaisesRegex(TypeError, "run_ready needs upload_dir"):
+            settings.run_ready(self.fonts, settings.defaults(self.fonts), self.index, None)
 
 
 if __name__ == "__main__":

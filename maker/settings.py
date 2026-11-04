@@ -26,7 +26,11 @@ import mkfont
 import naming
 import presets
 import routes
+from sources import Sources
 
+# `range_root` names the source root a list file is read from (a local job); it is not a batch key (a stored batch
+# would be "missing key"), and is read with `.get("range_root", 0)` from the batch and the per-font dicts.
+RANGE_ROOT_KEY = "range_root"
 BATCH_KEYS = ("dest", "kinds", "layout", "sizes", "bpp", "range", "preset", "options")
 FONT_ONLY_KEYS = ("selected", "experimental", "dos_layout", "latin_companion", "licence", "names", "licence_name",
                   "note_name", "instance", "dy", "jamo_route")
@@ -312,6 +316,10 @@ def _effective(settings, font, font_id):
     for key in FONT_ONLY_KEYS:
         if key != "names":
             eff[key] = per.get(key, _FONT_ONLY_DEFAULTS[key])
+    if RANGE_ROOT_KEY in per:                                # the list's root: its own, else (when the font keeps the
+        eff[RANGE_ROOT_KEY] = per[RANGE_ROOT_KEY]            # batch's range) the batch's; absent means root 0
+    elif "range" not in per and RANGE_ROOT_KEY in batch:
+        eff[RANGE_ROOT_KEY] = batch[RANGE_ROOT_KEY]
     if font.get("sizes_fixed") and "sizes" not in per:      # a fixed-size source keeps its own strikes
         eff["sizes"] = list(font.get("sizes") or [])
     suggestions = suggested_names(font, eff)
@@ -671,7 +679,28 @@ def _type_errors(fid, eff, per):
     return errors
 
 
-def _shape_errors(fid, font, eff, per, batch, fonts, upload_dir):
+def _root_ok(sources, root):
+    """Whether a root key's value @p root names a source of @p sources. A local job needs an int in range; an upload
+    job has no roots, so a present key is refused. Unknown @p sources (None: the disk checks are skipped) accepts it."""
+    if sources is None:
+        return True
+    if sources.kind == "upload":
+        return False
+    return isinstance(root, int) and not isinstance(root, bool) and 0 <= root < len(sources.roots)
+
+
+def _list_present(sources, root, rel):
+    """True when the uploaded list @p rel exists under @p root of @p sources (no sources: the disk is not checked).
+    An unresolvable root or path is "absent", which `validate` reports as the existing "not an uploaded list"."""
+    if sources is None:
+        return True
+    try:
+        return os.path.isfile(sources.abs_of(root, rel))
+    except ValueError:
+        return False
+
+
+def _shape_errors(fid, font, eff, per, batch, fonts, sources):
     """The value-shape rules: they apply to every font, selected or not (the types are already checked).
 
     A batch key is checked here only when the font carries its own value for it (G5); an inherited batch value is
@@ -709,8 +738,10 @@ def _shape_errors(fid, font, eff, per, batch, fonts, upload_dir):
         errors.append("%s: bpp has a repeated value" % fid)
     rng = eff.get("range")
     if "range" in per and rng not in NAMED_RANGE_NAMES:
-        if rng not in _entry_paths(fonts, ("list",)) or (upload_dir and not os.path.isfile(os.path.join(upload_dir, rng))):
+        if rng not in _entry_paths(fonts, ("list",)) or not _list_present(sources, per.get(RANGE_ROOT_KEY, 0), rng):
             errors.append("%s: range %s is %s" % (fid, rng, _RANGE_MESSAGE))
+    if RANGE_ROOT_KEY in per and not _root_ok(sources, per[RANGE_ROOT_KEY]):
+        errors.append("%s: range root %s is not a source" % (fid, per[RANGE_ROOT_KEY]))
     if "preset" in per and eff.get("preset") not in presets.PRESETS:
         errors.append("%s: unknown preset %s" % (fid, eff.get("preset")))
     errors += _option_errors(fid, eff, _own_option_keys(per))
@@ -734,13 +765,16 @@ def _shape_errors(fid, font, eff, per, batch, fonts, upload_dir):
         elif licence["kind"] == "upload":
             if licence.get("path") not in _licence_paths(fonts):
                 errors.append("%s: licence %s is not a licence file in the batch" % (fid, licence.get("path")))
-            elif upload_dir:
-                try:
-                    size = os.path.getsize(os.path.join(upload_dir, licence.get("path") or ""))
-                except OSError:
-                    size = None
-                if size == 0:
-                    errors.append("%s: licence text is empty" % fid)
+            elif sources is not None:
+                if (sources.kind == "local" or "root" in licence) and not _root_ok(sources, licence.get("root")):
+                    errors.append("%s: licence root %s is not a source" % (fid, licence.get("root")))
+                else:
+                    try:
+                        size = os.path.getsize(sources.abs_of(licence.get("root", 0), licence.get("path") or ""))
+                    except (OSError, ValueError):
+                        size = None
+                    if size == 0:
+                        errors.append("%s: licence text is empty" % fid)
         elif licence["kind"] == "text":
             if not isinstance(licence.get("text"), str) or not licence["text"].strip():
                 errors.append("%s: licence text is empty" % fid)
@@ -756,7 +790,7 @@ def _shape_errors(fid, font, eff, per, batch, fonts, upload_dir):
     return errors
 
 
-def _batch_shape_errors(batch, fonts, upload_dir):
+def _batch_shape_errors(batch, fonts, sources):
     """The batch values' shapes, checked once as `batch: <key> ...` (G5), even when no font inherits them.
 
     Only the keys the batch actually carries are checked; the font-only keys are never batch keys.
@@ -791,8 +825,10 @@ def _batch_shape_errors(batch, fonts, upload_dir):
         errors.append("batch: bpp has a repeated value")
     rng = batch.get("range")
     if "range" in batch and rng not in NAMED_RANGE_NAMES:
-        if rng not in _entry_paths(fonts, ("list",)) or (upload_dir and not os.path.isfile(os.path.join(upload_dir, rng))):
+        if rng not in _entry_paths(fonts, ("list",)) or not _list_present(sources, batch.get(RANGE_ROOT_KEY, 0), rng):
             errors.append("batch: range %s is %s" % (rng, _RANGE_MESSAGE))
+    if RANGE_ROOT_KEY in batch and not _root_ok(sources, batch[RANGE_ROOT_KEY]):
+        errors.append("batch: range root %s is not a source" % batch[RANGE_ROOT_KEY])
     if "preset" in batch and batch.get("preset") not in presets.PRESETS:
         errors.append("batch: unknown preset %s" % batch.get("preset"))
     if "options" in batch:
@@ -961,7 +997,7 @@ def _route_errors(fid, font, eff, fmap=None):
     return errors
 
 
-def validate(fonts, settings, upload_dir=None):
+def validate(fonts, settings, sources=None):
     """Every problem with @p settings as `"<font id>: <reason>"` (or `"batch: <reason>"`), in the plan's order.
 
     The structural rules come first for every font and the batch (an unknown font id, an unknown top-level or
@@ -969,9 +1005,11 @@ def validate(fonts, settings, upload_dir=None):
     the value types and shapes for every font, selected or not, then the route rules for the selected ones. A font
     whose types are wrong skips its shape and route rules: a body a client can PUT is refused as a list of errors,
     never as an exception. A batch key a font does not override is checked only at the batch scope (G5); a font's
-    own value is checked under its own id. `upload_dir` is where the batch was uploaded (a list file's own path is
-    checked there); `None` skips the disk checks. Every problem is reported once, in the plan's order (G3).
+    own value is checked under its own id. `sources` (a `Sources` or an upload directory string) is where the batch
+    was read from (a list file's own path is checked there, a root key against its roots); `None` skips the disk
+    checks. Every problem is reported once, in the plan's order (G3).
     """
+    sources = Sources.coerce(sources)
     if not isinstance(settings, dict):
         return ["settings: not an object"]
     errors = []
@@ -995,10 +1033,10 @@ def validate(fonts, settings, upload_dir=None):
             errors.append("%s: not an object" % fid)
             continue
         for key in per:
-            if key not in BATCH_KEYS and key not in FONT_ONLY_KEYS:
+            if key not in BATCH_KEYS and key not in FONT_ONLY_KEYS and key != RANGE_ROOT_KEY:
                 errors.append("%s: unknown key %s" % (fid, key))
     for key in batch:
-        if key not in BATCH_KEYS:
+        if key not in BATCH_KEYS and key != RANGE_ROOT_KEY:
             errors.append("batch: unknown key %s" % key)
     for key in BATCH_KEYS:
         if key not in batch:
@@ -1006,7 +1044,7 @@ def validate(fonts, settings, upload_dir=None):
     batch_type = _batch_type_errors(batch)
     errors += batch_type
     if not batch_type:                                       # a wrongly typed batch value is not shape-checked (G5)
-        errors += _batch_shape_errors(batch, fonts, upload_dir)
+        errors += _batch_shape_errors(batch, fonts, sources)
     shaped = []
     for fid, per in sfonts.items():
         if fid not in fmap or not isinstance(per, dict):
@@ -1017,7 +1055,7 @@ def validate(fonts, settings, upload_dir=None):
             errors += type_errors
             continue
         shaped.append((fid, eff))
-        errors += _shape_errors(fid, fmap[fid], eff, per, batch, fonts, upload_dir)
+        errors += _shape_errors(fid, fmap[fid], eff, per, batch, fonts, sources)
     for fid, eff in shaped:
         if eff.get("selected"):
             errors += _route_errors(fid, fmap[fid], eff, fmap)
@@ -1026,13 +1064,13 @@ def validate(fonts, settings, upload_dir=None):
 
 # ---- ready to run ----------------------------------------------------------------------------------------------
 
-def _licence_sha(index, licence, upload_dir, licence_paths):
+def _licence_sha(index, licence, sources, licence_paths):
     """The sha256 hex digest of the chosen licence's bytes, or `None` when it cannot be established.
 
     A `repo` licence is the file's bytes under `svf/` (the index, which never follows a symlink); a `text` licence
-    is its text as UTF-8; an `upload` licence is hashed in chunks from its file under `upload_dir`, but only when it
-    is one of the batch's own licence/list/text entries (G1), its real path is under `realpath(upload_dir)` and it
-    is a regular file. A wrongly typed or unresolvable licence counts as "no bytes" (`None`), never "equal".
+    is its text as UTF-8; an `upload` licence is hashed in chunks from its file under its root of `sources`, but only
+    when it is one of the batch's own licence/list/text entries (G1), its real path is under that root
+    (`Sources.abs_of`) and it is a regular file. A wrongly typed or unresolvable licence counts as "no bytes" (`None`), never "equal".
     """
     if not isinstance(licence, dict):
         return None
@@ -1054,9 +1092,11 @@ def _licence_sha(index, licence, upload_dir, licence_paths):
         path = licence.get("path")
         if not isinstance(path, str) or path not in licence_paths:
             return None
-        root = os.path.realpath(upload_dir)
-        abs_path = os.path.realpath(os.path.join(upload_dir, path))
-        if not abs_path.startswith(root + os.sep) or not os.path.isfile(abs_path):
+        try:
+            abs_path = Sources.coerce(sources).abs_of(licence.get("root", 0), path)
+        except ValueError:
+            return None
+        if not os.path.isfile(abs_path):
             return None
         try:
             digest = hashlib.sha256()
@@ -1072,7 +1112,7 @@ def _licence_sha(index, licence, upload_dir, licence_paths):
     return None
 
 
-def _licence_present_ok(index, dest, licence_name, licence, upload_dir, licence_paths):
+def _licence_present_ok(index, dest, licence_name, licence, sources, licence_paths):
     """True when the chosen licence's bytes equal the destination's `svf/<dest>/<licence_name>`.
 
     The existing file's sha comes from the index (the walk's on-disk spelling of the name); the chosen licence's
@@ -1092,10 +1132,10 @@ def _licence_present_ok(index, dest, licence_name, licence, upload_dir, licence_
         return False
     if existing is None:
         return False
-    return _licence_sha(index, licence, upload_dir, licence_paths) == existing
+    return _licence_sha(index, licence, sources, licence_paths) == existing
 
 
-def _clash_errors(selected, index, upload_dir, licence_paths):
+def _clash_errors(selected, index, sources, licence_paths):
     """The names two selected fonts would share in one destination, and a font's own licence/note clash (H2).
 
     Every selected font contributes its `licence_name` (a licence entry) and its `note_name` (a note entry) to its
@@ -1129,7 +1169,7 @@ def _clash_errors(selected, index, upload_dir, licence_paths):
                 continue
             name = group[0][0]
             if all(kind == "licence" for _, kind, _ in group):
-                shas = [_licence_sha(index, licence, upload_dir, licence_paths) for _, _, licence in group]
+                shas = [_licence_sha(index, licence, sources, licence_paths) for _, _, licence in group]
                 if all(sha is not None for sha in shas) and len(set(shas)) == 1:
                     continue                                 # one OFL shared by a family is legitimate
                 errors.append("%s is used twice in svf/%s with different texts" % (name, dest))
@@ -1138,17 +1178,18 @@ def _clash_errors(selected, index, upload_dir, licence_paths):
     return errors
 
 
-def run_ready(fonts, settings, index, upload_dir):
+def run_ready(fonts, settings, index, sources):
     """`validate`'s rules plus the ones the checkout decides: a missing licence, a name `svf/` already holds.
 
-    `upload_dir` is required (Task 13 passes `<job_dir>/upload`): an `upload` licence's bytes must be compared with
+    `sources` (a `Sources`, or the upload directory string) is required: an `upload` licence's bytes must be compared with
     the destination's, so a name clash with other bytes is refused here, not overwritten later. Passing `None` is a
     caller's bug and raises at once (G4). `validate`'s list is returned unchanged, then this function's own new
     errors, each at most once (G3).
     """
-    if upload_dir is None:
+    if sources is None:
         raise TypeError("run_ready needs upload_dir")
-    errors = validate(fonts, settings, upload_dir)
+    sources = Sources.coerce(sources)
+    errors = validate(fonts, settings, sources)
 
     def add(message):
         if message not in errors:
@@ -1205,26 +1246,32 @@ def run_ready(fonts, settings, index, upload_dir):
         licence_name = eff.get("licence_name") or ""
         if (isinstance(licence_name, str) and licence_name and licence_name.upper() in known
                 and not repo_missing):
-            if not _licence_present_ok(index, dest, licence_name, licence, upload_dir, licence_paths):
+            if not _licence_present_ok(index, dest, licence_name, licence, sources, licence_paths):
                 add("%s: %s already exists in svf/%s; choose another name" % (fid, licence_name, dest))
     all_names = []
     for fid, font, eff in selected:
         all_names += [name for name in (eff.get("names") or {}).values() if isinstance(name, str)]
     for name in naming.duplicates(all_names):
         add("name %s is used twice" % name)
-    for message in _clash_errors(selected, index, upload_dir, licence_paths):
+    for message in _clash_errors(selected, index, sources, licence_paths):
         add(message)
     return errors
 
 
 # ---- the range and the steps -----------------------------------------------------------------------------------
 
-def range_spec(eff, upload_dir):
-    """A font's range as `mkfont`/`bdfface` take it: a named set, or `("file", <the upload's own path>)`."""
+def range_spec(eff, sources):
+    """A font's range as `mkfont`/`bdfface` take it: a named set, or `("file", <the list's own path>)`; the path is
+    None when there is no range or the list does not resolve under its root (`eff["range_root"]`, default 0)."""
     rng = eff.get("range")
     if rng in NAMED_RANGE_NAMES:
         return (rng, None)
-    return ("file", os.path.join(upload_dir, rng) if rng else None)
+    if not rng:
+        return ("file", None)
+    try:
+        return ("file", Sources.coerce(sources).abs_of(eff.get("range_root", 0), rng))
+    except ValueError:
+        return ("file", None)
 
 
 def write_range_files(work_dir):
@@ -1247,17 +1294,17 @@ def write_range_files(work_dir):
     return out
 
 
-def _upload_path(fid, rel, upload_dir):
-    """The absolute path of a font's own relative path, refused when it does not resolve under `upload_dir` (H4).
+def _upload_path(fid, rel, sources, root=0):
+    """The absolute path of a font's own relative path under root @p root of @p sources, refused when it does not
+    resolve there (H4).
 
     The same realpath check the range gets: an entry (or a companion) the scan never meant to name must not let a
-    tool read a file outside the batch's upload folder.
+    tool read a file outside the batch's input folders.
     """
-    root = os.path.realpath(upload_dir)
-    abs_path = os.path.join(upload_dir, rel) if isinstance(rel, str) else None
-    if abs_path is None or not os.path.realpath(abs_path).startswith(root + os.sep):
+    try:
+        return Sources.coerce(sources).abs_of(root, rel)
+    except ValueError:
         raise ValueError("%s: %s is outside the upload" % (fid, rel))
-    return abs_path
 
 
 def _step(sid, fid, kind, size, bpp, layout, name, argv, output):
@@ -1333,22 +1380,23 @@ def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
     return routes.PY + [os.path.join(tools_dir, "svfdy.py"), out if commands else src, out, "--json", path]
 
 
-def plan_steps(job, job_dir, tools_dir, upload_dir, pylib=None):
+def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
     """The Step dicts of every selected font, kind, size and bpp, in run order (Shared data shapes).
 
     Font order, then `precomposed` before `jamo`, then ascending size, then ascending bpp (whatever order the
     settings lists are in); a composite font gets one `prepare` step per layout before its jamo steps. A named range
     is written once under `work/`; an uploaded list is copied under `work/<font id>/range.txt` and that copy is
     passed, never the upload's own name (a comma in it would inject a range into `mkfont --unicode`, which is
-    comma-split). A `("file", ...)` range must resolve under `upload_dir`, a selected KSC font with no companion
+    comma-split). A `("file", ...)` range must resolve under its root of `sources`, a selected KSC font with no companion
     is refused before any command is built, and a step without an effective name raises `ValueError` rather than
     being written to a made-up `out.svf` (G8): `plan_steps` never calls `commands` for a font a route cannot honour.
     """
+    sources = Sources.coerce(sources)
     fonts = job.get("fonts") or []
     settings = job.get("settings") or {}
     fmap = _font_map(fonts)
     sfonts = settings.get("fonts") or {}
-    work_root = os.path.join(job_dir, "work")
+    work_root = os.path.join(files_dir, "work")
     os.makedirs(work_root, exist_ok=True)
     range_files = None
     base = os.path.join(os.path.dirname(tools_dir), "svf", routes.JOHAB844_BASE)
@@ -1361,11 +1409,10 @@ def plan_steps(job, job_dir, tools_dir, upload_dir, pylib=None):
         eff = _effective(settings, font, fid)
         if not eff.get("selected"):
             continue
-        src = _upload_path(fid, font.get("path"), upload_dir)
-        rkind, rabs = range_spec(eff, upload_dir)
+        src = _upload_path(fid, font.get("path"), sources, font.get("root", 0))
+        rkind, rabs = range_spec(eff, sources)
         if rkind == "file":
-            root = os.path.realpath(upload_dir)
-            if not isinstance(rabs, str) or not os.path.realpath(rabs).startswith(root + os.sep):
+            if not isinstance(rabs, str):
                 raise ValueError("%s: range %s is not under the upload directory" % (fid, eff.get("range")))
             copy_dir = os.path.join(work_root, fid)
             os.makedirs(copy_dir, exist_ok=True)
@@ -1390,7 +1437,8 @@ def plan_steps(job, job_dir, tools_dir, upload_dir, pylib=None):
         companion = eff.get("latin_companion")
         if font.get("source_kind") == "bdf-ksc5601" and companion is None:
             raise ValueError("%s: needs a Latin companion" % fid)
-        companion_abs = _upload_path(fid, fmap[companion].get("path"), upload_dir) if companion in fmap else None
+        companion_abs = (_upload_path(fid, fmap[companion].get("path"), sources, fmap[companion].get("root", 0))
+                         if companion in fmap else None)
         master = None
         prepared_layouts = set()
         for kind in ("precomposed", "jamo"):
@@ -1434,7 +1482,7 @@ def plan_steps(job, job_dir, tools_dir, upload_dir, pylib=None):
                     report = None
                     if route.label == "mkfont":                 # mkfont's --report: the boxes and cuts of this bake
                         report = "work/%s/report.json" % sid
-                        paths["report"] = os.path.join(job_dir, report)
+                        paths["report"] = os.path.join(files_dir, report)
                     try:
                         argv = face_argv(font, eff, route, kind, size, bpp, step_layout, range_arg, paths)
                     except ValueError as exc:
