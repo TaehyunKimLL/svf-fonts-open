@@ -448,6 +448,7 @@ class Worker(threading.Thread):
             self._stopping = True
             for event in self.cancels.values():
                 event.set()
+        preview.kill_all()                          # an in-flight bake or probe of a request thread has its own session too
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
@@ -586,9 +587,10 @@ class Worker(threading.Thread):
             if step.get("state") == "failed":       # a later step an earlier failure already stopped
                 continue
             if cancel.is_set():
-                self._fail_steps(job, job_dir, steps[index:], "cancelled")
+                reason = "interrupted" if self._stopping else "cancelled"
+                self._fail_steps(job, job_dir, steps[index:], reason)
                 job["state"] = "failed"
-                job["error"] = "cancelled"
+                job["error"] = reason
                 self.store.save(job)
                 return
             if time.monotonic() - started > JOB_TIMEOUT:
@@ -607,7 +609,7 @@ class Worker(threading.Thread):
                         self._fail_step(job, job_dir, later, "master failed")
         if cancel.is_set():                         # cancelled while the last step ran
             job["state"] = "failed"
-            job["error"] = "cancelled"
+            job["error"] = "interrupted" if self._stopping else "cancelled"
             self.store.save(job)
             return
         self._write_zip(job, job_dir, fonts, fonts_by_id, steps)
@@ -647,6 +649,8 @@ class Worker(threading.Thread):
         self.store.save(job)
         font = fonts_by_id.get(step.get("font")) or {}
         stdout, stderr, error = self._execute(job_dir, upload_dir, gz_upload, plain, step, font, cancel)
+        if error == "cancelled" and self._stopping:
+            error = "interrupted"                   # the server stopped, not the owner
         if error is None and step.get("kind") not in ("prepare", "source"):
             error = self._read_back(job, job_dir, upload_dir, plain, step, font, cancel, stdout)
         if error is not None:

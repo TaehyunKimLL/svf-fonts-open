@@ -179,15 +179,49 @@ class RunBoundedTest(unittest.TestCase):
                       "time.sleep(60)\n" % pidfile)
             with self.assertRaises(sp.TimeoutExpired):
                 preview.run_bounded([sys.executable, "-c", script], d, 1)
+            import time
+            for _ in range(100):                          # the child writes its grandchild's pid a moment after it starts
+                if os.path.exists(pidfile) and open(pidfile).read().strip():
+                    break
+                time.sleep(0.1)
             with open(pidfile) as f:
                 pid = int(f.read())
-            for _ in range(50):
-                if not os.path.exists("/proc/%d" % pid) or open("/proc/%d/stat" % pid).read().split(") ")[1][0] == "Z":
+            for _ in range(100):
+                try:
+                    state = open("/proc/%d/stat" % pid).read().split(") ")[1][0]
+                except (OSError, IndexError):             # reaped between the check and the read: gone, as wanted
                     break
-                import time
+                if state in "ZXx":
+                    break
                 time.sleep(0.1)
             else:
                 self.fail("the grandchild survived the timeout")
+
+    def test_kill_all_stops_an_in_flight_run_and_its_group(self):
+        import threading
+        import time
+        result = {}
+        script = "import time; time.sleep(60)"
+
+        def slow():
+            try:
+                result["r"] = preview.run_bounded([sys.executable, "-c", script], ".", 60)
+            except BaseException as exc:                  # noqa: BLE001
+                result["exc"] = exc
+        t = threading.Thread(target=slow)
+        t.start()
+        for _ in range(100):
+            if preview.live_count():
+                break
+            time.sleep(0.05)
+        self.assertEqual(preview.live_count(), 1)
+        started = time.monotonic()
+        self.assertEqual(preview.kill_all(), 1)
+        t.join(20)
+        self.assertFalse(t.is_alive())
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertNotEqual(result["r"].returncode, 0)    # killed: a failed run, which callers treat as 'no preview'
+        self.assertEqual(preview.live_count(), 0)
 
     def test_it_returns_the_code_and_the_output(self):
         r = preview.run_bounded([sys.executable, "-c", "import sys; print('hi'); sys.exit(3)"], ".", 10)

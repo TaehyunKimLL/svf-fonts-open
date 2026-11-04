@@ -127,7 +127,7 @@ class PageDomTest(unittest.TestCase):
             self.assertEqual(self.wait_done(job)["state"], "done")
         return job
 
-    def drive(self, job, script):
+    def drive(self, job, script, **env_extra):
         script = script.replace("FONTID", getattr(self, "font", ""))
         fd, path = tempfile.mkstemp(suffix=".js", dir=self.tmp)
         with os.fdopen(fd, "w") as f:
@@ -135,6 +135,7 @@ class PageDomTest(unittest.TestCase):
         # its own process group: a driver that overruns takes Chrome (and its ~100 tasks) down with it, so a hung page
         # cannot starve the rest of the suite of threads
         env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WAIT_S - 20))        # the driver's own limit comes first
+        env.update(env_extra)
         proc = subprocess.Popen(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
                                 env=env)
@@ -348,6 +349,14 @@ return {first, second, rows, bands, cleared, ink: canvas.dataset.ink};
         self.assertEqual((out["cleared"]["rows"], out["cleared"]["bands"], out["cleared"]["frames"]), (0, 0, 0))
         mk = self.api("GET", "/api/jobs/" + job)["settings"]["fonts"][font]["options"]["mkfont"]
         self.assertEqual((mk["ascent"], mk["clip_cell"]), (12, True))
+
+    def test_a_bad_watchdog_setting_falls_back_to_the_default(self):
+        job = self.dos_job(run=False)
+        for bad in ("0", "abc", "-5", ""):
+            with self.subTest(value=bad):
+                out = self.drive(job, "await waitFor(() => document.querySelector('canvas[data-font]')); return 1;",
+                                 PAGEDRIVE_WATCHDOG_S=bad)
+                self.assertEqual(out, 1)
 
     def test_apply_asks_before_it_discards_the_build(self):
         job = self.api("POST", "/api/jobs")["id"]

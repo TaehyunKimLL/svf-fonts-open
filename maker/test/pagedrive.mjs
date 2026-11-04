@@ -42,7 +42,8 @@ async function until(fn, ms, what) {
 }
 
 // a hung page must not hang the suite: after PAGEDRIVE_WATCHDOG_S seconds (default 200) Chrome is killed and the driver exits 1
-const watchdogMs = 1000 * Number(process.env.PAGEDRIVE_WATCHDOG_S || 200);   // raise it for a long flow
+const asked = Number(process.env.PAGEDRIVE_WATCHDOG_S);
+const watchdogMs = 1000 * (Number.isFinite(asked) && asked > 0 ? asked : 200);   // not a positive number: 200   // raise it for a long flow
 setTimeout(async () => { process.stderr.write('pagedrive: watchdog\n'); process.exitCode = 1; await shutdown(); process.exit(1); }, watchdogMs).unref();
 
 try {

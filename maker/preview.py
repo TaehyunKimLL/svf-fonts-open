@@ -116,11 +116,35 @@ def svf_png(chain_paths, out_path):
         raise
 
 
+_LIVE = {}                                   # pid -> Popen of every run_bounded child still running
+_LIVE_LOCK = threading.Lock()
+
+
+def live_count():
+    with _LIVE_LOCK:
+        return len(_LIVE)
+
+
+def kill_all():
+    """SIGKILL the process group of every `run_bounded` child still running (the server is stopping); returns how many.
+    Each caller sees its run end as a failed one (a bake that fails is 'no preview')."""
+    with _LIVE_LOCK:
+        pids = list(_LIVE)
+    for pid in pids:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    return len(pids)
+
+
 def run_bounded(argv, cwd, timeout, env=None):
     """`subprocess.run(argv)` with stdout and stderr captured, in its own session: on @p timeout the whole process group
     is killed (not only the child, whose own children would survive) and `subprocess.TimeoutExpired` is raised."""
     proc = subprocess.Popen(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    with _LIVE_LOCK:
+        _LIVE[proc.pid] = proc
     try:
         out, err = proc.communicate(timeout=timeout)
     except BaseException:
@@ -130,6 +154,9 @@ def run_bounded(argv, cwd, timeout, env=None):
             pass
         proc.communicate()
         raise
+    finally:
+        with _LIVE_LOCK:
+            _LIVE.pop(proc.pid, None)
     return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
 

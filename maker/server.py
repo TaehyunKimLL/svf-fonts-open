@@ -1290,7 +1290,12 @@ def main():
     print("svf-maker listening on %s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
     atexit.register(server.worker.stop)                   # however the process ends, the tool children are stopped first
 
+    stopping = []
+
     def terminate(signum, frame):
+        if stopping:                                      # a second signal while the first is being handled: ignore
+            return
+        stopping.append(signum)
         raise KeyboardInterrupt                           
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)               # also when the parent started us with SIGINT ignored (a background job)

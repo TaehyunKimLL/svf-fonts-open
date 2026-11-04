@@ -1637,6 +1637,7 @@ function piecesPanel(step, chainBytes, mate) {
           worst.hidden = !worst.hidden;
           if (worst.hidden || worst.childElementCount || drawing) return;
           drawing = true;
+          try {
           for (const w of piece.worst || []) {
             const cell = el("span", {class: "piece-worst-cell", text: "U+" + w.cp.toString(16).toUpperCase() + " read " + (w.got || "-") + " "});
             const mine = el("canvas", {});
@@ -1649,7 +1650,9 @@ function piecesPanel(step, chainBytes, mate) {
             }
             worst.append(cell);
           }
-          drawing = false;
+          } finally {
+            drawing = false;
+          }
         };
         row.append(worst);
         table.append(row);

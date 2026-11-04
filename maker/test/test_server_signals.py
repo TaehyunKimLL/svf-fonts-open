@@ -104,6 +104,30 @@ class SignalTest(unittest.TestCase):
     def test_sigterm_stops_the_running_tool_and_its_children(self):
         self.run_signal(signal.SIGTERM)
 
+    def test_a_second_signal_is_quiet_and_the_job_is_marked_interrupted(self):
+        tmp = tempfile.mkdtemp(prefix="svf-signal-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        pidfile = os.path.join(tmp, "pids")
+        jid = self.long_job(os.path.join(tmp, "data"), pidfile)
+        env = dict(os.environ, SVF_MAKER_REPO=REPO_DIR, SVF_MAKER_DATA=os.path.join(tmp, "data"), SVF_MAKER_BIND="127.0.0.1:0")
+        proc = subprocess.Popen([sys.executable, "-P", os.path.join(MAKER_DIR, "server.py")], env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(proc.kill)
+        self.assertTrue(wait_until(lambda: os.path.exists(pidfile) and len(open(pidfile).read().split()) == 2))
+        for pid in (int(v) for v in open(pidfile).read().split()):
+            self.addCleanup(lambda p=pid: os.kill(p, signal.SIGKILL) if alive(p) else None)
+        proc.send_signal(signal.SIGTERM)
+        proc.send_signal(signal.SIGTERM)
+        proc.send_signal(signal.SIGINT)
+        try:
+            _out, err = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail("the server did not stop")
+        self.assertNotIn(b"Traceback", err)
+        self.assertEqual(proc.returncode, 0)
+        job = jobs.Store(os.path.join(tmp, "data")).load(jid)
+        self.assertEqual((job["state"], job["error"]), ("failed", "interrupted"))
+
     def test_sigint_does_the_same(self):
         self.run_signal(signal.SIGINT)
 

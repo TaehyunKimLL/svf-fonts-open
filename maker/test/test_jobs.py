@@ -595,6 +595,18 @@ class WorkerTest(unittest.TestCase):
         self.worker.enqueue(j["id"])
         return self.wait_for(j["id"])
 
+    def test_stop_kills_the_previews_bakes_and_marks_the_job_interrupted(self):
+        calls = []
+        with mock.patch.object(jobs.preview, "kill_all", side_effect=lambda: calls.append(1) or 0):
+            j = self.job_with_steps(["import time; time.sleep(60)"])
+            self.worker.enqueue(j["id"])
+            wait_until(lambda: self.store.load(j["id"])["steps"][0]["state"] == "running")
+            self.assertTrue(self.worker.stop(30))
+        self.assertTrue(calls)
+        j = self.store.load(j["id"])
+        self.assertEqual((j["state"], j["error"]), ("failed", "interrupted"))
+        self.assertEqual(j["steps"][0]["error"], "interrupted")
+
     def test_a_copy_route_rerun_without_the_recogniser_drops_the_old_scores(self):
         """A copy step (an uploaded SVF jamo set) returns before any tool runs: its stale scores go too."""
         copy = {"scripts": None}
