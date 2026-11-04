@@ -20,6 +20,7 @@ import jamoset
 import mkfont
 import srcprep
 import svf2to3
+from sources import Sources
 from PIL import Image, ImageFont
 from fontTools.ttLib import TTFont
 
@@ -1193,9 +1194,9 @@ def _first_line(path):
 
 # ---- the batch -------------------------------------------------------------------------------------------------
 
-def _rel(upload_dir, path):
-    """@p path as the entry's `path`: relative to @p upload_dir, with `/` separators."""
-    return os.path.relpath(path, upload_dir).replace(os.sep, "/")
+def _rel(root_abs, path):
+    """@p path as the entry's `path`: relative to @p root_abs, with `/` separators."""
+    return os.path.relpath(path, root_abs).replace(os.sep, "/")
 
 
 def _bdf_glyphs(path, unicode_enc=None, data=None):
@@ -1271,8 +1272,13 @@ def _entry_size(path, entry, data=None):
         return "unknown size"
 
 
-def scan(upload_dir):
-    """Every regular file under @p upload_dir as a font entry (Shared data shapes), in relative path order.
+def scan(sources, local=False):
+    """Every regular file under @p sources as a font entry (Shared data shapes), in `(root, path)` order.
+
+    @p sources is a `Sources` or an upload directory string. An upload scan's entries carry no `root`; a local
+    one's entries (and their `licences`) carry `root`, the index of the root that holds them, and their `path` is
+    root-relative. The "same folder" tables are keyed by the real folder, so two roots stay two folders and two
+    file roots picked from one directory share one. @p local is reserved for the local-mode labels (Task 6).
 
     Archives are dropped; a file's entries keep their face order; the ids are `f01`, `f02`, ... in that order
     (`f100` after 99). Each entry gets its `coverage`, `jamo`, `licences` and `companions`; an outline face whose
@@ -1286,46 +1292,73 @@ def scan(upload_dir):
     SCAN_COVERAGE_BUDGET_S; past it the remaining entries get coverage None and their label carries "; coverage
     skipped (time budget)".
     """
-    rels = []
-    symlinks = set()
-    for root, _dirs, files in os.walk(upload_dir):
-        for name in files:
-            path = os.path.join(root, name)
-            rel = _rel(upload_dir, path)
-            if os.path.islink(path):
-                symlinks.add(rel)             # Task 11 refuses them at unpack; the scan never follows one
-            elif not os.path.isfile(path):
-                continue
-            rels.append(rel)
-    rels.sort()
-    abs_of = {rel: os.path.join(upload_dir, rel) for rel in rels}
-    all_abs = [abs_of[rel] for rel in rels]
+    sources = Sources.coerce(sources)
+    with_root = sources.kind == "local"
+    files, refused = sources.walk()
+    keys = []                            # (root, rel) of every row, in order
+    abs_of = {}
+    for i, rel, path in files:
+        keys.append((i, rel))
+        abs_of[(i, rel)] = path
+    for i, rel, reason in refused:
+        if not rel:
+            continue                     # a cut of the walk (too many files): the sources panel reports it, not an entry
+        keys.append((i, rel))
+        base = sources.roots[i]
+        abs_of[(i, rel)] = base if sources.is_file_root(i) else os.path.join(base, rel)
+    keys.sort()
+    refusal = {(i, rel): reason for i, rel, reason in refused if rel}
+    all_abs = [abs_of[key] for key in keys]
+    real_dirs = {}
+
+    def folder_of(path):
+        folder = os.path.dirname(path)
+        if folder not in real_dirs:
+            real_dirs[folder] = os.path.realpath(folder)
+        return real_dirs[folder]
 
     entries = []
     groups = {}                          # a file's entries, so one decompression serves all of them
-    for rel in rels:
-        if rel in symlinks:
-            entry = _entry(rel, 0, "unknown", "symlink, skipped", "other", family=_stem(rel))
+    for key in keys:
+        root, rel = key
+        if key in refusal:
+            entry = _entry(rel, 0, "unknown", refusal[key], "other", family=_stem(rel))
+            if with_root:
+                entry["root"] = root
             entries.append(entry)
-            groups.setdefault(rel, []).append(entry)
+            groups.setdefault(key, []).append(entry)
             continue
-        for entry in detect_file(abs_of[rel], rel):
+        for entry in detect_file(abs_of[key], rel):
             if entry["format"] != "archive":
+                if with_root:
+                    entry["root"] = root
                 entries.append(entry)
-                groups.setdefault(rel, []).append(entry)
+                groups.setdefault(key, []).append(entry)
 
-    dos_folders = {os.path.dirname(e["path"]) for e in entries if e["source_kind"] == "dos-raw"}
+    def key_of(entry):
+        return (entry.get("root", 0), entry["path"])
+
+    dos_folders = {folder_of(abs_of[key_of(e)]) for e in entries if e["source_kind"] == "dos-raw"}
     for i, entry in enumerate(entries, 1):
         entry["id"] = "f%02d" % i
 
-    licences = _licence_folders(all_abs)
-    licence_root = os.path.commonpath([os.path.dirname(p) for p in all_abs]) if all_abs else upload_dir
+    # licences: matched by the file's real folder; the search stops at the ceiling of the file's root
+    real_of = {key: os.path.join(folder_of(abs_of[key]), os.path.basename(abs_of[key])) for key in keys}
+    key_of_real = {path: key for key, path in real_of.items()}
+    licences = _licence_folders(list(real_of.values()))
+    if with_root:
+        ceilings = {}
+        for i, base in enumerate(sources.roots):
+            ceilings[i] = os.path.realpath(os.path.dirname(base) if sources.is_file_root(i) else base)
+    else:
+        dirs = [os.path.dirname(p) for p in real_of.values()]
+        ceiling = os.path.commonpath(dirs) if dirs else os.path.realpath(sources.roots[0])
     deadline = time.monotonic() + SCAN_COVERAGE_BUDGET_S
-    for rel in rels:                     # one pass per file: a `.gz` source's bytes live for that file alone
-        group = groups.get(rel)
+    for key in keys:                     # one pass per file: a `.gz` source's bytes live for that file alone
+        group = groups.get(key)
         if not group:
             continue
-        path = abs_of[rel]
+        path = abs_of[key]
         data = raw = None
         if any(e.get("gzip") for e in group):
             try:
@@ -1337,7 +1370,7 @@ def scan(upload_dir):
                 reason = hbf_refusal(path)
                 if reason:
                     entry["label"] = "HBF: " + reason
-            if entry["format"] == "eng" and os.path.dirname(entry["path"]) not in dos_folders:
+            if entry["format"] == "eng" and folder_of(path) not in dos_folders:
                 entry["format"] = "unknown"       # a Latin companion needs a DOS Johab font beside it
                 entry["label"] = "unknown (%s; no DOS Johab font beside it)" % _entry_size(path, entry, data)
             src, face, cannot = data, entry["face_index"], None
@@ -1360,16 +1393,22 @@ def scan(upload_dir):
             else:
                 entry["coverage"] = _coverage_of_entry(path, entry, src, face)
             entry["jamo"] = jamo_label(entry)
-            entry["licences"] = [{"path": _rel(upload_dir, p), "first_line": _first_line(p)}
-                                 for p in find_licences(path, all_abs, licences, licence_root)]
+            hits = find_licences(real_of[key], None, licences, ceilings[key[0]] if with_root else ceiling)
+            entry["licences"] = []
+            for p in hits:
+                lkey = key_of_real[p]
+                item = {"path": lkey[1], "first_line": _first_line(p)}
+                if with_root:
+                    item["root"] = lkey[0]
+                entry["licences"].append(item)
         data = raw = src = None          # drop the decompressed bytes before the next file
 
     latin_ids = [e["id"] for e in entries if e["source_kind"] in ("bdf-iso10646", "bdf-iso8859", "hbf")]
     for entry in entries:
         if entry["source_kind"] == "dos-raw":
-            folder = os.path.dirname(entry["path"])
+            folder = folder_of(abs_of[key_of(entry)])
             entry["companions"] = [o["id"] for o in entries
-                                   if o["format"] == "eng" and os.path.dirname(o["path"]) == folder]
+                                   if o["format"] == "eng" and folder_of(abs_of[key_of(o)]) == folder]
         elif entry["source_kind"] == "bdf-ksc5601":
             entry["companions"] = list(latin_ids)
         else:

@@ -16,11 +16,13 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
 import detect
 import fixtures
 import inputfx
 import routes
+from sources import Sources
 
 BOX1 = (50, 0, 950, 800)
 BOX2 = (300, 0, 700, 400)
@@ -286,6 +288,44 @@ class PcfDetectTest(DirCase):
         out = detect.detect_file(self.put("t.pcf", data), "t.pcf")
         self.assertEqual(len(out), 1)
         self.assertNotIn("prep", out[0])
+
+
+class SourcesScanTest(DirCase):
+    def test_scan_two_roots_keeps_folders_apart(self):
+        for sub in ("a", "b"):
+            self.put(sub + "/Munjo.ttf", inputfx.ttf("Munjo", BOX1))
+            self.put(sub + "/OFL.txt", b"SIL Open Font License, Version 1.1\n")
+        a, b = self.dir("a"), self.dir("b")
+        fonts = detect.scan(Sources("local", [a, b]))
+        ttfs = [f for f in fonts if f["format"] == "ttf"]
+        self.assertEqual([f["root"] for f in ttfs], [0, 1])
+        for f in ttfs:
+            self.assertEqual([(l["root"], l["path"]) for l in f["licences"]], [(f["root"], "OFL.txt")])
+        self.assertTrue(all("root" in f for f in fonts))
+        self.assertEqual([f["id"] for f in fonts], ["f%02d" % i for i in range(1, len(fonts) + 1)])
+
+    def test_file_roots_in_one_folder_pair_up(self):
+        fonts_dir = self.dir("fonts")
+        self.put("fonts/Munjo.ttf", inputfx.ttf("Munjo", BOX1))
+        self.put("fonts/OFL.txt", b"SIL Open Font License, Version 1.1\n")
+        self.put("fonts/NOTES.txt", b"This font is licensed under the SIL Open Font License.\n")
+        with mock.patch("builtins.open", wraps=open) as spy:
+            fonts = detect.scan(Sources("local", [fonts_dir + "/Munjo.ttf", fonts_dir + "/OFL.txt"]))
+        ttf = next(f for f in fonts if f["format"] == "ttf")
+        self.assertEqual(ttf["licences"], [{"root": 1, "path": "OFL.txt", "first_line": mock.ANY}])
+        self.assertNotIn(fonts_dir + "/NOTES.txt", [c.args[0] for c in spy.call_args_list])   # never opened
+        fonts = detect.scan(Sources("local", [fonts_dir + "/Munjo.ttf"]))
+        self.assertEqual(fonts[0]["licences"], [])                         # alone: no licence found
+
+    def test_upload_sources_scan_equals_the_string_scan(self):
+        self.put("a/Munjo.ttf", inputfx.ttf("Munjo", BOX1))
+        self.put("a/OFL.txt", b"SIL Open Font License, Version 1.1\n")
+        os.symlink("Munjo.ttf", self.dir("a") + "/link.ttf")
+        by_str = detect.scan(self.root)
+        by_src = detect.scan(Sources("upload", [self.root]))
+        self.assertEqual(by_src, by_str)
+        self.assertTrue(all("root" not in f for f in by_str))
+        self.assertIn("symlink, skipped", [f["label"] for f in by_str])
 
 
 if __name__ == "__main__":
