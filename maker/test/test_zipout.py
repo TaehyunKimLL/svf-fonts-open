@@ -29,6 +29,7 @@ from unittest import mock
 import fixtures
 import naming
 import quality
+import sources
 import zipout
 from sources import Sources
 
@@ -190,6 +191,76 @@ class SourcesZipTest(_ZipBase):
             build = z.read("svf-maker-%s/BUILD.md" % JOB["id"]).decode("utf-8")
         self.assertIn("svf/dos/NEWONE.SVF", names)
         self.assertEqual(build[:40], open(os.path.join(JD, "log.md"), encoding="utf-8").read()[:40])
+
+
+class WriteTreeTest(unittest.TestCase):
+    """`write_tree`'s guarantees without a server: ownership, atomic no-clobber for new names, no stray temp files."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory(prefix="svf-tree-")
+        self.addCleanup(self._tmp.cleanup)
+        self.out = os.path.realpath(self._tmp.name)
+        st = os.stat(self.out)
+        self.oid = [st.st_dev, st.st_ino]
+        self.job = {"id": "0123456789ab"}
+
+    def sha(self, data):
+        import hashlib
+        return hashlib.sha256(data).hexdigest()
+
+    def tree(self, entries, owned, sidecar=()):
+        landed = {}
+        got = zipout.write_tree(self.job, entries, list(sidecar), self.out, self.oid, owned,
+                                lambda rel, sha: landed.__setitem__(rel, sha))
+        return got, landed
+
+    def test_new_names_are_never_clobbered(self):
+        _write(os.path.join(self.out, "svf/dos/X.SVF"), b"theirs")
+        with self.assertRaises(zipout.NameClash) as ctx:
+            self.tree({"svf/dos/X.SVF": b"mine"}, {})
+        self.assertEqual(ctx.exception.path, "svf/dos/X.SVF")
+        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"theirs")
+        self.assertEqual([n for _d, _s, ns in os.walk(self.out) for n in ns if n.endswith(".tmp")], [])
+
+    def test_two_writers_one_new_name(self):
+        got, landed = self.tree({"svf/dos/X.SVF": b"first"}, {})
+        self.assertEqual(got, ["svf/dos/X.SVF"])
+        with self.assertRaises(zipout.NameClash):                       # the later writer: its index was built before
+            self.tree({"svf/dos/X.SVF": b"second"}, {})
+        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"first")
+
+    def test_owned_is_replaced_only_when_unchanged_or_absent(self):
+        owned = {"svf/dos/X.SVF": self.sha(b"v1")}
+        _write(os.path.join(self.out, "svf/dos/X.SVF"), b"v1")
+        got, landed = self.tree({"svf/dos/X.SVF": b"v2"}, owned)
+        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"v2")
+        self.assertEqual(landed["svf/dos/X.SVF"], self.sha(b"v2"))
+        with self.assertRaises(zipout.NameClash):                       # owned says v1, the file holds v2
+            self.tree({"svf/dos/X.SVF": b"v3"}, owned)
+        os.remove(os.path.join(self.out, "svf/dos/X.SVF"))              # the user deleted it: replaceable
+        self.tree({"svf/dos/X.SVF": b"v3"}, owned)
+        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"v3")
+
+    def test_without_hard_links_the_claim_is_still_exclusive(self):
+        import errno
+        with mock.patch("os.link", side_effect=OSError(errno.ENOTSUP, "no links")):
+            got, landed = self.tree({"svf/dos/X.SVF": b"mine"}, {})
+            self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"mine")
+            with self.assertRaises(zipout.NameClash):
+                self.tree({"svf/dos/X.SVF": b"again"}, {})
+        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"mine")
+
+    def test_output_gone(self):
+        self.oid = [self.oid[0], self.oid[1] + 1]
+        with self.assertRaises(sources.OutputGone):
+            self.tree({"svf/dos/X.SVF": b"mine"}, {})
+        self.assertEqual(os.listdir(self.out), [])
+
+    def test_sidecar_goes_to_build_dir_and_is_always_replaced(self):
+        got, landed = self.tree({}, {}, [("BUILD.md", b"one")])
+        self.assertEqual(got, ["build-0123456789ab/BUILD.md"])
+        self.tree({}, {}, [("BUILD.md", b"two")])
+        self.assertEqual(_read(os.path.join(self.out, "build-0123456789ab/BUILD.md")), b"two")
 
 
 class ZipTest(_ZipBase):

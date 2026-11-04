@@ -911,7 +911,7 @@ def _dy_errors(fid, eff, kinds, sizes):
     return errors
 
 
-def _route_errors(fid, font, eff, fmap=None):
+def _route_errors(fid, font, eff, fmap=None, local=False):
     """The route rules, on the effective values: what each selected font's routes can honour.
 
     An effective value may be a batch value the type rules refused (the font does not override it), so `kinds`,
@@ -1006,6 +1006,8 @@ def _route_errors(fid, font, eff, fmap=None):
             errors.append("%s: preset %s is for layout %s" % (fid, preset_name, preset["layout"]))
     for key in ("licence_name", "note_name"):                 # a selected font needs both (F3)
         value = eff.get(key) or ""
+        if key == "licence_name" and local and eff.get("licence") is None:
+            continue                                          # a local font converts without a licence
         if not value:                                         # G3: a bad non-empty value is the shape rule's, once
             errors.append("%s: %s %s is not [A-Z0-9]{1,8}.TXT" % (fid, key, value))
     return errors
@@ -1072,7 +1074,7 @@ def validate(fonts, settings, sources=None):
         errors += _shape_errors(fid, fmap[fid], eff, per, batch, fonts, sources)
     for fid, eff in shaped:
         if eff.get("selected"):
-            errors += _route_errors(fid, fmap[fid], eff, fmap)
+            errors += _route_errors(fid, fmap[fid], eff, fmap, local=sources is not None and sources.kind == "local")
     return list(dict.fromkeys(errors))                       # G3: each problem is reported once, order kept
 
 
@@ -1195,13 +1197,14 @@ def _clash_errors(selected, index, sources, licence_paths):
     return errors
 
 
-def run_ready(fonts, settings, index, sources):
+def run_ready(fonts, settings, index, sources, own_earlier=()):
     """`validate`'s rules plus the ones the checkout decides: a missing licence, a name `svf/` already holds.
 
     `sources` (a `Sources`, or the upload directory string) is required: an `upload` licence's bytes must be compared with
     the destination's, so a name clash with other bytes is refused here, not overwritten later. Passing `None` is a
     caller's bug and raises at once (G4). `validate`'s list is returned unchanged, then this function's own new
-    errors, each at most once (G3).
+    errors, each at most once (G3). @p own_earlier is a local job's set of `<dest>/<NAME>` paths it wrote on an earlier
+    run: those names are not "already there". A local job needs no licence.
     """
     if sources is None:
         raise TypeError("run_ready needs upload_dir")
@@ -1233,7 +1236,8 @@ def run_ready(fonts, settings, index, sources):
         licence = eff.get("licence")
         repo_missing = False
         if licence is None:
-            add("%s: no licence" % fid)
+            if sources.kind != "local":                      # a local job converts without one (the user's own call)
+                add("%s: no licence" % fid)
         elif isinstance(licence, dict) and licence.get("kind") == "repo":
             path = licence.get("path")
             if not isinstance(path, str) or path not in text_paths:
@@ -1255,14 +1259,16 @@ def run_ready(fonts, settings, index, sources):
             continue
         known = index.names.get(dest, ())
         for name in sorted(names):
-            if name.upper() in known:
+            if name.upper() in known and "%s/%s" % (dest, name) not in own_earlier:
                 add("%s: %s already exists in svf/%s; choose another name" % (fid, name, dest))
         note_name = eff.get("note_name") or ""
-        if isinstance(note_name, str) and note_name and note_name.upper() in known:
+        if (isinstance(note_name, str) and note_name and note_name.upper() in known
+                and "%s/%s" % (dest, note_name) not in own_earlier):
             add("%s: %s already exists in svf/%s; choose another name" % (fid, note_name, dest))
         licence_name = eff.get("licence_name") or ""
         if (isinstance(licence_name, str) and licence_name and licence_name.upper() in known
-                and not repo_missing):
+                and "%s/%s" % (dest, licence_name) not in own_earlier
+                and (licence is not None or sources.kind != "local") and not repo_missing):
             if not _licence_present_ok(index, dest, licence_name, licence, sources, licence_paths):
                 add("%s: %s already exists in svf/%s; choose another name" % (fid, licence_name, dest))
     all_names = []
@@ -1326,7 +1332,7 @@ def _upload_path(fid, rel, sources, root=0):
 
 def _step(sid, fid, kind, size, bpp, layout, name, argv, output):
     """One Step dict (Shared data shapes), `pending`."""
-    return {"id": sid, "font": fid, "kind": kind, "size": size, "bpp": bpp, "layout": layout, "name": name,
+    return {"id": sid, "font": fid, "kind": kind, "size": size, "bpp": bpp, "layout": layout, "name": name, "needs": [],
             "argv": argv, "output": output, "state": "pending", "exit": None, "seconds": None, "error": None,
             "stderr_tail": "", "facts": None, "quality": None, "identical_to": None, "report": None, "identity": None}
 

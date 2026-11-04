@@ -26,6 +26,10 @@ class PathRefused(ValueError):
         self.reason = reason
 
 
+class OutputGone(Exception):
+    """A local job's output folder is gone or is no longer the folder that was picked."""
+
+
 def stat_id(path):
     """`(st_dev, st_ino)` of @p path (symlinks followed)."""
     st = os.stat(path)

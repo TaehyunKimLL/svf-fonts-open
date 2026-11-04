@@ -1156,14 +1156,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _job_run(self, query, job):
         store = self.server.store
-        index = naming.RepoIndex(self.server.svf_dir)       # a fresh index: the checkout's current names count
+        first = self._load(job)
+        local = first.get("source") == "local"
+        # a fresh index: the checkout's current names count (a local job's: what its output folder holds)
+        index = naming.RepoIndex(os.path.join(first["output_dir"], "svf") if local else self.server.svf_dir)
 
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
                 raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
             fonts = self._stamped(j.get("fonts") or [])
             files_dir, sources = store.files_dir(j), store.sources(j)
-            errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources)
+            if local:
+                self._check_local_run(j, fonts, sources)
+            errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources,
+                                        own_earlier=jobs.own_earlier(j) if local else ())
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
             try:
@@ -1180,6 +1186,74 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current["queue_position"] = position
         self.send_json(current)
 
+    def _check_local_run(self, j, fonts, sources):
+        """The checks a local `POST run` adds, under the job lock: the output folder is still the one picked, every
+        root still passes the path rules, no other job is active on the folder, every input a step reads is the file
+        that was detected, and the folder has room for the output."""
+        store = self.server.store
+        try:
+            store.ensure_files_dir(j)
+        except jobs.OutputGone as exc:
+            raise _HttpError(409, str(exc))
+        except OSError as exc:
+            raise _HttpError(409, "output folder: %s" % _os_reason(exc))
+        allowed = sourcesmod.allowed_roots(os.environ)
+        for item in j.get("roots") or []:
+            try:
+                sourcesmod.check_path(item["path"], want="source", data_root=self.server.data_root, allowed=allowed)
+            except sourcesmod.PathRefused as exc:
+                raise _HttpError(409, "%s: %s" % (item["path"], exc.reason))
+        for item in store.list():
+            if (item.get("source") == "local" and item["id"] != j["id"] and item.get("output_id") == j.get("output_id")
+                    and item["state"] in self.ACTIVE_STATES):
+                raise _HttpError(409, "output folder is in use by job %s" % item["id"])
+        total = 0
+        for entry in self._inputs_of_selected(j, fonts):
+            total += self._check_unchanged(entry, sources)
+        free = shutil.disk_usage(j["output_dir"])[2]
+        if free < sourcesmod.LOCAL_FREE_MIN + total:
+            raise _HttpError(409, "not enough free space in %s" % j["output_dir"])
+
+    @staticmethod
+    def _inputs_of_selected(j, fonts):
+        """The scan entries a run of the selected fonts reads: each font, its Latin companion, its chosen licence file
+        and its range list."""
+        by_id = {font.get("id"): font for font in fonts}
+        by_key = {(font.get("root", 0), font.get("path")): font for font in fonts}
+        st = j.get("settings") or {}
+        out = []
+        for fid in (st.get("fonts") or {}):
+            try:
+                eff = settings.effective(fonts, st, fid)
+            except KeyError:
+                continue
+            if not eff.get("selected"):
+                continue
+            wanted = [by_id.get(fid), by_id.get(eff.get("latin_companion"))]
+            licence = eff.get("licence")
+            if isinstance(licence, dict) and licence.get("kind") == "upload":
+                wanted.append(by_key.get((licence.get("root", 0), licence.get("path"))))
+            rng = eff.get("range")
+            if isinstance(rng, str) and rng not in settings.NAMED_RANGE_NAMES:
+                wanted.append(by_key.get((eff.get("range_root", 0), rng)))
+            for entry in wanted:
+                if entry is not None and entry not in out:
+                    out.append(entry)
+        return out
+
+    @staticmethod
+    def _check_unchanged(entry, sources):
+        """409 when the file of @p entry is no longer the one detected (`file_id` = dev, ino, size, regular); returns
+        its size."""
+        message = "%s: the input changed since detection: detect again" % entry.get("path")
+        try:
+            st = os.lstat(sources.abs_of(entry.get("root", 0), entry.get("path")))
+        except (OSError, ValueError):
+            raise _HttpError(409, message)
+        if list(entry.get("file_id") or ()) != [st.st_dev, st.st_ino, st.st_size] or not stat.S_ISREG(st.st_mode):
+            raise _HttpError(409, message)
+        return st.st_size
+
     def _check_steps(self, files_dir, sources, fonts, steps):
         """Refuse a step whose `output` is not inside the files directory or whose font's `path` is not under its
         root of the sources.
@@ -1188,7 +1262,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         that writes them there, refuses anything that would leave them (Tasks 12/13 review).
         """
         by_id = {font.get("id"): font for font in fonts}
+        earlier = set()
         for step in steps:
+            if any(need not in earlier for need in step.get("needs") or []):
+                raise ValueError("step %s needs a step that is not earlier" % step.get("id"))
+            earlier.add(step.get("id"))
             output = step.get("output")
             if not isinstance(output, str) or not _inside(files_dir, os.path.join(files_dir, output)):
                 raise _HttpError(400, "step %s output is outside the job directory" % step.get("id"))
@@ -1217,12 +1295,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not faces:                                    # only a face step is named in a note (a prepare is not)
                 continue
             materialized = [dict(step, argv=jobs.materialized_argv([step], sources, work_dir)) for step in mine]
+            local = sources.kind == "local"
             names = zipout.note_names([{"name": step.get("name"), "identical_to": step.get("identical_to")}
                                        for step in faces])
             try:
                 naming.note_text(font.get("family") or "", font.get("style") or "", names,
                                  os.path.basename(font.get("path") or ""), font.get("version") or "",
-                                 datetime.date.today().isoformat(), zipout.note_commands(materialized, font))
+                                 datetime.date.today().isoformat(),
+                                 zipout.note_commands(materialized, font, sources, files_dir, self.server.tools_dir)
+                                 if local else zipout.note_commands(materialized, font))
             except ValueError as exc:
                 raise _HttpError(400, "note for %s: %s" % (font_id, exc))
 

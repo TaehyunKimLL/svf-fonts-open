@@ -38,7 +38,7 @@ import quality
 import routes
 import settings
 import zipout
-from sources import Sources, stat_id
+from sources import OutputGone, Sources, stat_id
 
 # The Global Constraints limits, verbatim.
 STEP_TIMEOUT = 600
@@ -253,11 +253,13 @@ def materialized_argv(steps, sources, work_dir):
     return out
 
 
+def own_earlier(job):
+    """The `<dest>/<NAME>` paths (relative to `svf/`) a local job wrote on an earlier run, from its top-level `owned`
+    record (which `POST detect` and `POST run` never reset)."""
+    return frozenset(rel[len("svf/"):] for rel in (job.get("owned") or {}) if rel.startswith("svf/"))
+
+
 # ---- the store -------------------------------------------------------------------------------------------------
-
-class OutputGone(Exception):
-    """A local job's output folder is gone or is no longer the folder that was picked."""
-
 
 FILES_DIR_PREFIX = ".svf-maker-"
 
@@ -600,6 +602,13 @@ class Worker(threading.Thread):
                 except Exception:                   # housekeeping must not kill the worker either
                     self._log_failure(job_id, traceback.format_exc())
 
+    def _job_env(self, job):
+        """A local job's tool environment: `TMPDIR` inside its files directory, no bytecode beside the tools. None
+        (the default `ENV`) for an upload job."""
+        if job.get("source") != "local":
+            return None
+        return dict(ENV, TMPDIR=os.path.join(self.store.files_dir(job), "work", "tmp"), PYTHONDONTWRITEBYTECODE="1")
+
     def _log_failure(self, job_id, text):
         """Put @p text in @p job_id's `log.md` when its directory is still there, else on stderr (V3)."""
         try:
@@ -628,7 +637,11 @@ class Worker(threading.Thread):
         job["error"] = None
         self.store.save(job)
         try:
+            if job.get("source") == "local":
+                self.store.ensure_files_dir(job)
             self._run_steps(job, job_dir, files_dir, sources, cancel)
+        except OutputGone as exc:
+            self._job_failed(job_id, job_dir, exc)
         except Exception as exc:
             self._job_failed(job_id, job_dir, exc)
 
@@ -647,6 +660,7 @@ class Worker(threading.Thread):
         plain = {}                                  # font id -> the decompressed copy of a .gz source
         started = time.monotonic()
         steps = job.get("steps") or []
+        steps_by_id = {step.get("id"): step for step in steps}
         for index, step in enumerate(steps):
             if step.get("state") == "failed":       # a later step an earlier failure already stopped
                 continue
@@ -661,6 +675,11 @@ class Worker(threading.Thread):
                 self._fail_steps(job, job_dir, steps[index:], "job timeout")
                 job["error"] = job.get("error") or "job timeout"   # the first error wins (M4/V7)
                 break
+            failed_need = next((n for n in step.get("needs") or []
+                                if (steps_by_id.get(n) or {}).get("state") == "failed"), None)
+            if failed_need is not None:                 # a companion's source step failed: this one cannot read it
+                self._fail_step(job, job_dir, step, "companion source failed")
+                continue
             self._run_step(job, job_dir, files_dir, sources, gz_upload, plain, fonts_by_id, step, cancel)
             if step.get("state") == "failed" and step.get("kind") == "source":
                 for later in steps[index + 1:]:
@@ -712,7 +731,8 @@ class Worker(threading.Thread):
         step["identity"] = None                     # the scores of an earlier run are not this build's
         self.store.save(job)
         font = fonts_by_id.get(step.get("font")) or {}
-        stdout, stderr, error = self._execute(files_dir, sources, gz_upload, plain, step, font, cancel)
+        stdout, stderr, error = self._execute(files_dir, sources, gz_upload, plain, step, font, cancel,
+                                                  self._job_env(job))
         if error == "cancelled" and self._stopping:
             error = "interrupted"                   # the server stopped, not the owner
         if error is None and step.get("kind") not in ("prepare", "source"):
@@ -726,7 +746,7 @@ class Worker(threading.Thread):
         zipout.append_log(job_dir, zipout.log_step(step, stdout, stderr))
         self.store.save(job)
 
-    def _execute(self, files_dir, sources, gz_upload, plain, step, font, cancel):
+    def _execute(self, files_dir, sources, gz_upload, plain, step, font, cancel, env=None):
         """Run the step's commands (or its copy); return `(stdout, stderr, the error or None)`.
 
         A step with no argv is the maker's own copy of its font's source (a route that ships the face as it is), not a
@@ -755,7 +775,7 @@ class Worker(threading.Thread):
         stdout, stderr, seconds = [], [], 0.0
         cwd = os.path.dirname(out_abs)
         for argv in step["argv"]:
-            result = run_command(argv, cwd, STEP_TIMEOUT, cancel)
+            result = run_command(argv, cwd, STEP_TIMEOUT, cancel, env)
             stdout.append(result["stdout"])
             stderr.append(result["stderr"])
             seconds += result["seconds"]
@@ -809,10 +829,10 @@ class Worker(threading.Thread):
         except _SOURCE_ERRORS as exc:
             return str(exc) or exc.__class__.__name__
         if step.get("kind") == "jamo":
-            step["identity"] = self._identity(files_dir, step, cancel or threading.Event(), stdout)
+            step["identity"] = self._identity(files_dir, step, cancel or threading.Event(), stdout, self._job_env(job))
         return None
 
-    def _identity(self, files_dir, step, cancel, stdout):
+    def _identity(self, files_dir, step, cancel, stdout, env=None):
         """The identity check of a `jamo` step (spec 9.3): `maker/recog_score.py` run as a subprocess with the recogniser's
         folder in its environment, `RECOG_TIMEOUT` and the job's cancel. Never fails the step: the result is
         `{"available": true, ...the face summary}`, `{"available": false, "error": ...}` (a non-zero exit, a timeout, an
@@ -833,7 +853,7 @@ class Worker(threading.Thread):
         argv = routes.PY + [os.path.join(os.path.dirname(os.path.abspath(__file__)), "recog_score.py"),
                             os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
                             "--arrays", RECOG_ARRAYS]
-        result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(ENV, SVF_RECOG_DIR=recog))
+        result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))
         if result["error"] is not None or result["exit"] != 0:
             tail = (result["stderr"] or "").strip().splitlines()
             reason = "timed out" if result["error"] == "timeout" else (result["error"] or (tail[-1] if tail else "exit %s" % result["exit"]))
@@ -902,6 +922,9 @@ class Worker(threading.Thread):
         return self._plain_source(font, files_dir, sources, plain)
 
     def _write_output(self, job, job_dir, files_dir, sources, fonts, fonts_by_id, steps):
+        if job.get("source") == "local":
+            self._write_tree(job, job_dir, files_dir, sources, fonts, fonts_by_id, steps)
+            return
         """`zipout.write_zip` for @p job and the Job's final state; a refusal fails the job with its message.
 
         `write_zip` never returns None: it raises `NameClash` (the job's error names the path), `NoteRefused` (it set
@@ -932,6 +955,63 @@ class Worker(threading.Thread):
             else:
                 job["state"] = "failed"
                 job["error"] = "no successful step"
+        self.store.save(job)
+
+    def _write_tree(self, job, job_dir, files_dir, sources, fonts, fonts_by_id, steps):
+        """A local job's output: `svf/<dest>/` and `build-<id>/` written into the output folder (no zip).
+
+        The job's `owned` record (path -> sha256) is filled as each file lands, so a failure half-way still leaves the
+        landed files owned. A clash with a file the job no longer owns, or a gone output folder, fails the job."""
+
+        def effective(font_id):
+            if font_id not in fonts_by_id:
+                return {}
+            return settings.effective(fonts, job.get("settings") or {}, font_id)
+
+        output_dir = job["output_dir"]
+        landed = []
+
+        def on_landed(rel, digest):
+            job.setdefault("owned", {})[rel] = digest
+            landed.append(rel)
+            self.store.save(job)
+
+        try:
+            index = naming.RepoIndex(os.path.join(output_dir, "svf"))
+            entries, sidecar, result, faces = zipout.collect(
+                job, job_dir, files_dir, index, fonts_by_id, effective, self.repo_dir, sources,
+                own_earlier(job), self.tools_dir)
+            for face in faces:                                  # where each done face now is
+                if face["identical_to"] is None:
+                    face["step"]["written"] = "svf/" + face["row_path"]
+            zipout.write_tree(job, entries, sidecar, output_dir, job["output_id"], job.setdefault("owned", {}),
+                              on_landed)
+        except zipout.NameClash as exc:
+            job["state"] = "failed"
+            job["error"] = "name clash: %s" % exc.path
+        except OutputGone as exc:
+            job["state"] = "failed"
+            job["error"] = str(exc)
+        except (zipout.NoteRefused, ValueError) as exc:
+            job["state"] = "failed"
+            job["error"] = str(exc)
+        except OSError as exc:
+            job["state"] = "failed"
+            job["error"] = "%s: %s" % (type(exc).__name__, exc.strerror or exc)
+        else:
+            kept = ["svf/" + item["identical_to"] for item in result["skipped"]
+                    if "svf/" + item["identical_to"] in job.get("owned", {})]
+            result["files"] = landed + [rel for rel in kept if rel not in landed]
+            result["output_dir"] = output_dir
+            job["result"] = result
+            if any(step.get("state") == "done" and step.get("kind") in ("precomposed", "jamo") for step in steps):
+                job["state"] = "done"
+            else:
+                job["state"] = "failed"
+                job["error"] = "no successful step"
+        if job.get("state") == "failed" and job.get("result") is None:
+            job["result"] = {"files": list(landed), "written": [], "skipped": [], "failed_steps": [],
+                             "output_dir": output_dir}
         self.store.save(job)
 
     def _fail_step(self, job, job_dir, step, error):

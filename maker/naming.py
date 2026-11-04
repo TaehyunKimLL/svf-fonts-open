@@ -85,21 +85,21 @@ def _check_note_field(value, field, newlines=False):
             raise ValueError("note_text: %s has a line longer than %d bytes" % (field, MAX_FIELD_BYTES))
 
 
-def note_text(family, style, names, source_file, version, date, commands):
+def note_text(family, style, names, source_file, version, date, commands, licence=None):
     """The note's text: the faces' line, the source, the version, the maker's stamp, then one line per command.
 
     The first line is `"<family> <style> faces (<names>)"`, or `"<family> faces (<names>)"` when the style is empty;
     `names` are comma-joined. Lines end in `\\n`, including the last. A field or command carrying a control
     character (a `\\n` is allowed inside a command, where it separates command lines) or a line longer than
     `MAX_FIELD_BYTES` bytes is refused with `ValueError`: a crafted family or command must not be able to forge a
-    provenance line or an absurd one.
+    provenance line or an absurd one. A local job without a licence passes @p licence, a line placed after `Made:`.
     """
-    for value, field in ((family, "family"), (style, "style"), (source_file, "source_file"), (version, "version"), (date, "date")):
+    for value, field in ((family, "family"), (style, "style"), (source_file, "source_file"), (version, "version"), (date, "date"), (licence, "licence")):
         _check_note_field(value or "", field)
     for command in commands:
         _check_note_field(command or "", "command", newlines=True)
     title = "%s %s faces (%s)" % (family, style, ", ".join(names)) if style else "%s faces (%s)" % (family, ", ".join(names))
-    head = [title, "", "Source: %s" % source_file, "Version: %s" % version, "Made: %s by maker/ (svf-fonts)" % date, ""]
+    head = [title, "", "Source: %s" % source_file, "Version: %s" % version, "Made: %s by maker/ (svf-fonts)" % date] + ([licence] if licence else []) + [""]
     return "\n".join(head + [c.rstrip("\n") for c in commands]) + "\n"
 
 

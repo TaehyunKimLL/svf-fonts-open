@@ -18,22 +18,27 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 """
 
 import datetime
+import errno
 import fnmatch
 import hashlib
 import importlib.util
 import json
 import os
+import secrets
 import shlex
+import stat
 import subprocess
+import sys
 import zipfile
 
 import naming
 import presets
 import settings
-from sources import Sources
+from sources import OutputGone, Sources, stat_id
 
 # Every zip entry is stamped with this mtime so the archive's bytes are reproducible (Global Constraints).
 ZIP_TIME = (1980, 1, 1, 0, 0, 0)
+NO_LICENCE_LINE = "Licence: not checked (user's responsibility)"
 
 # FACES.TSV's columns, in the order the repository's file uses them.
 FACES_COLUMNS = ["file", "family", "px", "bpp", "cell", "sets_ini_med_fin", "classes_lead_tail", "bytes",
@@ -359,12 +364,13 @@ def _add_entry(entries, name, data, owner):
     return True
 
 
-def _text_entry(data, dest, name, index, owner):
+def _text_entry(data, dest, name, index, owner, own_earlier=frozenset()):
     """`(entry name or None, the `svf/`-relative path the lines name)` for a text at `svf/<dest>/<name>`.
 
     A text byte-equal to a file already under `svf/` is not written: the existing path is named instead ("identical
     bytes share one file"). A text with no bytes or no name is not written either. A name that already exists in
-    @p dest with other bytes raises `NameClash`, as a face's name does (J3).
+    @p dest with other bytes raises `NameClash`, as a face's name does (J3), unless the job wrote that name itself
+    on an earlier run (@p own_earlier, `<dest>/<NAME>` paths): `write_tree` then replaces it when it is unchanged.
     """
     if data is None or not name:
         return (None, "")
@@ -373,7 +379,7 @@ def _text_entry(data, dest, name, index, owner):
     if existing is not None:
         return (None, existing)
     rel = "%s/%s" % (dest, name)
-    if dest in index.unlisted or name.upper() in index.names.get(dest, ()):
+    if rel not in own_earlier and (dest in index.unlisted or name.upper() in index.names.get(dest, ())):
         raise NameClash(owner, rel)
     return ("svf/" + rel, rel)
 
@@ -396,15 +402,45 @@ def note_names(faces):
     return list(dict.fromkeys(names))
 
 
-def note_commands(steps, font):
+def _note_token(token, sources, files_dir, tools_dir):
+    """One command token as the note of a local job shows it: no path of the user's machine.
+
+    A token under a source root or the files directory is its basename; under `tools/` or `maker/` of the checkout
+    `tools/<name>` / `maker/<name>`; under the rest of the checkout its checkout-relative path; the interpreter is
+    `python3`; any other absolute path is its basename."""
+    if not isinstance(token, str):
+        return token
+    if token == sys.executable:
+        return "python3"
+    if not os.path.isabs(token):
+        return token
+    real = os.path.realpath(token)
+    repo = os.path.dirname(os.path.realpath(tools_dir)) if tools_dir else None
+    for root in list(sources.roots) + ([files_dir] if files_dir else []):
+        base = os.path.realpath(root)
+        if real == base or real.startswith(base + os.sep):
+            return os.path.basename(token)
+    if repo and real.startswith(repo + os.sep):
+        return os.path.relpath(real, repo).replace(os.sep, "/")
+    return os.path.basename(token)
+
+
+def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None):
     """Every command line of @p steps, in run order, each exactly one line (the note's provenance block).
 
     A copy step's line names the font's upload path, never `step["src"]` (J6): the shipped note must be reproducible.
+    With @p sources (a local job) no token carries a path of the user's machine (`_note_token`) and a copy step names
+    the basename of the font's path.
     """
     path = font.get("path")
     src = "upload/%s" % path if path else "<src>"
+    if sources is not None:
+        src = os.path.basename(path) if path else "<src>"
     commands = []
     for step in steps:
+        if sources is not None:
+            step = dict(step, argv=[[_note_token(t, sources, files_dir, tools_dir) for t in argv]
+                                    for argv in step.get("argv") or []])
         for argv in step.get("argv") or []:
             if any(os.path.basename(token) == "johab844.py" for token in argv[:4] if isinstance(token, str)):
                 commands.append(_johab844_comment(argv))
@@ -429,8 +465,14 @@ def _lines_bytes(rows):
 
 
 def _zip_summary(result):
-    """The zip's own summary: what was written, what was skipped as identical, and the failed steps."""
-    lines = ["## Zip", "", "- zip: %s" % result["zip"]]
+    """The zip's own summary: what was written, what was skipped as identical, and the failed steps. A local job's
+    result has no `zip`: its summary is headed `## Output` and names the fonts whose licence was not checked."""
+    if "zip" in result:
+        lines = ["## Zip", "", "- zip: %s" % result["zip"]]
+    else:
+        lines = ["## Output", ""]
+        for name in result.get("unchecked_licences") or []:
+            lines.append("- licence: not checked (user's responsibility): %s" % name)
     for entry in result["written"]:
         lines.append("- written: %s" % entry)
     for item in result["skipped"]:
@@ -494,20 +536,35 @@ def write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, files_dir=N
     sources = Sources("upload", [os.path.join(job_dir, "upload")]) if sources is None else Sources.coerce(sources)
     touched = []                                         # (step, the identical_to it had) to restore on failure
     try:
-        return _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, files_dir, sources)
+        entries, sidecar, result, _faces = collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir,
+                                                   sources, touched=touched)
+        return _archive(job_dir, job.get("id") or "", entries, sidecar, result)
     except BaseException:
         for step, previous in touched:
             step["identical_to"] = previous
         raise
 
 
-def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, files_dir, sources):
-    """`write_zip`'s body; @p touched collects the steps whose `identical_to` a failure must restore."""
+def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, sources, own_earlier=frozenset(),
+            tools_dir=None, touched=None):
+    """`(entries, sidecar, result, faces)` of @p job's `done` faces: what `write_zip` archives and `write_tree` lands.
+
+    @p entries maps an `svf/...` path to its bytes; @p sidecar is `[(bare name, bytes)]` (`BUILD.md` and the three
+    `.lines`); @p result is the Job's `result` (no `zip` key for a local job); @p faces lists the faces with their
+    `row_path` / `identical_to`. @p job_dir is the metadata directory (`log.md` is read from it for `BUILD.md`, a
+    refused note is appended to it); @p files_dir is where the faces are read. A name in @p own_earlier
+    (`<dest>/<NAME>`: written by this job on an earlier run) is not a clash. A local job (`sources.kind`) without a
+    licence is allowed: its note and `BUILD.md` say "licence: not checked (user's responsibility)", and its commands
+    carry no path of the user's machine. @p touched collects the steps whose `identical_to` a failure must restore.
+    """
+    touched = [] if touched is None else touched
+    local = sources.kind == "local"
     job_id = job.get("id") or ""
     steps = job.get("steps") or []
-    entries = {}                                         # zip entry name -> bytes, built before the archive is opened
+    entries = {}                                         # entry name -> bytes, built before anything is written
     written, skipped, faces = [], [], []
     by_sha = {}                                          # sha256 -> the first face this job writes at that digest
+    unchecked = []
 
     for step in steps:
         if step.get("state") != "done" or step.get("kind") not in ("precomposed", "jamo"):
@@ -522,6 +579,8 @@ def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, f
         if data is None:
             raise ValueError("zipout: step %s is done but its face %r cannot be read" % (step.get("id"), step.get("output")))
         status, rel = index.check_face(dest, name, data)
+        if status == "clash" and rel in own_earlier:
+            status = "ok"                                # this job's own file from an earlier run: write_tree replaces it
         if status == "clash":
             raise NameClash(step.get("id"), "%s/%s" % (dest, name))
         if status == "identical":
@@ -560,20 +619,26 @@ def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, f
         licence_data = _licence_bytes(sources, repo_dir, eff)
         if licence_data is None and isinstance(eff.get("licence"), dict):
             raise ValueError("zipout: the licence of %s cannot be read" % (font_id,))
-        licence_entry, licence_ref = _text_entry(licence_data, dest, licence_name, index, font_id)
+        licence_entry, licence_ref = _text_entry(licence_data, dest, licence_name, index, font_id, own_earlier)
         if licence_entry:
             _add_entry(entries, licence_entry, licence_data, font_id)
         font_steps = [step for step in steps if step.get("font") == font_id and step.get("state") == "done"]
+        no_licence = local and eff.get("licence") is None
+        if no_licence:
+            unchecked.append(os.path.basename(font.get("path") or font_id))
         try:
+            commands = (note_commands(font_steps, font, sources, files_dir, tools_dir) if local
+                        else note_commands(font_steps, font))
             note_text = naming.note_text(font.get("family") or "", font.get("style") or "", note_names(mine),
                                          os.path.basename(font.get("path") or ""), font.get("version") or "",
-                                         _utc_now().date().isoformat(), note_commands(font_steps, font))
+                                         _utc_now().date().isoformat(), commands,
+                                         licence=NO_LICENCE_LINE if no_licence else None)
         except ValueError as exc:
             message = "note for %s: %s" % (font_id, exc)
             job["error"] = message
             append_log(job_dir, "\n%s\n" % message)
             raise NoteRefused(message)                   # never a partial zip
-        note_entry, note_ref = _text_entry(note_text.encode("utf-8"), dest, note_name, index, font_id)
+        note_entry, note_ref = _text_entry(note_text.encode("utf-8"), dest, note_name, index, font_id, own_earlier)
         if note_entry:
             _add_entry(entries, note_entry, note_text.encode("utf-8"), font_id)
         refs[font_id] = {"licence_name": licence_name, "licence": licence_ref, "note": note_ref}
@@ -585,6 +650,8 @@ def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, f
         font, step, ref = face["font"], face["step"], refs[face["font_id"]]
         row_dest, row_name = _split_rel(face["row_path"])
         row = licences_line(row_dest, row_name, ref["note"], ref["licence"])
+        if local and not ref["licence"]:
+            row = "%s/%s\t%s" % (row_dest, row_name, ref["note"])      # no licence file to name
         licences.append(row)
         if face["identical_to"] is not None:
             duplicate_rows.append(row)
@@ -597,26 +664,34 @@ def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, f
                 faces_rows.append(faces_line(step, font,
                                              _faces_licence(ref["licence"], face["dest"], ref["licence_name"])))
 
-    result = {"zip": "out/%s.zip" % job_id, "written": written, "skipped": skipped,
+    result = {"written": written, "skipped": skipped,
               "failed_steps": [step.get("id") for step in steps if step.get("state") == "failed"]}
+    if local:
+        result["unchecked_licences"] = unchecked
+    else:
+        result["zip"] = "out/%s.zip" % job_id
 
     log = _read_text(os.path.join(job_dir, "log.md"))
     if log and not log.endswith("\n"):
         log += "\n"
-    sidecar = "svf-maker-%s/" % job_id
     build = (log + _zip_summary(result) + DUPLICATE_HEADING + "\n\n```\n" + "\n".join(duplicate_rows) + "\n```\n")
-    sidecar_entries = [(sidecar + "BUILD.md", build.encode("utf-8")),
-                       (sidecar + "FACES.TSV.lines", _lines_bytes(faces_rows)),
-                       (sidecar + "LICENCES.tsv.lines", _lines_bytes(licences)),
-                       (sidecar + "FAMILIES.tsv.lines", _lines_bytes(families))]
+    sidecar = [("BUILD.md", build.encode("utf-8")),
+               ("FACES.TSV.lines", _lines_bytes(faces_rows)),
+               ("LICENCES.tsv.lines", _lines_bytes(licences)),
+               ("FAMILIES.tsv.lines", _lines_bytes(families))]
+    return entries, sidecar, result, faces
 
+
+def _archive(job_dir, job_id, entries, sidecar, result):
+    """Write `out/<id>.zip` (entries plus `svf-maker-<id>/` sidecars) through a `.tmp` file and `os.replace`."""
+    prefix = "svf-maker-%s/" % job_id
     out_dir = os.path.join(job_dir, "out")
     os.makedirs(out_dir, exist_ok=True)
     final = os.path.join(out_dir, "%s.zip" % job_id)
     tmp = final + ".tmp"
     try:
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
-            for name, data in list(entries.items()) + sidecar_entries:
+            for name, data in list(entries.items()) + [(prefix + n, d) for n, d in sidecar]:
                 info = zipfile.ZipInfo(name, ZIP_TIME)
                 info.compress_type = zipfile.ZIP_DEFLATED
                 z.writestr(info, data)
@@ -628,3 +703,109 @@ def _write_zip(job, job_dir, index, fonts_by_id, effective, repo_dir, touched, f
             pass
         raise
     return result
+
+
+# ---- the output tree (a local job) ----------------------------------------------------------------------------------
+
+_NO_LINK_ERRNOS = (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK)
+
+
+def _sha_of_file(path):
+    """The sha256 hex digest of the regular file @p path, or None when it is absent or unreadable."""
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return None
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
+    """Land @p entries (`svf/<dest>/<NAME>` -> bytes) and the @p sidecar files into @p output_dir; return the
+    output-relative paths that landed.
+
+    Every file is written to a fresh `<path>.<random>.tmp` (fsynced) first. A path the job owns (@p owned: path -> the sha256 this job
+    wrote there) is replaced when the file is still those bytes or is gone, else it is `NameClash` (someone else's file
+    now). A new name is claimed without ever replacing a file: `os.link` of the temp file (`FileExistsError` is a
+    `NameClash`), or on a filesystem without hard links (FAT/exFAT, many SMB shares) an `O_EXCL` claim, an atomic
+    `os.replace` over the claim and a read-back that must match. The sidecar goes to `build-<id>/` and is always
+    replaced. Only `svf/<dest>/` and `build-<id>/` are made. @p on_landed(rel, sha256) is called as each file lands,
+    so a partial landing is owned too. On an exception the temp files are removed and the paths that landed are
+    attached as `.landed`. `OutputGone` when @p output_dir is no longer the folder with @p output_id.
+    """
+    try:
+        same = stat_id(output_dir) == tuple(output_id)
+    except OSError:
+        same = False
+    if not same:
+        raise OutputGone("output folder is gone or changed")
+    prefix = "build-%s/" % job["id"]
+    items = [(rel, data, False) for rel, data in entries.items()] + [(prefix + n, d, True) for n, d in sidecar]
+    landed, tmps = [], []
+    try:
+        for rel, data, always in items:
+            _check_entry_path(rel)
+            path = os.path.join(output_dir, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = "%s.%s.tmp" % (path, secrets.token_hex(4))     # never a name the user may already have
+            fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            tmps.append(tmp)
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, 0o644)
+            digest = hashlib.sha256(data).hexdigest()
+            if always:
+                os.replace(tmp, path)
+            elif rel in owned:
+                current = _sha_of_file(path)
+                if current is not None and current != owned[rel]:
+                    raise NameClash(job["id"], rel)
+                os.replace(tmp, path)
+            else:
+                _land_new(tmp, path, rel, digest, job["id"])
+            landed.append(rel)
+            on_landed(rel, digest)
+    except BaseException as exc:
+        exc.landed = list(landed)
+        raise
+    finally:
+        for tmp in tmps:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+    return landed
+
+
+def _land_new(tmp, path, rel, digest, job_id):
+    """Put the temp file at the NEW name @p path without ever replacing a file already there."""
+    try:
+        os.link(tmp, path)
+        return
+    except FileExistsError:
+        raise NameClash(job_id, rel)
+    except OSError as exc:
+        if exc.errno not in _NO_LINK_ERRNOS:
+            raise
+    try:                                                 # no hard links here: claim the name, then swap the content in
+        os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except FileExistsError:
+        raise NameClash(job_id, rel)
+    try:
+        os.replace(tmp, path)
+        if _sha_of_file(path) != digest:
+            raise OSError(errno.EIO, "verify failed")
+    except BaseException:
+        current = _sha_of_file(path)
+        if current in (digest, hashlib.sha256(b"").hexdigest()):   # still our claim or our bytes: take it back
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        raise

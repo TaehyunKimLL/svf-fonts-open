@@ -533,6 +533,33 @@ class WorkerTest(unittest.TestCase):
             self.assertEqual(j["state"], "failed")
             self.assertEqual(j["error"], message)
 
+    def test_needs_cascade(self):
+        j = self.job_with_steps(["sys.exit(3)", "open(sys.argv[1],'wb').write(open(NEODG,'rb').read())"],
+                                kinds=["source", "jamo"])
+
+        def edit(job):
+            job["steps"][0]["font"] = "f02"                 # a companion's source step, not f01's own
+            job["steps"][1]["needs"] = ["s01"]
+        self.store.update(j["id"], edit)
+        self.worker.enqueue(j["id"])
+        j = self.wait_for(j["id"])
+        first, second = j["steps"]
+        self.assertEqual(first["state"], "failed")
+        self.assertEqual((second["state"], second["error"]), ("failed", "companion source failed"))
+        self.assertFalse(os.path.exists(self.store.path(j["id"], "work", "s02", "NEWONE.SVF")))   # its argv never ran
+
+    def test_check_steps_refuses_a_later_needs(self):
+        import server
+        steps = [{"id": "s01", "output": "work/s01/x.svf", "font": "f01", "needs": ["s02"]},
+                 {"id": "s02", "output": "work/s02/x.svf", "font": "f01", "needs": []}]
+        fd = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, fd, ignore_errors=True)
+        with self.assertRaises(ValueError):
+            server.Handler._check_steps(None, fd, Sources("upload", [fd]), [], steps)
+        steps[0]["needs"] = []
+        steps[1]["needs"] = ["s01"]
+        server.Handler._check_steps(None, fd, Sources("upload", [fd]), [], steps)         # earlier: fine
+
     def test_enqueue_refuses_a_job_that_is_not_ready(self):
         j = self.job_with_steps(["pass"])
         for state in ("uploading", "running", "done"):

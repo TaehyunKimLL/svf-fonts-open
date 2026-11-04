@@ -248,5 +248,264 @@ class LocalJobTest(LocalBase):
         self.assertEqual(os.listdir(self.out), [])
 
 
+class LocalRunBase(LocalBase):
+    """Select the TTF of `a` (mkfont 16 px 1 bpp, dest `dos`, its OFL.txt) and the DOS raw font of `b` (844, jamo, dest
+    `jamo-extra`, no licence: a local job does not need one), then run."""
+
+    def select(self, jid, edit=None):
+        job = self.job(jid)
+        st = job["settings"]
+        by = {(f["root"], f["path"]): f["id"] for f in job["fonts"]}
+        self.ttf, self.dos, self.eng = by[(0, "Munjo.ttf")], by[(1, "HAN.FNT")], by[(1, "ENG.FNT")]
+        st["fonts"][self.ttf].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
+        st["fonts"][self.dos].update(selected=True, dest="jamo-extra", kinds=["jamo"], dos_layout="844")
+        if edit:
+            edit(st)
+        status, body = self.api("PUT", "/api/jobs/%s/settings" % jid, st)
+        self.assertEqual(status, 200, body)
+
+    def done_job(self, edit=None):
+        jid = self.local_job()
+        self.select(jid, edit)
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        return jid, job
+
+    def read_out(self, rel):
+        with open(os.path.join(self.out, rel), "rb") as f:
+            return f.read()
+
+
+class LocalRunTest(LocalRunBase):
+    def test_run_writes_the_tree(self):
+        jid, job = self.done_job()
+        self.assertNotIn("zip", job["result"])
+        files = sorted(job["result"]["files"])
+        self.assertEqual(files, sorted(walk_rel(self.out, skip_prefix=".svf-maker-")))
+        self.assertEqual(set(self.srv.store.load(jid)["owned"]), set(files))
+        kinds = sorted(re.sub(r"[A-Z0-9]{1,8}\.", "X.", f) if f.startswith("svf/") else f for f in files)
+        self.assertEqual(kinds, sorted([
+            "build-%s/BUILD.md" % jid, "build-%s/FACES.TSV.lines" % jid, "build-%s/FAMILIES.tsv.lines" % jid,
+            "build-%s/LICENCES.tsv.lines" % jid, "svf/dos/X.SVF", "svf/dos/X.TXT", "svf/dos/X.TXT",
+            "svf/jamo-extra/X.SVF", "svf/jamo-extra/X.TXT"]))
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/zip" % jid)[0], 404)
+        self.assertEqual(job["result"]["output_dir"], self.out)
+        done = [s for s in job["steps"] if s["state"] == "done" and s["kind"] in ("precomposed", "jamo")]
+        self.assertEqual(sorted(s["written"] for s in done), sorted(f for f in files if f.endswith(".SVF")))
+        # no licence for the DOS font: the note and BUILD.md say so; the TTF's OFL.txt was copied
+        dos_note = next(f for f in files if f.startswith("svf/jamo-extra/") and f.endswith(".TXT"))
+        self.assertIn("Licence: not checked (user's responsibility)", self.read_out(dos_note).decode("utf-8"))
+        ttf_texts = [f for f in files if f.startswith("svf/dos/") and f.endswith(".TXT")]
+        notes = [f for f in ttf_texts if b"faces (" in self.read_out(f)]
+        self.assertEqual(len(notes), 1)
+        self.assertNotIn("not checked", self.read_out(notes[0]).decode("utf-8"))
+        build = self.read_out("build-%s/BUILD.md" % jid).decode("utf-8")
+        self.assertIn("licence: not checked (user's responsibility)", build)
+
+    def test_detect_keeps_owned(self):
+        jid, _job = self.done_job()
+        owned = self.srv.store.load(jid)["owned"]
+        self.assertTrue(owned)
+        self.assertEqual(self.api("POST", "/api/jobs/%s/detect" % jid)[0], 200)
+        stored = self.srv.store.load(jid)
+        self.assertEqual(stored["owned"], owned)
+        self.assertIsNone(stored["result"])
+
+    def test_collisions(self):
+        jid, first = self.done_job()
+        faces = {f: self.read_out(f) for f in first["result"]["files"] if f.endswith(".SVF")}
+        build_a = self.read_out("build-%s/BUILD.md" % jid)
+        import datetime
+        import zipout
+        later = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
+        with mock.patch.object(zipout, "_utc_now", lambda: later):
+            again = self.rerun(jid)
+        self.assertEqual(again["state"], "done", again.get("error"))
+        self.assertNotEqual(self.read_out("build-%s/BUILD.md" % jid), build_a)       # the date moved
+        self.assertTrue(any(later.date().isoformat() in self.read_out(f).decode("utf-8")
+                            for f in again["result"]["files"] if f.startswith("svf/dos/") and f.endswith(".TXT")))
+        for f, data in faces.items():
+            self.assertEqual(self.read_out(f), data)                              # identical bytes: kept
+        # a second job in the same folder, same face name, other bytes: refused by run_ready, synchronously
+        import inputfx
+        other = os.path.join(self.tmp, "tree", "in", "a2")
+        os.makedirs(other)
+        with open(os.path.join(other, "Munjo.ttf"), "wb") as f:
+            f.write(inputfx.ttf("Munjo", (300, 0, 700, 400)))
+        bid = self.local_job([other])
+        job = self.job(bid)
+        st = job["settings"]
+        fid = job["fonts"][0]["id"]
+        st["fonts"][fid].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % bid, st)[0], 200)
+        status, body = self.api("POST", "/api/jobs/%s/run" % bid)
+        self.assertEqual(status, 400)
+        self.assertRegex(body["error"], r"^f01: [A-Z0-9]+\.SVF already exists in svf/dos; choose another name$")
+        self.assertEqual(self.job(bid)["state"], "detected")
+        for f, data in faces.items():
+            self.assertEqual(self.read_out(f), data)
+
+    def test_rerun_after_identical_keeps_ownership(self):
+        jid, first = self.done_job()
+        owned = dict(self.srv.store.load(jid)["owned"])
+        again = self.rerun(jid)
+        self.assertEqual(again["state"], "done", again.get("error"))
+        step = next(s for s in again["steps"] if s["kind"] == "precomposed")
+        self.assertTrue(step["identical_to"].startswith("dos/"))
+        self.assertIn("svf/" + step["identical_to"], again["result"]["files"])
+        self.assertEqual(set(self.srv.store.load(jid)["owned"]) & set(owned), set(owned))
+        changed = self.rerun(jid, lambda st: st["fonts"][self.ttf].update(options={"mkfont": {"ascent": 11}}))
+        self.assertEqual(changed["state"], "done", changed.get("error"))
+        face = next(f for f in changed["result"]["files"] if f.startswith("svf/dos/") and f.endswith(".SVF"))
+        self.assertEqual(self.srv.store.load(jid)["owned"][face], hashlib.sha256(self.read_out(face)).hexdigest())
+        self.assertNotEqual(owned[face], self.srv.store.load(jid)["owned"][face])
+
+    def test_own_earlier_replaced_only_when_unchanged(self):
+        jid, first = self.done_job()
+        face = next(f for f in first["result"]["files"] if f.startswith("svf/dos/") and f.endswith(".SVF"))
+        with open(os.path.join(self.out, face), "wb") as f:
+            f.write(b"someone else's bytes")
+        self.assertEqual(self.api("POST", "/api/jobs/%s/detect" % jid)[0], 200)
+        st = self.job(jid)["settings"]
+        st["fonts"][self.ttf].update(options={"mkfont": {"ascent": 11}})
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        job = self.run_to_done(jid)                                           # POST run passes: the name is owned
+        self.assertEqual(job["state"], "failed")
+        self.assertEqual(job["error"], "name clash: " + face)
+        self.assertEqual(self.read_out(face), b"someone else's bytes")
+
+    def test_write_tree_without_hard_links(self):
+        import errno
+        with mock.patch("os.link", side_effect=OSError(errno.EPERM, "no links")):
+            jid, job = self.done_job()
+        files = job["result"]["files"]
+        self.assertEqual(sorted(files), sorted(walk_rel(self.out, skip_prefix=".svf-maker-")))
+        owned = self.srv.store.load(jid)["owned"]
+        for rel in files:
+            self.assertEqual(owned[rel], hashlib.sha256(self.read_out(rel)).hexdigest(), rel)
+        self.assertEqual([f for f in walk_rel(self.out) if f.endswith(".tmp")], [])
+
+    def test_write_tree_disk_full(self):
+        import errno
+        real = os.link
+        calls = []
+
+        def link(src, dst, *a, **k):
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real(src, dst, *a, **k)
+        with mock.patch("os.link", link):
+            jid = self.local_job()
+            self.select(jid)
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "failed")
+        self.assertTrue(job["error"].startswith("OSError"), job["error"])
+        self.assertEqual(len(job["result"]["files"]), 1)
+        self.assertEqual([f for f in walk_rel(self.out) if f.endswith(".tmp")], [])
+
+    def test_notes_and_logs(self):
+        import uuid
+        import inputfx
+        unique = "local-notes-%s" % uuid.uuid4().hex
+        deep = os.path.join(self.tmp, "tree", unique)
+        for i in range(5):
+            deep = os.path.join(deep, "d%d" % i + "x" * 48)
+        os.makedirs(deep)
+        self.assertGreater(len(deep), 250)
+        with open(os.path.join(deep, "Munjo.ttf"), "wb") as f:
+            f.write(inputfx.ttf("Munjo", (50, 0, 950, 800)))
+        jid = self.local_job([deep])
+        job = self.job(jid)
+        fid = job["fonts"][0]["id"]
+        st = job["settings"]
+        st["fonts"][fid].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        note = next(f for f in job["result"]["files"] if f.startswith("svf/dos/") and f.endswith(".TXT"))
+        text = self.read_out(note).decode("utf-8")
+        for line in text.splitlines():
+            self.assertLessEqual(len(line.encode("utf-8")), 512)
+            self.assertNotIn(unique, line)
+            self.assertNotIn(self.tmp, line)
+            self.assertNotIn(os.path.expanduser("~"), line)
+            for token in line.split():
+                self.assertFalse(token.startswith(os.sep), line)
+        commands = [l for l in text.splitlines() if l.startswith("python3")]
+        self.assertTrue(commands)
+        self.assertTrue(all(re.match(r"python3 -P (tools|maker)/", l) for l in commands), commands)
+        with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
+            self.assertIn(deep, f.read())                                          # D4: the log names the full path
+
+    def test_input_changed_since_detection(self):
+        jid = self.local_job()
+        self.select(jid)
+        for rel_root, name in ((0, "Munjo.ttf"), (1, "ENG.FNT"), (0, "OFL.txt")):
+            path = os.path.join(self.roots[rel_root], name)
+            with open(path, "rb") as f:
+                original = f.read()
+            with open(path, "ab") as f:
+                f.write(b"x")
+            status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+            self.assertEqual((status, body["error"]),
+                             (409, "%s: the input changed since detection: detect again" % name), name)
+            with open(path, "wb") as f:
+                f.write(original)
+        os.utime(os.path.join(self.roots[0], "Munjo.ttf"))                        # same size, same inode: fine
+        self.assertEqual(self.api("POST", "/api/jobs/%s/run" % jid)[0], 200)
+        self.wait_done(jid)
+
+    def test_not_enough_free_space(self):
+        jid = self.local_job()
+        self.select(jid)
+        with mock.patch("shutil.disk_usage", return_value=(0, 0, 1)):
+            status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+        self.assertEqual((status, body["error"]), (409, "not enough free space in %s" % self.out))
+
+    def test_output_gone_at_run(self):
+        jid = self.local_job()
+        self.select(jid)
+        os.rename(self.out, self.out + ".moved")
+        os.mkdir(self.out)
+        status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+        self.assertEqual((status, body["error"]), (409, "output folder is gone or changed"))
+        self.assertEqual(os.listdir(self.out), [])
+
+    def test_run_env_has_tmpdir_and_no_bytecode(self):
+        import jobs
+        seen = []
+        real = jobs.run_command
+
+        def spy(argv, cwd, timeout, cancel, env=None):
+            seen.append((argv, env))
+            return real(argv, cwd, timeout, cancel, env)
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        with mock.patch.object(jobs, "run_command", spy), \
+                mock.patch.object(jobs.caps, "recog_dir", return_value="/nonexistent-recog"), \
+                mock.patch.dict(self.srv.worker.caps, {"recog": True}):
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertTrue(seen)
+        for argv, env in seen:
+            self.assertIsNotNone(env, argv)
+            self.assertEqual(env["TMPDIR"], os.path.join(fd, "work", "tmp"))
+            self.assertEqual(env["PYTHONDONTWRITEBYTECODE"], "1")
+        recog = [env for argv, env in seen if any(str(a).endswith("recog_score.py") for a in argv)]
+        self.assertTrue(recog)
+        self.assertTrue(all(env["SVF_RECOG_DIR"] == "/nonexistent-recog" for env in recog))
+
+    def test_no_licence_is_allowed_for_a_local_job_only(self):
+        jid = self.local_job()
+        self.select(jid)
+        st = self.job(jid)["settings"]
+        self.assertIsNone(st["fonts"][self.dos]["licence"])
+        status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.wait_done(jid)["state"], "done")
+
+
 if __name__ == "__main__":
     unittest.main()
