@@ -19,6 +19,7 @@
 
 import * as svfview from "./svfview.js";
 import {parseDyText, stepSig} from "./pagelib.js";
+import {cutList} from "./clip.js";
 
 const POLL_MS = 2000;
 const SAMPLE_TEXT = "다람쥐 헌 쳇바퀴에 타고파 ABC xyz 0123";   // detect.SAMPLE_TEXT
@@ -1073,6 +1074,135 @@ function dyEditor(per, font, refresh) {
   return label;
 }
 
+// A local edit of a font's own options from the page (the clipping panel's "apply"): the panels are read first so a
+// typed value is not lost, then the table is rebuilt to show the change.
+function applyLocal(per, mutate, message) {
+  readPerOptions();
+  mutate(per);
+  markDirty();
+  buildFonts();
+  notice(message + "; save the settings to keep it");
+}
+
+// The "clipping" disclosure of a font with a mkfont route (spec 8.3): a probe bake (tall cell, nothing cut) and its box
+// report, from which the rows any cell would cut are computed here for the ascent typed (clip.js, fit_counts' rule),
+// listed and drawn over the probe face. "Apply" writes the ascent and ticks clip_cell.
+function clippingPanel(font, per) {
+  if (!usableRoutes(font, !!per.experimental).some((route) => route.label === "mkfont")) return null;
+  const details = el("details", {class: "clipping"}, el("summary", {text: "clipping"}));
+  const sizes = Array.isArray(per.sizes) ? per.sizes : (settings.batch.sizes || []);
+  const bpps = Array.isArray(per.bpp) ? per.bpp : (settings.batch.bpp || []);
+  const sizeSel = el("select", {"aria-label": "clipping size"});
+  fillSelect(sizeSel, sizes.map((v) => [String(v), String(v) + " px"]), String(sizes[0] ?? ""));
+  const bppSel = el("select", {"aria-label": "clipping bpp"});
+  fillSelect(bppSel, bpps.map((v) => [String(v), String(v) + " bpp"]), String(bpps[0] ?? ""));
+  const ascentIn = el("input", {type: "text", inputmode: "numeric", size: "3", "aria-label": "clipping ascent"});
+  const cellEl = el("span", {class: "sub"});
+  const counts = el("div", {class: "clip-counts"});
+  const wrap = el("div", {class: "canvaswrap"});
+  const canvas = el("canvas", {class: "result clip-overlay"});
+  wrap.append(canvas);
+  const list = el("div", {class: "clip-list"});
+  const apply = el("button", {type: "button", text: "apply"});
+  let report = null, face = null, selected = null, loaded = false;
+
+  const effOption = (key) => {
+    const own = ((per.options || {}).mkfont || {})[key];
+    return own !== undefined && own !== null ? own : (((settings.batch.options || {}).mkfont || {})[key] ?? null);
+  };
+  const cellH = () => effOption("cell") || Number(sizeSel.value);
+
+  const url = (ext) => "/api/jobs/" + encodeURIComponent(job.id) + "/probe/" + encodeURIComponent(font.id) + "/" +
+    sizeSel.value + "/" + bppSel.value + "." + ext;
+
+  const update = async () => {
+    if (!report) return;
+    const ascent = Number(ascentIn.value);
+    const h = cellH();
+    cellEl.textContent = "cell " + h + " rows";
+    if (!Number.isInteger(ascent) || ascent < 1) {
+      counts.textContent = "ascent must be a whole number from 1";
+      return;
+    }
+    const cut = cutList(report, ascent, h, report.cell[0]);
+    counts.textContent = cut.cut.toLocaleString("en") + " glyphs cut: " + cut.top.toLocaleString("en") + " at the top, " +
+      cut.bottom.toLocaleString("en") + " at the bottom; " + cut.wide.toLocaleString("en") + " wider than the cell" +
+      (effOption("fit_cell") ? " (fit cell is on: the run decides the size)" : "");
+    list.replaceChildren();
+    for (const row of cut.rows.slice(0, 200)) {
+      const line = el("div", {class: "clip-row", dataset: {cp: String(row.cp)}, text:
+        "U+" + row.cp.toString(16).toUpperCase().padStart(4, "0") + " " + String.fromCodePoint(row.cp) +
+        "  top " + row.top + "  bottom " + row.bottom});
+      line.onclick = () => { selected = row.cp; update(); };
+      list.append(line);
+    }
+    if (cut.rows.length > 200) list.append(el("div", {class: "sub", text: "and " + (cut.rows.length - 200).toLocaleString("en") + " more"}));
+    if (!face) return;                                   // no probe face (the ink spans past 255 rows): list and counts only
+    const text = previewState.text + " " + cut.rows.slice(0, 12).map((row) => String.fromCodePoint(row.cp)).join("") +
+      (selected !== null ? " " + String.fromCodePoint(selected) : "");
+    try {
+      await withChain([face], () => {
+        svfview.setScale(1, 1);
+        const r = svfview.drawLine(canvas, text, {target: "gray8"});
+        canvas.style.imageRendering = "pixelated";
+        canvas.style.width = canvas.width * 2 + "px";
+        for (const old of wrap.querySelectorAll(".guide, .clip-band")) old.remove();
+        const probeTop = 1, probeBottom = 1 + report.cell[1];     // the probe face's rows in the canvas
+        const top = r.baseline - ascent, bottom = top + h;
+        const band = (from, to) => {
+          if (to <= from) return;
+          const node = el("div", {class: "clip-band"});
+          node.style.top = (from * 2) + "px";
+          node.style.height = ((to - from) * 2) + "px";
+          wrap.append(node);
+        };
+        band(probeTop, Math.min(top, probeBottom));
+        band(Math.max(bottom, probeTop), probeBottom);
+        const frame = el("div", {class: "guide clip-frame"});
+        frame.style.top = (top * 2) + "px";
+        frame.style.height = (h * 2) + "px";
+        wrap.append(frame);
+      });
+    } catch (err) {
+      counts.append(" (" + escapeControls(err && err.message) + ")");
+    }
+  };
+
+  const load = async () => {
+    report = null;
+    face = null;
+    selected = null;
+    counts.textContent = "measuring…";
+    try {
+      const response = await fetch(url("json"), {cache: "no-cache"});
+      if (!response.ok) throw new Error("no probe (" + response.status + ")");
+      report = await response.json();
+      if (report.probe_face) face = await fetchFresh(url("svf"));
+    } catch (err) {
+      counts.textContent = escapeControls(err && err.message);
+      return;
+    }
+    if (ascentIn.value.trim() === "") ascentIn.value = String(report.step_ascent ?? report.auto_ascent);
+    await update();
+  };
+
+  details.addEventListener("toggle", () => { if (details.open && !loaded) { loaded = true; load(); } });
+  sizeSel.onchange = () => { ascentIn.value = ""; load(); };
+  bppSel.onchange = () => { ascentIn.value = ""; load(); };
+  ascentIn.oninput = () => update();
+  apply.onclick = () => {
+    const ascent = Number(ascentIn.value);
+    if (!Number.isInteger(ascent) || ascent < 1) return;
+    applyLocal(per, (p) => {
+      p.options = p.options || {};
+      p.options.mkfont = Object.assign({}, p.options.mkfont || {}, {ascent, clip_cell: true, fit_cell: false});
+    }, "ascent " + ascent + " and clip cell set");
+  };
+  details.append(el("div", {class: "svf-controls"}, sizeSel, bppSel, el("label", {}, "ascent ", ascentIn), cellEl, apply),
+    counts, wrap, list);
+  return details;
+}
+
 function overridePanel(font, per) {
   const grid = el("div", {class: "override-grid"});
   grid.append(el("h3", {}, bdi(font.path + (font.version ? " — " + font.version : ""))));
@@ -1116,6 +1246,8 @@ function overridePanel(font, per) {
   grid.append(el("label", {class: "label"}, advanced.toggle, el("span", {text: " advanced options"})));
   grid.append(advanced.box);
   grid.append(dyEditor(per, font, refresh));
+  const clipping = clippingPanel(font, per);
+  if (clipping) grid.append(clipping);
   grid.append(namesField(font));
   return grid;
 }

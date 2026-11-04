@@ -83,3 +83,9 @@ canvas.result, canvas.grid-row, canvas.preview { image-rendering:pixelated; max-
 .guide { position:absolute; left:0; right:0; height:0; border-top:1px solid rgba(220,60,60,.7); pointer-events:none }
 .guide-baseline { border-top-color:rgba(60,120,220,.8) }
 .glyph-grid canvas { display:block }
+
+/* the clipping panel */
+.clip-band { position:absolute; left:0; right:0; background:rgba(220,60,60,.25); pointer-events:none }
+.clip-frame { border:1px solid rgba(40,120,60,.9); border-left:0; border-right:0 }
+.clip-list { max-height:12rem; overflow:auto; font-size:.85rem }
+.clip-row { cursor:pointer }

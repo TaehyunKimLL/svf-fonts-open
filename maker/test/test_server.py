@@ -40,6 +40,7 @@ import zipfile
 
 import caps as capsmod
 import fixtures
+import inputfx
 import jamoset
 import jobs
 import presets
@@ -1291,6 +1292,120 @@ class FaceBytesTest(ApiBase):
                              (200, "application/wasm", "no-cache"))
             self.assertTrue(r.getheader("ETag"))
             self.assertEqual(self.raw("GET", "/static/wasm/svf.wasm", headers={"If-None-Match": r.getheader("ETag")}).status, 304)
+
+
+class ProbeTest(ApiBase):
+    """Task 11: the clipping probe, baked once from the step's own argv and dropped by the keyed settings."""
+
+    def tall_job(self, sizes=(16,), span=(-180, 740), **per):
+        jid = self.post("/api/jobs")["id"]
+        self.put_file(jid, "tall/Tall.ttf", inputfx.tall_ttf(span))
+        self.put_file(jid, "tall/OFL.txt", read(F["ttf_licence"]))
+        self.post("/api/jobs/%s/detect" % jid)
+        s = self.get("/api/jobs/%s" % jid)["settings"]
+        for fid in s["fonts"]:
+            s["fonts"][fid].update(dest="new/fixture", sizes=list(sizes), bpp=[1], **per)
+        self.assertEqual(self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(s).encode()).status, 200)
+        self.fid = next(iter(s["fonts"]))
+        return jid
+
+    def put_settings(self, jid, mutate):
+        s = self.get("/api/jobs/%s" % jid)["settings"]
+        mutate(s["fonts"][self.fid], s["batch"])
+        r = self.raw("PUT", "/api/jobs/%s/settings" % jid, body=json.dumps(s).encode())
+        self.assertEqual(r.status, 200, r.read())
+
+    def probe_dir(self, jid):
+        return self.srv.store.path(jid, "work", "preview", self.fid, "probe")
+
+    def url(self, jid, size=16, bpp=1, ext="json"):
+        return "/api/jobs/%s/probe/%s/%d/%d.%s" % (jid, self.fid, size, bpp, ext)
+
+    def test_probe_bakes_once(self):
+        jid = self.tall_job(options={"mkfont": {"width": 16}})
+        r1 = self.raw("GET", self.url(jid))
+        path = os.path.join(self.probe_dir(jid), "16-1.json")
+        m1 = os.stat(path).st_mtime_ns
+        self.raw("GET", self.url(jid))
+        self.assertEqual((r1.status, os.stat(path).st_mtime_ns), (200, m1))
+        rep = json.loads(r1.read())
+        self.assertTrue(rep["probe"])
+        self.assertIsNone(rep["step_ascent"])
+        face = self.raw("GET", self.url(jid, ext="svf"))
+        self.assertEqual((face.status, face.getheader("Content-Type")), (200, "application/octet-stream"))
+        self.assertEqual(jamoset.parse_svfn(face.read()).cell_h, rep["cell"][1])
+
+    def test_step_ascent_is_the_merged_argvs(self):
+        jid = self.tall_job(options={"mkfont": {"ascent": 11, "clip_cell": True}})
+        self.assertEqual(json.loads(self.raw("GET", self.url(jid)).read())["step_ascent"], 11)
+
+    def test_the_probe_cell_is_the_effective_one(self):
+        jid = self.tall_job(options={"mkfont": {"cell": 12, "width": 16}})
+        rep = json.loads(self.raw("GET", self.url(jid)).read())
+        # auto_ascent is mkfont's own choice for the user's cell (12), not the tall probe cell
+        boxes = {int(k, 16): v for k, v in rep["boxes"].items()}
+        import mkfont
+        from PIL import ImageFont
+        font = ImageFont.truetype(os.path.join(self.srv.store.path(jid, "upload"), "tall", "Tall.ttf"), 16)
+        self.assertEqual(rep["auto_ascent"], mkfont.fit_ascent(boxes, 12, mkfont.choose_ascent(font, 12, False))[0])
+
+    def test_keyed_put_drops_the_probe(self):
+        jid = self.tall_job()
+        keyed = {"width": lambda p, b: p.update(options={"mkfont": {"width": 20}}),
+                 "cell": lambda p, b: p.update(options={"mkfont": {"cell": 12}}),
+                 "latin": lambda p, b: p.update(options={"mkfont": {"latin": True}}),
+                 "mono_hint": lambda p, b: p.update(options={"mkfont": {"mono_hint": True}}),
+                 "space_advance": lambda p, b: p.update(options={"mkfont": {"space_advance": 5}}),
+                 "range": lambda p, b: p.update(range="11172"),
+                 "preset": lambda p, b: p.update(preset="dos-l-1bpp")}
+        for name, mutate in keyed.items():
+            self.put_settings(jid, lambda p, b: p.update(options={}, range="2350", preset="plain"))
+            self.assertEqual(self.raw("GET", self.url(jid)).status, 200, name)
+            self.assertTrue(os.path.isdir(self.probe_dir(jid)), name)
+            self.put_settings(jid, mutate)
+            self.assertFalse(os.path.exists(self.probe_dir(jid)), name)
+
+    def test_ascent_put_keeps_the_probe(self):
+        jid = self.tall_job()
+        self.assertEqual(self.raw("GET", self.url(jid)).status, 200)
+        for mutate in (lambda p, b: p.update(options={"mkfont": {"ascent": 10}}),
+                       lambda p, b: p.update(options={"mkfont": {"ascent": 10, "clip_cell": True}}),
+                       lambda p, b: p.update(options={"mkfont": {"fit_cell": True}})):
+            self.put_settings(jid, mutate)
+            self.assertTrue(os.path.isfile(os.path.join(self.probe_dir(jid), "16-1.json")))
+
+    def test_probe_without_face(self):
+        # glyphs 30 em tall: at 96 px the ink spans past 255 rows, the largest size a font may be set to is 96
+        jid = self.tall_job(sizes=(96,), span=(-15000, 15000))
+        r = self.raw("GET", self.url(jid, size=96))
+        self.assertEqual(r.status, 200)
+        self.assertIs(json.loads(r.read())["probe_face"], False)
+        self.assertEqual(self.raw("GET", self.url(jid, size=96, ext="svf")).status, 404)
+
+    def test_probe_404s(self):
+        jid = self.tall_job()
+        self.assertEqual(self.raw("GET", self.url(jid, size=17)).status, 404)          # a size not selected
+        self.assertEqual(self.raw("GET", self.url(jid, bpp=2)).status, 404)            # a bpp not selected
+        self.assertEqual(self.raw("GET", self.url(jid, bpp=3)).status, 404)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/probe/f99/16/1.json" % jid).status, 404)
+        self.assertEqual(self.raw("GET", self.url(jid), headers={"Host": "evil.example"}).status, 403)
+
+    def test_probe_404_for_a_dos_raw_font(self):
+        jid = self.detected_job()
+        dos = [f["id"] for f in self.get("/api/jobs/%s" % jid)["fonts"] if f["path"].endswith("HAN.FNT")][0]
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/probe/%s/16/1.json" % (jid, dos)).status, 404)
+
+    def test_probe_face_draws_with_nothing_cut(self):
+        """The probe face is the full ink: every box row lies inside it, so no row the cell could want is missing."""
+        jid = self.tall_job(options={"mkfont": {"width": 16}})
+        rep = json.loads(self.raw("GET", self.url(jid)).read())
+        face = jamoset.parse_svfn(self.raw("GET", self.url(jid, ext="svf")).read())
+        import mkfont
+        boxes = {int(k, 16): v for k, v in rep["boxes"].items()}
+        self.assertEqual(mkfont.fit_counts(boxes, face.cell_w, face.cell_h, face.ascent), ([], [], []))
+        for cp, (left, top, right, bottom) in boxes.items():
+            rows = [i for i in range(face.cell_h) if any(face.glyphs[cp][i * ((face.cell_w + 7) // 8):(i + 1) * ((face.cell_w + 7) // 8)])]
+            self.assertEqual((rows[0] - face.ascent, rows[-1] + 1 - face.ascent), (top, bottom), hex(cp))
 
 
 if __name__ == "__main__":

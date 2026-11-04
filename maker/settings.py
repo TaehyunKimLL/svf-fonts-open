@@ -1244,6 +1244,53 @@ def _step(sid, fid, kind, size, bpp, layout, name, argv, output):
             "stderr_tail": "", "facts": None, "quality": None, "identical_to": None, "report": None}
 
 
+def face_argv(font, eff, route, kind, size, bpp, step_layout, range_arg, paths):
+    """The commands of one face step, exactly as `plan_steps` plans them: the route's commands with the preset's
+    fragment and the panel's flags merged into the one that writes the face (and per-command panel flags on the
+    others), and `--report paths["report"]` on a mkfont command when `paths` has one. The clipping probe is derived
+    from this, never from the options alone, so it measures the glyph set and cell the build uses. ValueError from the
+    route (a missing companion or range file)."""
+    panel = presets.panel_argv(eff.get("options"), kind, route.label, bpp)
+    panel[-1] = routes.apply_flags(presets.argv_for(eff.get("preset"), kind, size), panel[-1])
+    argv = route.commands(font, size, bpp, step_layout, range_arg, paths, panel)
+    if route.label == "mkfont" and argv and paths.get("report"):
+        argv[0] = routes.apply_flags(argv[0], ["--report", paths["report"]])
+    return argv
+
+
+# mkfont flags the clipping probe keeps (valued ones with their value) and drops.
+_PROBE_KEEP_VALUED = ("--unicode", "--space-advance", "--punct-extra", "--bpp")
+_PROBE_KEEP_FLAGS = ("--latin", "--mono-hint", "--only-listed")
+
+
+def probe_argv(mkfont_argv, src, out_svf, out_json, size):
+    """The mkfont `--probe` argv for the step whose own argv is @p mkfont_argv (spec 8.1): the flags that decide which
+    glyphs are drawn and how (`--unicode --latin --mono-hint --only-listed --space-advance --punct-extra --bpp`) are
+    kept with their values, `--width` is the step's `--width`, else its `--cell`, else @p size (the probe's tall cell
+    must not widen the width judgement), and `--cell --ascent --clip-cell --fit-cell --report` are replaced by
+    `--probe --probe-cell <the step's --cell, else size> --report out_json`."""
+    script = mkfont_argv[2]
+    flags = mkfont_argv[5:]
+    valued, booleans = {}, set()
+    i = 0
+    while i < len(flags):
+        token = flags[i]
+        if token in routes.VALUED and i + 1 < len(flags):
+            valued[token] = flags[i + 1]
+            i += 2
+        else:
+            booleans.add(token)
+            i += 1
+    cell = valued.get("--cell", str(size))
+    out = list(mkfont_argv[:2]) + [script, src, out_svf, "--size", str(size)]
+    for flag in _PROBE_KEEP_VALUED:
+        if flag in valued:
+            out += [flag, valued[flag]]
+    out += [flag for flag in _PROBE_KEEP_FLAGS if flag in booleans]
+    out += ["--width", valued.get("--width", cell), "--probe", "--probe-cell", cell, "--report", out_json]
+    return out
+
+
 def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
     """The `svfdy.py` argv that ends a `precomposed` step whose font has a `dy` (spec 7.5), else `[]`.
 
@@ -1365,16 +1412,16 @@ def plan_steps(job, job_dir, tools_dir, upload_dir):
                     paths = {"tools": tools_dir, "src": src, "out": out,
                              "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
                              "range_file": range_file, "base": base}
-                    panel = presets.panel_argv(eff.get("options"), kind, route.label, bpp)
-                    panel[-1] = routes.apply_flags(presets.argv_for(eff.get("preset"), kind, size), panel[-1])
+                    report = None
+                    if route.label == "mkfont":                 # mkfont's --report: the boxes and cuts of this bake
+                        report = "work/%s/report.json" % sid
+                        paths["report"] = os.path.join(job_dir, report)
                     try:
-                        argv = route.commands(font, size, bpp, step_layout, range_arg, paths, panel)
+                        argv = face_argv(font, eff, route, kind, size, bpp, step_layout, range_arg, paths)
                     except ValueError as exc:
                         raise ValueError("%s: %s" % (fid, exc))
-                    report = None
-                    if route.label == "mkfont" and argv:        # mkfont's --report: the boxes and cuts of this bake
-                        report = "work/%s/report.json" % sid
-                        argv[0] = routes.apply_flags(argv[0], ["--report", os.path.join(job_dir, report)])
+                    if not argv:
+                        report = None
                     dy_argv = _dy_argv(eff.get("dy"), kind, argv, src, out, step_dir, tools_dir)
                     if dy_argv:
                         argv = argv + [dy_argv]

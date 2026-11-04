@@ -25,6 +25,7 @@ for _p in (MAKER_DIR, TEST_DIR, os.path.join(REPO_DIR, "tools")):
         sys.path.insert(0, _p)
 
 import fixtures  # noqa: E402
+import inputfx  # noqa: E402
 import server  # noqa: E402
 
 DRIVER = os.path.join(TEST_DIR, "pagedrive.mjs")
@@ -82,7 +83,10 @@ class PageDomTest(unittest.TestCase):
             conn.close()
 
     def upload(self, job, rel, path):
-        self.api("PUT", "/api/jobs/%s/files?path=%s" % (job, urllib.parse.quote(rel, safe="")), body=read(path))
+        self.upload_bytes(job, rel, read(path))
+
+    def upload_bytes(self, job, rel, data):
+        self.api("PUT", "/api/jobs/%s/files?path=%s" % (job, urllib.parse.quote(rel, safe="")), body=data)
 
     def wait_done(self, job):
         deadline = time.monotonic() + WAIT_S
@@ -274,6 +278,46 @@ await sleep(1000);
 return 1;
 """)
         self.assertEqual(self.api("GET", "/api/jobs/" + job)["settings"]["fonts"][font]["dy"], {"0x41": 2, "0x67": -1})
+
+    def test_the_clipping_panel_counts_and_applies(self):
+        job = self.api("POST", "/api/jobs")["id"]
+        self.upload_bytes(job, "tall/Tall.ttf", inputfx.tall_ttf())
+        self.upload(job, "tall/OFL.txt", self.fx["ttf_licence"])
+        detected = self.api("POST", "/api/jobs/%s/detect" % job)
+        font = next(f["id"] for f in detected["fonts"] if f["path"].endswith("Tall.ttf"))
+        s = detected["settings"]
+        s["fonts"][font].update(sizes=[16], bpp=[1], options={"mkfont": {"cell": 12, "width": 16}})
+        self.api("PUT", "/api/jobs/%s/settings" % job, s)
+        self.font = font
+        out = self.drive(job, """
+const row = document.querySelector('tr[data-font="FONTID"]');
+row.querySelector('input.override').click();
+const panel = document.querySelector('tr.override[data-for="FONTID"]');
+const details = panel.querySelector('details.clipping');
+details.open = true; details.dispatchEvent(new Event('toggle'));
+await waitFor(() => panel.querySelector('.clip-counts').textContent.includes('glyphs cut'));
+const field = panel.querySelector('input[aria-label="clipping ascent"]');
+const first = {ascent: field.value, counts: panel.querySelector('.clip-counts').textContent};
+const canvas = await waitFor(() => { const c = panel.querySelector('canvas.clip-overlay'); return c && c.dataset.drawn === '1' && c; });
+field.value = '12'; field.dispatchEvent(new Event('input'));
+await sleep(500);
+const second = panel.querySelector('.clip-counts').textContent;
+const rows = panel.querySelectorAll('.clip-row').length;
+const bands = panel.querySelectorAll('.clip-band').length;
+[...panel.querySelectorAll('button')].find((b) => b.textContent === 'apply').click();
+await sleep(500);
+document.getElementById('save').click();
+await sleep(1500);
+return {first, second, rows, bands, ink: canvas.dataset.ink};
+""")
+        self.assertRegex(out["first"]["counts"], r"^\d+ glyphs cut")
+        self.assertNotEqual(out["first"]["counts"], out["second"])               # the count follows the ascent typed
+        self.assertIn("glyphs cut", out["second"])
+        self.assertGreater(out["rows"], 0)                                      # a 15-row ink in a 12-row cell
+        self.assertGreater(out["bands"], 0)                                     # the cut rows are tinted on the probe face
+        self.assertGreater(int(out["ink"]), 0)
+        mk = self.api("GET", "/api/jobs/" + job)["settings"]["fonts"][font]["options"]["mkfont"]
+        self.assertEqual((mk["ascent"], mk["clip_cell"]), (12, True))
 
 
 if __name__ == "__main__":

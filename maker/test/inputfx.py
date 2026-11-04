@@ -63,6 +63,19 @@ def ttf(family, ga_box, a_box=(100, 0, 400, 700)):
     return _save(fb.font)
 
 
+def tall_ttf(span=(-180, 740)):
+    """The clipping fixture: unitsPerEm 1000, 'ga' at U+AC00 and 'A' at U+0041, both x 100..600, y -180..740 or @p span (at 16 px
+    1 bpp their box rows are -12..3), and a space."""
+    fb = FontBuilder(1000, isTTF=True)
+    fb.setupGlyphOrder([".notdef", "space", "A", "ga"])
+    fb.setupCharacterMap({0x20: "space", 0x41: "A", 0xAC00: "ga"})
+    fb.setupGlyf({".notdef": _box(0, 0, 10, 10), "space": TTGlyphPen(None).glyph(),
+                  "A": _box(100, span[0], 600, span[1]), "ga": _box(100, span[0], 600, span[1])})
+    fb.setupHorizontalMetrics({".notdef": (500, 0), "space": (300, 0), "A": (700, 100), "ga": (700, 100)})
+    _finish(fb, "Tall")
+    return _save(fb.font)
+
+
 def otf(family, ga_box):
     """The same as CFF."""
     def cs(box):

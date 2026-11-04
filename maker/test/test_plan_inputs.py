@@ -576,6 +576,74 @@ class ReportStepTest(Case):
         self.assertEqual(rep["mode"], "fit")
 
 
+class FaceArgvTest(Case):
+    def test_face_argv_equals_plan_steps(self):
+        """face_argv builds the commands plan_steps plans (the probe is built from it, never from the options)."""
+        self.n += 1
+        files = {"d/d.ttf": inputfx.ttf("F", BOX1)}
+        store, job = inputkinds.plan_batch(self, os.path.join(self.tmp, "j%d" % self.n), files,
+                                           lambda f, st: select(st, inputkinds.only_font(f), bpp=(1, 2), sizes=[16, 17],
+                                                                options={"mkfont": {"width": 20, "latin": True}}))
+        job_dir = store.path(job["id"])
+        font = next(f for f in job["fonts"] if f["id"] == inputkinds.only_font(job["fonts"]))
+        eff = settings.effective(job["fonts"], job["settings"], font["id"])
+        checked = 0
+        for step in job["steps"]:
+            if step["kind"] not in ("precomposed", "jamo"):
+                continue
+            route = routes.route_for(font, step["kind"], True)
+            paths = {"tools": os.path.join(REPO_DIR, "tools"), "src": os.path.join(job_dir, "upload", font["path"]),
+                     "out": os.path.join(job_dir, step["output"]), "work": os.path.join(job_dir, "work", step["id"]),
+                     "eng": None, "latin": None, "master": None,
+                     "range_file": None, "base": os.path.join(REPO_DIR, "svf", routes.JOHAB844_BASE)}
+            paths["range_file"] = settings.write_range_files(os.path.join(job_dir, "work"))["2350"]
+            if step["report"]:
+                paths["report"] = os.path.join(job_dir, step["report"])
+            got = settings.face_argv(font, eff, route, step["kind"], step["size"], step["bpp"], None, ("2350", None), paths)
+            self.assertEqual(got, step["argv"])
+            checked += 1
+        self.assertEqual(checked, 4)
+
+
+class ProbeArgvTest(unittest.TestCase):
+    MKFONT = routes.PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF"]
+
+    def probe(self, flags, size=16):
+        return settings.probe_argv(self.MKFONT + flags, "/u/in.ttf", "/w/p.svf", "/w/p.json", size)
+
+    def test_dos_u_2bpp_keeps_the_presets_list_and_drops_the_cell_flags(self):
+        import presets
+        merged = routes.apply_flags(routes.PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF", "--size", "17", "--bpp", "2",
+                                                 "--unicode", "ascii,ksx1001-hangul"],
+                                    presets.argv_for("dos-u-2bpp", "precomposed", 17) + ["--report", "/w/report.json"])
+        got = settings.probe_argv(merged, "/u/in.ttf", "/w/p.svf", "/w/p.json", 17)
+        self.assertEqual(got[2:5], ["/T/mkfont.py", "/u/in.ttf", "/w/p.svf"])
+        for gone in ("--clip-cell", "--ascent", "--cell", "--fit-cell"):
+            self.assertNotIn(gone, got)
+        self.assertEqual(got[got.index("--report") + 1], "/w/p.json")
+        self.assertEqual(got[got.index("--width") + 1], "16")
+        self.assertEqual(got[got.index("--probe-cell") + 1], "16")
+        self.assertEqual(got[got.index("--unicode") + 1], "ascii,ksx1001-nohanja,AC37,B2CF,B584,C125,C2BA,D14A,D59D")
+        self.assertEqual((got[got.index("--size") + 1], got[got.index("--bpp") + 1]), ("17", "2"))
+        self.assertIn("--probe", got)
+
+    def test_width_cell_and_size_defaults(self):
+        got = self.probe(["--size", "16", "--bpp", "1", "--unicode", "ascii,ksx1001-hangul", "--width", "20", "--cell", "18"])
+        self.assertEqual((got[got.index("--width") + 1], got[got.index("--probe-cell") + 1]), ("20", "18"))
+        got = self.probe(["--size", "16", "--bpp", "1", "--unicode", "u", "--cell", "18"])
+        self.assertEqual((got[got.index("--width") + 1], got[got.index("--probe-cell") + 1]), ("18", "18"))
+        got = self.probe(["--size", "16", "--bpp", "1", "--unicode", "u"])
+        self.assertEqual((got[got.index("--width") + 1], got[got.index("--probe-cell") + 1]), ("16", "16"))
+
+    def test_kept_flags(self):
+        got = self.probe(["--size", "16", "--bpp", "1", "--unicode", "u", "--latin", "--mono-hint", "--only-listed",
+                          "--space-advance", "6", "--punct-extra", "1", "--clip-cell", "--ascent", "9"])
+        for flag in ("--latin", "--mono-hint", "--only-listed"):
+            self.assertIn(flag, got)
+        self.assertEqual((got[got.index("--space-advance") + 1], got[got.index("--punct-extra") + 1]), ("6", "1"))
+        self.assertNotIn("9", got)
+
+
 class NamedRangeTest(Case):
     def test_seven_named_ranges(self):
         paths = settings.write_range_files(self.tmp)

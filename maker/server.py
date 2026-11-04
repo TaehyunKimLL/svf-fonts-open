@@ -23,6 +23,7 @@ import json
 import re
 import shutil
 import socket
+import subprocess
 import stat
 import tempfile
 import threading
@@ -35,6 +36,7 @@ import detect
 import jobs
 import naming
 import preview
+import routes
 import settings
 import zipout
 
@@ -341,6 +343,8 @@ _ROUTES = (
     ("GET", re.compile(r"^/api/jobs/%s/face/(?P<step>s\d+)\.svf$" % _JOB), "_job_face"),
     ("GET", re.compile(r"^/api/jobs/%s/source/(?P<font>f\d+)\.svf$" % _JOB), "_job_source_face"),
     ("GET", re.compile(r"^/api/jobs/%s/report/(?P<step>s\d+)\.json$" % _JOB), "_job_report"),
+    ("GET", re.compile(r"^/api/jobs/%s/probe/(?P<font>f\d+)/(?P<size>\d+)/(?P<bpp>\d+)\.(?P<ext>svf|json)$" % _JOB),
+     "_job_probe"),
     ("GET", re.compile(r"^/api/repo/face/(?P<group>[A-Za-z0-9_-]+)/(?P<file>[A-Z0-9_]+\.SVF)$"), "_repo_face"),
     ("GET", re.compile(r"^/api/caps$"), "_caps"),
     ("GET", re.compile(r"^/api/jobs/%s/preview/(?P<font>[^/]+)/(?P<kind>[^/]+)\.png$" % _JOB), "_job_preview"),
@@ -995,6 +999,83 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not _inside(job_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no report")
         self._serve_bytes(path, "application/json")
+
+    def _job_probe(self, query, job, font, size, bpp, ext):
+        """The clipping probe of a mkfont font at an effective size and bpp (spec 8): a tall-cell bake of the step's own
+        glyph set with its box report, made once under the font's preview lock into
+        `work/preview/<font>/probe/<size>-<bpp>.{svf,json}` (the keyed settings drop the directory with the font's
+        other previews). The `.json` carries `step_ascent`, the step's merged `--ascent` (or null)."""
+        size, bpp = int(size), int(bpp)
+        current = self._load(job)
+        job_dir = self.server.store.path(job)
+        fonts = current.get("fonts") or []
+        entry = next((item for item in fonts if item.get("id") == font), None)
+        if entry is None:
+            raise _HttpError(404, "no font %s" % font)
+        eff = settings.effective(fonts, current.get("settings") or {}, font)
+        route = routes.route_for(entry, "precomposed", bool(eff.get("experimental")))
+        if route is None or route.label != "mkfont" or size not in (eff.get("sizes") or []) \
+                or bpp not in (eff.get("bpp") or []) or bpp not in route.bpps:
+            raise _HttpError(404, "no probe")
+        upload_dir = os.path.join(job_dir, "upload")
+        probe_dir = os.path.join(job_dir, "work", "preview", font, "probe")
+        out_svf = os.path.join(probe_dir, "%d-%d.svf" % (size, bpp))
+        out_json = os.path.join(probe_dir, "%d-%d.json" % (size, bpp))
+        with _preview_lock(job, font):
+            os.makedirs(probe_dir, exist_ok=True)
+            src = self._plain_source(entry, os.path.join(upload_dir, entry.get("path") or ""), probe_dir)
+            rkind, rabs = settings.range_spec(eff, upload_dir)
+            if rkind == "file":
+                range_file = os.path.join(probe_dir, "range.txt")
+                if not rabs or not _inside(upload_dir, rabs) or not os.path.isfile(rabs):
+                    raise _HttpError(404, "no probe")
+                shutil.copyfile(rabs, range_file)
+                range_arg = ("file", range_file)
+            else:
+                range_file = settings.write_range_files(probe_dir)[rkind]
+                range_arg = (rkind, None)
+            paths = {"tools": self.server.tools_dir, "src": src, "out": out_svf, "work": probe_dir, "eng": None,
+                     "latin": None, "master": None, "range_file": range_file, "base": None}
+            try:
+                step_argv = settings.face_argv(entry, eff, route, "precomposed", size, bpp, None, range_arg, paths)[0]
+            except ValueError as exc:
+                raise _HttpError(404, str(exc))
+            argv = settings.probe_argv(step_argv, src, out_svf, out_json, size)
+            if not os.path.isfile(out_json):
+                self._run_probe(argv, probe_dir, out_svf, out_json)
+            if not os.path.isfile(out_json):
+                raise _HttpError(404, "the probe failed")
+            with open(out_json, encoding="utf-8") as f:
+                report = json.load(f)
+        if ext == "svf":
+            if not report.get("probe_face") or not os.path.isfile(out_svf):
+                raise _HttpError(404, "no probe face")
+            self._serve_bytes(out_svf, "application/octet-stream")
+            return
+        ascent = None
+        if "--ascent" in step_argv:
+            try:
+                ascent = int(step_argv[step_argv.index("--ascent") + 1])
+            except (ValueError, IndexError):
+                ascent = None
+        report["step_ascent"] = ascent
+        self._send(json.dumps(report, ensure_ascii=False).encode("utf-8"), "application/json", 200,
+                   {"Cache-Control": "no-cache"})
+
+    @staticmethod
+    def _run_probe(argv, cwd, out_svf, out_json):
+        """Run the probe; whatever it leaves after a failure is removed (a later GET asks again)."""
+        try:
+            done = subprocess.run(argv, cwd=cwd, env=preview.ENV, timeout=preview.TIMEOUT_S, capture_output=True)
+            failed = done.returncode != 0
+        except (OSError, subprocess.SubprocessError):
+            failed = True
+        if failed:
+            for path in (out_svf, out_json):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
     def _job_source_face(self, query, job, font):
         """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""
