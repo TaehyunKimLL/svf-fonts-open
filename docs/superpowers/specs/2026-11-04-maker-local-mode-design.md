@@ -877,3 +877,14 @@ Each with my recommendation; the design above assumes the recommendation.
 - **D14. Which Mac 7.1 routes to offer.** Recommendation: all three of 9.2 (`direct` native, `derived` behind
   `experimental`, `bdf + mkfont` for a precomposed face). Alternative: `direct` only in this card.
 - **D15. The 12x24 `ASCII.PFT` companion from any folder of the batch** (9.4). Recommendation: yes for 12x24 only.
+
+## 16. Rulings on section 15 (2026-11-04, controller)
+
+D1 server mode, no CLI this card. D2 token presence is the single local-mode switch. D3 intermediates under
+`<output_dir>/.svf-maker-<id>/`, swept at job end/delete/stop/start. D4 full paths in `log.md`/`BUILD.md`, basenames in notes.
+D5 keep numeric `report.json`/`identity.json` in the metadata dir. D6 collision rule as stated. D7 prefilled
+"proprietary, own use" text licence. D8 archives listed, not unpacked. D9 no HWP `.PFT` Hangul reader in this card (named
+"not read by this repository" entry). D10 uploads stay available in local mode. D11 macOS named-fork reading as an optional,
+env-gated, unverifiable commit. D12 non-loopback bind refused only when the token is set (the tailnet use is not a target of
+the desktop direction, but is not removed here). D13 no zip for local jobs. D14 all three Mac 7.1 routes. D15 12x24
+`ASCII.PFT` companion from anywhere in the batch. Rulings of the controller, reversible by editing this section and the plan.
