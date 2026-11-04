@@ -11,6 +11,15 @@ SVFN v3 faces with the repository's tools and a page that previews every result 
 `SVF_MAKER_REPO` is the checkout (its `tools/` and `svf/` are used), `SVF_MAKER_DATA` the job store, `SVF_MAKER_BIND`
 `host:port` (default 127.0.0.1:8766). Open `http://127.0.0.1:8766/`.
 
+## Token and loopback
+
+`SVF_MAKER_TOKEN` (32 lower-case hex characters, a fresh one per launch) switches on local mode. With it set, every
+`/api/` request must carry exactly one `X-Maker-Token` header with that value (else 403), every request (the page and
+`/static/*` too) must name this server in its `Host` header, and the server binds `127.0.0.1` or `::1` only: a
+`SVF_MAKER_BIND` that is not loopback is refused and the process exits 2 (a bad token also exits 2; the token is never
+printed). The page is served with a Content-Security-Policy that allows only its own origin. Without the token the
+maker behaves as before.
+
 ## The preview module
 
 The page draws faces with the C renderer built to WebAssembly. Build it once (needs emsdk, default `~/opt/emsdk`, or

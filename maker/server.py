@@ -19,7 +19,9 @@ import atexit
 import contextlib
 import datetime
 import glob
+import hmac
 import http.server
+import ipaddress
 import json
 import re
 import shutil
@@ -128,6 +130,38 @@ def _bind(bind):
     if host.startswith("[") and host.endswith("]"):
         host = host[1:-1]
     return host, int(port)
+
+
+CSP = ("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; img-src 'self' blob: data:; "
+       "font-src 'self'; style-src 'self'")
+_TOKEN_RE = re.compile(r"\A[0-9a-f]{32}\Z")
+
+
+def _is_loopback(host):
+    """True for a loopback address; `localhost` only when every address it resolves to is loopback; any other name no."""
+    host = str(host).strip()
+    if host.startswith("[") and host.endswith("]"):
+        host = host[1:-1]
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        pass
+    if host.lower() != "localhost":
+        return False
+    try:
+        found = socket.getaddrinfo(host, None)
+        return bool(found) and all(ipaddress.ip_address(item[4][0].split("%")[0]).is_loopback for item in found)
+    except (OSError, ValueError):
+        return False
+
+
+def _parse_token(value):
+    """The per-launch token as bytes (32 lower-case hex characters), or None for no token (D2: its presence is local mode)."""
+    if value is None or value == "":
+        return None
+    if not _TOKEN_RE.match(value):
+        raise ValueError("SVF_MAKER_TOKEN: 32 hex characters")
+    return value.encode("ascii")
 
 
 def _split_host(header):
@@ -302,19 +336,25 @@ class _Server6(_Server):
     address_family = socket.AF_INET6
 
 
-def make_server(host, port, repo_dir, data_root):
+def make_server(host, port, repo_dir, data_root, token=None):
     """A started `ThreadingHTTPServer` for @p repo_dir over the job store under @p data_root.
 
     The store, the worker (recovered: a `running` job is `failed`/`interrupted`, a `queued` one re-enqueued, then
     started) and the checkout paths hang off the server: `store`, `worker`, `repo_dir`, `svf_dir`, `tools_dir`,
     `static_dir`, `index`. The handler threads (and the worker) are daemons, so the process exits when serving stops.
     A host with a colon is bound through `_Server6` (`AF_INET6`), everything else through `_Server` (Y4).
+    With a @p token (bytes, or the 32-hex string) the server is in local mode: it binds loopback only (`ValueError`
+    first, before the store, the worker or the socket exist), and every `/api/` request must carry it.
     """
+    if isinstance(token, str):
+        token = _parse_token(token)
+    if token is not None and not _is_loopback(host):
+        raise ValueError("local mode binds 127.0.0.1 or ::1 only")
     repo_dir = os.path.abspath(repo_dir)
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
     static_dir = os.path.join(MAKER_DIR, "static")
-    capabilities = caps.compute(static_dir, os.environ)
+    capabilities = caps.compute(static_dir, os.environ, local=token is not None)
     worker = jobs.Worker(store, repo_dir, os.path.join(repo_dir, "svf"), os.path.join(repo_dir, "tools"),
                          capabilities)
     worker.recover()
@@ -328,6 +368,7 @@ def make_server(host, port, repo_dir, data_root):
     server.tools_dir = os.path.join(repo_dir, "tools")
     server.static_dir = static_dir
     server.caps = capabilities
+    server.token = token
     server.index = naming.RepoIndex(server.svf_dir)
     server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
     server.inflight = {}                                  # job id -> the `PUT files` requests not answered yet (Y3)
@@ -406,8 +447,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
-    def _serve_bytes(self, path, content_type):
-        """@p path with `Cache-Control: no-cache` and an `ETag` of size and mtime; `If-None-Match` equal is a 304."""
+    @staticmethod
+    def _no_store(job):
+        """Bytes of a local job are never cached by the browser (design 10.4)."""
+        return job.get("source") == "local"
+
+    def _serve_bytes(self, path, content_type, no_store=False, extra=None):
+        """@p path with `Cache-Control: no-cache` (`no-store` with @p no_store) and an `ETag` of size and mtime;
+        `If-None-Match` equal is a 304."""
         try:
             st = os.stat(path)
             with open(path, "rb") as f:
@@ -415,7 +462,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except OSError:
             raise _HttpError(404, "not found")
         etag = '"%d-%d"' % (st.st_size, st.st_mtime_ns)
-        headers = {"Cache-Control": "no-cache", "ETag": etag}
+        headers = {"Cache-Control": "no-store" if no_store else "no-cache", "ETag": etag}
+        headers.update(extra or {})
         if self.headers.get("If-None-Match") == etag:
             self.send_response(304)
             for key, value in headers.items():
@@ -439,8 +487,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             split = urllib.parse.urlsplit(self.path)
             query = urllib.parse.parse_qs(split.query)
+            if self.server.token is not None:
+                self._check_same_origin()                 # every request: `/` and `/static/*` too
+                self._check_token(split.path)
             handler, params = self._route(method, split.path)
-            if method in _STATE_CHANGERS or (handler is not None and handler.__name__ in _HOST_CHECKED):
+            if self.server.token is None and (method in _STATE_CHANGERS
+                                              or (handler is not None and handler.__name__ in _HOST_CHECKED)):
                 self._check_same_origin()
             if handler is None:
                 raise _HttpError(404, "not found")
@@ -454,6 +506,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except Exception as exc:                        # anything uncaught is a 500 with the traceback on stderr
             traceback.print_exc()
             self._reply_error(_HttpError(500, "%s: %s" % (type(exc).__name__, exc)))
+
+    def _check_token(self, path):
+        """With a token, every `/api/` request carries exactly one `X-Maker-Token`, compared as bytes; else 403."""
+        if not path.startswith("/api/"):
+            return
+        try:
+            values = self.headers.get_all("X-Maker-Token") or []
+            ok = len(values) == 1 and hmac.compare_digest(values[0].encode("latin-1"), self.server.token)
+        except Exception:
+            ok = False
+        if not ok:
+            raise _HttpError(403, "missing or wrong token")
 
     def _check_same_origin(self):
         """Refuse a state-changing request whose `Host` is not this server's, or whose `Origin` differs (W9).
@@ -565,7 +629,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = os.path.join(self.server.static_dir, rel)
         if not _inside(self.server.static_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "not found")
-        self._serve_bytes(path, content_type)
+        self._serve_bytes(path, content_type, extra={"Content-Security-Policy": CSP})
 
     # ---- jobs ------------------------------------------------------------------------------------------------
 
@@ -973,7 +1037,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         self._make_source_preview(fresh, job_dir, fonts[entry.get("id")])
             if not os.path.isfile(path):
                 raise _HttpError(404, "no preview")
-            self._serve_file(path, "image/png")
+            self._serve_file(path, "image/png",
+                             extra={"Cache-Control": "no-store"} if self._no_store(current) else None)
             return
         raise _HttpError(404, "no preview")                  # only the source PNG is served (the result faces are bytes)
 
@@ -990,7 +1055,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = os.path.join(job_dir, found["output"])
         if not _inside(job_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no face")
-        self._serve_bytes(path, "application/octet-stream")
+        self._serve_bytes(path, "application/octet-stream", self._no_store(current))
 
     def _job_report(self, query, job, step):
         """The `--report` JSON of a `done` mkfont step of this job."""
@@ -1002,7 +1067,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = os.path.join(job_dir, found["report"])
         if not _inside(job_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no report")
-        self._serve_bytes(path, "application/json")
+        self._serve_bytes(path, "application/json", self._no_store(current))
 
     def _job_probe(self, query, job, font, size, bpp, ext):
         """The clipping probe of a mkfont font at an effective size and bpp (spec 8): a tall-cell bake of the step's own
@@ -1054,7 +1119,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if ext == "svf":
             if not report.get("probe_face") or not os.path.isfile(out_svf):
                 raise _HttpError(404, "no probe face")
-            self._serve_bytes(out_svf, "application/octet-stream")
+            self._serve_bytes(out_svf, "application/octet-stream", self._no_store(current))
             return
         cell = size
         if "--cell" in step_argv:
@@ -1071,7 +1136,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ascent = None
         report["step_ascent"] = ascent
         self._send(json.dumps(report, ensure_ascii=False).encode("utf-8"), "application/json", 200,
-                   {"Cache-Control": "no-cache"})
+                   {"Cache-Control": "no-store" if self._no_store(current) else "no-cache"})
 
     @staticmethod
     def _run_probe(argv, cwd, out_svf, out_json):
@@ -1098,7 +1163,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = os.path.join(job_dir, "work", step, "identity.json")
         if not _inside(job_dir, path) or not os.path.isfile(path):
             raise _HttpError(404, "no identity")
-        self._serve_bytes(path, "application/json")
+        self._serve_bytes(path, "application/json", self._no_store(current))
 
     def _job_source_face(self, query, job, font):
         """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""
@@ -1123,7 +1188,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         raise
         if not os.path.isfile(path) or not _inside(job_dir, path):
             raise _HttpError(404, "no source face")
-        self._serve_bytes(path, "application/octet-stream")
+        self._serve_bytes(path, "application/octet-stream", self._no_store(current))
 
     def _repo_face(self, query, group, file):
         """A face of `svf/` (the page's Latin companion, `dos/NEODG16.SVF`)."""
@@ -1286,7 +1351,12 @@ def main():
     data_root = os.environ.get("SVF_MAKER_DATA") or os.path.expanduser("~/.local/share/svf-maker")
     bind = os.environ.get("SVF_MAKER_BIND") or "127.0.0.1:8766"
     host, port = _bind(bind)                              # no host means 127.0.0.1, not every interface (W11)
-    server = make_server(host, port, repo_dir, data_root)
+    try:
+        token = _parse_token(os.environ.get("SVF_MAKER_TOKEN"))
+        server = make_server(host, port, repo_dir, data_root, token=token)
+    except ValueError as exc:                             # a bad token or a non-loopback bind with it; never print the token
+        print(str(exc), file=sys.stderr)
+        sys.exit(2)
     print("svf-maker listening on %s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
     atexit.register(server.worker.stop)                   # however the process ends, the tool children are stopped first
 

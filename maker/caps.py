@@ -31,6 +31,7 @@ def recog_dir(environ):
     return None
 
 
-def compute(static_dir, environ):
-    """`{"wasm": bool, "mask_libs": bool, "recog": bool}`."""
-    return {"wasm": wasm_built(static_dir), "mask_libs": mask_libs(environ), "recog": recog_dir(environ) is not None}
+def compute(static_dir, environ, local=False):
+    """`{"wasm": bool, "mask_libs": bool, "recog": bool, "local": bool}` (local: the per-launch token is set)."""
+    return {"wasm": wasm_built(static_dir), "mask_libs": mask_libs(environ), "recog": recog_dir(environ) is not None,
+            "local": bool(local)}

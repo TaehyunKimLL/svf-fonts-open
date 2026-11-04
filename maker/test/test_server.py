@@ -783,6 +783,56 @@ class ApiTest(ApiBase):
                 srv.server_close()
             shutil.rmtree(data, ignore_errors=True)
 
+    def test_csp_and_static_urls(self):
+        for path in ("/", "/static/maker.js"):
+            self.assertEqual(self.raw("GET", path).getheader("Content-Security-Policy"), server.CSP)
+        static = os.path.join(server.MAKER_DIR, "static")
+        for dirpath, dirnames, filenames in os.walk(static):
+            if os.path.abspath(dirpath) == os.path.join(static, "wasm"):
+                dirnames[:] = []
+                continue
+            if os.path.basename(dirpath) == "wasm":
+                continue
+            for name in filenames:
+                ext = os.path.splitext(name)[1].lower()
+                with open(os.path.join(dirpath, name), encoding="utf-8", errors="replace") as f:
+                    text = f.read()
+                if ext in (".js", ".css"):
+                    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+                    text = re.sub(r"(?<![:\w\\'\"])//[^\n]*", "", text)
+                elif ext == ".html":
+                    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+                self.assertIsNone(re.search(r"https?://", text), name)
+                self.assertIsNone(re.search(r"""(?<![:\w])//[A-Za-z0-9.-]+\.[A-Za-z]{2,}""", text), name)
+
+    def test_no_store_follows_the_predicate(self):
+        jid = self.minimal_job()
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done")
+        step = next(item for item in job["steps"] if item.get("state") == "done" and item.get("output"))
+        fid = step["font"]
+        eff = settings.effective(job["fonts"], job["settings"], fid)
+        size, bpp = eff["sizes"][0], eff["bpp"][0]
+        urls = ["/api/jobs/%s/face/%s.svf" % (jid, step["id"]),
+                "/api/jobs/%s/report/%s.json" % (jid, step["id"]),
+                "/api/jobs/%s/probe/%s/%d/%d.json" % (jid, fid, size, bpp),
+                "/api/jobs/%s/probe/%s/%d/%d.svf" % (jid, fid, size, bpp),
+                "/api/jobs/%s/preview/%s/source.png" % (jid, fid)]
+
+        def controls():
+            out = []
+            for url in urls:
+                r = self.raw("GET", url)
+                self.assertEqual(r.status, 200, url)
+                out.append(r.getheader("Cache-Control"))
+            return out
+        self.assertEqual(controls(), ["no-cache"] * 4 + [None])
+        with mock.patch.object(server.Handler, "_no_store", lambda self, job: True):
+            self.assertEqual(controls(), ["no-store"] * 5)
+
+    def test_caps_has_local_false(self):
+        self.assertIs(self.get("/api/caps")["local"], False)
+
     def test_a_put_to_an_unknown_or_busy_job_makes_no_folder(self):
         """Y5: the job and its state are checked before any `upload/` folder is made."""
         unknown = "0" * 12
@@ -1207,7 +1257,7 @@ class FaceBytesTest(ApiBase):
 
     def test_caps_are_booleans_and_follow_the_environment(self):
         self.assertEqual({k: type(v) for k, v in self.get("/api/caps").items()},
-                         {"wasm": bool, "mask_libs": bool, "recog": bool})
+                         {"wasm": bool, "mask_libs": bool, "recog": bool, "local": bool})
         with tempfile.TemporaryDirectory() as d:
             open(os.path.join(d, "recog.py"), "w").close()
             self.assertEqual(capsmod.recog_dir({"SVF_RECOG_DIR": d}),
@@ -1580,6 +1630,152 @@ class ProbeTest(ApiBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LocalBindTest(unittest.TestCase):
+    """The token, the loopback rule and the CSP (design 6.1, 10.1); not an `ApiBase`."""
+
+    TOKEN = "0123456789abcdef0123456789abcdef"
+
+    def setUp(self):
+        self._umask = os.umask(0o022)
+        os.umask(self._umask)
+        self.data = tempfile.mkdtemp(prefix="svf-local-bind-")
+        self.servers = []
+
+    def tearDown(self):
+        os.umask(self._umask)
+        for srv in self.servers:
+            srv.shutdown()
+            srv.worker.stop()
+            srv.server_close()
+        shutil.rmtree(self.data, ignore_errors=True)
+
+    def start(self, host="127.0.0.1", token=TOKEN):
+        srv = server.make_server(host, 0, fixtures.REPO_DIR, self.data, token=token)
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        self.servers.append(srv)
+        return srv
+
+    def raw(self, srv, method, path, body=None, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=WAIT_S)
+        try:
+            conn.request(method, path, body=body, headers=headers or {})
+            resp = conn.getresponse()
+            return Reply(resp.status, dict(resp.getheaders()), resp.read())
+        finally:
+            conn.close()
+
+    def test_non_loopback_host_is_refused_with_the_token(self):
+        before = threading.active_count()
+        for host in ("0.0.0.0", "192.0.2.1", "example.org"):
+            with self.assertRaisesRegex(ValueError, r"local mode binds 127\.0\.0\.1 or ::1 only"):
+                server.make_server(host, 0, fixtures.REPO_DIR, self.data, token=self.TOKEN)
+        self.assertEqual(threading.active_count(), before)           # no worker thread leaked
+        self.assertFalse(os.path.exists(os.path.join(self.data, "jobs")))
+
+    def test_loopback_hosts_bind(self):
+        srv = self.start("127.0.0.1")
+        self.assertEqual(srv.socket.getsockname()[0], "127.0.0.1")
+        self.assertEqual(srv.token, self.TOKEN.encode("ascii"))
+        if not socket.has_ipv6:
+            return
+        probe = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        try:
+            probe.bind(("::1", 0))
+        except OSError:
+            return
+        finally:
+            probe.close()
+        srv6 = self.start("::1")
+        self.assertEqual(srv6.server_address[0], "::1")
+
+    def test_localhost_needs_every_address_loopback(self):
+        with mock.patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("127.0.0.1", 0)), (2, 1, 6, "", ("192.0.2.1", 0))]):
+            self.assertFalse(server._is_loopback("localhost"))
+        with mock.patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", ("127.0.0.1", 0)), (10, 1, 6, "", ("::1", 0, 0, 0))]):
+            self.assertTrue(server._is_loopback("localhost"))
+        self.assertTrue(server._is_loopback("[::1]"))
+        self.assertFalse(server._is_loopback("example.org"))
+
+    def test_parse_token(self):
+        self.assertIsNone(server._parse_token(None))
+        self.assertIsNone(server._parse_token(""))
+        self.assertEqual(server._parse_token(self.TOKEN), self.TOKEN.encode("ascii"))
+        for bad in ("xyz", self.TOKEN.upper(), self.TOKEN + "0", self.TOKEN[:-1], self.TOKEN + "\n"):
+            with self.assertRaisesRegex(ValueError, "SVF_MAKER_TOKEN: 32 hex characters"):
+                server._parse_token(bad)
+
+    def test_token_on_every_api_request(self):
+        srv = self.start()
+        for method, path in (("GET", "/api/jobs"), ("GET", "/api/caps"), ("GET", "/api/jobs/0123456789ab/face/s01.svf"),
+                             ("POST", "/api/jobs"), ("GET", "/api/no-such-route")):
+            r = self.raw(srv, method, path)
+            self.assertEqual((r.status, json.loads(r.read())["error"]), (403, "missing or wrong token"), path)
+        self.assertEqual(self.raw(srv, "GET", "/").status, 200)
+        self.assertEqual(self.raw(srv, "GET", "/static/maker.js").status, 200)
+        self.assertEqual(self.raw(srv, "GET", "/api/jobs", headers={"X-Maker-Token": self.TOKEN}).status, 200)
+        wrong = "f" * 32
+        self.assertEqual(self.raw(srv, "GET", "/api/jobs", headers={"X-Maker-Token": wrong}).status, 403)
+
+    def test_token_compare_is_bytes(self):
+        srv = self.start()
+        conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=WAIT_S)
+        try:                                              # 32 non-ASCII latin-1 characters: 403, never 500
+            conn.putrequest("GET", "/api/jobs")
+            conn.putheader("X-Maker-Token", b"\xe9" * 32)
+            conn.endheaders()
+            self.assertEqual(conn.getresponse().status, 403)
+        finally:
+            conn.close()
+        conn = http.client.HTTPConnection("127.0.0.1", srv.port, timeout=WAIT_S)
+        try:                                              # two headers, the right one first
+            conn.putrequest("GET", "/api/jobs")
+            conn.putheader("X-Maker-Token", self.TOKEN)
+            conn.putheader("X-Maker-Token", "f" * 32)
+            conn.endheaders()
+            self.assertEqual(conn.getresponse().status, 403)
+        finally:
+            conn.close()
+        self.assertEqual(self.raw(srv, "GET", "/api/jobs?token=%s" % self.TOKEN).status, 403)
+
+    def test_token_check_runs_before_routing(self):
+        srv = self.start()
+        r = self.raw(srv, "POST", "/api/jobs", headers={"X-Maker-Token": self.TOKEN})
+        self.assertEqual(r.status, 200)
+        jid = json.loads(r.read())["id"]
+        a = self.raw(srv, "GET", "/api/jobs/%s" % jid)
+        b = self.raw(srv, "GET", "/api/jobs/000000000000")
+        self.assertEqual((a.status, a.read()), (b.status, b.read()))
+        self.assertEqual(a.status, 403)
+
+    def test_bad_host_403_on_every_route(self):
+        srv = self.start()
+        for method, path in (("GET", "/"), ("GET", "/static/maker.js"), ("GET", "/api/jobs"), ("GET", "/api/caps"),
+                             ("POST", "/api/jobs")):
+            r = self.raw(srv, method, path, headers={"Host": "evil.example", "X-Maker-Token": self.TOKEN})
+            self.assertEqual(r.status, 403, path)
+
+    def test_caps_local(self):
+        srv = self.start()
+        caps_json = json.loads(self.raw(srv, "GET", "/api/caps", headers={"X-Maker-Token": self.TOKEN}).read())
+        self.assertIs(caps_json["local"], True)
+
+    def _main(self, env_extra):
+        env = dict(os.environ, SVF_MAKER_DATA=self.data, **env_extra)
+        return subprocess.run([sys.executable, "-P", os.path.join(server.MAKER_DIR, "server.py")], env=env,
+                              capture_output=True, text=True, timeout=60)
+
+    def test_main_refuses_a_bad_token_or_bind(self):
+        done = self._main({"SVF_MAKER_TOKEN": "xyz", "SVF_MAKER_BIND": "127.0.0.1:0"})
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("SVF_MAKER_TOKEN: 32 hex characters", done.stderr)
+        self.assertNotIn("listening", done.stdout)
+        done = self._main({"SVF_MAKER_TOKEN": self.TOKEN, "SVF_MAKER_BIND": "0.0.0.0:0"})
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("local mode binds 127.0.0.1 or ::1 only", done.stderr)
+        self.assertNotIn(self.TOKEN, done.stderr + done.stdout)
 
 
 class KeptCompanionTest(unittest.TestCase):
