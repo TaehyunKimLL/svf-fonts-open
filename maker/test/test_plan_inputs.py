@@ -578,6 +578,7 @@ class ReportStepTest(Case):
 
 class FaceArgvTest(Case):
     def test_face_argv_equals_plan_steps(self):
+        # Limit: this covers the mkfont route only; the jamo fits' commands need the composite master and companions.
         """face_argv builds the commands plan_steps plans (the probe is built from it, never from the options)."""
         self.n += 1
         files = {"d/d.ttf": inputfx.ttf("F", BOX1)}

@@ -19,16 +19,19 @@ test('cutList counts equal fit_counts', () => {
   }
 });
 
-test('cutRows per glyph is the max(0, ...) of the box', () => {
-  for (const c of cases.cases) {
-    for (const [key, box] of Object.entries(cases.report.boxes)) {
-      const got = cutRows(box, c.ascent, c.cellH);
-      assert.deepEqual(got, { top: Math.max(0, -box[1] - c.ascent), bottom: Math.max(0, box[3] + c.ascent - c.cellH) }, key);
-    }
-  }
+test('cutRows gives known integers for known boxes', () => {
+  // box rows -12..3 (15 rows): cell 12, baseline row 10 -> 2 rows above, 1 below
+  assert.deepEqual(cutRows([0, -12, 5, 3], 10, 12), { top: 2, bottom: 1 });
+  assert.deepEqual(cutRows([0, -12, 5, 3], 12, 15), { top: 0, bottom: 0 });
+  assert.deepEqual(cutRows([0, -12, 5, 3], 14, 15), { top: 0, bottom: 2 });
+  assert.deepEqual(cutRows([0, -12, 5, 3], 6, 15), { top: 6, bottom: 0 });
+  assert.deepEqual(cutRows([1, 0, 4, 2], 8, 8), { top: 0, bottom: 2 });
 });
 
 test('the list is sorted by rows cut then code point', () => {
-  const got = cutList({ boxes: { '0x42': [0, -12, 5, 3], '0x41': [0, -12, 5, 3], '0x43': [0, -2, 5, 0] } }, 4, 8, 16);
-  assert.deepEqual(got.rows.map((r) => r.cp), [0x41, 0x42]);
+  // at ascent 4, cell 8: 0x41 and 0x42 cut 8 + 0 rows... (top 8, bottom 0), 0x44 cuts 2 + 0, 0x43 cuts 0, 0x45 cuts 3 + 1
+  const got = cutList({ boxes: { '0x42': [0, -12, 5, 3], '0x41': [0, -12, 5, 3], '0x43': [0, -2, 5, 0],
+                                 '0x44': [0, -6, 5, 0], '0x45': [0, -7, 5, 5] } }, 4, 8, 16);
+  assert.deepEqual(got.rows.map((r) => [r.cp, r.top + r.bottom]), [[0x41, 8], [0x42, 8], [0x45, 4], [0x44, 2]]);
+  assert.equal(got.cut, 4);
 });

@@ -309,13 +309,19 @@ const canvas = await waitFor(() => { const c = panel.querySelector('canvas.clip-
 field.value = '12'; field.dispatchEvent(new Event('input'));
 await sleep(500);
 const second = panel.querySelector('.clip-counts').textContent;
+field.value = ''; field.dispatchEvent(new Event('input'));
+await sleep(300);
+const cleared = {counts: panel.querySelector('.clip-counts').textContent, rows: panel.querySelectorAll('.clip-row').length,
+                 bands: panel.querySelectorAll('.clip-band').length, frames: panel.querySelectorAll('.clip-frame').length};
+field.value = '12'; field.dispatchEvent(new Event('input'));
+await sleep(500);
 const rows = panel.querySelectorAll('.clip-row').length;
 const bands = panel.querySelectorAll('.clip-band').length;
 [...panel.querySelectorAll('button')].find((b) => b.textContent === 'apply').click();
 await sleep(500);
 document.getElementById('save').click();
 await sleep(1500);
-return {first, second, rows, bands, ink: canvas.dataset.ink};
+return {first, second, rows, bands, cleared, ink: canvas.dataset.ink};
 """)
         self.assertRegex(out["first"]["counts"], r"^\d+ glyphs cut")
         self.assertNotEqual(out["first"]["counts"], out["second"])               # the count follows the ascent typed
@@ -323,6 +329,8 @@ return {first, second, rows, bands, ink: canvas.dataset.ink};
         self.assertGreater(out["rows"], 0)                                      # a 15-row ink in a 12-row cell
         self.assertGreater(out["bands"], 0)                                     # the cut rows are tinted on the probe face
         self.assertGreater(int(out["ink"]), 0)
+        self.assertIn("whole number", out["cleared"]["counts"])
+        self.assertEqual((out["cleared"]["rows"], out["cleared"]["bands"], out["cleared"]["frames"]), (0, 0, 0))
         mk = self.api("GET", "/api/jobs/" + job)["settings"]["fonts"][font]["options"]["mkfont"]
         self.assertEqual((mk["ascent"], mk["clip_cell"]), (12, True))
 

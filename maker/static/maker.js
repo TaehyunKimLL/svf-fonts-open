@@ -1123,6 +1123,8 @@ function clippingPanel(font, per) {
     cellEl.textContent = "cell " + h + " rows";
     if (!Number.isInteger(ascent) || ascent < 1) {
       counts.textContent = "ascent must be a whole number from 1";
+      list.replaceChildren();                           // no ascent, no cut rows: the list and the overlay go too
+      for (const old of wrap.querySelectorAll(".guide, .clip-band")) old.remove();
       return;
     }
     const cut = cutList(report, ascent, h, report.cell[0]);
