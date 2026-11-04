@@ -624,6 +624,7 @@ class Worker(threading.Thread):
     def _run_step(self, job, job_dir, upload_dir, gz_upload, plain, fonts_by_id, step, cancel):
         """Run one step: `running`, its commands (or its copy), its facts, its preview, its log block and a save."""
         step["state"] = "running"
+        step["identity"] = None                     # the scores of an earlier run are not this build's
         self.store.save(job)
         font = fonts_by_id.get(step.get("font")) or {}
         stdout, stderr, error = self._execute(job_dir, upload_dir, gz_upload, plain, step, font, cancel)
@@ -685,7 +686,8 @@ class Worker(threading.Thread):
     def _clear_outputs(cwd, out_abs, step):
         """Remove what an earlier run left where this step writes: a tool that exits 0 without writing must fail "no
         output", not pass on the old file (a re-detected job reuses `work/sNN/`)."""
-        stale = [out_abs, os.path.join(cwd, "report.json")]      # a failed re-run must not show the last run's report
+        stale = [out_abs, os.path.join(cwd, "report.json"),      # a failed re-run must not show the last run's report
+                 os.path.join(cwd, "identity.json")]            # nor serve the last build's piece scores
         if step.get("kind") == "source":
             stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith("source-")] \
                 if os.path.isdir(cwd) else []

@@ -177,9 +177,11 @@ def _identity_line(identity):
         return "identity check: %s" % (identity.get("reason") or "not applicable")
     pieces = identity.get("pieces") or {}
     ks = identity.get("recog_ks")
-    return "identity: %s, %d pieces, %d warn, %d fail, ks %s" % (
+    unscored = identity.get("unscored") or 0
+    return "identity: %s, %d pieces, %d warn, %d fail%s, ks %s" % (
         identity.get("identity"), sum(pieces.get(k, 0) for k in ("pass", "warn", "fail", "unscored")),
-        pieces.get("warn", 0), pieces.get("fail", 0), "%.2f" % ks if isinstance(ks, (int, float)) else "n/a")
+        pieces.get("warn", 0), pieces.get("fail", 0), ", %d unscored" % unscored if unscored else "",
+        "%.2f" % ks if isinstance(ks, (int, float)) else "n/a")
 
 
 def log_step(step, stdout, stderr):

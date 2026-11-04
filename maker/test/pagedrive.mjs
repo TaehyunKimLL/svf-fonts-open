@@ -38,6 +38,9 @@ async function until(fn, ms, what) {
   }
 }
 
+// a hung page must not hang the suite: after 200 s Chrome is killed and the driver exits 1
+setTimeout(async () => { process.stderr.write('pagedrive: watchdog\n'); process.exitCode = 1; await shutdown(); process.exit(1); }, 200000).unref();
+
 try {
   const portFile = join(profile, 'DevToolsActivePort');
   await until(() => existsSync(portFile), 30000, 'chrome start');

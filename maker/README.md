@@ -30,6 +30,15 @@ built: run maker/build-wasm.sh" and every preview cell shows that text; nothing 
   a jamo set. Scoring only: no recogniser or weights are in this repository, and without the folder the page says the
   check is unavailable.
 
+## What has not been run
+
+- **The `mask fit` route has never run a job**: it needs freetype-py and uharfbuzz (`JAMOSET_PYLIB`), which are not installed
+  on the host this was built on. Its argv, its offering and its refusals are tested; its result is not.
+- **No real recogniser has been run** for the identity check; the tests use a stub that reads syllables from a file. The
+  numpy/torch path is unverified.
+- **The `vector fit` takes minutes per font**: `jamovec.py master` on NanumGothic Regular measured 172 s under the OOM
+  guard (the render is under a second); on the synthetic test font the whole job takes 1.1 s.
+
 ## Tests
 
     ~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'     # the maker suite

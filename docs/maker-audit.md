@@ -7,22 +7,24 @@ repository). Evidence is `file:line` at that commit (rows rewritten for this bra
 How the maker works, in one paragraph: `detect.sniff` (maker/detect.py:84) tags a file by magic and size,
 `_detect_file` (detect.py:331) turns it into font entries with a `source_kind`, `routes.routes` (maker/routes.py:253)
 maps a `source_kind` to tool argv, `settings.plan_steps` (maker/settings.py:1036) builds the steps, `jobs.run_command`
-(maker/jobs.py:160) runs each tool as a subprocess, `zipout` writes a zip in `svf/` layout. Previews are PNGs the
-server draws (`preview.source_png` with Pillow, preview.py:118; `preview.svf_png` through `tools/svfline.py`,
-preview.py:93).
+(maker/jobs.py:160) runs each tool as a subprocess, `zipout` writes a zip in `svf/` layout. After branch maker-controls
+the page draws every produced face and every baked source face itself with the C renderer built to WebAssembly (section
+3); the server only draws the source PNG of FreeType-readable sources (`preview.source_png` with Pillow). Sections 1
+and 2 below were audited at `ec5c6b3` and are kept as the rows they were, each updated where the branch changed it
+("Now:" marks the current state); sections 3 and 7 are the current state.
 
 ## 1. Recipe input kinds
 
 Columns: **Detect** = a `source_kind` with a route; **Convert** = the command the route runs; **Preview** = the source
-preview (the result preview of any produced face is always `svfline` via `result_png`, preview.py:219).
+preview (as audited; the result preview of any produced face is now drawn in the page by WASM, section 3).
 
 | Recipe input (recipes.md) | Detect | Convert (tool/command) | Preview | Evidence |
 |---|---|---|---|---|
 | TTF (static) | yes: `ttf` -> `outline`; composite syllables -> `outline-composite` | precomposed: `mkfont.py SRC OUT --size S --bpp B --unicode ascii,ksx1001-hangul` (or `ascii,hangul`, or a list file). Jamo: composite -> `jamovec.py master --components [--adaptive]` then `jamovec.py render --binarize threshold --check`; non-composite -> "experimental fit" `jamoset.py --layout 844\|adaptive --from-ttf --binarize threshold\|--bpp 2 --check` | yes, Pillow `source_png` at the first size | detect.py:91, 346-350, 851, 1108; routes.py:113-117, 119-130, 132-141, 263-272; preview.py:118 |
 | OTF (CFF) | yes: `otf` -> `outline` (never composite: CFF has none) | same as TTF: mkfont; jamo only via the experimental fit | yes (Pillow/FreeType) | detect.py:93, 346; routes.py:263-272 |
-| TTC / OTC | yes: every face (up to 64) is listed; a face after the first, or a face with a Mac-only cmap, carries a `prep` list (`ttc-face`) | a `source` step first: `maker/srcprep.py ttc-face SRC OUT --index N` saves the face as a plain sfnt (`.otf` for CFF), then the TTF/OTF routes read it | yes for every face (`preview.source_png` takes the face index); a chosen variable instance is not shown (Known gap below) | maker/detect.py `_ttc_entries`; maker/srcprep.py; routes.py `source_commands`; branch maker-inputs, A3/B1 |
-| Variable font | yes: `fvar` axes and named instances are read (`variable` on the entry, label `; variable (wght 100..900)`) | one instance per font per job: setting `instance` adds a `fontTools.varLib.instancer` source op pinning every axis (default overlaid by the choice); the page has an instance select | no: the source preview draws the default instance (Known gap below) | settings.py `instance`, `instance_coords`; routes.py `source_commands`; maker.js `perFontInstance`; B2/C1 |
-| GSUB-decomposable outline (`ljmo`/`vjmo`/`tjmo`) | no: not tested for; such a font is `outline` | no `--mask-font` route. The fit runs `jamoset.py --from-ttf` without `--mask-font`; jamoset then auto-uses `$JAMOSET_MASK_FONT` or a NotoSansKR beside the tree only when freetype-py and uharfbuzz import. The worker's `ENV` (jobs.py:66) drops `JAMOSET_MASK_FONT` and `JAMOSET_PYLIB`, and neither module is installed here, so the mask path never runs from the maker (not verified on a host that has them) | as TTF | routes.py:132-141; jobs.py:66; tools/jamoset.py:2297-2302, 2855 |
+| TTC / OTC | yes: every face (up to 64) is listed; a face after the first, or a face with a Mac-only cmap, carries a `prep` list (`ttc-face`) | a `source` step first: `maker/srcprep.py ttc-face SRC OUT --index N` saves the face as a plain sfnt (`.otf` for CFF), then the TTF/OTF routes read it | yes for every face (`preview.source_png` takes the face index); Now: the preview and the clipping probe read the prepared face (`settings.source_ops`) | maker/detect.py `_ttc_entries`; maker/srcprep.py; routes.py `source_commands`; branch maker-inputs, A3/B1 |
+| Variable font | yes: `fvar` axes and named instances are read (`variable` on the entry, label `; variable (wght 100..900)`) | one instance per font per job: setting `instance` adds a `fontTools.varLib.instancer` source op pinning every axis (default overlaid by the choice); the page has an instance select | Now yes: the preview and the probe read the instanced copy (`work/preview/<font>/source.ttf`); as audited: the default instance | settings.py `instance`, `instance_coords`; routes.py `source_commands`; maker.js `perFontInstance`; B2/C1 |
+| GSUB-decomposable outline (`ljmo`/`vjmo`/`tjmo`) | Now yes: the GSUB FeatureList is read (`gsub_jamo`, label "; conjoining jamo (GSUB)") | Now a `mask fit` route (`jamoset.py --from-ttf --mask-font SRC --no-clean`, `--pylib DIR`), offered when the font has the jamo features and the libraries load, and a `vector fit` route (`jamovec.py master` without `--components`). The free fit passes `--mask-font none`, so the worker's environment cannot turn the mask on. **No mask-fit job has ever run: freetype-py and uharfbuzz are not installed on the host that built this, so only its argv, offering and refusals are tested.** The vector fit ran on a synthetic font (1.1 s) and its master was timed once outside the maker on NanumGothic Regular: 172 s under heavy | as TTF | routes.py:132-141; jobs.py:66; tools/jamoset.py:2297-2302, 2855 |
 | BDF ISO 10646 (Unicode) | yes: `bdf-iso10646`, sizes = the strike FreeType opens | precomposed: mkfont at the strike, 1 bpp only | yes (Pillow) | detect.py:355-373, 516; routes.py:273-276 |
 | BDF ISO 8859 | yes: `bdf-iso8859`, used only as a Latin companion | no route of its own | no | detect.py:516; routes.py (no branch); settings companions detect.py:1120-1130 |
 | hanterm (johab BDF) | yes: `bdf-johab` (registry contains `johab`/`hanterm`) | `jamoset.py SRC --layout hanterm-johab --check [--eng]` | no: FreeType gives no Unicode charmap, `_draws_sample` refuses | detect.py:516-525; routes.py:153-158, 280-281; preview.py:236 |
@@ -35,8 +37,8 @@ preview (the result preview of any produced face is always `svfline` via `result
 | HWP Hangul `.PFT` | `unknown` (the repository has no reader either) | none (recipes: out of scope; feed a BDF or precomposed SVF instead) | no | recipes.md "HWP 1.x and 2.x fonts" |
 | Windows `.FNT` / `.FON` | yes: `fnt`/`fon` -> `bitmap`; FON face 0 only | mkfont at the strike, 1 bpp | yes | detect.py:109-112, 391-415; routes.py:273-276 |
 | Mac TrueType with a Unicode cmap (`true` magic) | yes: `ttf` | as TTF | yes | detect.py:90-91 |
-| Mac TrueType with only a Mac Korean (1,3) or Wansung (3,5) cmap | yes: `mac_cmap_only` gives the entry a `mac-cmap` prep op and coverage is read through it (a font that also has a Unicode subtable gets none) | `source` step: `macsfnt.py unicode IN OUT`, then the TTF routes | no (Known gap) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |
-| `.dfont`, suitcase, resource fork, AppleDouble, MacBinary | yes: `mac-rsrc`; one entry per `sfnt` resource (`rsrc-sfnt` op, plus `mac-cmap` when needed); only `NFNT`/`fbit` resources: one `other` entry; a corrupt map: one `unknown` entry | `source` step: `macsfnt.py extract IN OUT --id N` (then `unicode`) | no (Known gap) | detect.py `_mac_head`, `_mac_entries`; B1 |
+| Mac TrueType with only a Mac Korean (1,3) or Wansung (3,5) cmap | yes: `mac_cmap_only` gives the entry a `mac-cmap` prep op and coverage is read through it (a font that also has a Unicode subtable gets none) | `source` step: `macsfnt.py unicode IN OUT`, then the TTF routes | Now yes (the prepared copy is drawn) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |
+| `.dfont`, suitcase, resource fork, AppleDouble, MacBinary | yes: `mac-rsrc`; one entry per `sfnt` resource (`rsrc-sfnt` op, plus `mac-cmap` when needed); only `NFNT`/`fbit` resources: one `other` entry; a corrupt map: one `unknown` entry | `source` step: `macsfnt.py extract IN OUT --id N` (then `unicode`) | Now yes (the prepared copy is drawn) | detect.py `_mac_head`, `_mac_entries`; B1 |
 | Mac HangulTalk 1.0 `fbit` (`--layout mac-fbit-45sets`) | no: `unknown` | no route (the tool exists: tools/jamoset.py:2471-2485) | no | detect.py:84-117 |
 | Mac HangulTalk 7.1 type-3 `fbit` (+ HTBL) | no | no `macfbit3.py` / `macfbit_svf.py` route | no | grep: neither tool named in maker/ |
 | Embedded bitmap strikes (`EBDT`/`bdat`) | yes: `EBLC`/`bloc` strike sizes are listed (`strikes`); an sfnt with strikes and no outlines is a `bitmap` source at those sizes (`sizes_fixed`) | mkfont at the strike (planned and tested; a real bitmap-only font is run only by `SVF_MAKER_REAL_EBDT`) | yes for outline fonts | detect.py `_sfnt_entry`; srcprep.py `embedded_strikes`; A3/B1 |
@@ -49,31 +51,30 @@ preview (the result preview of any produced face is always `svfline` via `result
 Summary (after branch maker-inputs, card t_f3ef3189): the maker covers static and variable TTF/OTF (one instance per font
 per job), every TTC/OTC face, Mac-cmap TTF, dfont/suitcase/AppleDouble/MacBinary, Unicode BDF/PCF/FNT/FON, KSC/johab PCF,
 hanterm, KS X 1001 BDF (precomposed, and an experimental `--from-svf` jamo route), all DOS raw layouts of `jamoset.py`,
-`johab844.py`, 12x24 English companions and SVF v2/v3. It still has nothing for GSUB-mask jamo sets, Mac `fbit` (both
-generations) and HWP Hangul `.PFT`.
-
-Known gap (card t_9acea7ab): the source preview still draws the uploaded file's default face, so it does not show a
-chosen variable instance or a prepared Mac font.
+`johab844.py`, 12x24 English companions and SVF v2/v3. It still has nothing for Mac `fbit` (both generations) and HWP
+Hangul `.PFT`. Now (branch maker-controls): GSUB-decomposable fonts get the `mask fit` and `vector fit` routes (the mask
+fit never ran here), and the source previews and probes show a chosen variable instance, a TTC face and a Mac font.
 
 ## 2. Controls missing compared with the recipes
 
-What the page offers today (maker/static/index.html; maker/static/maker.js:62-83; maker/settings.py:32-37;
-maker/presets.py:16-60, 63-90): batch kinds (precomposed / jamo), layout (844 / adaptive), sizes (list), bpp (1, 2),
+**As audited at `ec5c6b3`** (the table below keeps the gaps as found; the "Now" column says what the branch added, the
+gap list in section 7 says which task closed each): what the page offered then (maker/static/index.html;
+maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63-90): batch kinds (precomposed / jamo), layout (844 / adaptive), sizes (list), bpp (1, 2),
 range (2350 / 11172 / an uploaded list), preset, and an advanced panel with `cell`, `ascent`, `space_advance`,
 `mono_hint`, `clip_cell` (mkfont) and `embolden`, `symbols`, `jset_version` (jamoset).
 
-| Recipe control | In maker? | Gap |
-|---|---|---|
-| AA 2 bpp, precomposed | yes: bpp 2 for outline sources (mkfont `--bpp 2`) | bitmap/BDF/DOS sources are 1 bpp only (routes.py:273-284), which is correct. `--bpp 8` (host faces) not offered |
-| AA 2 bpp, jamo set | yes for outline: composite route `jamovec.py render --bpp 2`, fit route `jamoset.py --bpp 2` (routes.py:126-141) | `--aa-refine N`, `--clean/--no-clean` not exposed; no level-error number shown beyond `quality.py`'s IoU (maker/quality.py) |
-| Baseline / ascent | `--ascent` for mkfont only (presets.py:69-70) | no `--ascent` for jamoset routes (DOS raw, hanterm, fit, from-svf; tools/jamoset.py:2839) nor for bdfface (`--ascent` / `--hangul-ascent`); `--latin` (cap height to the top) not exposed |
-| Vertical shift per glyph (`svfdy.py --range --dy`) | no | no step, no control; `svfdy.py` never named in maker/ |
-| Top/bottom clipping | `--clip-cell` only | `--fit-cell` (lower size until no ink is cut) not exposed; the cut counts mkfont prints on stdout are only in the build log, not shown per step; no "clipped rows" view before a build |
-| Cell width / fixed advance | only through presets (`--width` in `latin-18cell-2bpp`) | no `--width` field; `--punct-extra`, `--ink-advance`, `--only-listed`, `--fallback-ttf`, `--limit`, `--require` not in the panel; jamoset `--advance`, `--cell` (from-ttf) not exposed |
-| Size / bpp / charset | sizes, bpp 1/2, range 2350 / 11172 / list file | named ranges past these two (`ksx1001-nohanja`, `ksx1001-symbols`, `jamo`, `cp949`, `ksx1001`) only via presets; ASCII is always added (`ascii,` prefix, routes.py:98-110) |
-| Jamo set from decomposable fonts | composite TTF route (`jamovec.py --components`) and a non-native "experimental fit" | no GSUB-mask route (`--mask-font`, `--mask-radius`, `--pylib`), no `jamovec.py master` without `--components` (vector separation at a decision size), no `--binarize mono\|ridge` choice (always `threshold`, routes.py:128, 135) |
-| Piece identity check | no | the routes run `--check`, which proves the table composes all 11,172 syllables, not that each piece is its jamo. `quality.py` scores IoU against the reference only. No jamo recogniser is in this repository (grep for "recogni" in tools/ finds only JMAP_RECOG flag handling); the card t_9acea7ab requirement needs one brought in or written |
-| Mac/HWP options (`--symbols` for fbit, `--mode derived`, `jamomerge.py`, `jamoexc.py`) | no | none of these tools is called |
+| Recipe control | In maker? | Gap (as audited) | Now |
+|---|---|---|---|
+| AA 2 bpp, precomposed | yes: bpp 2 for outline sources (mkfont `--bpp 2`) | bitmap/BDF/DOS sources are 1 bpp only (routes.py:273-284), which is correct. `--bpp 8` (host faces) not offered | unchanged |
+| AA 2 bpp, jamo set | yes for outline: composite route `jamovec.py render --bpp 2`, fit route `jamoset.py --bpp 2` (routes.py:126-141) | `--aa-refine N`, `--clean/--no-clean` not exposed; no level-error number shown beyond `quality.py`'s IoU (maker/quality.py) | `--aa-refine` and `clean` are options (`clean` at 2 bpp only); `binarize` threshold/ridge/mono |
+| Baseline / ascent | `--ascent` for mkfont only (presets.py:69-70) | no `--ascent` for jamoset routes (DOS raw, hanterm, fit, from-svf; tools/jamoset.py:2839) nor for bdfface (`--ascent` / `--hangul-ascent`); `--latin` (cap height to the top) not exposed | ascent keys per tool (`ascent`, `jamo_ascent`, `fit_baseline`, `latin_ascent`, `hangul_ascent`), `latin`, an ascent to try in the preview |
+| Vertical shift per glyph (`svfdy.py --range --dy`) | no | no step, no control; `svfdy.py` never named in maker/ | a per-font dy table and an `svfdy.py` step on precomposed faces, a dy to try in the preview |
+| Top/bottom clipping | `--clip-cell` only | `--fit-cell` (lower size until no ink is cut) not exposed; the cut counts mkfont prints on stdout are only in the build log, not shown per step; no "clipped rows" view before a build | `fit_cell`; cut counts per step from mkfont `--report`; the clipping panel shows the cut rows for any ascent before the build |
+| Cell width / fixed advance | only through presets (`--width` in `latin-18cell-2bpp`) | no `--width` field; `--punct-extra`, `--ink-advance`, `--only-listed`, `--fallback-ttf`, `--limit`, `--require` not in the panel; jamoset `--advance`, `--cell` (from-ttf) not exposed | `width` is an option; the other flags are still not exposed |
+| Size / bpp / charset | sizes, bpp 1/2, range 2350 / 11172 / list file | named ranges past these two (`ksx1001-nohanja`, `ksx1001-symbols`, `jamo`, `cp949`, `ksx1001`) only via presets; ASCII is always added (`ascii,` prefix, routes.py:98-110) | the five named ranges are selectable (seven in all) |
+| Jamo set from decomposable fonts | composite TTF route (`jamovec.py --components`) and a non-native "experimental fit" | no GSUB-mask route (`--mask-font`, `--mask-radius`, `--pylib`), no `jamovec.py master` without `--components` (vector separation at a decision size), no `--binarize mono\|ridge` choice (always `threshold`, routes.py:128, 135) | `mask fit` (never run here), `vector fit` (a master takes minutes: NanumGothic 172 s), `binarize` choice, a `jamo_route` select |
+| Piece identity check | no | the routes run `--check`, which proves the table composes all 11,172 syllables, not that each piece is its jamo. `quality.py` scores IoU against the reference only. No jamo recogniser is in this repository (grep for "recogni" in tools/ finds only JMAP_RECOG flag handling); the card t_9acea7ab requirement needs one brought in or written | `maker/recog_score.py` per jamo step when `SVF_RECOG_DIR` names a recogniser; **no real recogniser was run: a stub only** (none is in this repository) |
+| Mac/HWP options (`--symbols` for fbit, `--mode derived`, `jamomerge.py`, `jamoexc.py`) | no | none of these tools is called | unchanged |
 
 ## 3. Preview: the browser draws with the WASM renderer
 
@@ -83,7 +84,7 @@ through `c/ports/web/emcc-flags.sh`). `svfline.py` stays the byte-for-byte oracl
 `TestModule`, which also pins the page's per-glyph compositor and its target decoders). The worker no longer writes a
 result PNG.
 
-- **Endpoints that serve bytes** (`maker/server.py`, all GET, `no-cache` with an ETag, host-checked): `face/<step>.svf`
+- **Endpoints that serve bytes** (`maker/server.py`, all GET, `no-cache`, host-checked; the byte files carry an ETag and answer `If-None-Match` with 304, the generated probe JSON does not): `face/<step>.svf`
   (a done face step only), `source/<font>.svf` (the baked source of a DOS raw or SVF entry), `repo/face/<group>/<FILE>`
   (the Latin companion `dos/NEODG16.SVF`), `report/<step>.json`, `probe/<font>/<size>/<bpp>.(svf|json)`,
   `identity/<step>.json`; `/api/caps` says which optional parts exist.
@@ -175,7 +176,7 @@ under google-chrome; `git diff 01a943f -- c/src c/include`: empty.
    `--aa-refine`, `--binarize`, `clean`, the seven named ranges.
 4. **t_9acea7ab** - DONE (Tasks 3, 12, 14): the `mask fit` route (`--mask-font`, `--pylib`) and the `vector fit` route
    (`jamovec.py master` without `--components`); the identity check runs `maker/recog_score.py` when `SVF_RECOG_DIR`
-   names a recogniser (not in this repository: unverified here beyond a stub). Source previews and the probe read the
+   names a recogniser (none is in this repository; only a stub ran). **Not verified:** no mask-fit job has run (no freetype-py/uharfbuzz on this host); the vector fit ran on a synthetic fixture (1.1 s) and its master on NanumGothic took 172 s under heavy. Source previews and the probe read the
    prepared font (Task 13).
 5. **t_f3ef3189** - input kinds: done on branch maker-inputs (see section 1: VF instance, TTC faces, Mac TTF and containers,
    KSC/johab PCF, `johab844.py`, 12x24 `--eng`, `--from-svf` after `bdfface`, strike sizes). What remains of it: source and

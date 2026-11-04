@@ -163,6 +163,13 @@ class _ZipBase(unittest.TestCase):
 
 
 class ZipTest(_ZipBase):
+    def test_identity_line_says_how_many_are_unscored(self):
+        step = {"kind": "jamo", "id": "s01", "identity": {"available": True, "identity": "warn", "recog_ks": 0.66,
+                                                          "unscored": 3724,
+                                                          "pieces": {"pass": 330, "warn": 0, "fail": 0, "unscored": 14, "unused": 0}}}
+        block = zipout.log_step(dict(step, argv=[], output="x", name="X", exit=0, seconds=0, state="done"), "", "")
+        self.assertIn("identity: warn, 344 pieces, 0 warn, 0 fail, 3724 unscored, ks 0.66", block)
+
     def test_entries_mtime_and_skips(self):
         res = zipout.write_zip(JOB, JD, IDX, FONTS, EFF, REPO)
         z = zipfile.ZipFile(os.path.join(JD, res["zip"]))

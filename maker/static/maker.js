@@ -1591,6 +1591,7 @@ function piecesPanel(step, chainBytes, mate) {
       if (!response.ok) throw new Error("identity.json: " + response.status);
       const data = await response.json();
       const [face, companion] = await chainBytes();
+      const glyphs = [];                                   // [canvas, piece number], drawn with one chain below
       for (const piece of data.pieces || []) {
         const row = el("div", {class: "piece-row piece-" + piece.flag, dataset: {piece: String(piece.piece), flag: piece.flag}});
         const canvas = el("canvas", {class: "piece-glyph"});
@@ -1598,7 +1599,7 @@ function piecesPanel(step, chainBytes, mate) {
           el("span", {text: " " + piece.slot + " " + piece.jamo + " set " + piece.set + "  users " + piece.users + "  read " +
             (piece.read * 100).toFixed(1) + "%  "}),
           el("b", {text: piece.flag, style: "color:" + (FLAG_COLOURS[piece.flag] || "inherit")}));
-        await withChain([face], () => svfview.drawPiece(canvas, 0, piece.piece, 2));
+        glyphs.push([canvas, piece.piece]);
         if (piece.flag === "fail") {
           row.append(el("div", {class: "sub", text: "fix: fit again with a mask (mask fit, 1 bpp), more sets (adaptive), or a " +
             "LIST exception for its worst syllables (jamoexc.py, not in the maker)"}));
@@ -1623,6 +1624,7 @@ function piecesPanel(step, chainBytes, mate) {
         row.append(worst);
         table.append(row);
       }
+      await withChain([face], () => { for (const [canvas, number] of glyphs) svfview.drawPiece(canvas, 0, number, 2); });
       if (data.bpp_note) table.append(el("div", {class: "sub", text: escapeControls(data.bpp_note)}));
     } catch (err) {
       table.textContent = escapeControls(err && err.message);

@@ -892,6 +892,8 @@ def _route_errors(fid, font, eff, fmap=None):
     for kind in kinds:
         route = routes.route_for(font, kind, bool(eff.get("experimental")), jamo_route)
         if route is None:
+            if kind == "jamo" and jamo_route is not None:
+                continue                                       # the jamo_route rules above already said why
             if by_kind.get(kind):
                 errors.append("%s: %s needs experimental on a precomposed font" % (fid, kind))
             else:

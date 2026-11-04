@@ -620,6 +620,21 @@ class WorkerTest(unittest.TestCase):
         self.assertNotIn("identity", step["identity"])               # no verdict, not 'warn'
         self.assertIn("identity: error", read_text(self.store.path(j["id"], "log.md")))
 
+    def test_a_rerun_without_the_recogniser_drops_the_old_scores(self):
+        j = self.run_identity({"recog": True})
+        step = j["steps"][0]
+        path = self.store.path(j["id"], "work", step["id"], "identity.json")
+        self.assertTrue(os.path.isfile(path))
+        self.assertTrue(step["identity"]["available"])
+        self.worker.caps = {"recog": False}
+        self.store.update(j["id"], lambda job: job.update(state="detected"))
+        self.worker.enqueue(j["id"])
+        j = self.wait_for(j["id"])
+        step = j["steps"][0]
+        self.assertEqual(step["state"], "done")
+        self.assertFalse(step["identity"]["available"])
+        self.assertFalse(os.path.exists(path))                       # nothing of the previous build's scores is left
+
     def test_identity_unavailable_without_recog(self):
         j = self.run_identity({"recog": False})
         step = j["steps"][0]

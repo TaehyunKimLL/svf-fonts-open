@@ -8,6 +8,7 @@ behaviours no Python test can see. Skipped without google-chrome / chromium-brow
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -127,10 +128,18 @@ class PageDomTest(unittest.TestCase):
         fd, path = tempfile.mkstemp(suffix=".js", dir=self.tmp)
         with os.fdopen(fd, "w") as f:
             f.write(script)
-        r = subprocess.run(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
-                           capture_output=True, text=True, timeout=WAIT_S)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        return json.loads(r.stdout)
+        # its own process group: a driver that overruns takes Chrome (and its ~100 tasks) down with it, so a hung page
+        # cannot starve the rest of the suite of threads
+        proc = subprocess.Popen(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        try:
+            stdout, stderr = proc.communicate(timeout=WAIT_S)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            self.fail("the page driver timed out after %d s" % WAIT_S)
+        self.assertEqual(proc.returncode, 0, stderr)
+        return json.loads(stdout)
 
     # ---- tests ------------------------------------------------------------------------------------------------
 

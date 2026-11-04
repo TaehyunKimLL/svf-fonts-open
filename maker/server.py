@@ -38,7 +38,6 @@ import naming
 import preview
 import routes
 import settings
-import srcprep
 import zipout
 
 # The spec's upload limits (Global Constraints).
@@ -1179,17 +1178,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         target_dir = os.path.join(out_dir, str(font.get("id")))
         target = os.path.join(target_dir, "source." + ext)
         if not os.path.isfile(target):
+            # the build's own commands, in a subprocess with a time limit (an instancer on a large CJK font is slow and big)
+            os.makedirs(target_dir, exist_ok=True)
+            argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, ext)
             try:
-                with open(plain, "rb") as f:
-                    data = srcprep.prepared_bytes(f.read(), ops)
-                os.makedirs(target_dir, exist_ok=True)
-                with open(target, "wb") as f:
-                    f.write(data)
-            except (OSError, srcprep.PrepError):
-                try:
-                    os.remove(target)
-                except OSError:
-                    pass
+                for argv in argvs:
+                    done = subprocess.run(argv, cwd=target_dir, env=preview.ENV, timeout=preview.TIMEOUT_S,
+                                          stdin=subprocess.DEVNULL, capture_output=True)
+                    if done.returncode != 0:
+                        raise OSError("source conversion failed")
+                if produced != target or not os.path.isfile(target):
+                    raise OSError("no converted source")
+            except (OSError, subprocess.SubprocessError):
+                for name in os.listdir(target_dir):
+                    if name.startswith("source"):
+                        try:
+                            os.remove(os.path.join(target_dir, name))
+                        except OSError:
+                            pass
                 raise _HttpError(404, "no preview")
         return target
 

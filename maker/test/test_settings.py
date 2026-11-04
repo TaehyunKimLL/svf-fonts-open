@@ -469,6 +469,16 @@ class ControlsTest(unittest.TestCase):
         self.assertIn("f01: jamo_route mask fit is not offered",
                       self.errors(dict(FONT_TTF, mask_ok=True), kinds=["jamo"], experimental=True, jamo_route="mask fit"))
 
+    def test_a_route_that_is_not_offered_gets_one_error_not_two(self):
+        font = dict(FONT_TTF, gsub_jamo=True, mask_ok=False)
+        errs = self.errors(font, kinds=["jamo"], experimental=True, jamo_route="mask fit")
+        self.assertEqual([e for e in errs if "mask fit" in e or "experimental" in e],
+                         ["f01: mask fit needs freetype-py and uharfbuzz (JAMOSET_PYLIB)"])
+        errs = self.errors(kinds=["jamo"], experimental=True, jamo_route="hanterm")
+        self.assertEqual([e for e in errs if "experimental" in e], [])
+        # a jamo kind with no chosen route and no experimental still says so
+        self.assertIn("f01: jamo needs experimental on a precomposed font", self.errors(kinds=["jamo"]))
+
     def test_binarize_mono_on_vector_fit_is_refused_and_on_mask_fit_allowed(self):
         mono = {"jamoset": {"binarize": "mono"}}
         self.assertIn("f01: binarize mono is not a jamovec choice",

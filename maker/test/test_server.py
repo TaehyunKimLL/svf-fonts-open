@@ -1539,6 +1539,19 @@ class ProbeTest(ApiBase):
                                                                  instance={"wght": 900}))).read())["boxes"]
         self.assertNotEqual(plain, wide)
 
+    def test_the_instance_is_applied_in_a_bounded_subprocess(self):
+        """The prepared source of a variable instance runs the build's instancer command with the preview time limit; one
+        that runs out of time is 'no preview' and leaves no half-made copy."""
+        jid = self.font_job({"v/Vary.ttf": inputfx.variable_ttf(-600)}, lambda f: f["source_kind"] == "outline",
+                            instance={"wght": 900})
+        with mock.patch.object(server.preview, "TIMEOUT_S", 0.01):
+            self.assertEqual(self.raw("GET", self.url(jid)).status, 404)
+            r = self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, self.fid))
+            self.assertEqual(r.status, 404)
+        self.assertEqual([n for n in os.listdir(os.path.join(self.srv.store.path(jid, "work", "preview", self.fid)))
+                          if n.startswith("source")], [])
+        self.assertEqual(self.raw("GET", self.url(jid)).status, 200)                # and with the time it takes
+
     def test_probe_404s(self):
         jid = self.tall_job()
         self.assertEqual(self.raw("GET", self.url(jid, size=17)).status, 404)          # a size not selected
