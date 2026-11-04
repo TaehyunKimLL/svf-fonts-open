@@ -1028,6 +1028,20 @@ out.box = Array.from(M.HEAP32.subarray(o >> 2, (o >> 2) + 4));
             shutil.rmtree(out, ignore_errors=True)
 
 
+class TestBuildScriptsWithoutEmcc(unittest.TestCase):
+    """A missing emcc is refused before any output directory exists, naming the script that was run."""
+
+    def test_no_emcc(self):
+        for script, name in ((BUILD_SH, "build.sh"), (os.path.join(ROOT, "maker", "build-wasm.sh"), "build-wasm.sh")):
+            with self.subTest(script=name), tempfile.TemporaryDirectory() as tmp:
+                out = os.path.join(tmp, "out")
+                env = dict(os.environ, EMSDK=os.path.join(tmp, "no-emsdk"), SVF_WASM_OUT=out)
+                r = subprocess.run(["bash", script, out], capture_output=True, text=True, env=env)
+                self.assertEqual(r.returncode, 1)
+                self.assertTrue(r.stderr.startswith(name + ": no emcc at "), r.stderr)
+                self.assertFalse(os.path.exists(out))
+
+
 COPYFACES = os.path.join(WEB_DIR, "copyfaces.py")
 
 

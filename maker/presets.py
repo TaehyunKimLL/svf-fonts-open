@@ -119,6 +119,8 @@ def panel_argv(options, kind, route_label, bpp):
             out += ["--binarize", binarize]
     if route_label == "experimental fit":
         _num(out, "--aa-refine", jamoset.get("aa_refine") if bpp == 2 else None)
-        if jamoset.get("clean") is False:
+        # jamoset cleans at 2 bpp by default; at 1 bpp the default depends on the layout (adaptive only), so the page
+        # offers no control there and an unticked box could not be honoured both ways
+        if bpp == 2 and jamoset.get("clean") is False:
             out.append("--no-clean")
     return [out]

@@ -460,6 +460,19 @@ def _ascent_cell_errors(fid, values, font=None, batch_covered=False):
     kind = font.get("source_kind")
     box = (font.get("bdf") or {}).get("box")
     box_h = box[1] if isinstance(box, (list, tuple)) and len(box) == 2 else None
+    # a key is checked only when a route that reads it is selected: a batch fit_baseline of 30 must not refuse a
+    # 16 px DOS raw font that has no fit
+    kinds = values.get("kinds")
+    kinds = kinds if isinstance(kinds, list) else []
+    experimental = bool(values.get("experimental"))
+    label = values.get("jamo_route")
+    label = label if isinstance(label, str) and label else None
+    used = set()
+    for route_kind in ("precomposed", "jamo"):
+        if route_kind in kinds:
+            route = routes.route_for(font, route_kind, experimental, label)
+            if route is not None:
+                used.add(route.label)
     jamoset_options = _jamoset_options(values)
     jamo_cell = None
     if kind == "dos-raw":
@@ -467,12 +480,14 @@ def _ascent_cell_errors(fid, values, font=None, batch_covered=False):
         jamo_cell = font_sizes[0] if isinstance(font_sizes, list) and font_sizes else None
     elif kind == "bdf-johab":
         jamo_cell = box_h
-    over("jamo_ascent", jamoset_options.get("jamo_ascent"), jamo_cell)
-    baseline = jamoset_options.get("fit_baseline")
-    for size in sizes:
-        if over("fit_baseline", baseline, size):
-            break
-    if kind == "bdf-ksc5601":
+    if used & {"dos raw", "hanterm"}:
+        over("jamo_ascent", jamoset_options.get("jamo_ascent"), jamo_cell)
+    if used & {"composite", "experimental fit", "mask fit", "vector fit"}:
+        baseline = jamoset_options.get("fit_baseline")
+        for size in sizes:
+            if over("fit_baseline", baseline, size):
+                break
+    if used & {"bdfface", "bdfface + from-svf fit"}:
         bdfface_options = _bdfface_options(values)
         over("latin_ascent", bdfface_options.get("latin_ascent"), box_h)
         over("hangul_ascent", bdfface_options.get("hangul_ascent"), box_h)
@@ -551,13 +566,18 @@ def _batch_type_errors(batch):
 
 
 def _dy_key(key):
-    """The code point a `dy` key names: `int(key, 0)` ("0x41", "65") or a one-character string; None otherwise."""
+    """The code point a `dy` key names, read as tools/svfdy.json_dy reads it: a one-character key is that character
+    (so "5" is U+0035), any other key is `int(key, 0)` ("0x41", "65"). None for anything else and for a value that is
+    not a code point (negative, past U+10FFFF)."""
     if not isinstance(key, str):
         return None
+    if len(key) == 1:
+        return ord(key)
     try:
-        return int(key, 0)
+        cp = int(key, 0)
     except ValueError:
-        return ord(key) if len(key) == 1 else None
+        return None
+    return cp if 0 <= cp <= 0x10FFFF else None
 
 
 def _type_errors(fid, eff, per):
@@ -835,7 +855,7 @@ def _route_errors(fid, font, eff, fmap=None):
     for route in routes.routes(font):
         by_kind.setdefault(route.kind, []).append(route)
     jamo_route = eff.get("jamo_route")
-    jamo_route = jamo_route if isinstance(jamo_route, str) else None
+    jamo_route = jamo_route if isinstance(jamo_route, str) and jamo_route else None     # "" is no label
     if jamo_route is not None:
         labelled = [r for r in by_kind.get("jamo", []) if r.label == jamo_route]
         if not labelled:

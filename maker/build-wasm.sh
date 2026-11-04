@@ -9,6 +9,8 @@ ROOT=$(dirname "$HERE")
 OUT=${SVF_WASM_OUT:-$ROOT/maker/static/wasm}
 
 . "$ROOT/c/ports/web/emcc-flags.sh"
+SVF_WEB_SCRIPT=build-wasm.sh
+svf_web_require_emcc build-wasm.sh || exit 1
 
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)

@@ -97,7 +97,7 @@ const OPTION_VISIBLE = {
   "hanterm": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
   "composite": {"1": ["symbols", "jset_version", "fit_baseline", "binarize"],
                 "2": ["symbols", "jset_version", "fit_baseline"]},
-  "experimental fit": {"1": ["jset_version", "fit_baseline", "binarize", "clean"],
+  "experimental fit": {"1": ["jset_version", "fit_baseline", "binarize"],
                        "2": ["symbols", "jset_version", "fit_baseline", "aa_refine", "clean"]},
   "copy": {"1": ["jset_version"], "2": ["jset_version"]},
   "from-svf fit": {"1": ["jset_version"]},

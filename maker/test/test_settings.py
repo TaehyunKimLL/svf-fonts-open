@@ -416,6 +416,30 @@ class ControlsTest(unittest.TestCase):
         self.assertEqual(self.errors(dy={"0x41": 20}, options={"mkfont": {"cell": 24}}), [])
         self.assertIn("f01: dy 128 of 0x41 is not -127..127", self.errors(dy={"0x41": 128}, options={"mkfont": {"cell": 200}}))
 
+    def test_dy_keys_are_read_as_svfdy_reads_them(self):
+        import svfdy
+        import json as _json
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "dy.json")
+            with open(path, "w") as f:
+                _json.dump({"5": 1, "0x41": 1, "65": 1, "g": 1}, f)
+            self.assertEqual(sorted(svfdy.json_dy(path)), [0x35, 0x41, 0x67])
+        for key, cp in (("5", 0x35), ("0x41", 0x41), ("65", 65), ("g", 0x67)):
+            self.assertEqual(settings._dy_key(key), cp)
+        for bad in ("-5", "0x110000", "zz", "", "12ab"):
+            self.assertIsNone(settings._dy_key(bad), bad)
+            self.assertIn("f01: dy is not an object of code point -> int", self.errors(dy={bad: 1}), bad)
+        self.assertEqual(self.errors(dy={"5": 1}), [])
+
+    def test_ascent_keys_are_checked_only_where_a_route_reads_them(self):
+        self.assertEqual([e for e in self.errors(FONT_DOS, options={"jamoset": {"fit_baseline": 30}}) if "fit_baseline" in e], [])
+        self.assertEqual([e for e in self.errors(FONT_DOS, options={"jamoset": {"jamo_ascent": 30}}, kinds=["precomposed"])
+                          if "jamo_ascent" in e], [])
+        self.assertIn("f01: jamo_ascent 30 is over the cell 16", self.errors(FONT_DOS, options={"jamoset": {"jamo_ascent": 30}}))
+        self.assertEqual([e for e in self.errors(FONT_KSC, options={"bdfface": {"hangul_ascent": 30}}, kinds=["jamo"],
+                                                 experimental=False) if "hangul_ascent" in e], [])
+        self.assertEqual([e for e in self.errors(options={"jamoset": {"fit_baseline": 30}}) if "fit_baseline" in e], [])  # mkfont only
+
     def test_dy_needs_a_precomposed_face(self):
         self.assertIn("f01: dy needs a precomposed face", self.errors(kinds=["jamo"], experimental=True, dy={"0x41": 1}))
         self.assertEqual([e for e in self.errors(kinds=["jamo"], experimental=True, dy={}) if "dy" in e], [])
@@ -425,6 +449,7 @@ class ControlsTest(unittest.TestCase):
         self.assertIn("f01: jamo_route experimental fit needs experimental",
                       self.errors(kinds=["jamo"], jamo_route="experimental fit"))
         self.assertIn("f01: jamo_route 3 is not a route label", self.errors(jamo_route=3))
+        self.assertEqual([e for e in self.errors(jamo_route="") if "jamo_route" in e], [])       # "" is no label
         self.assertEqual(self.errors(kinds=["jamo"], experimental=True, jamo_route="experimental fit"), [])
         self.assertEqual(self.errors(FONT_COMPOSITE, kinds=["jamo"], jamo_route="composite"), [])
 

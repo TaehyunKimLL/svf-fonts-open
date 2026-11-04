@@ -174,7 +174,7 @@ class PanelArgvTest(unittest.TestCase):
         self.assertEqual(presets.panel_argv(EVERY, "jamo", "dos raw", 1),
                          [["--embolden", "--symbols", "--jset-version", "2", "--ascent", "12"]])
         self.assertEqual(presets.panel_argv(EVERY, "jamo", "experimental fit", 1),
-                         [["--jset-version", "2", "--baseline", "12", "--binarize", "ridge", "--no-clean"]])
+                         [["--jset-version", "2", "--baseline", "12", "--binarize", "ridge"]])        # no clean control at 1 bpp
         self.assertEqual(presets.panel_argv(EVERY, "jamo", "composite", 1),
                          [["--symbols", "--jset-version", "2", "--baseline", "12", "--binarize", "ridge"]])
         self.assertEqual(presets.panel_argv(EVERY, "jamo", "composite", 2),

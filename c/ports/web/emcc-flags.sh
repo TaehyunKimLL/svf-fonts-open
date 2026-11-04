@@ -4,12 +4,20 @@
 #                                  Returns 1 with a message when emcc is missing. Writes no other file.
 EMSDK=${EMSDK:-$HOME/opt/emsdk}
 
+# svf_web_require_emcc [SCRIPT]   returns 1 with "SCRIPT: no emcc at ..." when emcc is missing (SCRIPT: the caller's
+#                                 name, default build.sh); call it before creating any output directory.
+svf_web_require_emcc() {
+	local emcc=$EMSDK/upstream/emscripten/emcc
+
+	[ -x "$emcc" ] || { echo "${1:-build.sh}: no emcc at $emcc (c/cross/install-toolchains.sh, or set EMSDK)" >&2; return 1; }
+}
+
 svf_web_compile() {
 	local root=$1 out=$2
 	local emcc=$EMSDK/upstream/emscripten/emcc
 	local c=$root/c
 
-	[ -x "$emcc" ] || { echo "build.sh: no emcc at $emcc (c/cross/install-toolchains.sh, or set EMSDK)" >&2; return 1; }
+	svf_web_require_emcc "${SVF_WEB_SCRIPT:-build.sh}" || return 1
 	EM_CONFIG="$EMSDK/.emscripten" "$emcc" -std=c99 -Wall -Wextra -Werror -O2 -I"$c/include" \
 		"$c/ports/web/svf_web.c" "$c"/src/*.c -o "$out/svf.js" -sMODULARIZE -sEXPORT_ES6 -sEXPORT_NAME=SvfModule \
 		-sENVIRONMENT=web,node -sEXPORTED_FUNCTIONS=_malloc,_free -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP16,HEAP32 \

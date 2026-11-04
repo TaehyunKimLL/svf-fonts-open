@@ -904,3 +904,12 @@ mkfont's `--clip-cell` at 1 and 2 bpp (exact; 583 vs 105 cut glyphs between the 
 | M-r6: `f.metrics[cp]` is a 3-tuple, dy in `f.dy` | yes (`svfdy._write`) | Changed: 11 A exports wording |
 | M-r7: Electron must load the page from the sidecar origin | yes (`_check_same_origin` accepts http(s) on the bound host) | Changed: 6.1 |
 | Piece number 0 is a real piece | yes (NEODG16A) | Changed: 6.4 "trust the count" |
+
+Group 1 review (Opus and AGY lanes, rulings of the controller): the `clean` control is offered only where it has an
+effect. jamoset cleans by default at 2 bpp, and at 1 bpp only for `--layout adaptive`, so at 1 bpp `--no-clean` is not
+a safe control (unticking does nothing at 844, and no `--clean` is ever emitted to turn it on). `OPTION_VISIBLE`
+lists `clean` for `experimental fit` at 2 bpp only and `panel_argv` emits `--no-clean` at 2 bpp only (this overrides the
+7.1 row "both bpps" and the 7.3 table). The report marks a glyph the cell cuts away entirely `"gone": true` (the build
+drops it, `unicode_keep`) and counts it in `counts.gone`. `dy` keys are read as `tools/svfdy.json_dy` reads them (a
+one-character key is that character) and must be code points; the cell rules of `jamo_ascent`, `fit_baseline`,
+`latin_ascent` and `hangul_ascent` apply only to a font whose selected route reads the key.

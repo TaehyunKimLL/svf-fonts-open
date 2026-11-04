@@ -671,6 +671,21 @@ def clipped_ink(font, ch, bpp, ascent, cell_h):
 
 
 
+def nudged_cps(cps, ascent, font_of):
+    """The code points render() moves down at @p ascent: its bbox top plus the ascent is above the cell. @p font_of(cp)
+    is the font that draws cp (the fallback when it draws it). A glyph with no bbox (whitespace) or a font that cannot
+    give one (a bitmap font) is not nudged, as render() treats it."""
+    out = []
+    for cp in cps:
+        try:
+            box = font_of(cp).getbbox(chr(cp), anchor="ls")
+        except (ValueError, OSError):
+            continue
+        if box and box[1] + ascent < 0:
+            out.append(cp)
+    return out
+
+
 def probe_cell(boxes):
     """--probe: (A0, cell_h) of the tall cell that cuts nothing: A0 = max(1, -min_top) rows above the baseline, cell_h =
     A0 + max(0, max_bottom). (1, 1) without boxes."""
@@ -700,13 +715,16 @@ def build_report(*, size, requested_size, cell_w, cell_h, ascent, auto_ascent, m
         for cp in sorted(set(top) | set(bottom)):
             full, fringe = (cut or {}).get(cp, (0, 0))
             _, t, _, b = boxes[cp]
+            # gone: no ink row inside the cell, so the build drops the glyph (unicode_keep) instead of cutting it
+            gone = b + ascent <= 0 or t + ascent >= cell_h
             rep["cut"][_hex(cp)] = {"top": max(0, -t - ascent), "bottom": max(0, b + ascent - cell_h),
-                                    "full": full, "fringe": fringe}
+                                    "full": full, "fringe": fringe, "gone": gone}
     rep["wide"] = [_hex(cp) for cp in wide]
     if mode == "nudge":
         rep["nudged"] = [_hex(cp) for cp in nudged or ()]
     rep["counts"] = {"glyphs": len(boxes), "top": len(top), "bottom": len(bottom), "wide": len(wide),
-                     "cut": len(set(top) | set(bottom))}
+                     "cut": len(set(top) | set(bottom)),
+                     "gone": sum(1 for c in rep.get("cut", {}).values() if c["gone"])}
     return rep
 
 
@@ -800,7 +818,7 @@ def main():
                     help="셀이 아무것도 자르지 않는 키 큰 셀로 굽고 (셀 높이와 ascent 는 잉크 상자로 정한다), "
                          "상자 보고서를 쓴다. 키가 255줄을 넘으면 보고서만 쓴다. "
                          "--cell/--ascent/--clip-cell/--fit-cell 과 함께 쓸 수 없다")
-    ap.add_argument("--probe-cell", type=int, default=0, metavar="H",
+    ap.add_argument("--probe-cell", type=int, default=None, metavar="H",
                     help="--probe: 사용자의 셀 높이. 보고서의 auto_ascent 를 이 셀에 대해 잰다")
     ap.add_argument("--unicode", default="",
                     help="구울 글자 집합 (코드 포인트 순서, SVFN 버전 3). 16진 범위나 이름: "
@@ -851,8 +869,11 @@ def main():
     if args.probe and (args.cell or args.ascent or args.clip_cell or args.fit_cell):
         print("mkfont: --probe sets the cell and ascent itself", file=sys.stderr)
         sys.exit(2)
-    if args.probe_cell and not args.probe:
+    if args.probe_cell is not None and not args.probe:
         print("mkfont: --probe-cell needs --probe", file=sys.stderr)
+        sys.exit(2)
+    if args.probe_cell is not None and not 1 <= args.probe_cell <= 255:
+        print("mkfont: --probe-cell %d is not 1..255" % args.probe_cell, file=sys.stderr)
         sys.exit(2)
 
     global MONO_HINT
@@ -944,7 +965,7 @@ def main():
         cell_w = args.width or cell_h
         report_boxes = probe_boxes
         auto_ascent = ascent
-        if args.probe_cell:
+        if args.probe_cell is not None:
             auto_ascent = fit_ascent(probe_boxes, args.probe_cell,
                                      choose_ascent(font, args.probe_cell, latin=args.latin))[0]
         if cell_h > 255:
@@ -1094,7 +1115,11 @@ def main():
         mode = "clip" if args.probe else "fit" if args.fit_cell else "clip" if args.clip_cell else "nudge"
         nudged = []
         if mode == "nudge":
-            nudged = [cp for cp in boxes if primary.getbbox(chr(cp), anchor="ls")[1] + ascent < 0]
+            def font_of(cp):
+                if fallback is not None and cmap_has(args.input, cp) is False:
+                    return fallback
+                return primary
+            nudged = nudged_cps(boxes, ascent, font_of)
         write_report(args.report, build_report(
             size=size, requested_size=args.size, cell_w=cell_w, cell_h=cell_h, ascent=ascent,
             auto_ascent=ascent if auto_ascent is None else auto_ascent, mode=mode, latin=args.latin, bpp=args.bpp,

@@ -862,10 +862,10 @@ def tall_ttf(path):
         return pen.glyph()
 
     fb = FontBuilder(1000, isTTF=True)
-    fb.setupGlyphOrder([".notdef", "A", "ga"])
-    fb.setupCharacterMap({0x41: "A", 0xAC00: "ga"})
-    fb.setupGlyf({".notdef": TTGlyphPen(None).glyph(), "A": rect(), "ga": rect()})
-    fb.setupHorizontalMetrics({".notdef": (500, 0), "A": (700, 100), "ga": (700, 100)})
+    fb.setupGlyphOrder([".notdef", "space", "A", "ga"])
+    fb.setupCharacterMap({0x20: "space", 0x41: "A", 0xAC00: "ga"})
+    fb.setupGlyf({".notdef": TTGlyphPen(None).glyph(), "space": TTGlyphPen(None).glyph(), "A": rect(), "ga": rect()})
+    fb.setupHorizontalMetrics({".notdef": (500, 0), "space": (300, 0), "A": (700, 100), "ga": (700, 100)})
     fb.setupHorizontalHeader(ascent=800, descent=-200)
     fb.setupOS2()
     fb.setupPost()
@@ -912,7 +912,8 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(rep["cut"]["0xAC00"]["bottom"], 1)
         top, bottom, wide = mkfont.fit_counts({int(k, 16): v for k, v in rep["boxes"].items()}, 12, 12, 10)
         self.assertEqual(rep["counts"], {"glyphs": len(rep["boxes"]), "top": len(top), "bottom": len(bottom),
-                                         "wide": len(wide), "cut": len(set(top) | set(bottom))})
+                                         "wide": len(wide), "cut": len(set(top) | set(bottom)), "gone": 0})
+        self.assertIs(rep["cut"]["0xAC00"]["gone"], False)
         self.assertEqual((rep["mode"], rep["ascent"], rep["cell"]), ("clip", 10, [12, 12]))
         self.assertEqual(list(rep)[:3], ["tool", "probe", "probe_face"])
         self.assertEqual((rep["tool"], rep["probe"], rep["probe_face"], rep["size"], rep["requested_size"],
@@ -958,6 +959,36 @@ class ReportTest(unittest.TestCase):
                 self.assertEqual(r.returncode, 2)
                 self.assertIn("--probe sets the cell and ascent itself", r.stderr)
                 self.assertFalse(os.path.exists(self.report))
+
+    def test_a_glyph_the_cell_removes_whole_is_gone(self):
+        # ink rows -12..3, ascent 14, cell 2: the window is rows -14..-12, so every ink row is outside
+        rep = self.bake("--size", "16", "--bpp", "1", "--cell", "2", "--ascent", "14", "--clip-cell")
+        self.assertIs(rep["cut"]["0xAC00"]["gone"], True)
+        self.assertEqual(rep["counts"]["gone"], rep["counts"]["cut"])
+        self.assertGreater(rep["counts"]["gone"], 0)
+
+    def test_nudged_cps_guards_whitespace_bitmap_fonts_and_picks_the_fallback(self):
+        class Raises:
+            def getbbox(self, ch, anchor=None):
+                raise ValueError("bitmap font")
+
+        class Boxes:
+            def __init__(self, box):
+                self.box = box
+
+            def getbbox(self, ch, anchor=None):
+                return self.box
+
+        self.assertEqual(mkfont.nudged_cps([0x20, 0x3000], 10, lambda cp: Boxes(None)), [])
+        self.assertEqual(mkfont.nudged_cps([0x41], 10, lambda cp: Raises()), [])
+        primary, fallback = Boxes((0, -12, 5, 0)), Boxes((0, -3, 5, 0))
+        self.assertEqual(mkfont.nudged_cps([0x41, 0xAC00], 10, lambda cp: fallback if cp == 0xAC00 else primary), [0x41])
+
+    def test_probe_cell_is_range_checked(self):
+        for bad in ("0", "-3", "256"):
+            r = self.run_mkfont("--size", "16", "--probe", "--probe-cell", bad)
+            self.assertEqual(r.returncode, 2, bad)
+            self.assertIn("--probe-cell", r.stderr)
 
     def test_probe_cell_needs_probe(self):
         r = self.run_mkfont("--size", "16", "--probe-cell", "12")

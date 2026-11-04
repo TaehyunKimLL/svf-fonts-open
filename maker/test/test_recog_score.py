@@ -57,6 +57,11 @@ def _heads(net, arr):
         for h in range(3):
             row = [-20.0] * sizes[h]
             row[(right[h] + 1) % sizes[h] if (s in bad_syl and h == k) else right[h]] = 0.0
+            if os.path.exists(os.path.join(_HERE, "nonfinite.flag")):
+                if s == 0 and h == 1:
+                    row = [float("nan")] * sizes[h]
+                if s == 1 and h == 0:
+                    row[right[h]] = float("-inf")
             out[h].append(row)
     return out
 '''
@@ -128,14 +133,44 @@ class RecogScoreTest(unittest.TestCase):
         by_flag = {}
         for p in out["pieces"]:
             by_flag[p["flag"]] = by_flag.get(p["flag"], 0) + 1
-        self.assertEqual(counts, {k: by_flag.get(k, 0) for k in ("pass", "warn", "fail", "unused")})
+        self.assertEqual(counts, {k: by_flag.get(k, 0) for k in ("pass", "warn", "fail", "unscored", "unused")})
+        self.assertEqual(out["face"]["unscored"], 0)
         # sorted fail, warn, pass, unused
-        order = {"fail": 0, "warn": 1, "pass": 2, "unused": 3}
+        order = {"fail": 0, "warn": 1, "pass": 2, "unscored": 3, "unused": 4}
         self.assertEqual([order[p["flag"]] for p in out["pieces"]], sorted(order[p["flag"]] for p in out["pieces"]))
         bad161 = out["pieces"][0]
         self.assertEqual((bad161["piece"], bad161["slot"], bad161["users"], bad161["read"]), (161, "m", len(self.bad), 0.0))
         self.assertEqual(sorted(w["cp"] for w in bad161["worst"]), [0xAC00 + s for s in self.bad])
         self.assertTrue(all(w["got"] for w in bad161["worst"]))
+
+    def test_non_finite_rows_are_unscored_and_the_json_is_strict(self):
+        open(os.path.join(self.recog_dir, "nonfinite.flag"), "w").close()
+        r, out = self.run_raw(face_path(self.FACE), "--arrays", "lists")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding="utf-8") as fh:
+            text = fh.read()
+
+        def refuse(name):
+            raise ValueError("non-standard JSON constant " + name)
+        data = json.loads(text, parse_constant=refuse)          # what the browser's JSON.parse does
+        self.assertEqual(data["face"]["unscored"], 2)
+        self.assertNotEqual(data["face"]["identity"], "pass")
+        self.assertLess(data["face"]["recog_all"], 1.0)
+
+    def test_threads_below_one_exit_2(self):
+        r, out = self.run_raw(face_path(self.FACE), "--arrays", "lists", "--threads", "0")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("recog: --threads must be >= 1", r.stderr)
+        self.assertFalse(os.path.exists(out))
+
+    def test_a_failure_outside_the_recogniser_is_not_labelled_recog(self):
+        # an unreadable --arrays numpy without numpy would say "No module named numpy"; a bug in the scorer likewise
+        r, out = self.run_raw(face_path(self.FACE), "--arrays", "numpy",
+                              env={"PYTHONPATH": os.path.join(self.tmp.name, "nonexistent")})
+        if importlib.util.find_spec("numpy"):
+            self.skipTest("numpy is installed")
+        self.assertEqual(r.returncode, 1)
+        self.assertTrue(r.stderr.startswith("recog_score:"), r.stderr)
 
     def test_a_raising_recogniser_exits_1(self):
         open(os.path.join(self.recog_dir, "raise.flag"), "w").close()

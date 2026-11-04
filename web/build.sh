@@ -10,6 +10,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(dirname "$HERE")
 OUT=${1:-$HERE/dist}
 . "$ROOT/c/ports/web/emcc-flags.sh"
+SVF_WEB_SCRIPT=build.sh
+svf_web_require_emcc build.sh || exit 1
 
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)

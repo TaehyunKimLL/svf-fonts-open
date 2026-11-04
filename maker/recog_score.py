@@ -18,14 +18,17 @@ A face whose JSET is a LIST/JMAP is "not applicable (LIST)" (exit 0): its pieces
 import argparse
 import importlib.util
 import json
+import math
 import os
 import sys
 import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Appended, not inserted: a library module (numpy, torch and what they import) must never be shadowed by a maker or
+# tools module of the same name.
 for _p in (HERE, os.path.join(os.path.dirname(HERE), "tools")):
     if _p not in sys.path:
-        sys.path.insert(0, _p)
+        sys.path.append(_p)
 
 import detect  # noqa: E402
 import jamoset  # noqa: E402
@@ -35,6 +38,17 @@ THRESHOLDS = {"pass": 0.95, "warn": 0.80}
 MODEL = "11-12"
 NSYL = 11172
 SLOTS = ("i", "m", "f")
+
+
+class RecogError(Exception):
+    """The recogniser (load, split or _heads) raised: the CLI reports it as "recog: <message>"."""
+
+
+def _call(fn, *args):
+    try:
+        return fn(*args)
+    except Exception as e:  # noqa: BLE001 - whatever the recogniser raises
+        raise RecogError(str(e)) from e
 SLOT_SIZE = (19, 21, 27)            # jamo a slot's table row names (the final has no "none")
 WORST = 5
 
@@ -114,20 +128,29 @@ def score_face(face_bytes, R, net, to_array, batch=256, index_array=list):
             cells[s] = cell
     syls = sorted(cells)
     h, w = face.cell_h, face.cell_w
-    LVT = [_rows(x) if hasattr(x, "tolist") else list(x) for x in R.split(index_array(syls))]
+    LVT = [_rows(x) if hasattr(x, "tolist") else list(x) for x in _call(R.split, index_array(syls))]
     right_of = {s: (LVT[0][i], LVT[1][i], LVT[2][i]) for i, s in enumerate(syls)}
     read_ok = {}      # syllable -> (ok L, ok V, ok T)
     nll = {}          # syllable -> -log p of the right jamo per head
     got = {}          # syllable -> argmax per head
+    unscored = set()  # syllables with a NaN row or a non-finite log-probability of the right jamo: no score, never JSON
     for b in range(0, len(syls), batch):
         chunk = syls[b:b + batch]
-        heads = [_rows(x) for x in R._heads(net, to_array([cells[s] for s in chunk], h, w))]
+        heads = [_rows(x) for x in _call(R._heads, net, to_array([cells[s] for s in chunk], h, w))]
         for i, s in enumerate(chunk):
-            g = tuple(_argmax(heads[k][i]) for k in range(3))
             r = right_of[s]
+            rows = [heads[k][i] for k in range(3)]
+            if (any(v != v for row in rows for v in row)
+                    or any(not math.isfinite(float(rows[k][r[k]])) for k in range(3))):
+                unscored.add(s)
+                got[s] = r
+                read_ok[s] = (False, False, False)
+                nll[s] = (0.0, 0.0, 0.0)
+                continue
+            g = tuple(_argmax(rows[k]) for k in range(3))
             got[s] = g
             read_ok[s] = tuple(g[k] == r[k] for k in range(3))
-            nll[s] = tuple(-float(heads[k][i][r[k]]) for k in range(3))
+            nll[s] = tuple(-float(rows[k][r[k]]) for k in range(3))
     users = {}
     for s in syls:
         ps = jamoset.pieces_of(t, 0xAC00 + s)
@@ -141,8 +164,14 @@ def score_face(face_bytes, R, net, to_array, batch=256, index_array=list):
             users.setdefault((SLOTS[k], p), []).append((s, cell))
     entries = _table_entries(t)
     pieces = []
-    for (slot, p), us in users.items():
+    for (slot, p), all_us in users.items():
         k = SLOTS.index(slot)
+        us = [u for u in all_us if u[0] not in unscored]
+        if not us:                     # every user is unscored: nothing to rate
+            pieces.append({"piece": p, "slot": slot, "jamo": _letter(k, right_of[all_us[0][0]][k]),
+                           "set": (t.init_set, t.med_set, t.fin_set)[k][all_us[0][1]], "users": 0, "read": 0.0,
+                           "nll": 0.0, "flag": "unscored", "worst": []})
+            continue
         ok = sum(1 for s, _ in us if read_ok[s][k])
         read = ok / len(us)
         first_s, first_cell = us[0]
@@ -156,17 +185,19 @@ def score_face(face_bytes, R, net, to_array, batch=256, index_array=list):
         if (slot, p) not in users:
             pieces.append({"piece": p, "slot": slot, "jamo": _letter(SLOTS.index(slot), j), "set": setno,
                            "users": 0, "read": 0.0, "nll": 0.0, "flag": "unused", "worst": []})
-    order = {"fail": 0, "warn": 1, "pass": 2, "unused": 3}
+    order = {"fail": 0, "warn": 1, "pass": 2, "unscored": 3, "unused": 4}
     pieces.sort(key=lambda p: (order[p["flag"]], p["read"], SLOTS.index(p["slot"]), p["piece"]))
     ks = [cp - 0xAC00 for cp in mkfont.NAMED_RANGES["ksx1001-hangul"]()]
     counts = {k: sum(1 for p in pieces if p["flag"] == k) for k in order}
     worst_flag = next((f for f in ("fail", "warn") if counts[f]), "pass")
+    if worst_flag == "pass" and unscored:
+        worst_flag = "warn"            # part of the face could not be scored
     bpp = face.bpp
     return {"available": True, "applicable": True, "model": MODEL, "thresholds": dict(THRESHOLDS),
             "bpp_note": "2 bpp thresholded at level 2" if bpp == 2 else None,
             "face": {"recog_ks": sum(1 for s in ks if s in read_ok and all(read_ok[s])) / len(ks),
                      "recog_all": sum(1 for s in syls if all(read_ok[s])) / NSYL,
-                     "pieces": counts, "identity": worst_flag},
+                     "pieces": counts, "unscored": len(unscored), "identity": worst_flag},
             "pieces": pieces}
 
 
@@ -178,6 +209,9 @@ def main(argv=None):
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--arrays", choices=("numpy", "lists"), default="numpy")
     args = ap.parse_args(argv)
+    if args.threads < 1:
+        print("recog: --threads must be >= 1", file=sys.stderr)
+        return 2
     d = os.environ.get("SVF_RECOG_DIR", "")
     if not (d and os.path.isdir(d) and os.path.isfile(os.path.join(d, "recog.py"))):
         print("SVF_RECOG_DIR is not a directory with recog.py", file=sys.stderr)
@@ -197,12 +231,15 @@ def main(argv=None):
         out = {"available": True, "applicable": False, "reason": "not applicable (LIST)"}
     else:
         try:
-            if args.threads and importlib.util.find_spec("torch"):
+            if importlib.util.find_spec("torch"):
                 import torch
                 torch.set_num_threads(args.threads)
             sys.path.insert(0, d)
-            import recog as R
-            net = R.load(MODEL)
+            try:
+                import recog as R
+                net = R.load(MODEL)
+            except Exception as e:  # noqa: BLE001 - the recogniser's import or load
+                raise RecogError(str(e)) from e
             build = numpy_array if args.arrays == "numpy" else lists_array
             index_array = list
             if args.arrays == "numpy":
@@ -210,11 +247,14 @@ def main(argv=None):
                 index_array = np.array
             to_array = lambda cells, h, w: build(cells, h, w, face.bpp)  # noqa: E731
             out = score_face(data, R, net, to_array, args.batch, index_array)
-        except Exception as e:  # noqa: BLE001 - whatever the recogniser raises is the report
+        except RecogError as e:
             print("recog: %s" % e, file=sys.stderr)
             return 1
+        except Exception as e:  # noqa: BLE001 - not the recogniser: a missing library or a bug here
+            print("recog_score: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+            return 1
     with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False)
+        json.dump(out, f, ensure_ascii=False, allow_nan=False)
         f.write("\n")
     return 0
 
