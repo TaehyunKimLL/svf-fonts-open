@@ -1305,3 +1305,14 @@ design was changed; "fixed" names the section that changed, "n/a" gives the reas
 | AGY: "`caps.recog_dir()` is called on every `GET /api/caps`" | **not so**: `compute` once at start (`:479`), the dict is served (`:1772`) | n/a as stated; the per-step call (`jobs.py:1502`) is real and is removed (7.7) |
 | AGY: references to `stage-repo.mjs`, `desktop/build/sidecar.spec`, `X-SVF-Maker-Token`, `pickSources`, `--repo`, a `TOOLS` dict with `jamofill` | none of these names is in this document (the header is `X-Maker-Token`, the bridge is the four functions of 6.5, the spec is `maker/sidecar.spec`) | n/a: the review described another text; the substance behind each (the dispatch table, the data files, the token header, the restart) is handled above |
 | Opus "what checks out" (29 sites, module paths, handshake, token scope, bridge members, byte identity 43 vs 47 MB, SIGTERM `SIG_DFL`) | agrees with section 4 | recorded; the 43 MB figure is the reviewer's own build (the design keeps 47 MB as the upper measured value) |
+
+## 17. Rulings on the remaining decisions (2026-11-05, controller)
+
+D7 ship electron-builder's AppRun unchanged (it adds `--no-sandbox` when user namespaces are unavailable), the shell shows the
+renderer sandbox state in its About box and writes it to its log, and the page loads only local content (loopback origin, strict
+CSP, navigation and request guards): the residual risk is the owner's own local content. A `.deb` with an AppArmor profile is the
+sandboxed path (D13: later, not in this card). D8 accept the copyleft rule as written: GPL forbidden by the generator, LGPL
+per-component distribution record and source archive are a RELEASE GATE (the bundle is not public yet), the AppImage runtime's
+static libfuse obligation is accepted until a release is planned. D14 yes (registry in both modes, PDEATHSIG frozen-only).
+D15 yes (`openOutputFolder` reveals the open job's output folder, only if the shell handed it out). Rulings of the controller,
+reversible by editing this section and the plan.
