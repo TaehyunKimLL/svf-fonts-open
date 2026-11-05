@@ -1038,6 +1038,19 @@ class LocalSettingsTest(unittest.TestCase):
         per["range_root"] = 0
         self.assertTrue([e for e in settings.validate(fonts, st, src) if "range" in e])
 
+    def test_a_step_has_the_keys_of_the_base_and_needs_only_when_it_has_some(self):
+        base = {"id", "font", "kind", "size", "bpp", "layout", "name", "argv", "output", "state", "exit", "seconds",
+                "error", "stderr_tail", "facts", "quality", "identical_to", "report", "identity"}   # as at ce976f8
+        self.assertEqual(set(settings._step("s01", "f01", "source", None, None, None, None, [], "x")), base)
+        font = self.by["Seoul12.rsrc"]
+        st = settings.defaults(self.fonts)
+        st["fonts"][font["id"]].update(selected=True, kinds=["jamo"], dest="jamo-extra", names={"jamo/12/1": "X12J.SVF"})
+        steps = settings.plan_steps({"fonts": self.fonts, "settings": st}, os.path.join(self._tmp.name, "w"),
+                                    os.path.join(REPO_DIR, "tools"), self.src)
+        with_needs = [step for step in steps if "needs" in step]
+        self.assertTrue(with_needs and all(step["needs"] for step in with_needs))   # never an empty list
+
+
     def test_htbl_companion(self):
         font = self.by["Seoul12.rsrc"]
         st = settings.defaults(self.fonts)

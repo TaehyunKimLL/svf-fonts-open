@@ -43,6 +43,30 @@ import settings
 import zipout
 from sources import OutputGone, Sources, stat_id
 
+STAT_TIMEOUT_S = 5.0          # a stat of a recorded output folder that takes longer counts as unreachable (hung mount)
+STOP_STAT_TIMEOUT_S = 1.0     # the same at stop, so shutdown is not held by a mount
+
+
+def stat_id_bounded(path, timeout=STAT_TIMEOUT_S):
+    """`stat_id(path)`, but `OSError` when it does not return within @p timeout seconds (the stat runs in a daemon
+    thread that is left behind)."""
+    box = []
+
+    def run():
+        try:
+            box.append(("ok", stat_id(path)))
+        except BaseException as exc:
+            box.append(("err", exc))
+    thread = threading.Thread(target=run, daemon=True, name="svf-maker-stat")
+    thread.start()
+    thread.join(timeout)
+    if not box:
+        raise OSError("stat timed out: %s" % path)
+    kind, value = box[0]
+    if kind == "err":
+        raise value
+    return value
+
 # The Global Constraints limits, verbatim.
 STEP_TIMEOUT = 600
 RECOG_TIMEOUT = 180                      # the identity scoring of one jamo step (maker/recog_score.py)
@@ -330,6 +354,7 @@ class Store:
         # its files directory is swept, so a preview GET cannot re-make the directory under `rmtree`.
         self.on_sweep = None
         self._pending_lock = threading.Lock()
+        self._retry_lock = threading.Lock()
 
     def lock(self, job_id):
         """The `threading.Lock` of @p job_id, made once: two handlers never write one job's file together."""
@@ -528,68 +553,84 @@ class Store:
         except OSError:
             pass                                          # the metadata directory is already gone
 
-    def sweep_files(self, job):
+    def sweep_files(self, job, stat_timeout=None):
         """Remove a local job's files directory; True when it is gone. Never raises.
 
         Only when the output folder is still the one picked (`output_id`) and the path is a real directory. A failure
         (busy, changed folder) is recorded in `pending-sweeps.json` with the folder's identity and logged to `log.md`;
-        `retry_pending_sweeps` takes it up later. The job's preview locks are held meanwhile (`on_sweep`)."""
+        `retry_pending_sweeps` takes it up later. The job's preview locks are held meanwhile (`on_sweep`).
+
+        Lock order (one for the whole store): the preview locks, then nothing else; the pending-sweeps lock is taken only
+        after they are released, and `retry_pending_sweeps` never holds it across the filesystem work."""
         if job.get("source") != "local":
             return True
         files = self.files_dir(job)
+        reason = None
         try:
             hold = self.on_sweep(job) if self.on_sweep is not None else contextlib.nullcontext()
             with hold:
                 try:
-                    same = stat_id(job["output_dir"]) == tuple(job.get("output_id") or ())
+                    same = stat_id_bounded(job["output_dir"], STAT_TIMEOUT_S if stat_timeout is None else stat_timeout) == tuple(job.get("output_id") or ())
                 except OSError:
                     same = False                                  # unmounted, removed: nothing can be said about the path
                 if not same:
-                    self._add_pending(job, files, "output folder is gone or changed")
-                    return False
-                if not os.path.lexists(files):
+                    reason = "output folder is gone or changed"
+                elif not os.path.lexists(files):
                     return True                                   # the folder is the one picked and the directory is gone
-                try:
-                    if os.path.islink(files) or not os.path.isdir(files):
-                        raise OSError("not a real directory")
-                    shutil.rmtree(files)
-                    return True
-                except Exception as exc:
-                    self._add_pending(job, files, exc_text(exc, True) if type(exc) is not OutputGone else str(exc))
-                    return False
+                else:
+                    try:
+                        if os.path.islink(files) or not os.path.isdir(files):
+                            raise OSError("not a real directory")
+                        shutil.rmtree(files)
+                        return True
+                    except Exception as exc:
+                        reason = exc_text(exc, True) if type(exc) is not OutputGone else str(exc)
         except Exception:
             print_exc()
             return False
+        try:
+            self._add_pending(job, files, reason)                 # outside the preview locks
+        except Exception:
+            print_exc()
+        return False
 
-    def retry_pending_sweeps(self):
+    def retry_pending_sweeps(self, stat_timeout=None):
         """Retry each pending sweep; it deletes only a real `.svf-maker-<job id>` directory directly inside the output
         folder it was recorded for, when that folder is still the same one. An entry is dropped when the directory is
         gone, when the retry succeeds, or when a check on the directory fails. While another folder (or none) is
-        mounted at the path the entry stays: it is taken up when the ORIGINAL identity returns."""
-        with self._pending_lock:
-            entries = self._read_pending()
+        mounted at the path the entry stays: it is taken up when the ORIGINAL identity returns.
+
+        The pending lock is held only to read the list and to write the result; the stats and the removal run outside it,
+        under the job's preview locks (the order `sweep_files` uses). One retry runs at a time; a second caller returns.
+        @p stat_timeout bounds each stat of a recorded folder (a hung mount counts as unreachable)."""
+        if not self._retry_lock.acquire(blocking=False):
+            return
+        try:
+            with self._pending_lock:
+                entries = self._read_pending()
             if not entries:
                 return                                            # nothing to retry: no file is written
-            kept = []
+            timeout = STAT_TIMEOUT_S if stat_timeout is None else stat_timeout
+            dropped = []
             for entry in entries:
                 try:
                     path, job_id = entry["path"], entry["job"]
                     out, oid = entry["output_dir"], tuple(entry["output_id"])
                     name = ".svf-maker-" + job_id
                     try:
-                        mounted = stat_id(out) == oid
+                        mounted = stat_id_bounded(out, timeout) == oid
                     except OSError:
-                        kept.append(entry)                        # the folder cannot be reached (unmounted): keep it
-                        continue
-                    if mounted and not os.path.lexists(path):
-                        continue                                  # confirmed gone
+                        continue                                  # the folder cannot be reached (unmounted): keep it
                     if not mounted:
-                        kept.append(entry)                        # another folder is mounted there: wait for the original
+                        continue                                  # another folder is mounted there: wait for the original
+                    if not os.path.lexists(path):
+                        dropped.append(path)                      # confirmed gone
                         continue
                     if (not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name)
                             or os.path.basename(path) != name or os.path.dirname(path) != out
                             or os.path.islink(path) or not os.path.isdir(path)):
                         print("sweep: %s: not the directory this job made; left alone" % path, file=sys.stderr)
+                        dropped.append(path)
                         continue
                     try:
                         job = self.load(job_id)
@@ -598,11 +639,17 @@ class Store:
                     hold = self.on_sweep(job) if self.on_sweep is not None else contextlib.nullcontext()
                     with hold:
                         shutil.rmtree(path)
+                    dropped.append(path)
                 except Exception as exc:
                     print("sweep: %s: %s" % (entry.get("path"), exc), file=sys.stderr)
-                    kept.append(entry)
-            if kept != entries:
-                self._write_pending(kept)
+            if dropped:
+                with self._pending_lock:                          # entries added meanwhile are kept
+                    current = self._read_pending()
+                    kept = [e for e in current if e.get("path") not in dropped]
+                    if kept != current:
+                        self._write_pending(kept)
+        finally:
+            self._retry_lock.release()
 
 
 # ---- the worker ------------------------------------------------------------------------------------------------
@@ -707,12 +754,13 @@ class Worker(threading.Thread):
         return idle
 
     def sweep_local_files(self):
-        """Sweep the files directory of every local job (at stop; the start-up thread does the same)."""
-        self.store.retry_pending_sweeps()
+        """Sweep the files directory of every local job (at stop; the start-up thread does the same). The stats are
+        bounded by `STOP_STAT_TIMEOUT_S`: a hung mount must not hold shutdown."""
+        self.store.retry_pending_sweeps(STOP_STAT_TIMEOUT_S)
         for item in self.store.list():
             if item.get("source") == "local":
                 try:
-                    self.store.sweep_files(self.store.load(item["id"]))
+                    self.store.sweep_files(self.store.load(item["id"]), STOP_STAT_TIMEOUT_S)
                 except KeyError:
                     continue
 

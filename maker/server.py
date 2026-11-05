@@ -800,21 +800,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 held = None
             if (held is not None and held.get("source") == "local" and held.get("output_id") == output_id
                     and held.get("state") not in ("queued", "running")):
+                with self.server.create_lock:                 # one active job per folder holds for a reused job too
+                    self._claim_folder(output_id, exclude=reuse)
                 self.send_json({"id": reuse, "reused": True, "output_dir": held.get("output_dir")})
                 return
         with self.server.create_lock:
-            for item in store.list():
-                if (item.get("source") == "local" and item.get("output_id") == output_id
-                        and item["state"] in self.ACTIVE_STATES):
-                    if item["state"] in ("uploading", "detected") and self._job_idle(item):
-                        try:
-                            store.delete(item["id"])              # abandoned for the idle window: taken over
-                            continue
-                        except (ValueError, KeyError, OSError):
-                            pass
-                    raise _HttpError(409, "output folder is in use by job %s (delete it, or wait until it has been "
-                                          "idle for %d minutes)" % (item["id"], LOCAL_IDLE_SWEEP_S // 60),
-                                     {"job": item["id"]})
+            self._claim_folder(output_id)
             job = store.create(source="local", output_dir=real, output_id=output_id)
         try:
             store.ensure_files_dir(job)
@@ -822,6 +813,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             store.delete(job["id"])
             raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
         self.send_json({"id": job["id"]})
+
+    def _claim_folder(self, output_id, exclude=None):
+        """409 naming the job that holds the output folder @p output_id (the caller holds `create_lock`); a job
+        abandoned for the idle window is deleted instead (taken over). @p exclude is the job that wants the folder."""
+        store = self.server.store
+        for item in store.list():
+            if (item.get("source") == "local" and item.get("output_id") == output_id and item["id"] != exclude
+                    and item["state"] in self.ACTIVE_STATES):
+                if item["state"] in ("uploading", "detected") and self._job_idle(item):
+                    try:
+                        store.delete(item["id"])              # abandoned for the idle window: taken over
+                        continue
+                    except (ValueError, KeyError, OSError):
+                        pass
+                raise _HttpError(409, "output folder is in use by job %s (delete it, or wait until it has been "
+                                      "idle for %d minutes)" % (item["id"], LOCAL_IDLE_SWEEP_S // 60),
+                                 {"job": item["id"]})
 
     def _job_idle(self, item):
         """True when nobody has touched the local job @p item (a `list()` item) for `LOCAL_IDLE_SWEEP_S`."""
@@ -905,7 +913,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             j["error"] = None                                 # (`owned`, the faces it wrote, stays: a rerun may replace them)
             j["upload"] = {"files": len(files), "bytes": total,
                            "refused": ["%s: %s" % (item["path"], item["reason"]) for item in refused]}
-        updated = self._update(job, transition)
+        if current.get("state") in ("done", "failed"):         # it becomes active again: no other job may hold the folder
+            with self.server.create_lock:
+                self._claim_folder(current.get("output_id"), exclude=job)
+                updated = self._update(job, transition)
+        else:
+            updated = self._update(job, transition)
         self._clear_previews(job, [font.get("id") for font in updated.get("fonts") or []])
         self.send_json({"roots": roots, "files": len(files), "bytes": total, "refused": refused})
 

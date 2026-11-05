@@ -465,6 +465,19 @@ class LocalRunTest(LocalRunBase):
         self.assertEqual((status, body["id"], body["reused"]), (200, jid, True), body)
         self.assertEqual(len(self.srv.store.list()), 1)
 
+    def test_a_finished_job_cannot_reclaim_a_folder_another_job_holds(self):
+        jid, first = self.done_job()
+        other = self.new_job(self.out)                                          # a done job does not hold the folder
+        status, body = self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})
+        self.assertEqual(status, 409, body)
+        self.assertIn("output folder is in use by job %s" % other, body["error"])
+        self.assertEqual(body["job"], other)
+        self.assertEqual(self.job(jid)["state"], "done")                        # untouched
+        status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out + "/", "reuse": jid})
+        self.assertEqual((status, body.get("job")), (409, other), body)
+        self.assertEqual(self.api("DELETE", "/api/jobs/%s" % other)[0], 200)    # the delete affordance frees it
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})[0], 200)
+
     def test_input_changed_since_detection(self):
         jid = self.local_job()
         self.select(jid)
@@ -954,6 +967,85 @@ class LocalSweepTest(LocalRunBase):
         b = self.local_job()
         self.assertEqual(self.api("DELETE", "/api/jobs/%s" % b)[0], 200)           # a later delete retries it
         self.assertFalse(os.path.exists(fa))
+
+    def _pending_job(self):
+        """A local job whose delete failed once: its files directory is recorded as pending."""
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        real = shutil.rmtree
+
+        def fail(path, *a, **k):
+            if path == fd:
+                raise OSError("busy")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", fail):
+            self.srv.store.sweep_files(self.srv.store.load(jid))
+        return jid, fd
+
+    def test_a_failing_sweep_and_a_concurrent_retry_do_not_deadlock(self):
+        import threading
+        import time
+        jid, fd = self._pending_job()
+        job = self.srv.store.load(jid)
+        real = shutil.rmtree
+
+        def slow_fail(path, *a, **k):
+            if path == fd:
+                time.sleep(0.4)
+                raise OSError("busy")
+            return real(path, *a, **k)
+        done = []
+        with mock.patch.object(shutil, "rmtree", slow_fail):
+            a = threading.Thread(target=lambda: done.append(self.srv.store.sweep_files(job)), daemon=True)
+            b = threading.Thread(target=lambda: (time.sleep(0.1), self.srv.store.retry_pending_sweeps()), daemon=True)
+            a.start()
+            b.start()
+            a.join(10)
+            b.join(10)
+            self.assertFalse(a.is_alive() or b.is_alive(), "sweep and retry deadlocked")
+        self.assertEqual(done, [False])
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual([e["path"] for e in json.load(f)], [fd])         # still pending, once
+        self.srv.store.retry_pending_sweeps()                                   # and a later retry clears it
+        self.assertFalse(os.path.exists(fd))
+
+    def test_a_hung_mount_does_not_hold_the_stop_time_retry(self):
+        import time
+        jobs_mod = sys.modules["jobs"]
+        jid, fd = self._pending_job()
+        real = jobs_mod.stat_id
+
+        def hung(path):
+            time.sleep(6)
+            return real(path)
+        with mock.patch.object(jobs_mod, "stat_id", hung), mock.patch.object(jobs_mod, "STOP_STAT_TIMEOUT_S", 0.3):
+            started = time.monotonic()
+            self.srv.worker.sweep_local_files()
+            self.assertLess(time.monotonic() - started, 4)
+        self.assertTrue(os.path.isdir(fd))                                      # unreachable: kept for the next start
+
+    def test_stop_during_a_slow_retry_returns(self):
+        import threading
+        import time
+        jobs_mod = sys.modules["jobs"]
+        jid, fd = self._pending_job()
+        real = jobs_mod.stat_id
+        gate = threading.Event()
+
+        def slow(path):
+            gate.wait(3)
+            return real(path)
+        with mock.patch.object(jobs_mod, "stat_id", slow):
+            t = threading.Thread(target=self.srv.store.retry_pending_sweeps, daemon=True)
+            t.start()
+            time.sleep(0.2)                                                     # the retry is inside its stat
+            started = time.monotonic()
+            t2 = threading.Thread(target=self.srv.worker.stop, daemon=True)
+            t2.start()
+            t2.join(8)
+            self.assertFalse(t2.is_alive(), "stop hung behind a retry")
+            gate.set()
+            t.join(10)
 
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)
