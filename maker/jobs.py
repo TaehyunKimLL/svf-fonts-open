@@ -44,6 +44,7 @@ import zipout
 from sources import OutputGone, Sources, stat_id
 
 STAT_TIMEOUT_S = 5.0          # a stat of a recorded output folder that takes longer counts as unreachable (hung mount)
+REMOVE_BOUND_S = 30.0          # one removal of a files directory is waited for this long (a dead mount)
 RETRY_DEADLINE_S = 30.0       # one pending-sweep pass ends after this long; unfinished entries are kept
 IN_USE_STATES = ("queued", "running", "uploading", "detected")   # a job in these states uses its files directory
 STOP_BOUND_S = 2.0            # shutdown: each wait for a preview lock or a removal
@@ -53,6 +54,17 @@ STOP_STAT_TIMEOUT_S = 1.0     # the same at stop, so shutdown is not held by a m
 
 _STATS_IN_FLIGHT = set()      # paths with a stat still running: one daemon thread per path, however often it is asked
 _STATS_LOCK = threading.Lock()
+
+
+def tombstone_of(files):
+    """A name no later generation of @p files can have: `<files>.trash-<8 hex>`, in the same parent."""
+    return "%s.trash-%s" % (files, secrets.token_hex(4))
+
+
+def remove_tree_bounded(path, timeout):
+    """`shutil.rmtree(path)` waited for @p timeout seconds: True when it finished, False when it is still running (left
+    behind; it can only ever touch @p path, a tombstone nobody else uses)."""
+    return _run_bounded(lambda: shutil.rmtree(path), timeout)
 
 
 def _run_bounded(fn, timeout):
@@ -561,20 +573,48 @@ class Store:
         try:
             with open(self._pending_path(), encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, ValueError):
+        except OSError:
+            return []                                     # no file (or unreadable): nothing recorded
+        except ValueError as exc:
+            self._set_bad_aside(type(exc).__name__)       # corrupt: keep it for a person, never overwrite it
             return []
-        return [e for e in data if isinstance(e, dict)] if isinstance(data, list) else []
+        if not isinstance(data, list):
+            self._set_bad_aside("NotAList")
+            return []
+        return [e for e in data if isinstance(e, dict)]
+
+    def _set_bad_aside(self, kind):
+        bad = "%s.bad-%d" % (self._pending_path(), int(time.time()))
+        try:
+            os.replace(self._pending_path(), bad)
+            print("sweep: pending-sweeps.json is unreadable (%s); kept as %s" % (kind, os.path.basename(bad)),
+                  file=sys.stderr)
+        except OSError:
+            pass
 
     def _write_pending(self, entries):
         os.makedirs(self.data_root, exist_ok=True)
         tmp = self._pending_path() + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(entries, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, self._pending_path())
+        try:
+            fd = os.open(self.data_root, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError:
+            pass
 
-    def _add_pending(self, job, files, reason):
-        entry = {"path": files, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"),
-                 "job": job["id"], "files_id": job.get("files_id")}
+    def _add_pending(self, job, files, reason, trash=None):
+        """Record @p files (or, when its removal was started and not finished, the tombstone @p trash it was renamed to)
+        as still to be removed."""
+        entry = {"path": trash or files, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"),
+                 "job": job["id"], "files_id": None if trash else job.get("files_id")}
+        files = trash or files
         with self._pending_lock:
             entries = self._read_pending()
             same = [e for e in entries if e.get("path") == files]
@@ -609,7 +649,7 @@ class Store:
         if job.get("source") != "local":
             return True
         files = self.files_dir(job)
-        reason = None
+        reason = trash = None
         try:
             if self.on_sweep is None:
                 hold = contextlib.nullcontext()
@@ -631,23 +671,46 @@ class Store:
                     try:
                         if os.path.islink(files) or not os.path.isdir(files):
                             raise OSError("not a real directory")
-                        if bound is None:
-                            shutil.rmtree(files)
-                        elif not _run_bounded(lambda: shutil.rmtree(files), bound):
-                            raise OSError("removal did not finish in time")
-                        return True
+                        trash = tombstone_of(files)
+                        os.rename(files, trash)                   # under the locks: the name is free for a later generation
                     except Exception as exc:
+                        trash = None
                         reason = exc_text(exc, True) if type(exc) is not OutputGone else str(exc)
         except TimeoutError:
             reason = "busy (a preview holds it)"
         except Exception:
             print_exc()
             return False
+        if trash is not None:                                     # outside the locks: a slow removal blocks nobody
+            try:
+                if remove_tree_bounded(trash, REMOVE_BOUND_S if bound is None else bound):
+                    return True
+                reason = "removal did not finish in time"
+            except Exception as exc:
+                reason = exc_text(exc, True)
         try:
-            self._add_pending(job, files, reason)                 # outside the preview locks
+            self._add_pending(job, files, reason, trash)          # outside the preview locks
         except Exception:
             print_exc()
         return False
+
+    def sweep_trash(self, job):
+        """Remove the leftover tombstones (`.svf-maker-<id>.trash-*`) of a local job beside its output folder's
+        identity (start-up only). Each removal is bounded; nothing else in the folder is touched."""
+        if job.get("source") != "local":
+            return
+        out, prefix = job.get("output_dir"), FILES_DIR_PREFIX + job["id"] + ".trash-"
+        try:
+            if stat_id_bounded(out) != tuple(job.get("output_id") or ()):
+                return
+            names = os.listdir(out)
+        except (OSError, TypeError):
+            return
+        for name in names:
+            path = os.path.join(out, name)
+            if (re.match(r"^\.svf-maker-[0-9a-f]{12}\.trash-[0-9a-f]{8}$", name) and name.startswith(prefix)
+                    and not os.path.islink(path) and os.path.isdir(path)):
+                remove_tree_bounded(path, REMOVE_BOUND_S)
 
     def retry_pending_sweeps(self, stat_timeout=None, deadline_s=None):
         """Retry each pending sweep; it deletes only a real `.svf-maker-<job id>` directory directly inside the output
@@ -688,6 +751,12 @@ class Store:
                     if not os.path.lexists(path):
                         dropped.append((path, entry.get("files_id")))             # confirmed gone
                         continue
+                    if (re.match(r"^\.svf-maker-[0-9a-f]{12}\.trash-[0-9a-f]{8}$", os.path.basename(path))
+                            and os.path.basename(path).startswith(name + ".trash-") and os.path.dirname(path) == out
+                            and not os.path.islink(path) and os.path.isdir(path)):
+                        if remove_tree_bounded(path, max(0.1, min(REMOVE_BOUND_S, end - time.monotonic()))):    # a tombstone: dead by name
+                            dropped.append((path, entry.get("files_id")))
+                        continue
                     if (not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name)
                             or os.path.basename(path) != name or os.path.dirname(path) != out
                             or os.path.islink(path) or not os.path.isdir(path)):
@@ -712,9 +781,15 @@ class Store:
                                 continue                          # started meanwhile
                         except KeyError:
                             pass
-                        if not _run_bounded(lambda: shutil.rmtree(path), max(0.1, end - time.monotonic())):
-                            continue                              # does not finish in time: kept
+                        trash = tombstone_of(path)
+                        os.rename(path, trash)                    # the name is free for a later generation
                     dropped.append((path, recorded))
+                    if not remove_tree_bounded(trash, max(0.1, min(REMOVE_BOUND_S, end - time.monotonic()))):
+                        with self._pending_lock:                  # still running: the tombstone is the entry now
+                            current = self._read_pending()
+                            current.append({"path": trash, "output_dir": out, "output_id": list(oid), "job": job_id,
+                                            "files_id": None})
+                            self._write_pending(current)
                 except TimeoutError:
                     continue                                      # a preview lock is held: kept
                 except Exception as exc:

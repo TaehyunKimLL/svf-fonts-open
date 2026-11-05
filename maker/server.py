@@ -495,7 +495,9 @@ def make_server(host, port, repo_dir, data_root, token=None):
         store.retry_pending_sweeps()
         for job_id in local_ids:
             try:
-                store.sweep_files(store.load(job_id))
+                job = store.load(job_id)
+                store.sweep_files(job)
+                store.sweep_trash(job)
             except KeyError:
                 continue
     server.stopping = threading.Event()

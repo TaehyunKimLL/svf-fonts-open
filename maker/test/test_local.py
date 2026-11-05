@@ -885,7 +885,7 @@ class LocalSweepTest(LocalRunBase):
         calls = []
 
         def once(path, *a, **k):
-            if path == fd:
+            if str(path).startswith(fd):
                 calls.append(path)
                 raise OSError("busy")
             return real(path, *a, **k)
@@ -894,13 +894,14 @@ class LocalSweepTest(LocalRunBase):
         pending = os.path.join(self.data, "pending-sweeps.json")
         with open(pending, encoding="utf-8") as f:
             entries = json.load(f)
-        self.assertEqual([e["path"] for e in entries], [fd])
-        self.assertTrue(os.path.isdir(fd))
+        trash = entries[0]["path"]
+        self.assertTrue(trash.startswith(fd + ".trash-"), trash)                 # the directory was renamed, then failed
+        self.assertTrue(os.path.isdir(trash) and not os.path.exists(fd))
         entries.append({"path": "/tmp/x", "output_dir": "/tmp", "output_id": [1, 2], "job": "0123456789ab"})
         with open(pending, "w", encoding="utf-8") as f:
             json.dump(entries, f)
         self.srv.store.retry_pending_sweeps()
-        self.assertFalse(os.path.exists(fd))
+        self.assertFalse(os.path.exists(trash))
         with open(pending, encoding="utf-8") as f:
             left = json.load(f)
         self.assertEqual([e["path"] for e in left], ["/tmp/x"])                  # another folder at /tmp: kept, not dropped
@@ -911,7 +912,7 @@ class LocalSweepTest(LocalRunBase):
         real = shutil.rmtree
 
         def fail(path, *a, **k):
-            if path == fd:
+            if str(path).startswith(fd):
                 raise OSError("busy")
             return real(path, *a, **k)
         with mock.patch.object(shutil, "rmtree", fail):
@@ -1006,7 +1007,7 @@ class LocalSweepTest(LocalRunBase):
         real = shutil.rmtree
 
         def fail(path, *a, **k):
-            if path == fd:
+            if str(path).startswith(fd):
                 raise OSError("busy")
             return real(path, *a, **k)
         with mock.patch.object(shutil, "rmtree", fail):
@@ -1021,7 +1022,7 @@ class LocalSweepTest(LocalRunBase):
         real = shutil.rmtree
 
         def slow_fail(path, *a, **k):
-            if path == fd:
+            if str(path).startswith(fd):
                 time.sleep(0.4)
                 raise OSError("busy")
             return real(path, *a, **k)
@@ -1034,12 +1035,13 @@ class LocalSweepTest(LocalRunBase):
             a.join(10)
             b.join(10)
             self.assertFalse(a.is_alive() or b.is_alive(), "sweep and retry deadlocked")
-        self.assertEqual(done, [False])
+        self.assertEqual(done, [True])                                         # the directory was already renamed away
         with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
-            self.assertEqual([e["path"] for e in json.load(f)], [fd])         # still pending, once
-        self.srv.store.update(jid, lambda j: j.update(state="done"))
+            entries = json.load(f)
+        self.assertEqual(len(entries), 1)                                       # still pending, once (the tombstone)
+        self.assertTrue(entries[0]["path"].startswith(fd + ".trash-"))
         self.srv.store.retry_pending_sweeps()                                   # and a later retry clears it
-        self.assertFalse(os.path.exists(fd))
+        self.assertFalse(os.path.exists(entries[0]["path"]))
 
     def test_stop_returns_although_a_removal_hangs_and_a_preview_lock_is_held(self):
         import threading
@@ -1053,7 +1055,7 @@ class LocalSweepTest(LocalRunBase):
         real = shutil.rmtree
 
         def hang(path, *args, **kw):
-            if path == fa:
+            if str(path).startswith(fa):
                 release.wait(20)                                                # a child on a dead mount
             return real(path, *args, **kw)
         lock = server_mod._preview_lock(a, font_id)
@@ -1068,9 +1070,9 @@ class LocalSweepTest(LocalRunBase):
             started = time.monotonic()
             self.srv.worker.sweep_local_files()                                 # now the removal itself hangs
             self.assertLess(time.monotonic() - started, 6)
-        self.assertTrue(os.path.isdir(fa))                                      # left for the next start
         with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
-            self.assertEqual([e["path"] for e in json.load(f)], [fa])
+            paths = [e["path"] for e in json.load(f)]
+        self.assertTrue([p for p in paths if p.startswith(fa + ".trash-")], paths)   # the tombstone is left for the next start
         release.set()
 
     def test_stop_makes_no_pending_retry(self):
@@ -1186,6 +1188,85 @@ class LocalSweepTest(LocalRunBase):
         status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": renamed, "reuse": jid})
         self.assertEqual(status, 409)
         self.assertIn("renamed or moved folder is a new job", body["error"])
+
+    def test_an_abandoned_removal_cannot_delete_a_later_generation(self):
+        import threading
+        import time
+        jobs_mod = sys.modules["jobs"]
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        job = self.srv.store.load(jid)
+        release, started = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        real = shutil.rmtree
+
+        def hang(path, *a, **k):
+            if str(path).startswith(fd + ".trash-"):
+                started.set()
+                release.wait(20)                                                # the dead mount
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", hang):
+            self.assertFalse(self.srv.store.sweep_files(job, None, 0.3))        # deadline missed, locks released
+            self.assertTrue(started.wait(5))
+            self.assertFalse(os.path.exists(fd))
+            self.srv.store.ensure_files_dir(self.srv.store.load(jid))           # a rerun makes the next generation
+            live = os.path.join(fd, "work", "LIVE.SVF")
+            os.makedirs(os.path.dirname(live), exist_ok=True)
+            with open(live, "wb") as f:
+                f.write(b"live")
+            release.set()                                                       # the abandoned removal now finishes
+            time.sleep(1)
+        self.assertTrue(os.path.isfile(live))                                   # it only ever touched the tombstone
+        left = [n for n in os.listdir(self.out) if ".trash-" in n]
+        self.assertEqual(left, [])
+
+    def test_a_blocked_removal_does_not_stop_the_idle_sweeper_or_the_previews(self):
+        import threading
+        import time
+        server_mod = sys.modules["server"]
+        jobs_mod = sys.modules["jobs"]
+        jid = self.local_job()
+        font_id = self.srv.store.load(jid)["fonts"][0]["id"]
+        self.srv.touched[jid] = time.monotonic() - server_mod.LOCAL_IDLE_SWEEP_S - 10
+        release = threading.Event()
+        self.addCleanup(release.set)
+        real = shutil.rmtree
+
+        def hang(path, *a, **k):
+            if ".trash-" in str(path):
+                release.wait(20)
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", hang), mock.patch.object(jobs_mod, "REMOVE_BOUND_S", 0.5):
+            t = threading.Thread(target=self.srv.sweep_idle, daemon=True)
+            started = time.monotonic()
+            t.start()
+            time.sleep(0.2)                                                     # inside the blocked removal
+            lock = server_mod._preview_lock(jid, font_id)
+            self.assertTrue(lock.acquire(timeout=1))                            # the job's preview locks are free
+            lock.release()
+            t.join(10)
+            self.assertFalse(t.is_alive())                                      # the sweeper thread went on
+            self.assertLess(time.monotonic() - started, 8)
+        release.set()
+
+    def test_a_corrupt_pending_file_is_kept_aside_and_writes_are_synced(self):
+        pend = os.path.join(self.data, "pending-sweeps.json")
+        jid, fd = self._pending_job()
+        with open(pend, encoding="utf-8") as f:
+            good = f.read()
+        with open(pend, "w", encoding="utf-8") as f:
+            f.write(good[:len(good) // 2])                                      # truncated
+        self.assertEqual(self.srv.store._read_pending(), [])
+        aside = [n for n in os.listdir(self.data) if n.startswith("pending-sweeps.json.bad-")]
+        self.assertEqual(len(aside), 1)
+        with open(os.path.join(self.data, aside[0]), encoding="utf-8") as f:
+            self.assertEqual(f.read(), good[:len(good) // 2])                   # nothing lost: a person can read it
+        self.assertFalse(os.path.exists(pend))                                  # and it is not overwritten blindly
+        synced = []
+        real = os.fsync
+        with mock.patch("os.fsync", lambda fd_: (synced.append(fd_), real(fd_))[1]):
+            self.srv.store._write_pending([{"path": "x"}])
+        self.assertGreaterEqual(len(synced), 2)                                 # the file and its directory
 
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)
