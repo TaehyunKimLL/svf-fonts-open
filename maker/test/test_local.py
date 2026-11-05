@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -1001,6 +1002,123 @@ class LocalSweepTest(LocalRunBase):
     def test_final_no_upload_copy(self):
         jid, job = self.done_job()
         self.assertLessEqual(set(os.listdir(self.srv.store.path(jid))), {"job.json", "log.md", "steps"})
+
+
+class NoNetworkTest(unittest.TestCase):
+    """The maker reaches nothing but its own loopback page. Three proofs: the code imports no network module (static),
+    a local job run in this process connects to no address but loopback (a socket guard), and, where the host allows a
+    network namespace, the same job in a namespace with no network at all."""
+
+    FORBIDDEN = {"ssl", "smtplib", "ftplib", "requests", "asyncio", "http.client", "urllib.request"}
+
+    @staticmethod
+    def sources():
+        import glob
+        files = glob.glob(os.path.join(MAKER_DIR, "*.py")) + glob.glob(os.path.join(REPO_DIR, "tools", "*.py"))
+        return sorted(f for f in files if not os.path.basename(f).startswith("test_"))
+
+    def test_static_no_network_imports(self):
+        import ast
+        server_py = os.path.join(MAKER_DIR, "server.py")
+        found = []
+        for path in self.sources():
+            with open(path, encoding="utf-8") as fh:
+                tree = ast.parse(fh.read(), path)
+            for node in ast.walk(tree):
+                names = []
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom):
+                    base = node.module or ""
+                    names = [base] + [base + "." + alias.name for alias in node.names]
+                for name in names:
+                    top = name.split(".")[0]
+                    if name in self.FORBIDDEN or top in self.FORBIDDEN or top == "xmlrpc" \
+                            or (top == "socket" and path != server_py):
+                        found.append("%s imports %s" % (os.path.relpath(path, REPO_DIR), name))
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                    owner = node.func.value.id if isinstance(node.func.value, ast.Name) else ""
+                    if (owner, node.func.attr) in (("asyncio", "open_connection"), ("socket", "create_connection")):
+                        found.append("%s calls %s.%s" % (os.path.relpath(path, REPO_DIR), owner, node.func.attr))
+        self.assertEqual(found, [])
+        self.assertGreater(len(self.sources()), 20)                              # the scan really saw the code
+
+    def test_network_off_in_process(self):
+        import socket
+        import ipaddress
+        connects, lookups = [], []
+        real_connect, real_connect_ex = socket.socket.connect, socket.socket.connect_ex
+        real_getaddrinfo, real_create = socket.getaddrinfo, socket.create_connection
+
+        def connect(sock, address, *a, **k):
+            connects.append(address)
+            return real_connect(sock, address, *a, **k)
+
+        def connect_ex(sock, address, *a, **k):
+            connects.append(address)
+            return real_connect_ex(sock, address, *a, **k)
+
+        def getaddrinfo(host, *a, **k):
+            lookups.append(host)
+            return real_getaddrinfo(host, *a, **k)
+
+        def create(address, *a, **k):
+            lookups.append(address[0])
+            return real_create(address, *a, **k)
+
+        class Run(localfx.LocalBase):
+            requests = 0
+
+            def raw(self, *a, **k):
+                Run.requests += 1
+                return super().raw(*a, **k)
+
+            def runTest(self):
+                jid = self.local_job()
+                job = self.job(jid)
+                by = {f["path"]: f["id"] for f in job["fonts"]}
+                st = job["settings"]
+                st["fonts"][by["Munjo.ttf"]].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
+                self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+                self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, by["Munjo.ttf"]))[0], 200)
+                self.assertEqual(self.raw("GET", "/api/jobs/%s/probe/%s/16/1.json" % (jid, by["Munjo.ttf"]))[0], 200)
+                done = self.run_to_done(jid)
+                self.assertEqual(done["state"], "done", done.get("error"))
+                step = next(s for s in done["steps"] if s["kind"] == "precomposed")
+                self.assertEqual(self.raw("GET", "/api/jobs/%s/face/%s.svf" % (jid, step["id"]))[0], 200)
+        with mock.patch.object(socket.socket, "connect", connect), mock.patch.object(socket.socket, "connect_ex", connect_ex), \
+                mock.patch("socket.getaddrinfo", getaddrinfo), mock.patch("socket.create_connection", create):
+            case = Run()
+            result = unittest.TestResult()
+            case.run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+        self.assertGreater(len(connects), 5)
+        for address in connects:
+            self.assertTrue(ipaddress.ip_address(address[0]).is_loopback, address)
+        for host in lookups:
+            self.assertIn(host, ("127.0.0.1", "localhost"), host)
+        self.assertEqual(len(connects), Run.requests)                           # one connection per request, nothing else
+
+    def test_network_off_namespace(self):
+        if shutil.which("unshare") is None or subprocess.run(["unshare", "-rn", "true"], capture_output=True).returncode != 0:
+            self.skipTest("unshare -rn is not permitted on this host: the static scan and the in-process guard are the gate")
+        script = ("ip link set lo up 2>/dev/null; exec %s -P -m unittest discover -s %s -p test_local.py -k LocalJobInNetns"
+                  % (sys.executable, os.path.join(MAKER_DIR, "test")))
+        r = subprocess.run(["unshare", "-rn", "sh", "-c", script], capture_output=True, text=True, cwd=MAKER_DIR)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class LocalJobInNetns(localfx.LocalBase):
+    """The full local job, small: what the namespace test runs inside `unshare -rn` (and plain discovery runs too)."""
+
+    def test_full_local_job(self):
+        jid = self.local_job()
+        job = self.job(jid)
+        ttf = next(f["id"] for f in job["fonts"] if f["path"] == "Munjo.ttf")
+        st = job["settings"]
+        st["fonts"][ttf].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        self.assertEqual(self.run_to_done(jid)["state"], "done")
 
 
 if __name__ == "__main__":

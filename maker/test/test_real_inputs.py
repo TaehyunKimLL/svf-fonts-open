@@ -17,6 +17,7 @@ for _p in (TEST_DIR, MAKER_DIR, os.path.join(REPO_DIR, "tools")):
         sys.path.insert(0, _p)
 
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -55,6 +56,104 @@ class NamedForkTest(unittest.TestCase):
                 self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
                 self.assertEqual(self.run_to_done(jid)["state"], "done")
         case = Case()
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+
+def _real_dir_case(var, body):
+    """A LocalBase test case body run only when @p var names the user's own file."""
+    import localfx
+
+    class Case(localfx.LocalBase):
+        def runTest(self):
+            body(self, os.environ[var])
+    return Case
+
+
+@unittest.skipUnless(os.path.isfile(os.environ.get("SVF_MAKER_REAL_MAC1", "")),
+                     "SVF_MAKER_REAL_MAC1 names no file (a HangulTalk 1.0 font's resource fork, e.g. Munjo24.rsrc)")
+class RealMac1Test(unittest.TestCase):
+    """A real HangulTalk 1.0 font through a local job: done, jamoset's own check line, the golden when one exists, and the
+    input's folder untouched."""
+
+    def test_real_mac1(self):
+        import hashlib
+
+        def snapshot(folder):
+            out = {}
+            for dirpath, _d, names in os.walk(folder):
+                for n in names:
+                    p = os.path.join(dirpath, n)
+                    with open(p, "rb") as f:
+                        out[p] = (os.stat(p).st_size, os.stat(p).st_mtime_ns, hashlib.sha256(f.read()).hexdigest())
+            return out
+
+        def body(case, path):
+            before = snapshot(os.path.dirname(path))
+            jid = case.local_job([path])
+            job = case.job(jid)
+            font = next(f for f in job["fonts"] if f["source_kind"] == "mac-fbit1")
+            st = job["settings"]
+            st["fonts"][font["id"]].update(selected=True, dest="jamo-extra", kinds=["jamo"])
+            case.assertEqual(case.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+            done = case.run_to_done(jid)
+            case.assertEqual(done["state"], "done", done.get("error"))
+            with open(os.path.join(case.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
+                case.assertIn("check: composed 11172 syllables", f.read())
+            case.assertEqual(snapshot(os.path.dirname(path)), before)
+            golden = os.path.join(REPO_DIR, "tools", "testdata", "mac-fbit-golden.json")
+            if os.path.isfile(golden):
+                r = subprocess.run([sys.executable, "-P", os.path.join(REPO_DIR, "tools", "jamoset.py"), "--layout",
+                                    "mac-fbit-45sets", path, "--check", "-o", os.path.join(case.tmp, "g.svf")],
+                                   capture_output=True, text=True)
+                case.assertEqual(r.returncode, 0, r.stderr)
+                case.assertIn("golden: ok", r.stdout)
+        case = _real_dir_case("SVF_MAKER_REAL_MAC1", body)()
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+
+@unittest.skipUnless(os.path.isdir(os.environ.get("SVF_MAKER_REAL_MAC3", "")),
+                     "SVF_MAKER_REAL_MAC3 names no folder (a 7.1 font file or its splt, and the HTBL 1 table)")
+class RealMac3Test(unittest.TestCase):
+    """A real HangulTalk 7.1 font and its HTBL 1 through a local job: done, macfbit_svf.py verify exits 0, facecheck passes,
+    and the raw table is 9,612 or 9,816 bytes."""
+
+    def test_real_mac3(self):
+        import macfbit3
+
+        def body(case, folder):
+            jid = case.local_job([folder])
+            job = case.job(jid)
+            fbit = next(f for f in job["fonts"] if f["source_kind"] == "mac-fbit3")
+            htbl = next(f for f in job["fonts"] if f["source_kind"] == "mac-htbl")
+            st = job["settings"]
+            st["fonts"][fbit["id"]].update(selected=True, dest="jamo-extra", kinds=["jamo"], htbl_companion=htbl["id"])
+            case.assertEqual(case.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+            done = case.run_to_done(jid)
+            case.assertEqual(done["state"], "done", done.get("error"))
+            roots = {i: r["path"] for i, r in enumerate(job["roots"])}
+            with open(os.path.join(roots[fbit["root"]], fbit["path"]) if os.path.isdir(roots[fbit["root"]])
+                      else roots[fbit["root"]], "rb") as f:
+                raw_fbit = macfbit3.load_fbit(f.read())
+            with open(os.path.join(roots[htbl["root"]], htbl["path"]) if os.path.isdir(roots[htbl["root"]])
+                      else roots[htbl["root"]], "rb") as f:
+                raw_htbl = macfbit3.load_htbl1(f.read())
+            case.assertIn(len(raw_htbl), (9612, 9816))
+            check = os.path.join(case.tmp, "check")
+            os.makedirs(check)
+            for name, blob in (("fbit.bin", raw_fbit), ("htbl.bin", raw_htbl)):
+                with open(os.path.join(check, name), "wb") as f:
+                    f.write(blob)
+            face = os.path.join(case.out, next(f for f in done["result"]["files"] if f.endswith(".SVF")))
+            r = subprocess.run([sys.executable, "-P", os.path.join(REPO_DIR, "tools", "macfbit_svf.py"), "verify", face,
+                                os.path.join(check, "fbit.bin"), os.path.join(check, "htbl.bin")],
+                               capture_output=True, text=True)
+            case.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            inputkinds.assert_facecheck_tree(case, case.out)
+        case = _real_dir_case("SVF_MAKER_REAL_MAC3", body)()
         result = unittest.TestResult()
         case.run(result)
         self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
