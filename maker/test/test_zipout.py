@@ -250,6 +250,38 @@ class WriteTreeTest(unittest.TestCase):
                 self.tree({"svf/dos/X.SVF": b"again"}, {})
         self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"mine")
 
+    def test_directories_it_makes_are_readable_files_are_mode_644(self):
+        old = os.umask(0o077)
+        try:
+            self.tree({"svf/dos/X.SVF": b"mine"}, {}, [("BUILD.md", b"b")])
+        finally:
+            os.umask(old)
+        for rel in ("svf", "svf/dos", "build-0123456789ab"):
+            self.assertEqual(os.stat(os.path.join(self.out, rel)).st_mode & 0o777, 0o755, rel)
+        self.assertEqual(os.stat(os.path.join(self.out, "svf/dos/X.SVF")).st_mode & 0o777, 0o644)
+        self.assertEqual(os.stat(self.out).st_mode & 0o777, os.stat(self._tmp.name).st_mode & 0o777)
+
+    def test_a_chmod_that_is_refused_does_not_fail_the_write(self):
+        import errno
+        with mock.patch("os.chmod", side_effect=OSError(errno.EPERM, "fat")):
+            got, landed = self.tree({"svf/dos/X.SVF": b"mine"}, {})
+        self.assertEqual(got, ["svf/dos/X.SVF"])
+        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"mine")
+
+    def test_a_symlinked_destination_is_refused(self):
+        elsewhere = tempfile.mkdtemp(prefix="svf-elsewhere-")
+        self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)
+        os.makedirs(os.path.join(self.out, "svf"))
+        os.symlink(elsewhere, os.path.join(self.out, "svf", "dos"))
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.tree({"svf/dos/X.SVF": b"mine"}, {})
+        self.assertEqual(os.listdir(elsewhere), [])
+        os.remove(os.path.join(self.out, "svf", "dos"))
+        os.symlink(elsewhere, os.path.join(self.out, "build-0123456789ab"))
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.tree({}, {}, [("BUILD.md", b"b")])
+        self.assertEqual(os.listdir(elsewhere), [])
+
     def test_output_gone(self):
         self.oid = [self.oid[0], self.oid[1] + 1]
         with self.assertRaises(sources.OutputGone):

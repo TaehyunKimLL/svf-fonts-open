@@ -24,6 +24,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import secrets
 import shlex
 import stat
@@ -564,7 +565,7 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
     entries = {}                                         # entry name -> bytes, built before anything is written
     written, skipped, faces = [], [], []
     by_sha = {}                                          # sha256 -> the first face this job writes at that digest
-    unchecked = []
+    unchecked, kept_texts = [], []
 
     for step in steps:
         if step.get("state") != "done" or step.get("kind") not in ("precomposed", "jamo"):
@@ -622,6 +623,8 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
         licence_entry, licence_ref = _text_entry(licence_data, dest, licence_name, index, font_id, own_earlier)
         if licence_entry:
             _add_entry(entries, licence_entry, licence_data, font_id)
+        elif licence_ref:
+            kept_texts.append(licence_ref)                   # equal bytes already there (an earlier run's own file)
         font_steps = [step for step in steps if step.get("font") == font_id and step.get("state") == "done"]
         no_licence = local and eff.get("licence") is None
         if no_licence:
@@ -641,6 +644,8 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
         note_entry, note_ref = _text_entry(note_text.encode("utf-8"), dest, note_name, index, font_id, own_earlier)
         if note_entry:
             _add_entry(entries, note_entry, note_text.encode("utf-8"), font_id)
+        elif note_ref:
+            kept_texts.append(note_ref)
         refs[font_id] = {"licence_name": licence_name, "licence": licence_ref, "note": note_ref}
 
     # The three `.lines` files and the rows that may duplicate an existing row.
@@ -668,10 +673,13 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
               "failed_steps": [step.get("id") for step in steps if step.get("state") == "failed"]}
     if local:
         result["unchecked_licences"] = unchecked
+        result["kept_texts"] = kept_texts
     else:
         result["zip"] = "out/%s.zip" % job_id
 
     log = _read_text(os.path.join(job_dir, "log.md"))
+    if local:                                            # detection tracebacks stay in log.md, only the type goes out
+        log = _DETECT_BLOCK.sub(lambda m: "Detection error: %s\n" % m.group(1), log or "")
     if log and not log.endswith("\n"):
         log += "\n"
     build = (log + _zip_summary(result) + DUPLICATE_HEADING + "\n\n```\n" + "\n".join(duplicate_rows) + "\n```\n")
@@ -706,6 +714,9 @@ def _archive(job_dir, job_id, entries, sidecar, result):
 
 
 # ---- the output tree (a local job) ----------------------------------------------------------------------------------
+
+# log.md's detection blocks: "## Detection error: <path> (<type>)" ... "## End detection error"
+_DETECT_BLOCK = re.compile(r"## Detection error: ([^\n]*)\n.*?## End detection error\n", re.S)
 
 _NO_LINK_ERRNOS = (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK)
 
@@ -750,7 +761,7 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
         for rel, data, always in items:
             _check_entry_path(rel)
             path = os.path.join(output_dir, rel)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _make_dirs(output_dir, os.path.dirname(rel))
             tmp = "%s.%s.tmp" % (path, secrets.token_hex(4))     # never a name the user may already have
             fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
             tmps.append(tmp)
@@ -758,7 +769,10 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
                 f.write(data)
                 f.flush()
                 os.fsync(f.fileno())
-            os.chmod(tmp, 0o644)
+            try:
+                os.chmod(tmp, 0o644)
+            except OSError:
+                pass                                         # FAT/exFAT cannot hold a mode: the file is still good
             digest = hashlib.sha256(data).hexdigest()
             if always:
                 os.replace(tmp, path)
@@ -781,6 +795,22 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
             except OSError:
                 pass
     return landed
+
+
+def _make_dirs(output_dir, rel_dir):
+    """Make the folders of @p rel_dir under @p output_dir (0755, whatever the umask), refusing a symlink on the way:
+    nothing is written outside the output folder. The output folder itself is never touched."""
+    current = output_dir
+    for part in rel_dir.split("/"):
+        current = os.path.join(current, part)
+        if os.path.islink(current):
+            raise ValueError("%s is a symlink: refusing to write through it" % os.path.relpath(current, output_dir))
+        if not os.path.isdir(current):
+            os.mkdir(current)
+            try:
+                os.chmod(current, 0o755)
+            except OSError:
+                pass
 
 
 def _land_new(tmp, path, rel, digest, job_id):

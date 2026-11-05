@@ -121,7 +121,8 @@ class LocalJobTest(LocalBase):
     def test_one_job_per_output_folder_at_create(self):
         a = self.local_job()
         status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out})
-        self.assertEqual((status, body["error"]), (409, "output folder is in use by job %s" % a))
+        self.assertEqual(status, 409)
+        self.assertTrue(body["error"].startswith("output folder is in use by job %s" % a), body["error"])
         self.api("DELETE", "/api/jobs/%s" % a)
         self.assertEqual(self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out})[0], 200)
 
@@ -506,6 +507,104 @@ class LocalRunTest(LocalRunBase):
         self.assertEqual(status, 200, body)
         self.assertEqual(self.wait_done(jid)["state"], "done")
 
+    def test_output_folder_moved_during_the_run(self):
+        import jobs
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        real = jobs.run_command
+        moved = []
+
+        def move_then_run(argv, cwd, timeout, cancel, env=None):
+            if not moved:
+                moved.append(1)
+                os.rename(self.out, self.out + ".moved")
+                os.mkdir(self.out)
+            return real(argv, cwd, timeout, cancel, env)
+        with mock.patch.object(jobs, "run_command", move_then_run):
+            status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+            job = self.wait_done(jid)
+        self.assertEqual(job["state"], "failed")
+        self.assertEqual(job["error"], "output folder is gone or changed")
+        self.assertEqual(os.listdir(self.out), [])                                 # the new folder is untouched
+        self.assertTrue(os.path.isdir(os.path.join(self.out + ".moved", ".svf-maker-" + jid)))
+        self.assertIn("intermediate files remain", job.get("notice", ""))           # the user is told
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            entries = json.load(f)
+        self.assertEqual([e["path"] for e in entries], [fd])
+        self.assertEqual(len(entries[0]["files_id"]), 2)
+        with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
+            self.assertIn("intermediate files", f.read())
+
+    def test_unchanged_rerun_keeps_notes_and_licence_owned(self):
+        jid, first = self.done_job()
+        texts = sorted(f for f in first["result"]["files"] if f.endswith(".TXT"))
+        self.assertTrue(texts)
+        again = self.rerun(jid)
+        self.assertEqual(again["state"], "done", again.get("error"))
+        self.assertLessEqual(set(texts), set(again["result"]["files"]))
+        self.assertLessEqual(set(texts), set(self.srv.store.load(jid)["owned"]))
+
+    def test_written_is_set_only_for_faces_that_landed(self):
+        jid, first = self.done_job()
+        face = next(f for f in first["result"]["files"] if f.startswith("svf/dos/") and f.endswith(".SVF"))
+        with open(os.path.join(self.out, face), "wb") as f:
+            f.write(b"someone else's bytes")
+        self.assertEqual(self.api("POST", "/api/jobs/%s/detect" % jid)[0], 200)
+        st = self.job(jid)["settings"]
+        st["fonts"][self.ttf].update(options={"mkfont": {"ascent": 11}})
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "failed")
+        ttf_step = next(s for s in job["steps"] if s["kind"] == "precomposed")
+        self.assertNotIn("written", ttf_step)
+
+    def test_build_md_has_no_detect_traceback(self):
+        d = os.path.join(self.tmp, "tree", "in", "d")
+        os.makedirs(d)
+        with open(os.path.join(d, "bad.ttf"), "wb") as f:
+            f.write(b"\x00\x01\x00\x00" + b"\xff\xfe" * 40)
+        jid = self.local_job(self.roots + [d])
+        self.select(jid)
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
+            self.assertIn("Traceback", f.read())
+        build = self.read_out("build-%s/BUILD.md" % jid).decode("utf-8")
+        self.assertNotIn("Traceback", build)
+        self.assertIn("bad.ttf", build)                                            # the type is named, nothing more
+
+    def test_a_stale_job_does_not_block_the_folder_for_ever(self):
+        import time
+        server_mod = sys.modules["server"]
+        a = self.local_job()
+        status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out})
+        self.assertEqual(status, 409)
+        self.assertIn("output folder is in use by job %s" % a, body["error"])
+        self.assertIn("idle", body["error"])
+        self.srv.touched[a] = time.monotonic() - server_mod.LOCAL_IDLE_SWEEP_S - 10
+        path = os.path.join(self.srv.store.path(a), "job.json")
+        with open(path, encoding="utf-8") as f:
+            stored = json.load(f)
+        stored["updated"] = time.time() - server_mod.LOCAL_IDLE_SWEEP_S - 10          # `update` would stamp it now
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(stored, f)
+        status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.api("GET", "/api/jobs/%s" % a)[0], 404)              # the stale one was taken over
+
+    def test_an_upload_only_server_starts_no_sweepers_and_writes_no_pending_file(self):
+        import threading
+        before = {t.name for t in threading.enumerate()}
+        data = os.path.join(self.tmp, "data-upload-only")
+        srv = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.worker.stop)
+        new = {t.name for t in threading.enumerate()} - before
+        self.assertFalse([n for n in new if "sweep" in n], new)
+        self.assertIsNone(srv.startup_sweep)
+        self.assertFalse(os.path.exists(os.path.join(data, "pending-sweeps.json")))
+
 
 class LocalSweepTest(LocalRunBase):
     def probe(self, jid, fid):
@@ -611,6 +710,32 @@ class LocalSweepTest(LocalRunBase):
 
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)
+
+    def test_sweep_of_an_unreachable_output_folder_is_kept_pending(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        job = self.srv.store.load(jid)
+        os.rename(self.out, self.out + ".away")                                    # "unmounted": stat fails
+        self.assertFalse(self.srv.store.sweep_files(job))
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual([e["path"] for e in json.load(f)], [fd])
+        self.srv.store.retry_pending_sweeps()                                      # still away: the entry stays
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual([e["path"] for e in json.load(f)], [fd])
+        os.rename(self.out + ".away", self.out)                                    # mounted again, same folder
+        self.srv.store.retry_pending_sweeps()
+        self.assertFalse(os.path.exists(fd))
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])
+
+    def test_idle_sweep_includes_uploading_jobs(self):
+        import time
+        server_mod = sys.modules["server"]
+        jid = self.new_job()                                                       # `uploading`, no sources yet
+        fd = self.files_dir(jid)
+        self.assertTrue(os.path.isdir(fd))
+        self.srv.sweep_idle(now=time.monotonic() + server_mod.LOCAL_IDLE_SWEEP_S + 5)
+        self.assertFalse(os.path.exists(fd))
 
     def test_idle_sweep(self):
         import time

@@ -30,6 +30,7 @@ import macsfnt
 from fontTools.ttLib import TTFont, TTLibError
 
 MAX_ROWS = 1 << 20            # glyph rows one PCF may convert to BDF (a CJK 24 px face is about 270,000)
+JM_CAP = 4 << 20               # a JM archive's declared unpacked size (a type-3 fbit is ~10 KB)
 MAX_BYTES = 128 << 20          # the same cap as detect.MAX_DECOMPRESSED (srcprep does not import detect)
 
 
@@ -237,6 +238,8 @@ def _apply_op(data, op):
         return mac_fork_bytes(data)
     if kind == "mac-fbit3":
         try:
+            if data[:2] == b"JM" and macfbit3.jm_header(data)["unpacked_len"] > JM_CAP:
+                raise PrepError("JM archive too large to unpack")
             return macfbit3.load_fbit(data)
         except (ValueError, struct.error, IndexError) as e:
             raise PrepError(str(e) or type(e).__name__)

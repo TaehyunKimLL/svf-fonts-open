@@ -200,6 +200,12 @@ class MacPrepTest(TmpCase):
             with self.assertRaises(srcprep.PrepError):
                 srcprep._apply_op(f, {"op": "mac-fork"})
 
+    def test_mac_fbit3_caps_a_jm_archive_before_unpacking(self):
+        big = bytearray(macfx.jm(macfx.fbit3_fork()))
+        struct.pack_into(">I", big, 14, srcprep.JM_CAP + 1)               # unpacked_len, the 4th header word
+        with self.assertRaisesRegex(srcprep.PrepError, "too large"):
+            srcprep.prepared_bytes(bytes(big), [{"op": "mac-fbit3"}])
+
     def test_mac_htbl(self):
         self.assertEqual(self.cli("mac-htbl", macfx.htbl_fork()), (0, macfx.htbl_raw()))
         self.assertEqual(self.cli("mac-htbl", macfx.htbl_raw()), (0, macfx.htbl_raw()))

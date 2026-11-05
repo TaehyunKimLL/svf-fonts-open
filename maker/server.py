@@ -90,7 +90,7 @@ def _sweep_idle(server, now=None):
     """Sweep the files directory of every `detected` local job nobody touched for `LOCAL_IDLE_SWEEP_S`."""
     now = time.monotonic() if now is None else now
     for item in server.store.list():
-        if item.get("source") != "local" or item["state"] != "detected":
+        if item.get("source") != "local" or item["state"] not in ("detected", "uploading"):
             continue
         if now - server.touched.get(item["id"], server.started) > LOCAL_IDLE_SWEEP_S:
             try:
@@ -476,6 +476,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
     server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
     server.sweep_idle = lambda now=None: _sweep_idle(server, now)
     local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only
+    have_pending = os.path.exists(os.path.join(store.data_root, "pending-sweeps.json"))
 
     def startup_sweep():
         store.retry_pending_sweeps()
@@ -484,8 +485,11 @@ def make_server(host, port, repo_dir, data_root, token=None):
                 store.sweep_files(store.load(job_id))
             except KeyError:
                 continue
-    server.startup_sweep = threading.Thread(target=startup_sweep, daemon=True, name="svf-maker-startup-sweep")
-    server.startup_sweep.start()
+    server.stopping = threading.Event()
+    server.startup_sweep = None
+    if token is not None or local_ids or have_pending:    # an upload-only server has nothing to sweep
+        server.startup_sweep = threading.Thread(target=startup_sweep, daemon=True, name="svf-maker-startup-sweep")
+        server.startup_sweep.start()
 
     def idle_sweeper():
         while not server.stopping.wait(60):
@@ -493,8 +497,8 @@ def make_server(host, port, repo_dir, data_root, token=None):
                 _sweep_idle(server)
             except Exception:
                 traceback.print_exc()
-    server.stopping = threading.Event()
-    threading.Thread(target=idle_sweeper, daemon=True, name="svf-maker-idle-sweep").start()
+    if token is not None:
+        threading.Thread(target=idle_sweeper, daemon=True, name="svf-maker-idle-sweep").start()
     server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
     server.inflight = {}                                  # job id -> the `PUT files` requests not answered yet (Y3)
     return server
@@ -783,7 +787,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             for item in store.list():
                 if (item.get("source") == "local" and item.get("output_id") == output_id
                         and item["state"] in self.ACTIVE_STATES):
-                    raise _HttpError(409, "output folder is in use by job %s" % item["id"])
+                    if item["state"] in ("uploading", "detected") and self._job_idle(item):
+                        try:
+                            store.delete(item["id"])              # abandoned for the idle window: taken over
+                            continue
+                        except (ValueError, KeyError, OSError):
+                            pass
+                    raise _HttpError(409, "output folder is in use by job %s (delete it, or wait until it has been "
+                                          "idle for %d minutes)" % (item["id"], LOCAL_IDLE_SWEEP_S // 60))
             job = store.create(source="local", output_dir=real, output_id=output_id)
         try:
             store.ensure_files_dir(job)
@@ -791,6 +802,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             store.delete(job["id"])
             raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
         self.send_json({"id": job["id"]})
+
+    def _job_idle(self, item):
+        """True when nobody has touched the local job @p item (a `list()` item) for `LOCAL_IDLE_SWEEP_S`."""
+        try:
+            updated = self.server.store.load(item["id"]).get("updated") or 0
+        except KeyError:
+            return True
+        asked = self.server.touched.get(item["id"], self.server.started)
+        return (time.monotonic() - asked > LOCAL_IDLE_SWEEP_S and time.time() - updated > LOCAL_IDLE_SWEEP_S)
 
     def _files_dir_ready(self, current):
         """The files directory of @p current, made when it is a local job's and the output folder is still the one
@@ -937,9 +957,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except (OSError, ValueError):
                 font["file_id"] = None
             detail = font.pop("error", None)
-            if detail:
-                notes.append("detect: %s (root %s): %s\n%s\n" % (font.get("path"), font.get("root"),
-                                                                  font.get("error_type", ""), detail))
+            if detail:                                       # BUILD.md keeps only the first line (zipout._DETECT_BLOCK)
+                notes.append("## Detection error: %s (%s)\n%s\n## End detection error\n"
+                             % (font.get("path"), font.get("error_type", ""), detail))
         if notes:
             zipout.append_log(self.server.store.meta_dir(job), "\n" + "\n".join(notes))
 

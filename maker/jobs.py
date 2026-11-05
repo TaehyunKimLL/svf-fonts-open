@@ -325,6 +325,7 @@ class Store:
             if not os.path.isdir(path):
                 os.mkdir(path, 0o700)
                 os.chmod(path, 0o700)
+        job["files_id"] = list(stat_id(files))          # the directory's own identity (saved by the callers that save)
         return files
 
     def sources(self, job):
@@ -456,14 +457,15 @@ class Store:
 
     def _add_pending(self, job, files, reason):
         entry = {"path": files, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"),
-                 "job": job["id"]}
+                 "job": job["id"], "files_id": job.get("files_id")}
         with self._pending_lock:
             entries = self._read_pending()
             if not any(e.get("path") == files for e in entries):
                 entries.append(entry)
                 self._write_pending(entries)
         try:
-            zipout.append_log(self.path(job["id"]), "\nsweep: %s: %s\n" % (files, reason))
+            zipout.append_log(self.path(job["id"]), "\nsweep: %s: %s; intermediate files may remain there\n"
+                              % (files, reason))
         except OSError:
             pass                                          # the metadata directory is already gone
 
@@ -479,11 +481,16 @@ class Store:
         try:
             hold = self.on_sweep(job) if self.on_sweep is not None else contextlib.nullcontext()
             with hold:
-                if not os.path.lexists(files):
-                    return True
                 try:
-                    if stat_id(job["output_dir"]) != tuple(job.get("output_id") or ()):
-                        raise OutputGone("output folder is gone or changed")
+                    same = stat_id(job["output_dir"]) == tuple(job.get("output_id") or ())
+                except OSError:
+                    same = False                                  # unmounted, removed: nothing can be said about the path
+                if not same:
+                    self._add_pending(job, files, "output folder is gone or changed")
+                    return False
+                if not os.path.lexists(files):
+                    return True                                   # the folder is the one picked and the directory is gone
+                try:
                     if os.path.islink(files) or not os.path.isdir(files):
                         raise OSError("not a real directory")
                     shutil.rmtree(files)
@@ -500,16 +507,24 @@ class Store:
         folder it was recorded for, when that folder is still the same one. An entry is dropped when the directory is
         gone, when the retry succeeds, or when a check fails (a replaced folder never becomes the original again)."""
         with self._pending_lock:
+            entries = self._read_pending()
+            if not entries:
+                return                                            # nothing to retry: no file is written
             kept = []
-            for entry in self._read_pending():
+            for entry in entries:
                 try:
                     path, job_id = entry["path"], entry["job"]
                     out, oid = entry["output_dir"], tuple(entry["output_id"])
                     name = ".svf-maker-" + job_id
-                    if not os.path.lexists(path):
+                    try:
+                        mounted = stat_id(out) == oid
+                    except OSError:
+                        kept.append(entry)                        # the folder cannot be reached (unmounted): keep it
                         continue
-                    if (not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name) or os.path.basename(path) != name
-                            or os.path.dirname(path) != out or stat_id(out) != oid
+                    if mounted and not os.path.lexists(path):
+                        continue                                  # confirmed gone
+                    if (not mounted or not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name)
+                            or os.path.basename(path) != name or os.path.dirname(path) != out
                             or os.path.islink(path) or not os.path.isdir(path)):
                         print("sweep: %s: not the directory this job made; left alone" % path, file=sys.stderr)
                         continue
@@ -523,7 +538,8 @@ class Store:
                 except Exception as exc:
                     print("sweep: %s: %s" % (entry.get("path"), exc), file=sys.stderr)
                     kept.append(entry)
-            self._write_pending(kept)
+            if kept != entries:
+                self._write_pending(kept)
 
 
 # ---- the worker ------------------------------------------------------------------------------------------------
@@ -723,6 +739,14 @@ class Worker(threading.Thread):
                 except Exception:                   # housekeeping must not kill the worker either
                     self._log_failure(job_id, traceback.format_exc())
 
+    @staticmethod
+    def _output_same(job):
+        """True while a local job's output folder is still the folder that was picked."""
+        try:
+            return stat_id(job["output_dir"]) == tuple(job.get("output_id") or ())
+        except OSError:
+            return False
+
     def _finish_local(self, job_id):
         """After a local job: its reports and identity scores move to `<metadata>/steps/` (the files directory is about
         to go), then the files directory is swept. Never raises."""
@@ -740,7 +764,11 @@ class Worker(threading.Thread):
                             step["report"] = "steps/%s.report.json" % sid
         try:
             self.store.update(job_id, move)
-            self.store.sweep_files(self.store.load(job_id))
+            job = self.store.load(job_id)
+            if not self.store.sweep_files(job):
+                self.store.update(job_id, lambda j: j.update(
+                    notice="intermediate files remain in %s inside the output folder (moved, removed or busy); "
+                           "they are swept when the folder is back" % (FILES_DIR_PREFIX + job_id)))
         except Exception:
             self._log_failure(job_id, traceback.format_exc())
 
@@ -781,10 +809,14 @@ class Worker(threading.Thread):
         try:
             if job.get("source") == "local":
                 self.store.ensure_files_dir(job)
+                files_id = job.get("files_id")
+                self.store.update(job_id, lambda j: j.update(files_id=files_id))
             self._run_steps(job, job_dir, files_dir, sources, cancel)
         except OutputGone as exc:
             self._job_failed(job_id, job_dir, exc)
         except Exception as exc:
+            if job.get("source") == "local" and not self._output_same(job):
+                exc = OutputGone("output folder is gone or changed")     # the folder went away under a step
             self._job_failed(job_id, job_dir, exc)
         finally:
             if job.get("source") == "local":
@@ -820,6 +852,8 @@ class Worker(threading.Thread):
                 self._fail_steps(job, job_dir, steps[index:], "job timeout")
                 job["error"] = job.get("error") or "job timeout"   # the first error wins (M4/V7)
                 break
+            if job.get("source") == "local" and not self._output_same(job):
+                raise OutputGone("output folder is gone or changed")
             failed_need = next((n for n in step.get("needs") or []
                                 if (steps_by_id.get(n) or {}).get("state") == "failed"), None)
             if failed_need is not None:                 # a companion's source step failed: this one cannot read it
@@ -850,7 +884,7 @@ class Worker(threading.Thread):
         and `delete`/`cancel` see a finished job. The stack goes to the job's `log.md`; a second failure while
         recording the first is printed, not raised.
         """
-        message = "%s: %s" % (type(exc).__name__, exc)
+        message = str(exc) if isinstance(exc, OutputGone) else "%s: %s" % (type(exc).__name__, exc)
         try:
             self.store.update(job_id,
                               lambda job: self._fail_job(job, job_dir, message, traceback.format_exc()))
@@ -1067,16 +1101,17 @@ class Worker(threading.Thread):
         return self._plain_source(font, files_dir, sources, plain)
 
     def _write_output(self, job, job_dir, files_dir, sources, fonts, fonts_by_id, steps):
-        if job.get("source") == "local":
-            self._write_tree(job, job_dir, files_dir, sources, fonts, fonts_by_id, steps)
-            return
         """`zipout.write_zip` for @p job and the Job's final state; a refusal fails the job with its message.
 
         `write_zip` never returns None: it raises `NameClash` (the job's error names the path), `NoteRefused` (it set
         `job["error"]` itself) or another `ValueError`. A `NoteRefused`/`ValueError` message is kept even when the job
         timed out first, so the real cause replaces `"job timeout"` (M4/V7). On success `write_zip` has set
-        `identical_to` on the steps, so the result and the state are saved together in one write.
+        `identical_to` on the steps, so the result and the state are saved together in one write. A local job writes
+        a folder tree instead (`_write_tree`).
         """
+        if job.get("source") == "local":
+            self._write_tree(job, job_dir, files_dir, sources, fonts, fonts_by_id, steps)
+            return
 
         def effective(font_id):
             # a step whose font is no longer in the job reads no destination and fails as `write_zip` sees fit
@@ -1116,9 +1151,13 @@ class Worker(threading.Thread):
         output_dir = job["output_dir"]
         landed = []
 
+        written_at = {}                                         # output path -> the steps that wrote that face
+
         def on_landed(rel, digest):
             job.setdefault("owned", {})[rel] = digest
             landed.append(rel)
+            for step in written_at.get(rel, ()):
+                step["written"] = rel                           # only a face that really landed is "written"
             self.store.save(job)
 
         try:
@@ -1126,9 +1165,9 @@ class Worker(threading.Thread):
             entries, sidecar, result, faces = zipout.collect(
                 job, job_dir, files_dir, index, fonts_by_id, effective, self.repo_dir, sources,
                 own_earlier(job), self.tools_dir)
-            for face in faces:                                  # where each done face now is
+            for face in faces:                                  # where each done face goes once it lands
                 if face["identical_to"] is None:
-                    face["step"]["written"] = "svf/" + face["row_path"]
+                    written_at.setdefault("svf/" + face["row_path"], []).append(face["step"])
             zipout.write_tree(job, entries, sidecar, output_dir, job["output_id"], job.setdefault("owned", {}),
                               on_landed)
         except zipout.NameClash as exc:
@@ -1144,8 +1183,9 @@ class Worker(threading.Thread):
             job["state"] = "failed"
             job["error"] = "%s: %s" % (type(exc).__name__, exc.strerror or exc)
         else:
-            kept = ["svf/" + item["identical_to"] for item in result["skipped"]
-                    if "svf/" + item["identical_to"] in job.get("owned", {})]
+            kept = ["svf/" + item["identical_to"] for item in result["skipped"]] + [
+                "svf/" + rel for rel in result.pop("kept_texts", ())]
+            kept = [rel for rel in kept if rel in job.get("owned", {})]
             result["files"] = landed + [rel for rel in kept if rel not in landed]
             result["output_dir"] = output_dir
             job["result"] = result
