@@ -1423,7 +1423,72 @@ class LocalSweepTest(LocalRunBase):
             started = time.monotonic()
             self.srv.worker.sweep_local_files()
             took = time.monotonic() - started
-        self.assertLess(took, 2.5, took)                                        # not 6 waits of the allowance
+        self.assertLess(took, 1.6, took)           # one allowance for all waits; the old per-lock waits took 2 s per job
+
+    def _probe_vs_delete(self, pause_before):
+        import threading
+        jobs_mod = sys.modules["jobs"]
+        jid = self.local_job()
+        self.select(jid)
+        fid = self.ttf
+        real = jobs_mod.Store.ensure_files_dir
+        paused, go = threading.Event(), threading.Event()
+        self.addCleanup(go.set)
+
+        def slow(store, job, *a, **k):
+            if job.get("id") == jid and threading.current_thread() is not threading.main_thread() \
+                    and not paused.is_set():
+                if pause_before:
+                    paused.set()
+                    go.wait(20)
+                    return real(store, job, *a, **k)
+                out = real(store, job, *a, **k)
+                paused.set()
+                go.wait(20)
+                return out
+            return real(store, job, *a, **k)
+        res = {}
+        with mock.patch.object(jobs_mod.Store, "ensure_files_dir", slow):
+            t = threading.Thread(target=lambda: res.update(
+                probe=self.raw("GET", "/api/jobs/%s/probe/%s/16/1.json" % (jid, fid))[0]), daemon=True)
+            t.start()
+            self.assertTrue(paused.wait(20))
+            res["delete"] = self.api("DELETE", "/api/jobs/%s" % jid)[0]
+            go.set()
+            t.join(60)
+        self.assertEqual(res["delete"], 200)
+        self.assertIn(res["probe"], (404, 200))
+        left = [n for n in os.listdir(self.out) if n.startswith(".svf-maker-")]
+        self.assertEqual(left, [], left)                                        # no orphan files directory, no tombstone
+        self.assertFalse(os.path.exists(os.path.join(self.data, "jobs", jid)))
+
+    def test_a_probe_racing_a_delete_leaves_no_files_directory_after_the_check(self):
+        self._probe_vs_delete(pause_before=False)
+
+    def test_a_probe_racing_a_delete_cannot_make_the_directory_of_a_deleted_job(self):
+        self._probe_vs_delete(pause_before=True)
+
+    def test_an_orphan_files_directory_is_swept_at_stop_and_at_start_up(self):
+        import time
+        server_mod = sys.modules["server"]
+        jid, first = self.done_job()                                            # the folder is known through this job
+        for name in ("0123456789ab", "ba9876543210"):
+            orphan = os.path.join(self.out, ".svf-maker-" + name, "work", "preview", "f01", "probe")
+            os.makedirs(orphan)
+            with open(os.path.join(orphan, "16-1.svf"), "wb") as f:
+                f.write(b"input-derived")
+        keep = os.path.join(self.out, ".svf-maker-" + jid)                      # a live job's name is never touched
+        os.makedirs(keep, exist_ok=True)
+        self.srv.worker.sweep_local_files()                                     # stop
+        self.assertEqual(sorted(n for n in os.listdir(self.out) if n.startswith(".svf-maker-")), [])
+        orphan = os.path.join(self.out, ".svf-maker-0123456789ab")
+        os.makedirs(orphan)
+        srv2 = server_mod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)   # a restart
+        try:
+            self.assertFalse(os.path.exists(orphan))
+        finally:
+            srv2.worker.stop()
+            srv2.server_close()
 
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)

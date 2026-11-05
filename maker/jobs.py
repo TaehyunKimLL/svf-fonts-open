@@ -44,6 +44,7 @@ import zipout
 from sources import OutputGone, Sources, stat_id
 
 STAT_TIMEOUT_S = 5.0          # a stat of a recorded output folder that takes longer counts as unreachable (hung mount)
+PREVIEW_TRY_S = 0.5            # how long a sweep waits for a job's preview locks while holding the lifecycle lock
 REMOVE_BOUND_S = 30.0          # one removal of a files directory is waited for this long (a dead mount)
 RETRY_DEADLINE_S = 30.0       # one pending-sweep pass ends after this long; unfinished entries are kept
 IN_USE_STATES = ("queued", "running", "uploading", "detected")   # a job in these states uses its files directory
@@ -474,6 +475,10 @@ class Store:
         if job.get("source") != "local":
             return self.files_dir(job)
         with (contextlib.nullcontext() if locked else self.lifecycle):
+            try:
+                self.load(job["id"])                          # a deleted job (or one being deleted: delete holds this
+            except KeyError:                                  # lock) never gets a directory made for it
+                raise OutputGone("job %s no longer exists" % job["id"])
             before = job.get("files_id")
             files = self._make_files_dir(job)
             if persist and job.get("files_id") != before:
@@ -712,7 +717,9 @@ class Store:
             if self.on_sweep is None:
                 hold = contextlib.nullcontext()
             else:
-                hold = self.on_sweep(job, None if deadline is None else deadline.remaining())
+                # a try-lock: a bake holding the preview lock is not waited for under the lifecycle lock; the sweep is
+                # recorded as pending (busy) and retried later
+                hold = self.on_sweep(job, PREVIEW_TRY_S if deadline is None else min(PREVIEW_TRY_S, deadline.remaining()))
             with hold:
                 try:
                     same = stat_id_bounded(job["output_dir"], left()) == tuple(job.get("output_id") or ())
@@ -788,6 +795,57 @@ class Store:
             print_exc()
             return False
         return self._finish_sweep(job, step, deadline)
+
+    def sweep_orphans(self, deadline=None):
+        """Remove every `.svf-maker-<id>` directory beside a known output folder (one a local job or a pending entry
+        records, same device and inode) whose job no longer exists in the store: nothing tracks it. Start-up and stop. The
+        rename to a tombstone is under the lifecycle lock; the removal is outside it. A folder shared with another
+        running maker would lose that maker's live directories: one maker per output folder is the rule."""
+        dl = deadline or Deadline(STOP_SWEEP_TOTAL_S)
+        folders = {}
+        try:
+            for item in self.list():
+                if item.get("source") == "local":
+                    job = self.load(item["id"])
+                    folders[job.get("output_dir")] = tuple(job.get("output_id") or ())
+        except KeyError:
+            pass
+        with self._pending_lock:
+            for entry in self._read_pending():
+                try:
+                    folders.setdefault(entry["output_dir"], tuple(entry["output_id"]))
+                except (KeyError, TypeError):
+                    continue
+        trash = []
+        if not self.lifecycle.acquire(timeout=dl.remaining()):
+            return
+        try:
+            for out, oid in folders.items():
+                if dl.expired():
+                    break
+                try:
+                    if stat_id_bounded(out, min(STAT_TIMEOUT_S, dl.remaining())) != oid:
+                        continue
+                    names = bounded_call(("listdir", out), lambda: os.listdir(out), min(STAT_TIMEOUT_S, dl.remaining()))
+                except (OSError, TypeError):
+                    continue
+                for name in names:
+                    if not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name) or os.path.exists(self.path(name[len(FILES_DIR_PREFIX):], "job.json")):
+                        continue
+                    path = os.path.join(out, name)
+                    try:
+                        if os.path.islink(path) or not os.path.isdir(path):
+                            continue
+                        tomb = tombstone_of(path)
+                        os.rename(path, tomb)
+                        trash.append(tomb)
+                    except OSError:
+                        continue
+        finally:
+            self.lifecycle.release()
+        for tomb in trash:
+            if dl.expired() or not remove_tree_bounded(tomb, min(REMOVE_BOUND_S, dl.remaining())):
+                break
 
     def sweep_trash(self, job):
         """Remove the leftover tombstones (`.svf-maker-<id>.trash-*`) of a local job beside its output folder's
@@ -1021,6 +1079,7 @@ class Worker(threading.Thread):
                     self.store.sweep_files(self.store.load(item["id"]), STOP_STAT_TIMEOUT_S, deadline=deadline)
                 except KeyError:
                     continue
+        self.store.sweep_orphans(deadline)
 
     def recover(self):
         """Called once before `start()`: a `running` job is `failed`/`interrupted`, a `queued` one re-enqueued.

@@ -231,3 +231,8 @@ resource forks on a Mac; Electron, its preload, `contextIsolation`, native dialo
 exercised by mocks); a real disk-full condition (mocked); a case-insensitive filesystem; an inode overlap spelled any way
 but a symlinked parent; sync clients reading `.svf-maker-<id>/`; and `sessionStorage` persistence across a real
 Electron relaunch.
+
+**Accepted trade-off (lifecycle lock).** `POST run` of a local job holds the store-wide lifecycle lock for its whole
+pre-queue check (path rules, the stat of every input, planning, free space). A hung input mount therefore delays other
+creates, activations and sweeps until that stat returns; the sweeps wait for a job's preview locks only with a short
+try-lock (0.5 s) and are recorded as pending when a bake holds them. This was accepted over a second lock.

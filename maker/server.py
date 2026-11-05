@@ -523,6 +523,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
             except Exception:
                 jobs.print_exc()
                 server.cleanup_pending.add(job_id)
+        store.sweep_orphans(deadline)
     server.stopping = threading.Event()
     server.startup_sweep = None                           # (kept for callers: the cleanup is synchronous now)
     if token is not None or local_ids or have_pending:    # an upload-only server has nothing to sweep
@@ -913,6 +914,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return True
         asked = self.server.touched.get(item["id"], self.server.started)
         return (time.monotonic() - asked > LOCAL_IDLE_SWEEP_S and time.time() - updated > LOCAL_IDLE_SWEEP_S)
+
+    def _verify_files_dir(self, job):
+        """Under a font's preview lock: the job still exists and its files directory is the generation the job records.
+        404 otherwise. A sweep or DELETE needs the preview locks to rename the directory away, so after this check and
+        until the lock is released nothing can move it; nothing here ever creates the directory or its parents."""
+        try:
+            fresh = self.server.store.load(job)
+        except KeyError:
+            raise _HttpError(404, "no job %s" % job)
+        if fresh.get("source") != "local":
+            return
+        files = self.server.store.files_dir(fresh)
+        try:
+            if os.path.islink(files) or not os.path.isdir(files) \
+                    or list(sourcesmod.stat_id(files)) != list(fresh.get("files_id") or ()):
+                raise _HttpError(404, "the files directory of job %s is gone" % job)
+        except OSError:
+            raise _HttpError(404, "the files directory of job %s is gone" % job)
 
     def _files_dir_ready(self, current):
         """The files directory of @p current, made when it is a local job's and the output folder is still the one
@@ -1516,6 +1535,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             path = os.path.join(files_dir, "work", "preview", "%s.png" % entry.get("id"))
             if not os.path.isfile(path):
                 with _preview_lock(job, entry.get("id")):
+                    self._verify_files_dir(job)
                     if not os.path.isfile(path):
                         fresh = self._load(job)              # the settings may have changed while we waited (W2)
                         fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}
@@ -1599,6 +1619,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         out_svf = os.path.join(probe_dir, "%d-%d.svf" % (size, bpp))
         out_json = os.path.join(probe_dir, "%d-%d.json" % (size, bpp))
         with _preview_lock(job, font):
+            self._verify_files_dir(job)
             os.makedirs(probe_dir, exist_ok=True)
             src = self._prepared_source(entry, eff, sources, os.path.join(files_dir, "work", "preview"),
                                         env=self._tool_env(current))
@@ -1688,6 +1709,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = os.path.join(files_dir, "work", "preview", "%s.svf" % font)
         if not os.path.isfile(path):
             with _preview_lock(job, font):
+                self._verify_files_dir(job)
                 if not os.path.isfile(path):
                     fresh = self._load(job)
                     fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}
