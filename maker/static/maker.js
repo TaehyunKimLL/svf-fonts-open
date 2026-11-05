@@ -58,11 +58,14 @@ const ROUTES = {
               {"kind": "jamo", "label": "dos raw", "native": true, "bpps": [1]}],
   "svf-precomposed": [{"kind": "precomposed", "label": "copy", "native": true, "bpps": [1, 2]},
                       {"kind": "jamo", "label": "from-svf fit", "native": false, "bpps": [1]}],
-  "svf-jamo": [{"kind": "jamo", "label": "copy", "native": true, "bpps": [1, 2]}]
+  "svf-jamo": [{"kind": "jamo", "label": "copy", "native": true, "bpps": [1, 2]}],
+  "mac-fbit3": [{"kind": "jamo", "label": "mac fbit 7.1 direct", "native": true, "bpps": [1]},
+                {"kind": "jamo", "label": "mac fbit 7.1 derived", "native": false, "bpps": [1]},
+                {"kind": "precomposed", "label": "mac fbit 7.1 bdf + mkfont", "native": true, "bpps": [1]}]
 };
 
 const KINDS = ["precomposed", "jamo"];
-const LAYOUTS = ["844", "adaptive", "hanterm-johab"];
+const LAYOUTS = ["844", "adaptive", "hanterm-johab", "mac-htbl1"];
 const DEST_FIXED = ["dos", "jamo-extra"];
 
 // The advanced panel's inputs (Shared data shapes `options`); `group` is the tool the key belongs to, and a key in
@@ -114,7 +117,10 @@ const OPTION_VISIBLE = {
   "copy": {"1": ["jset_version"], "2": ["jset_version"]},
   "from-svf fit": {"1": ["jset_version"]},
   "bdfface": {"1": ["latin_ascent", "hangul_ascent"]},
-  "bdfface + from-svf fit": {"1": ["jset_version", "latin_ascent", "hangul_ascent"]}
+  "bdfface + from-svf fit": {"1": ["jset_version", "latin_ascent", "hangul_ascent"]},
+  "mac fbit 7.1 direct": {"1": []},
+  "mac fbit 7.1 derived": {"1": ["jset_version"]},
+  "mac fbit 7.1 bdf + mkfont": {"1": ["cell", "ascent", "width", "space_advance"]}
 };
 
 // Mirrors server._make_source_preview: how the page gets a source preview, per source kind. "draw": the server draws
@@ -124,14 +130,16 @@ const OPTION_VISIBLE = {
 const PREVIEW_KINDS = {
   "outline": "draw", "outline-composite": "draw", "bitmap": "draw", "bdf-iso10646": "draw",
   "bdf-iso8859": "none", "bdf-ksc5601": "none", "bdf-johab": "none", "hbf": "none",
-  "dos-raw": "bake", "svf-precomposed": "bake", "svf-jamo": "bake", "other": "none"
+  "dos-raw": "bake", "svf-precomposed": "bake", "svf-jamo": "bake", "mac-fbit3": "bake", "mac-htbl": "none",
+  "mac-suitcase": "none", "other": "none"
 };
 
 // settings._SOURCE_WORDS / _SOURCE_ARTICLES: the phrase the validator uses in its reasons. Strict JSON.
 const SOURCE_WORDS = {
   "dos-raw": "DOS raw", "outline": "outline", "outline-composite": "outline", "bitmap": "bitmap",
   "bdf-iso10646": "bitmap", "bdf-iso8859": "bitmap", "bdf-ksc5601": "bitmap", "bdf-johab": "bitmap", "hbf": "bitmap",
-  "svf-precomposed": "SVF", "svf-jamo": "SVF"
+  "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit", "mac-htbl": "Mac table",
+  "mac-suitcase": "Mac suitcase"
 };
 const SOURCE_ARTICLES = {
   "outline": "an", "SVF": "an"
@@ -931,12 +939,28 @@ function perFontCompanion(per, font) {
   const select = el("select");
   select.setAttribute("aria-label", "latin companion for " + fontName(font));
   const options = [["", "none"]];
-  for (const id of font.companions || []) {
+  // a Mac 7.1 fbit's Latin companions are the suitcases with a strike at its size; its companions are HTBL tables
+  const candidates = font.source_kind === "mac-fbit3" ? (font.latin_candidates || []) : (font.companions || []);
+  for (const id of candidates) {
     const other = ((job && job.fonts) || []).find((entry) => entry.id === id);
     options.push([id, id + (other ? " — " + other.path : "")]);
   }
   fillSelect(select, options, per.latin_companion || "");
   select.onchange = () => { per.latin_companion = select.value || null; markDirty(); };
+  return select;
+}
+
+// The Mac 7.1 fbit's HTBL 1 table: one of the batch's `mac-htbl` entries (its composition rules are a separate file).
+function perFontHtbl(per, font) {
+  const select = el("select", {"data-field": "htbl_companion"});
+  select.setAttribute("aria-label", "HTBL table for " + fontName(font));
+  const options = [["", "none: add the table to the sources"]];
+  for (const id of font.companions || []) {
+    const other = ((job && job.fonts) || []).find((entry) => entry.id === id);
+    options.push([id, id + (other ? " — " + other.path : "")]);
+  }
+  fillSelect(select, options, per.htbl_companion || "");
+  select.onchange = () => { per.htbl_companion = select.value || null; markDirty(); };
   return select;
 }
 
@@ -1297,6 +1321,9 @@ function overridePanel(font, per) {
   grid.append(jamoRouteSelect(per, font, refresh));
   grid.append(el("label", {class: "label"}, experimental, el("span", {text: " experimental"})));
   grid.append(el("label", {class: "label"}, el("span", {text: "latin companion "}), perFontCompanion(per, font)));
+  if (font.source_kind === "mac-fbit3") {
+    grid.append(el("label", {class: "label"}, el("span", {text: "HTBL table "}), perFontHtbl(per, font)));
+  }
   if (font.variable) {
     grid.append(el("label", {class: "label"}, el("span", {text: "instance "}), perFontInstance(per, font)));
   }

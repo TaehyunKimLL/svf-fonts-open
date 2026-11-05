@@ -8,6 +8,7 @@ for the two conversions no tool in tools/ has:
     srcprep.py pcf-bdf SRC OUT               a PCF (or .pcf.gz) as a BDF 2.1 text
     srcprep.py mac-fork SRC OUT              the resource fork of an AppleDouble / MacBinary / raw fork file
     srcprep.py mac-htbl SRC OUT              the HTBL 1 table of a fork or a raw table
+    srcprep.py bdf-pixel-size SRC OUT --size N   a BDF with PIXEL_SIZE N set (FreeType otherwise derives it from SIZE)
 
 Exit 0 and OUT written; exit 2 with the reason on stderr. Stdlib and fontTools only. It runs under `python3 -P`, which
 drops the script directory from sys.path, so it puts maker/ and tools/ there itself.
@@ -174,6 +175,34 @@ def mac_fork_bytes(data):
     except (macsfnt.MacError, struct.error, IndexError) as e:
         raise PrepError(str(e) or type(e).__name__)
     return fork
+
+
+def bdf_pixel_size(data, size):
+    """@p data (a BDF 2.1 text) with `PIXEL_SIZE <size>` in its properties; one it already has is replaced."""
+    text = data.decode("latin-1")
+    lines = text.split("\n")
+    out, done = [], False
+    for line in lines:
+        if line.startswith("PIXEL_SIZE"):
+            continue
+        out.append(line)
+    for i, line in enumerate(out):
+        if line.startswith("STARTPROPERTIES"):
+            count = int(line.split()[1]) if len(line.split()) > 1 else 0
+            had = sum(1 for l in lines if l.startswith("PIXEL_SIZE"))
+            out[i] = "STARTPROPERTIES %d" % (count - had + 1)
+            out.insert(i + 1, "PIXEL_SIZE %d" % size)
+            done = True
+            break
+    if not done:
+        for i, line in enumerate(out):
+            if line.startswith("FONTBOUNDINGBOX"):
+                out[i + 1:i + 1] = ["STARTPROPERTIES 1", "PIXEL_SIZE %d" % size, "ENDPROPERTIES"]
+                done = True
+                break
+    if not done:
+        raise PrepError("not a BDF")
+    return "\n".join(out).encode("latin-1")
 
 
 def mac_htbl_bytes(data):
@@ -516,10 +545,12 @@ def main(argv=None):
     p.add_argument("src")
     p.add_argument("out")
     p.add_argument("--index", type=int, required=True)
-    for name in ("pcf-bdf", "mac-fork", "mac-htbl"):
+    for name in ("pcf-bdf", "mac-fork", "mac-htbl", "bdf-pixel-size"):
         p = sub.add_parser(name)
         p.add_argument("src")
         p.add_argument("out")
+        if name == "bdf-pixel-size":
+            p.add_argument("--size", type=int, required=True)
     a = ap.parse_args(argv)
     try:
         with open(a.src, "rb") as fh:
@@ -532,6 +563,8 @@ def main(argv=None):
             out = mac_fork_bytes(data)
         elif a.cmd == "mac-htbl":
             out = mac_htbl_bytes(data)
+        elif a.cmd == "bdf-pixel-size":
+            out = bdf_pixel_size(data, a.size)
         else:
             out = pcf_to_bdf(data)
         with open(a.out, "wb") as fh:

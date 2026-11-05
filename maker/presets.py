@@ -11,7 +11,8 @@ it adds no preset here.
 
 # Every source_kind (Shared data shapes) in one list, for `plain`'s "the tools' defaults".
 ALL_SOURCES = ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859", "bdf-ksc5601",
-               "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo", "other"]
+               "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3", "mac-htbl", "mac-suitcase",
+               "other"]
 
 PRESETS = {
     "plain": {"argv": {}, "layout": None, "bpp": None, "sources": list(ALL_SOURCES),
@@ -91,6 +92,11 @@ def panel_argv(options, kind, route_label, bpp):
             if mkfont.get("latin"):
                 out.append("--latin")
             _num(out, "--space-advance", mkfont.get("space_advance"))
+        elif route_label == "mac fbit 7.1 bdf + mkfont":     # a bitmap strike: the mkfont keys that apply to one
+            _num(out, "--cell", mkfont.get("cell"))
+            _num(out, "--ascent", mkfont.get("ascent"))
+            _num(out, "--width", mkfont.get("width"))
+            _num(out, "--space-advance", mkfont.get("space_advance"))
         elif route_label == "bdfface":
             _num(out, "--ascent", bdfface.get("latin_ascent"))
             _num(out, "--hangul-ascent", bdfface.get("hangul_ascent"))
@@ -108,7 +114,7 @@ def panel_argv(options, kind, route_label, bpp):
                                    or (route_label == "experimental fit" and bpp == 2)):
         out.append("--symbols")
     if jamoset.get("jset_version") is not None and route_label in ("dos raw", "hanterm", "composite", "experimental fit",
-                                                                   "mask fit", "vector fit", "from-svf fit", "copy"):
+                                                                   "mask fit", "vector fit", "from-svf fit", "copy", "mac fbit 7.1 derived"):
         out += ["--jset-version", str(jamoset["jset_version"])]   # unset: a writer's own 1, an SVF upload keeps its block
     if route_label in ("dos raw", "hanterm"):
         _num(out, "--ascent", jamoset.get("jamo_ascent"))

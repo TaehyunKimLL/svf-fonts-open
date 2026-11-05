@@ -291,6 +291,64 @@ class PcfDetectTest(DirCase):
         self.assertNotIn("prep", out[0])
 
 
+class LocalKindsTest(DirCase):
+    """The Mac rows of the spec's 9.2 table in a local scan (and the one `other` row of an upload scan)."""
+
+    def setUp(self):
+        super().setUp()
+        import localfx
+        self.mac = localfx.mac_tree(os.path.join(self.root, "mac"))
+
+    def test_mac71_entries(self):
+        fonts = detect.scan(Sources("local", [self.mac]), local=True)
+        by = {f["path"]: f for f in fonts}
+        self.assertEqual((by["Seoul12.rsrc"]["source_kind"], by["Seoul12.rsrc"]["prep"], by["Seoul12.rsrc"]["sizes"]),
+                         ("mac-fbit3", [{"op": "mac-fbit3"}], [12]))
+        self.assertEqual(by["ad/._Seoul12"]["prep"], [{"op": "mac-fork"}, {"op": "mac-fbit3"}])
+        self.assertEqual(by["mb/Seoul12.bin"]["prep"], [{"op": "mac-fork"}, {"op": "mac-fbit3"}])
+        self.assertEqual(by["jm/Seoul12"]["prep"], [{"op": "mac-fbit3"}])
+        self.assertEqual(by["raw/Seoul12.fbit"]["prep"], [{"op": "mac-fbit3"}])
+        self.assertEqual(by["raw/Seoul12.htbl1"]["source_kind"], "mac-htbl")
+        self.assertNotIn("prep", by["raw/Seoul12.htbl1"])
+        self.assertEqual(by["ad/._InputBackSupport"]["prep"], [{"op": "mac-fork"}, {"op": "mac-htbl"}])
+        self.assertEqual(by["InputBackSupport.rsrc"]["prep"], [{"op": "mac-htbl"}])
+        self.assertEqual((by["Suitcase.rsrc"]["source_kind"], by["Suitcase.rsrc"]["mac"]["strikes"]),
+                         ("mac-suitcase", [12]))
+        self.assertEqual(by["nfnt/Only.rsrc"]["source_kind"], "other")
+        self.assertEqual(by["Seoul12.rsrc"]["coverage"], {"ascii": 0, "ks2350": 2350, "all": 2350, "compat": 51})
+        self.assertEqual(sorted(by["Seoul12.rsrc"]["companions"]),
+                         sorted(f["id"] for f in fonts if f["source_kind"] == "mac-htbl"))
+        self.assertEqual(by["Seoul12.rsrc"]["latin_candidates"], [by["Suitcase.rsrc"]["id"]])
+        self.assertTrue(by["gz/Seoul12.rsrc.gz"].get("gzip"))
+        self.assertEqual(by["ad/._Seoul12"]["family"], "Seoul12")                 # no `._` in the family
+        self.assertEqual(by["mb/Seoul12.bin"]["family"], "Seoul12")
+
+    def test_mac71_in_upload_mode_is_other(self):
+        for f in detect.scan(self.mac):
+            self.assertEqual(f["source_kind"], "other", f["path"])
+            self.assertNotIn("prep", f)
+        by = {f["path"]: f for f in detect.scan(self.mac)}
+        for rel in ("Seoul12.rsrc", "ad/._Seoul12", "jm/Seoul12", "raw/Seoul12.fbit", "raw/Seoul12.htbl1"):
+            self.assertEqual(by[rel]["label"], "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)", rel)
+
+    def test_mac_tags_before_size_rules(self):
+        import macfx
+        from test_macfbit3 import jm_archive, lh5_block
+        fork = macfx.fbit3_fork()
+        payload = lh5_block([("lit", c) for c in fork])
+        archive = jm_archive(payload + bytes(11520 - (0x16 + 8 + len(payload))), len(fork))   # padded to a DOS size
+        self.assertEqual(len(archive), 11520)
+        self.assertEqual(detect.sniff(archive[:512], 11520), "mac-jm")                  # not "dos-raw"
+        big = jm_archive(payload, detect.JM_CAP + 1)                                       # over the cap: not tagged
+        self.assertNotEqual(detect.sniff(big[:512], len(big)), "mac-jm")
+        raw_fbit = macfx.fbit3_raw()
+        self.assertEqual(detect.sniff(raw_fbit[:512], len(raw_fbit)), "mac-fbit-raw")
+        self.assertEqual(detect.sniff(raw_fbit[:512], 11520), "mac-fbit-raw")          # not a DOS font whatever its size
+        self.assertEqual(detect.sniff(macfx.htbl_raw()[:512], 9612), "mac-htbl-raw")
+        self.assertEqual(detect.sniff(macfx.htbl_raw_padded()[:512], 9816), "mac-htbl-raw")
+        self.assertNotEqual(detect.sniff(macfx.htbl_raw()[:512], 9000), "mac-htbl-raw")
+
+
 class SourcesScanTest(DirCase):
     def test_scan_two_roots_keeps_folders_apart(self):
         for sub in ("a", "b"):

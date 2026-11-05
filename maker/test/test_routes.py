@@ -91,7 +91,7 @@ class PresetTest(unittest.TestCase):
             "plain": {"argv": {}, "layout": None, "bpp": None,
                       "sources": ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859",
                                   "bdf-ksc5601", "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo",
-                                  "other"],
+                                  "mac-fbit3", "mac-htbl", "mac-suitcase", "other"],
                       "reproduces": "the tools' defaults"},
             "dos-l-1bpp": {
                 "argv": {"precomposed": ["--cell", "16", "--bpp", "1", "--unicode",
@@ -459,6 +459,57 @@ class RoutesTest(unittest.TestCase):
         """M6: a Route with no `commands` must not be constructible (the brief has it required)."""
         with self.assertRaises(TypeError):
             routes.Route("jamo", "copy", True, [], [1])
+
+
+class MacRoutesTest(unittest.TestCase):
+    MAC = dict(font(), source_kind="mac-fbit3", family="Seoul12", sizes=[12], sizes_fixed=True,
+               mac={"generation": 3}, companions=["f05"], latin_candidates=[])
+
+    def paths(self, **kw):
+        return dict(P, tools="/T", src="/w/source.fbit", out="/w/OUT.SVF", htbl="/w/htbl.htbl1", **kw)
+
+    def test_mac71_routes_and_argv(self):
+        got = [(r.kind, r.label, r.native, r.layouts, r.bpps, r.sizes) for r in routes.routes(self.MAC)]
+        self.assertEqual(got, [("jamo", "mac fbit 7.1 direct", True, ["mac-htbl1"], [1], [12]),
+                               ("jamo", "mac fbit 7.1 derived", False, ["mac-htbl1"], [1], [12]),
+                               ("precomposed", "mac fbit 7.1 bdf + mkfont", True, [], [1], [12])])
+        direct, derived, bdf = routes.routes(self.MAC)
+        want = PY + ["/T/macfbit_svf.py", "build", "/w/source.fbit", "/w/htbl.htbl1", "-o", "/w/OUT.SVF", "--mode", "direct"]
+        self.assertEqual(direct.commands(self.MAC, 12, 1, "mac-htbl1", ("2350", None), self.paths(), []), [want])
+        with_latin = direct.commands(self.MAC, 12, 1, "mac-htbl1", ("2350", None), self.paths(latin="/w/L.rsrc"), [])
+        self.assertEqual(with_latin, [want + ["--latin", "/w/L.rsrc"]])
+        self.assertEqual(derived.commands(self.MAC, 12, 1, "mac-htbl1", ("2350", None), self.paths(), [])[0][-2:],
+                         ["--mode", "derived"])
+        argvs = bdf.commands(self.MAC, 12, 1, None, ("2350", None), self.paths(), [])
+        self.assertEqual(len(argvs), 3)
+        self.assertEqual(argvs[0], PY + ["/T/macfbit3.py", "bdf", "/w/source.fbit", "/w/htbl.htbl1", "Seoul12", "/w/mac.bdf"])
+        self.assertEqual(argvs[1], PY + [routes.SRCPREP, "bdf-pixel-size", "/w/mac.bdf", "/w/mac-sized.bdf", "--size", "12"])
+        self.assertEqual(argvs[2][:5], PY + ["/T/mkfont.py", "/w/mac-sized.bdf", "/w/OUT.SVF"])
+        self.assertIn("ksx1001-hangul,3131-318e", argvs[2])                          # the 2,350 syllables + the 51 jamo
+        self.assertNotIn("ascii", argvs[2][argvs[2].index("--unicode") + 1])
+        with self.assertRaisesRegex(ValueError, "HTBL"):
+            direct.commands(self.MAC, 12, 1, "mac-htbl1", ("2350", None), dict(self.paths(), htbl=None), [])
+        self.assertEqual(routes.route_for(self.MAC, "jamo", False).label, "mac fbit 7.1 direct")
+        self.assertEqual(routes.route_for(self.MAC, "jamo", True, "mac fbit 7.1 derived").label, "mac fbit 7.1 derived")
+        self.assertEqual(routes.route_for(self.MAC, "precomposed", False).label, "mac fbit 7.1 bdf + mkfont")
+
+    def test_source_commands_mac_ops(self):
+        argvs, last = routes.source_commands([{"op": "mac-fork"}, {"op": "mac-fbit3"}], "/s", "/w", "/t")
+        self.assertEqual([a[2:4] for a in argvs], [[routes.SRCPREP, "mac-fork"], ["/t/macfbit3.py", "fbit"]])
+        self.assertEqual(last, "/w/source.fbit")
+        self.assertEqual(argvs[0][-1], "/w/source-1.rsrc")
+        argvs, last = routes.source_commands([{"op": "mac-fork"}, {"op": "mac-htbl"}], "/s", "/w", "/t")
+        self.assertEqual((argvs[1][2:4], last), ([routes.SRCPREP, "mac-htbl"], "/w/source.htbl1"))
+        self.assertEqual(routes.source_commands([{"op": "mac-fork"}], "/s", "/w", "/t", last_name="Munjo16.rsrc")[1],
+                         "/w/Munjo16.rsrc")
+        self.assertEqual(routes.op_ext("pcf-bdf"), "bdf")
+        self.assertEqual(routes.op_ext("ttc-face", "otf"), "otf")
+
+    def test_panel_argv_mac71(self):
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "mac fbit 7.1 direct", 1), [[]])
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "mac fbit 7.1 derived", 1), [["--jset-version", "2"]])
+        self.assertEqual(presets.panel_argv(EVERY, "precomposed", "mac fbit 7.1 bdf + mkfont", 1),
+                         [["--cell", "18", "--ascent", "12", "--width", "18", "--space-advance", "5"]])
 
 
 class IsoBdfBakeTest(unittest.TestCase):

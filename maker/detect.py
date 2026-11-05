@@ -17,6 +17,7 @@ import traceback
 import bdfface
 import jamoaa
 import jamoset
+import macfbit3
 import mkfont
 import srcprep
 import svf2to3
@@ -64,6 +65,14 @@ DOS_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 11172, "compat": 51}
 # A johab BDF's ENCODING values are johab-1 glyph indices, not KS X 1001 codes, and the face draws every syllable
 # from jamo: its coverage is the composed one too (reading the indices as code points gives garbage).
 JOHAB_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 11172, "compat": 51}
+
+# A Mac 7.1 type-3 fbit holds the 2,350 KS X 1001 syllables and the 51 compatibility jamo (its HTBL 1 table composes
+# them); a HangulTalk 1.0 fbit draws every syllable from its 45 glyph sets, like a DOS raw font.
+MAC3_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 2350, "compat": 51}
+MAC1_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 11172, "compat": 51}
+
+JM_CAP = 4 << 20                 # a JM archive's declared unpacked size (the LHA decoder is pure Python, run in detect)
+HTBL1_SIZES = (8 + 204 + 9400, 8 + 204 + 9400 + 204)     # 9,612 (no trailing copy) and 9,816 (the 7.1.2 form)
 
 # The whole coverage pass of one scan has this long; past it the rest of the entries get coverage None. A bitmap
 # face costs about 0.4 s whatever its size, so an unbounded batch of small bitmaps could take many minutes.
@@ -116,6 +125,9 @@ def sniff(data, size=None):
     if len(data) >= 66 and struct.unpack_from("<H", data, 0)[0] in (0x200, 0x300) \
             and all(0x20 <= b <= 0x7E or b == 0 for b in data[6:66]):
         return "fnt"
+    mac = _mac_raw_tag(data, size)           # before the size rules: a JM archive or a raw resource may have any size
+    if mac:
+        return mac
     if size in DOS_SIZES:
         return "dos-raw"
     if size in (2048, 4096, 12288):
@@ -123,6 +135,24 @@ def sniff(data, size=None):
     if _mac_head(data, size):
         return "mac-rsrc"
     return "unknown"
+
+
+def _mac_raw_tag(data, size):
+    """`mac-jm` (a JM archive whose header fits the file and the cap), `mac-fbit-raw` (a raw `fbit` resource) or
+    `mac-htbl-raw` (a raw HTBL 1 table), else None."""
+    if data[:2] == b"JM":
+        try:
+            header = macfbit3.jm_header(data)
+        except (ValueError, struct.error):
+            return None
+        if header["file_len"] == size and header["unpacked_len"] <= JM_CAP:
+            return "mac-jm"
+        return None
+    if data[2:6] == b"fbit":
+        return "mac-fbit-raw"
+    if len(data) >= 4 and struct.unpack(">I", data[:4])[0] == 204 and size in HTBL1_SIZES:
+        return "mac-htbl-raw"
+    return None
 
 
 def _mac_head(data, size):
@@ -353,7 +383,7 @@ def detect_file(abs_path, rel, local=False):
 
 def _entry(rel, face_index, fmt, label, source_kind, family="", style="", version="", sizes=None, sizes_fixed=False,
            dos=None, bdf=None, svf=None, error=None, gz=False, prep=None, variable=None, strikes=None, eng=None,
-           dos_bytes=None, cff=False, gsub_jamo=False):
+           dos_bytes=None, cff=False, gsub_jamo=False, mac=None):
     e = {"path": rel, "face_index": face_index, "format": fmt, "label": label, "source_kind": source_kind,
          "family": family, "style": style, "version": version, "sizes": sizes or [], "sizes_fixed": sizes_fixed,
          "coverage": None, "jamo": "none", "dos": dos, "bdf": bdf, "svf": svf, "error": error}
@@ -373,6 +403,8 @@ def _entry(rel, face_index, fmt, label, source_kind, family="", style="", versio
         e["cff"] = True
     if gsub_jamo:                     # a GSUB that composes conjoining jamo (the mask fit's shaper path)
         e["gsub_jamo"] = True
+    if mac is not None:               # a Mac fbit / HTBL / suitcase fact (generation, id, table, strikes)
+        e["mac"] = mac
     return e
 
 
@@ -510,8 +542,8 @@ def _detect_file(abs_path, rel, local=False):
     if fmt == "ttc":
         return _ttc_entries(abs_path, rel, gz, zipped)
 
-    if fmt == "mac-rsrc":
-        return _mac_entries(abs_path, rel, gz, zipped, local)
+    if fmt in ("mac-rsrc", "mac-jm", "mac-fbit-raw", "mac-htbl-raw"):
+        return _mac_entries(abs_path, rel, gz, zipped, local, None if fmt == "mac-rsrc" else fmt)
 
     if fmt == "bdf":
         text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
@@ -689,21 +721,114 @@ def _ksc_pcf_entry(abs_path, rel, gz):
 MAC_BITMAP_TYPES = (b"NFNT", b"FONT", b"fbit")
 
 
-def _mac_entries(abs_path, rel, gz, zipped, local=False):
-    """One entry per `sfnt` resource of a Mac container (capped at _FACE_CAP); a container with only bitmap fonts is one
-    `other` entry and a corrupt resource map one `unknown` entry: the file never vanishes."""
-    data = _read_bytes(abs_path, gz)
+def _mac_family(rel):
+    """A Mac file's family name: its stem without an AppleDouble `._` prefix (the `.bin` of a MacBinary is the
+    extension `_stem` drops)."""
+    stem = _stem(rel)
+    return stem[2:] if stem.startswith("._") else stem
+
+
+def _fond_strikes(body):
+    """The plain-style point sizes a FOND's association table lists."""
     try:
-        container, res = srcprep.mac_resources(data)
-    except srcprep.PrepError as e:
-        return [_entry(rel, 0, "unknown", "unknown (Mac resource fork: %s)" % (type(e).__name__ if local else e),
-                       "other", family=_stem(rel), gz=zipped)]
+        n = struct.unpack(">H", body[52:54])[0] + 1
+        out = []
+        for i in range(n):
+            size, style, _rid = struct.unpack(">HHH", body[54 + i * 6:60 + i * 6])
+            if style == 0 and size not in out:
+                out.append(size)
+        return out
+    except struct.error:
+        return []
+
+
+def _mac_kind_entries(rel, res, container, family, zipped, raw):
+    """The local-mode rows of the spec 9.2 table for the resources @p res of a container with no `sfnt`, or []."""
+    wrapped = container in ("AppleDouble", "MacBinary")
+    out = []
+    types = {}
+    for rtype, rid, _name, body in res:
+        types.setdefault(rtype, []).append((rid, body))
+    n = 0
+    for rid, body in types.get(b"fbit", []):
+        if len(body) < 0x56 or body[2:6] != b"fbit":
+            continue
+        generation = struct.unpack(">H", body[0x0c:0x0e])[0]
+        if generation == 3:
+            try:
+                fb = macfbit3.Fbit3(body)
+            except (ValueError, struct.error):
+                continue
+            prep = ([{"op": "mac-fork"}] if wrapped else []) + [{"op": "mac-fbit3"}]
+            label = "HangulTalk 7.1 type-3 fbit, %d px, %d planes (needs HTBL 1)" % (fb.h, fb.n)
+            out.append(_entry(rel, n, "mac-rsrc", label, "mac-fbit3", family=family, sizes=[fb.h], sizes_fixed=True,
+                              prep=prep, gz=zipped, mac={"generation": 3, "id": rid}))
+            n += 1
+            continue
+        one = _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped)
+        if one is not None:
+            out.append(one)
+            n += 1
+    for rid, body in types.get(b"HTBL", []):
+        if rid != 1:
+            continue
+        ok = len(body) >= 8 + 204 + 4 * 2350 and struct.unpack(">I", body[:4])[0] == 204
+        if raw == "mac-jm" or not ok:
+            continue                      # an HTBL inside a JM archive has no op to reach it; a malformed one is no table
+        prep = [] if raw == "mac-htbl-raw" else ([{"op": "mac-fork"}] if wrapped else []) + [{"op": "mac-htbl"}]
+        out.append(_entry(rel, n, "mac-rsrc", "HangulTalk 7.1 HTBL 1 (InputBackSupport): the composition table",
+                          "mac-htbl", family=family, prep=prep, gz=zipped, mac={"table": "htbl1"}))
+        n += 1
+    if b"FOND" in types and (b"NFNT" in types or b"FONT" in types):
+        strikes = _fond_strikes(types[b"FOND"][0][1])
+        label = "Mac bitmap suitcase (FOND + NFNT): Latin strikes at %s pt" % (", ".join(map(str, strikes)) or "no listed size")
+        out.append(_entry(rel, n, "mac-rsrc", label, "mac-suitcase", family=family,
+                          prep=[{"op": "mac-fork"}] if wrapped else [], gz=zipped, mac={"strikes": strikes}))
+    return out
+
+
+def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped):
+    """The HangulTalk 1.0 row (Task 12), or None when @p body is neither generation."""
+    return None
+
+
+def _mac_entries(abs_path, rel, gz, zipped, local=False, raw=None):
+    """One entry per `sfnt` resource of a Mac container (capped at _FACE_CAP); a container with only bitmap fonts is one
+    `other` entry and a corrupt resource map one `unknown` entry: the file never vanishes.
+
+    With @p local (a local job) the Mac `fbit` / `HTBL` / suitcase rows of the spec's 9.2 table are listed (`raw` names
+    a JM archive or a raw resource file, `mac-jm` / `mac-fbit-raw` / `mac-htbl-raw`); without it every such file is one
+    `other` entry "not converted here (local-only mode)", so an upload job can never run those routes."""
+    data = _read_bytes(abs_path, gz)
+    not_converted = "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)"
+    if raw and not local:
+        return [_entry(rel, 0, "mac-rsrc", not_converted, "other", family=_stem(rel), gz=zipped)]
+    container = None
+    if raw == "mac-jm":
+        try:
+            data = macfbit3.jm_unpack(data)
+        except (ValueError, struct.error, IndexError) as e:
+            return [_entry(rel, 0, "unknown", "unknown (Mac JM archive: %s)" % type(e).__name__, "other",
+                           family=_stem(rel), gz=zipped)]
+    if raw in ("mac-fbit-raw", "mac-htbl-raw"):
+        container = "raw resource"
+        res = [(b"fbit", 0, "", data)] if raw == "mac-fbit-raw" else [(b"HTBL", 1, "", data)]
+    else:
+        try:
+            container, res = srcprep.mac_resources(data)
+        except srcprep.PrepError as e:
+            return [_entry(rel, 0, "unknown", "unknown (Mac resource fork: %s)" % (type(e).__name__ if local else e),
+                           "other", family=_stem(rel), gz=zipped)]
     all_sfnts = [(rid, body) for rtype, rid, _name, body in res if rtype == b"sfnt"]
     sfnts = all_sfnts[:_FACE_CAP]
     if not sfnts:
+        if local:
+            found = _mac_kind_entries(rel, res, container, _mac_family(rel), zipped, raw)
+            if found:
+                return found
         if any(rtype in MAC_BITMAP_TYPES for rtype, _i, _n, _b in res):
-            return [_entry(rel, 0, "mac-rsrc", "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)",
-                           "other", family=_stem(rel), gz=zipped)]
+            label = "Mac bitmap font (NFNT/fbit): not converted" if local else not_converted
+            return [_entry(rel, 0, "mac-rsrc", label, "other", family=_stem(rel), gz=zipped)]
         return [_entry(rel, 0, "mac-rsrc", "%s: no sfnt or bitmap font resource" % container, "other",
                        family=_stem(rel), gz=zipped)]
     out = []
@@ -1154,6 +1279,10 @@ def jamo_label(entry):
         return "native (hanterm-johab)"
     if kind == "svf-jamo":
         return "native (jset)"
+    if kind == "mac-fbit3":
+        return "native (mac-htbl1)"
+    if kind == "mac-fbit1":
+        return "native (mac-fbit-45sets)"
     if kind == "outline-composite":
         return "native (composite)"
     compat = (entry.get("coverage") or {}).get("compat", 0)
@@ -1259,6 +1388,10 @@ def _coverage_of_entry(path, entry, data=None, face_index=None, tmp_dir=None):
     try:
         if kind == "dos-raw":
             return dict(DOS_COVERAGE)
+        if kind == "mac-fbit3":
+            return dict(MAC3_COVERAGE)
+        if kind == "mac-fbit1":
+            return dict(MAC1_COVERAGE)
         if kind in ("outline", "outline-composite"):
             return coverage_outline(path, face, data)
         if kind == "bitmap" and entry["format"] in SFNT_FORMATS:
@@ -1439,6 +1572,11 @@ def scan(sources, local=False):
                                    if o["format"] == "eng" and folder_of(abs_of[key_of(o)]) == folder]
         elif entry["source_kind"] == "bdf-ksc5601":
             entry["companions"] = list(latin_ids)
+        elif entry["source_kind"] == "mac-fbit3":
+            entry["companions"] = [o["id"] for o in entries if o["source_kind"] == "mac-htbl"]
+            sizes = entry.get("sizes") or []
+            entry["latin_candidates"] = [o["id"] for o in entries if o["source_kind"] == "mac-suitcase"
+                                         and set(sizes) & set((o.get("mac") or {}).get("strikes") or [])]
         else:
             entry["companions"] = []
     return entries

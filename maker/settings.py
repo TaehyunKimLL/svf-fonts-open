@@ -33,7 +33,7 @@ from sources import Sources
 RANGE_ROOT_KEY = "range_root"
 BATCH_KEYS = ("dest", "kinds", "layout", "sizes", "bpp", "range", "preset", "options")
 FONT_ONLY_KEYS = ("selected", "experimental", "dos_layout", "latin_companion", "licence", "names", "licence_name",
-                  "note_name", "instance", "dy", "jamo_route")
+                  "note_name", "instance", "dy", "jamo_route", "htbl_companion")
 # Every option key is unique across the three groups (the page's data-field and _own_option_keys rely on it).
 DEFAULT_OPTIONS = {"mkfont": {"cell": None, "ascent": None, "width": None, "mono_hint": False, "clip_cell": False,
                               "fit_cell": False, "latin": False, "space_advance": None},
@@ -49,7 +49,7 @@ BATCH_DEFAULTS = {"dest": "dos", "kinds": ["precomposed"], "layout": "844", "siz
 
 _FONT_ONLY_DEFAULTS = {"selected": False, "experimental": False, "dos_layout": None, "latin_companion": None,
                        "licence": None, "names": {}, "licence_name": "", "note_name": "",
-                       "instance": None, "dy": None, "jamo_route": None}
+                       "instance": None, "dy": None, "jamo_route": None, "htbl_companion": None}
 
 # A `names` key: a kind, a size and a bpp, all digits (`effective` ignores a well-formed key outside the selection).
 NAME_KEY_RE = re.compile(r"^(precomposed|jamo)/\d+/\d+$")
@@ -70,7 +70,8 @@ MAX_SIZES = 16                  # a sizes list longer than this would plan more 
 # font's own. `_source_phrase` adds the article ("a bitmap source", "an outline source", "an SVF source").
 _SOURCE_WORDS = {"dos-raw": "DOS raw", "outline": "outline", "outline-composite": "outline", "bitmap": "bitmap",
                  "bdf-iso10646": "bitmap", "bdf-iso8859": "bitmap", "bdf-ksc5601": "bitmap", "bdf-johab": "bitmap",
-                 "hbf": "bitmap", "svf-precomposed": "SVF", "svf-jamo": "SVF"}
+                 "hbf": "bitmap", "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit",
+                 "mac-htbl": "Mac table", "mac-suitcase": "Mac suitcase"}
 
 # The article each source word takes (G2): chosen by the word, not by its first letter (`an SVF`, `a DOS raw`).
 _SOURCE_ARTICLES = {"outline": "an", "SVF": "an"}
@@ -118,7 +119,7 @@ def _batch_defaults():
 def _font_kinds(font):
     """The per-font `kinds` default: `jamo` alone for a native-jamo source, both for a composite TTF, else precomposed."""
     kind = font.get("source_kind")
-    if kind in ("dos-raw", "bdf-johab", "svf-jamo"):
+    if kind in ("dos-raw", "bdf-johab", "svf-jamo", "mac-fbit3"):
         return ["jamo"]
     if kind == "outline-composite":
         return ["precomposed", "jamo"]
@@ -135,6 +136,8 @@ def _font_layout(font):
         return "adaptive"
     if kind == "bdf-johab":
         return "hanterm-johab"
+    if kind == "mac-fbit3":
+        return "mac-htbl1"
     return "844"
 
 
@@ -168,6 +171,8 @@ def _licence_name(family, licence):
 def _default_companion(font, fmap):
     """The default English companion: the first one the face can take. A 12x24 font needs a face of 24 px or more, so
     a smaller DOS face skips it when another companion sits beside it (the defaults must validate)."""
+    if font.get("source_kind") == "mac-fbit3":
+        return None                             # an HTBL is not a Latin companion; the suitcase is optional
     companions = font.get("companions") or []
     px = (font.get("sizes") or [None])[0]
     if font.get("source_kind") == "dos-raw" and isinstance(px, int) and px < 24 and fmap:
@@ -202,6 +207,7 @@ def _font_defaults(font, batch, fmap=None):
         "experimental": False,
         "dos_layout": None,
         "latin_companion": _default_companion(font, fmap),
+        "htbl_companion": (font.get("companions") or [None])[0] if font.get("source_kind") == "mac-fbit3" else None,
         "licence": _upload_licence(licences[0]) if licences else None,
         "names": {},
         "licence_name": _licence_name(font.get("family", ""), licences[0] if licences else None),
@@ -635,7 +641,7 @@ def _type_errors(fid, eff, per):
         value = eff.get("layout")
         if value is not None and not isinstance(value, str):
             errors.append("%s: layout is not a string" % fid)
-    for key in ("dos_layout", "latin_companion"):
+    for key in ("dos_layout", "latin_companion", "htbl_companion"):
         value = eff.get(key)
         if value is not None and not isinstance(value, str):
             errors.append("%s: %s is not a string" % (fid, key))
@@ -797,8 +803,13 @@ def _shape_errors(fid, font, eff, per, batch, fonts, sources):
             if not isinstance(path, str) or _bad_repo_path(path):
                 errors.append("%s: licence path %s is not a text file in svf/" % (fid, path))
     companion = eff.get("latin_companion")
-    if companion is not None and companion not in (font.get("companions") or []):
+    mac3 = font.get("source_kind") == "mac-fbit3"
+    allowed = (font.get("latin_candidates") if mac3 else font.get("companions")) or []
+    if companion is not None and companion not in allowed:
         errors.append("%s: latin_companion %s is not a companion of this font" % (fid, companion))
+    htbl = eff.get("htbl_companion")
+    if htbl is not None and (not mac3 or htbl not in (font.get("companions") or [])):
+        errors.append("%s: htbl_companion %s is not a companion of this font" % (fid, htbl))
     if eff.get("selected") and font.get("source_kind") == "bdf-ksc5601" and companion is None:
         errors.append("%s: needs a Latin companion" % fid)
     return errors
@@ -1233,6 +1244,8 @@ def run_ready(fonts, settings, index, sources, own_earlier=()):
     licence_paths = _licence_paths(fonts)
     text_paths = {text["path"] for text in index.texts}
     for fid, font, eff in selected:
+        if font.get("source_kind") == "mac-fbit3" and not eff.get("htbl_companion"):
+            add("%s: needs an HTBL 1 table (InputBackSupport or <Name>.htbl1): add it to the sources" % fid)
         licence = eff.get("licence")
         repo_missing = False
         if licence is None:
@@ -1425,6 +1438,29 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
     base = os.path.join(os.path.dirname(tools_dir), "svf", routes.JOHAB844_BASE)
     steps = []
     counter = 0
+    companion_steps = {}                 # a companion's id -> (its source step id or None, the file the tools read)
+
+    def companion_file(for_fid, cid):
+        """The file a tool reads for companion @p cid of a Mac font, planning the companion's own source step (its
+        `prep`) the first time any font asks: once per companion however many fonts use it."""
+        nonlocal counter
+        if cid not in companion_steps:
+            cfont = fmap[cid]
+            cpath = _upload_path(for_fid, cfont.get("path"), sources, cfont.get("root", 0))
+            ops = source_ops(cfont, {})
+            if not ops:
+                companion_steps[cid] = (None, cpath)
+            else:
+                counter += 1
+                csid = "s%02d" % counter
+                cdir = os.path.join(work_root, csid)
+                os.makedirs(cdir, exist_ok=True)
+                cargvs, cprepared = routes.source_commands(ops, cpath, cdir, tools_dir)
+                steps.append(_step(csid, cid, "source", None, None, None, None, cargvs,
+                                   "work/%s/%s" % (csid, os.path.basename(cprepared))))
+                companion_steps[cid] = (csid, cprepared)
+        return companion_steps[cid]
+
     for font in fonts:
         fid = font["id"]
         if fid not in sfonts:
@@ -1460,8 +1496,21 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
         companion = eff.get("latin_companion")
         if font.get("source_kind") == "bdf-ksc5601" and companion is None:
             raise ValueError("%s: needs a Latin companion" % fid)
-        companion_abs = (_upload_path(fid, fmap[companion].get("path"), sources, fmap[companion].get("root", 0))
-                         if companion in fmap else None)
+        needs, htbl_abs = [], None
+        if font.get("source_kind") == "mac-fbit3":      # its HTBL and its suitcase may need a source step of their own
+            htbl = eff.get("htbl_companion")
+            if htbl not in fmap:
+                raise ValueError("%s: needs an HTBL 1 table (InputBackSupport or <Name>.htbl1): add it to the sources" % fid)
+            sid_h, htbl_abs = companion_file(fid, htbl)
+            needs += [sid_h] if sid_h else []
+            if companion in fmap:
+                sid_l, companion_abs = companion_file(fid, companion)
+                needs += [sid_l] if sid_l else []
+            else:
+                companion_abs = None
+        else:
+            companion_abs = (_upload_path(fid, fmap[companion].get("path"), sources, fmap[companion].get("root", 0))
+                             if companion in fmap else None)
         master = None
         prepared_layouts = set()
         for kind in ("precomposed", "jamo"):
@@ -1501,7 +1550,7 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
                     step_layout = None if kind == "precomposed" or route.label == "copy" else layout
                     paths = {"tools": tools_dir, "src": src, "out": out,
                              "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
-                             "range_file": range_file, "base": base, "pylib": pylib}
+                             "range_file": range_file, "base": base, "pylib": pylib, "htbl": htbl_abs}
                     report = None
                     if route.label == "mkfont":                 # mkfont's --report: the boxes and cuts of this bake
                         report = "work/%s/report.json" % sid
@@ -1517,5 +1566,6 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
                         argv = argv + [dy_argv]
                     step = _step(sid, fid, kind, size, bpp, step_layout, name, argv, "work/%s/%s" % (sid, name))
                     step["report"] = report
+                    step["needs"] = list(needs)
                     steps.append(step)
     return steps

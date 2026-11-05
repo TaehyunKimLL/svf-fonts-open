@@ -970,5 +970,74 @@ class SourcesSettingsTest(unittest.TestCase):
             settings.run_ready(self.fonts, settings.defaults(self.fonts), self.index, None)
 
 
+class LocalSettingsTest(unittest.TestCase):
+    """Mac 7.1 fonts in a local scan: the HTBL companion, the suitcase candidates, the companions' source steps."""
+
+    def setUp(self):
+        import localfx
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.mac = localfx.mac_tree(os.path.join(os.path.realpath(self._tmp.name), "mac"))
+        self.src = Sources("local", [self.mac])
+        self.fonts = detect.scan(self.src, local=True)
+        self.by = {f["path"]: f for f in self.fonts}
+        self.index = naming.RepoIndex(os.path.join(REPO_DIR, "svf"))
+
+    def test_htbl_companion(self):
+        font = self.by["Seoul12.rsrc"]
+        st = settings.defaults(self.fonts)
+        per = st["fonts"][font["id"]]
+        self.assertEqual(per["htbl_companion"], font["companions"][0])
+        self.assertIsNone(per["latin_companion"])
+        self.assertEqual(per["layout"], "mac-htbl1")
+        per["selected"] = True
+        self.assertEqual(settings.validate(self.fonts, st, self.src), [])
+        per["htbl_companion"] = self.by["Suitcase.rsrc"]["id"]
+        self.assertIn("%s: htbl_companion %s is not a companion of this font" % (font["id"], self.by["Suitcase.rsrc"]["id"]),
+                      settings.validate(self.fonts, st, self.src))
+        per["htbl_companion"] = None
+        errors = settings.run_ready(self.fonts, st, self.index, self.src)
+        self.assertIn("%s: needs an HTBL 1 table (InputBackSupport or <Name>.htbl1): add it to the sources" % font["id"],
+                      errors)
+        self.assertNotIn("%s: no licence" % font["id"], errors)
+
+    def test_suitcase_latin_only_at_a_listed_strike(self):
+        font = self.by["Seoul12.rsrc"]
+        self.assertEqual(font["latin_candidates"], [self.by["Suitcase.rsrc"]["id"]])
+        st = settings.defaults(self.fonts)
+        st["fonts"][font["id"]]["latin_companion"] = self.by["Suitcase.rsrc"]["id"]
+        self.assertEqual([e for e in settings.validate(self.fonts, st, self.src) if "latin" in e], [])
+        import macfx
+        with open(os.path.join(self.mac, "Suitcase.rsrc"), "wb") as f:
+            f.write(macfx.suitcase(14))
+        fonts = detect.scan(self.src, local=True)
+        f12 = next(f for f in fonts if f["path"] == "Seoul12.rsrc")
+        self.assertEqual(f12["latin_candidates"], [])
+        st = settings.defaults(fonts)
+        suit = next(f for f in fonts if f["path"] == "Suitcase.rsrc")["id"]
+        st["fonts"][f12["id"]]["latin_companion"] = suit
+        self.assertIn("%s: latin_companion %s is not a companion of this font" % (f12["id"], suit),
+                      settings.validate(fonts, st, self.src))
+
+    def test_companion_source_planned_once(self):
+        a, b, htbl = self.by["Seoul12.rsrc"], self.by["raw/Seoul12.fbit"], self.by["ad/._InputBackSupport"]
+        st = settings.defaults(self.fonts)
+        for f in (a, b):
+            st["fonts"][f["id"]].update(selected=True, htbl_companion=htbl["id"], names={"jamo/12/1": "X%s.SVF" % f["id"]})
+        job = {"fonts": self.fonts, "settings": st}
+        files_dir = tempfile.mkdtemp(prefix="svf-plan-")
+        self.addCleanup(shutil.rmtree, files_dir, ignore_errors=True)
+        steps = settings.plan_steps(job, files_dir, REPO_TOOLS, self.src)
+        sources_of_htbl = [s for s in steps if s["kind"] == "source" and s["font"] == htbl["id"]]
+        self.assertEqual(len(sources_of_htbl), 1)
+        faces = [s for s in steps if s["kind"] == "jamo"]
+        self.assertEqual(len(faces), 2)
+        for face in faces:
+            self.assertIn(sources_of_htbl[0]["id"], face["needs"])
+        order = [s["id"] for s in steps]
+        self.assertLess(order.index(sources_of_htbl[0]["id"]), order.index(faces[0]["id"]))
+        self.assertTrue(any(a["id"] == s["font"] and s["kind"] == "source" for s in steps))
+
+
 if __name__ == "__main__":
     unittest.main()

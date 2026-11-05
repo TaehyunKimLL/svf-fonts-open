@@ -31,9 +31,11 @@ TOKEN = "0123456789abcdef0123456789abcdef"
 WAIT_S = 180
 
 
-def local_tree(tmp):
+def local_tree(tmp, mac=False):
     """`tmp/in/a/` a TTF + OFL.txt, `tmp/in/b/` a DOS raw 844 16 px + an 8x16 eng, `tmp/in/c/hanterm.bdf.gz` (a
-    johab BDF gzipped): five files. Returns `{"in", "out" (made), "roots": [a, b, c]}`."""
+    johab BDF gzipped): five files. Returns `{"in", "out" (made), "roots": [a, b, c]}`. With @p mac, `tmp/in/mac/`
+    also holds the synthetic Mac files (every wrapping of a 7.1 fbit, an HTBL 1 and a suitcase) and the result has
+    `"mac"`: that folder (it is not among `roots`)."""
     tmp = os.path.realpath(tmp)
     a, b, c = (os.path.join(tmp, "in", name) for name in "abc")
     for d in (a, b, c, os.path.join(tmp, "out")):
@@ -49,7 +51,32 @@ def local_tree(tmp):
     with open(raw, "rb") as f, open(os.path.join(c, "hanterm.bdf.gz"), "wb") as g:
         g.write(gzip.compress(f.read(), mtime=0))
     os.remove(raw)
-    return {"in": os.path.join(tmp, "in"), "out": os.path.join(tmp, "out"), "roots": [a, b, c]}
+    result = {"in": os.path.join(tmp, "in"), "out": os.path.join(tmp, "out"), "roots": [a, b, c]}
+    if mac:
+        result["mac"] = mac_tree(os.path.join(tmp, "in", "mac"))
+    return result
+
+
+def mac_tree(root):
+    """The synthetic Mac files of the 7.1 tests under @p root; returns @p root."""
+    import macfx
+    files = {
+        "Seoul12.rsrc": macfx.fbit3_fork(1), "InputBackSupport.rsrc": macfx.htbl_fork(1),
+        "Suitcase.rsrc": macfx.suitcase(12),
+        "ad/._Seoul12": macfx.appledouble(macfx.fbit3_fork(1)),
+        "ad/._InputBackSupport": macfx.appledouble(macfx.htbl_fork(1)),
+        "mb/Seoul12.bin": macfx.macbinary(macfx.fbit3_fork(1)), "mb/IBS.bin": macfx.macbinary(macfx.htbl_fork(1)),
+        "jm/Seoul12": macfx.jm(macfx.fbit3_fork(1)),
+        "raw/Seoul12.fbit": macfx.fbit3_raw(1), "raw/Seoul12.htbl1": macfx.htbl_raw(1),
+        "nfnt/Only.rsrc": macfx.nfnt_only(),
+        "gz/Seoul12.rsrc.gz": gzip.compress(macfx.fbit3_fork(1), mtime=0),
+    }
+    for rel, data in files.items():
+        path = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+    return root
 
 
 def walk_rel(root, skip_prefix=None):

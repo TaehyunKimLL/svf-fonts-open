@@ -207,6 +207,35 @@ def _hanterm_commands(font, size, bpp, layout, range_spec, paths, extra):
     return _with_extra([argv], extra)
 
 
+def _mac71_commands(mode):
+    """`macfbit_svf.py build FBIT HTBL -o OUT --mode direct|derived [--latin SUITCASE]` for a 7.1 type-3 fbit."""
+    def commands(font, size, bpp, layout, range_spec, paths, extra):
+        if not paths.get("htbl"):
+            raise ValueError("needs an HTBL 1 table")
+        argv = PY + [_tool(paths, "macfbit_svf.py"), "build", paths["src"], paths["htbl"], "-o", paths["out"],
+                     "--mode", mode]
+        if paths.get("latin"):
+            argv += ["--latin", paths["latin"]]
+        return _with_extra([argv], extra)
+    return commands
+
+
+def _mac71_bdf_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """The fbit's planes composed into a BDF strike (`macfbit3.py bdf`), then `mkfont.py` on that BDF at its own size."""
+    if not paths.get("htbl"):
+        raise ValueError("needs an HTBL 1 table")
+    bdf = os.path.join(paths["work"], "mac.bdf")
+    sized = os.path.join(paths["work"], "mac-sized.bdf")
+    first = PY + [_tool(paths, "macfbit3.py"), "bdf", paths["src"], paths["htbl"], font.get("family") or "Mac", bdf]
+    # the tool's BDF has no PIXEL_SIZE, so FreeType would read its `SIZE 12 75 75` as 13 px: name the strike's own size
+    second = PY + [SRCPREP, "bdf-pixel-size", bdf, sized, "--size", str(size)]
+    unicode_range = ("ksx1001-hangul,3131-318e" if range_spec[0] == "2350"       # the strike holds no ASCII
+                     else _mkfont_unicode(range_spec, paths))
+    third = PY + [_tool(paths, "mkfont.py"), sized, paths["out"], "--size", str(size), "--bpp", "1",
+                  "--unicode", unicode_range]
+    return _with_extra([first, second, third], extra)    # the panel's flags go on the last command
+
+
 def _bdfface_commands(font, size, bpp, layout, range_spec, paths, extra):
     latin = paths.get("latin")
     if not latin:
@@ -313,19 +342,33 @@ def fmt_num(value):
     return str(int(value)) if float(value).is_integer() else repr(float(value))
 
 
-def source_commands(ops, src, work, tools_dir, sfnt_ext="ttf"):
+# The extension of the file each source op writes (None: the sfnt's own, `ttf` or `otf`).
+OP_EXT = {"rsrc-sfnt": None, "ttc-face": None, "mac-cmap": None, "instance": None, "pcf-bdf": "bdf",
+          "mac-fork": "rsrc", "mac-fork-named": "rsrc", "mac-fbit3": "fbit", "mac-htbl": "htbl1"}
+
+
+def op_ext(op, sfnt_ext="ttf"):
+    """The extension of the file source op @p op writes."""
+    ext = OP_EXT.get(op)
+    return sfnt_ext if ext is None else ext
+
+
+def source_commands(ops, src, work, tools_dir, sfnt_ext="ttf", last_name=None):
     """The argvs that turn @p src into the file the tools read, one per op in @p ops, and that file's path.
 
-    Op i writes `work/source-<i+1>.<ext>` and the last op `work/source.<ext>` (`ext` is `bdf` after `pcf-bdf`, else
-    @p sfnt_ext, `ttf` or `otf` for a CFF face), each reading the one before: `rsrc-sfnt` and `mac-cmap` are tools/macsfnt.py, `ttc-face` and `pcf-bdf` are
-    the maker's srcprep.py, `instance` is fontTools' instancer. No ops: no argv and @p src itself.
+    Op i writes `work/source-<i+1>.<ext>` and the last op `work/source.<ext>` (or @p last_name), where `ext` is the
+    op's own (`OP_EXT`: `bdf` after `pcf-bdf`, `rsrc` after `mac-fork`, `fbit`, `htbl1`) or @p sfnt_ext (`ttf` or `otf`
+    for a CFF face), each reading the one before: `rsrc-sfnt` and `mac-cmap` are tools/macsfnt.py, `ttc-face`,
+    `pcf-bdf`, `mac-fork` and `mac-htbl` are the maker's srcprep.py, `mac-fbit3` is tools/macfbit3.py, `instance` is
+    fontTools' instancer. No ops: no argv and @p src itself.
     """
     argvs = []
     current = src
     for i, op in enumerate(ops):
         kind = op.get("op")
         last = i == len(ops) - 1
-        out = os.path.join(work, ("source" if last else "source-%d" % (i + 1)) + (".bdf" if kind == "pcf-bdf" else "." + sfnt_ext))
+        ext = op_ext(kind, sfnt_ext)
+        out = os.path.join(work, (last_name or "source." + ext) if last else "source-%d.%s" % (i + 1, ext))
         if kind == "rsrc-sfnt":
             argv = PY + [os.path.join(tools_dir, "macsfnt.py"), "extract", current, out, "--id", str(op["id"])]
         elif kind == "ttc-face":
@@ -337,6 +380,14 @@ def source_commands(ops, src, work, tools_dir, sfnt_ext="ttf"):
             argv = PY + ["-m", "fontTools.varLib.instancer", current] + pins + ["-o", out]
         elif kind == "pcf-bdf":
             argv = PY + [SRCPREP, "pcf-bdf", current, out]
+        elif kind == "mac-fork":
+            argv = PY + [SRCPREP, "mac-fork", current, out]
+        elif kind == "mac-fbit3":
+            argv = PY + [os.path.join(tools_dir, "macfbit3.py"), "fbit", current, out]
+        elif kind == "mac-htbl":
+            argv = PY + [SRCPREP, "mac-htbl", current, out]
+        elif kind == "mac-fork-named":
+            argv = PY + [SRCPREP, "mac-fork-named", current, out]
         else:
             raise ValueError("unknown source op %r" % (kind,))
         argvs.append(argv)
@@ -378,6 +429,13 @@ def routes(font):
         if font.get("dos_bytes") == 11520 and "844" in layouts:   # a 16 px 8x4x4 raw font: its pieces make precomposed syllables
             out.append(Route("precomposed", "johab844", True, [], [1], [16], None, None, _johab844_commands))
         out.append(Route("jamo", "dos raw", True, layouts, [1], sizes, None, None, _dos_commands))
+    elif kind == "mac-fbit3":
+        out.append(Route("jamo", "mac fbit 7.1 direct", True, ["mac-htbl1"], [1], sizes, None, None,
+                         _mac71_commands("direct")))
+        out.append(Route("jamo", "mac fbit 7.1 derived", False, ["mac-htbl1"], [1], sizes, None, None,
+                         _mac71_commands("derived")))
+        out.append(Route("precomposed", "mac fbit 7.1 bdf + mkfont", True, [], [1], sizes, None, None,
+                         _mac71_bdf_commands))
     elif kind == "bdf-johab":
         out.append(Route("jamo", "hanterm", True, ["hanterm-johab"], [1], sizes, None, None, _hanterm_commands))
     elif kind == "bdf-ksc5601":

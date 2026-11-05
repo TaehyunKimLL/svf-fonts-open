@@ -17,6 +17,7 @@ import glob
 import gzip
 import json
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -25,6 +26,7 @@ import fixtures
 import inputfx
 import inputkinds
 import jamoset
+import localfx
 import mkfont
 import routes
 import settings
@@ -750,6 +752,168 @@ class NamedRangeTest(Case):
 class ZipoutSourceTitleTest(unittest.TestCase):
     def test_source_step_title(self):
         self.assertEqual(zipout._step_title({"id": "s01", "font": "f02", "kind": "source"}), "## s01 f02 source")
+
+
+class MacEndToEndTest(localfx.LocalBase):
+    """Mac 7.1 type-3 fbit fonts through a local job over HTTP: every wrapping, the companions' source steps, the three
+    routes. Synthetic files only (maker/test/macfx.py)."""
+
+    def setUp(self):
+        super().setUp()
+        self.mac = localfx.mac_tree(os.path.join(self.tmp, "tree", "in", "mac"))
+
+    def p(self, *parts):
+        return os.path.join(self.mac, *parts)
+
+    def mac_job(self, roots, fbit_path, name="X", extra=None):
+        """A detected job over @p roots with the 12 px fbit at @p fbit_path selected (jamo, direct)."""
+        jid = self.local_job(roots)
+        job = self.job(jid)
+        fonts = {(f["root"], f["path"]): f for f in job["fonts"]}
+        font = next(f for f in job["fonts"] if f["path"] == fbit_path)
+        st = job["settings"]
+        per = st["fonts"][font["id"]]
+        per.update(selected=True, dest="jamo-extra", kinds=["jamo"], names={"jamo/12/1": "%s12J.SVF" % name})
+        if extra:
+            per.update(extra)
+        status, body = self.api("PUT", "/api/jobs/%s/settings" % jid, st)
+        self.assertEqual(status, 200, body)
+        return jid, font
+
+    def done(self, jid):
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error") or [s.get("error") for s in job["steps"]])
+        return job
+
+    def face_of(self, job):
+        rel = next(f for f in job["result"]["files"] if f.endswith(".SVF"))
+        with open(os.path.join(self.out, rel), "rb") as fh:
+            return rel, fh.read()
+
+    def test_mac71_direct_written_and_verified(self):
+        jid, font = self.mac_job([self.p("Seoul12.rsrc"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc")
+        job = self.done(jid)
+        rel, data = self.face_of(job)
+        self.assertEqual(jamoset.parse_svfn(data).version, 3)
+        check = os.path.join(self.tmp, "check")
+        os.makedirs(check)
+        import macfx
+        for name, blob in (("face.svf", data), ("fbit.bin", macfx.fbit3_raw()), ("htbl.bin", macfx.htbl_raw())):
+            with open(os.path.join(check, name), "wb") as f:
+                f.write(blob)
+        r = subprocess.run([sys.executable, "-P", os.path.join(REPO_DIR, "tools", "macfbit_svf.py"), "verify",
+                            os.path.join(check, "face.svf"), os.path.join(check, "fbit.bin"),
+                            os.path.join(check, "htbl.bin")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        inputkinds.assert_facecheck_tree(self, self.out)
+
+    def tools_of(self, job):
+        return {s["font"] + ":" + s["kind"]: inputkinds.step_tools([s])[0] for s in job["steps"]}
+
+    def test_mac71_wrapped_and_jm(self):
+        cases = [([self.p("ad")], "ad/._Seoul12", ["srcprep.py mac-fork", "macfbit3.py"],
+                  ["srcprep.py mac-fork", "srcprep.py mac-htbl"]),
+                 ([self.p("mb")], "mb/Seoul12.bin", ["srcprep.py mac-fork", "macfbit3.py"],
+                  ["srcprep.py mac-fork", "srcprep.py mac-htbl"]),
+                 ([self.p("jm", "Seoul12"), self.p("raw", "Seoul12.htbl1")], "Seoul12", ["macfbit3.py"], None)]
+        for n, (roots, path, own, other) in enumerate(cases):
+            with self.subTest(path=path):
+                out = os.path.join(self.tmp, "out%d" % n)
+                os.makedirs(out)
+                jid = self.local_job(roots, out)
+                job = self.job(jid)
+                font = next(f for f in job["fonts"] if f["source_kind"] == "mac-fbit3")
+                st = job["settings"]
+                st["fonts"][font["id"]].update(selected=True, dest="jamo-extra", kinds=["jamo"])
+                self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+                done = self.done(jid)
+                tools = self.tools_of(done)
+                self.assertEqual(tools[font["id"] + ":source"], own)
+                htbl = next(f for f in job["fonts"] if f["source_kind"] == "mac-htbl")
+                if other:
+                    self.assertEqual(tools[htbl["id"] + ":source"], other)
+                else:
+                    self.assertNotIn(htbl["id"] + ":source", tools)               # a raw table needs no source step
+                self.assertEqual(tools[font["id"] + ":jamo"], ["macfbit_svf.py"])
+
+    def test_companion_failure_cascades(self):
+        jid = self.local_job([self.p("Seoul12.rsrc"), self.p("raw", "Seoul12.fbit"), self.p("ad", "._InputBackSupport")])
+        job = self.job(jid)
+        st = job["settings"]
+        fbits = [f for f in job["fonts"] if f["source_kind"] == "mac-fbit3"]
+        self.assertEqual(len(fbits), 2)
+        for i, f in enumerate(fbits):
+            st["fonts"][f["id"]].update(selected=True, dest="jamo-extra", kinds=["jamo"],
+                                        names={"jamo/12/1": "C%d12J.SVF" % i}, note_name="C%d.TXT" % i)
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        htbl = next(f for f in job["fonts"] if f["source_kind"] == "mac-htbl")
+        path = self.p("ad", "._InputBackSupport")
+        with open(path, "rb") as f:
+            data = bytearray(f.read())
+        data[38 + 4:38 + 8] = b"\xff\xff\xff\xff"                  # the fork's map offset: past the end, same size
+        with open(path, "wb") as f:
+            f.write(bytes(data))
+        st2 = os.lstat(path)
+
+        def refresh(j):
+            for entry in j["fonts"]:
+                if entry["id"] == htbl["id"]:
+                    entry["file_id"] = [st2.st_dev, st2.st_ino, st2.st_size]
+        self.srv.store.update(jid, refresh)
+        job = self.run_to_done(jid)
+        by_kind = {}
+        for step in job["steps"]:
+            by_kind.setdefault((step["font"] == htbl["id"], step["kind"]), []).append(step)
+        self.assertEqual([s["state"] for s in by_kind[(True, "source")]], ["failed"])
+        faces = by_kind[(False, "jamo")]
+        self.assertEqual(len(faces), 2)
+        for face in faces:
+            self.assertEqual((face["state"], face["error"], face["exit"]), ("failed", "companion source failed", None))
+        self.assertEqual(job["state"], "failed")
+
+    def test_mac71_derived_and_bdf_mkfont(self):
+        jid, font = self.mac_job([self.p("Seoul12.rsrc"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc",
+                                 extra={"experimental": True, "jamo_route": "mac fbit 7.1 derived"})
+        job = self.done(jid)
+        rel, data = self.face_of(job)
+        face = jamoset.parse_svfn(data)
+        self.assertEqual(face.version, 3)
+        self.assertIsNotNone(face.jset)                                            # derived: a JSET face, not a JMAP
+        out2 = os.path.join(self.tmp, "out2")
+        os.makedirs(out2)
+        jid = self.local_job([self.p("Seoul12.rsrc"), self.p("InputBackSupport.rsrc")], out2)
+        job = self.job(jid)
+        font = next(f for f in job["fonts"] if f["source_kind"] == "mac-fbit3")
+        st = job["settings"]
+        st["fonts"][font["id"]].update(selected=True, dest="dos", kinds=["precomposed"], names={"precomposed/12/1": "BDF12.SVF"},
+                                       note_name="BDF.TXT")
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        job = self.done(jid)
+        with open(os.path.join(out2, "svf", "dos", "BDF12.SVF"), "rb") as f:
+            face = jamoset.parse_svfn(f.read())
+        self.assertEqual(face.version, 3)
+        chars = set(face.glyphs)
+        self.assertEqual(len([c for c in chars if 0xAC00 <= c <= 0xD7A3]), 2350)    # the KS syllables
+        self.assertGreaterEqual(len([c for c in chars if 0x3131 <= c <= 0x318E]), 50)  # and the compat jamo (the blank one is omitted)
+        self.assertNotIn(0x41, chars)                                              # the BDF holds no ASCII
+
+    def test_mac71_gz_fork(self):
+        jid, font = self.mac_job([self.p("gz"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc.gz")
+        job = self.done(jid)
+        src = next(s for s in job["steps"] if s["font"] == font["id"] and s["kind"] == "source")
+        self.assertIn("/work/%s/Seoul12.rsrc" % font["id"], src["argv"][0][4])    # the decompressed copy under work/<fid>/
+        self.assertIn(".svf-maker-%s" % jid, src["argv"][0][4])
+
+    def test_mac71_source_face(self):
+        jid, font = self.mac_job([self.p("Seoul12.rsrc"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc")
+        r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))
+        self.assertEqual(r[0], 200)
+        self.assertEqual(jamoset.parse_svfn(r[2]).version, 3)
+        st = self.job(jid)["settings"]
+        st["fonts"][font["id"]]["htbl_companion"] = None
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))
+        self.assertEqual((r[0], json.loads(r[2])["error"]), (404, "choose the HTBL table"))
 
 
 if __name__ == "__main__":

@@ -258,8 +258,8 @@ def _remove_preview(store, job, font_id):
                 pass
 
 
-_PREVIEW_KEYS = ("dos_layout", "sizes", "kinds", "bpp", "range", "preset", "latin_companion", "instance",
-                 "experimental", "jamo_route")
+_PREVIEW_KEYS = ("dos_layout", "sizes", "kinds", "bpp", "range", "preset", "latin_companion", "htbl_companion",
+                 "instance", "experimental", "jamo_route")
 _PREVIEW_OPTIONS = {"mkfont": ("cell", "width", "latin", "mono_hint", "space_advance"),
                     "jamoset": ("jset_version", "jamo_ascent", "embolden", "symbols")}
 
@@ -370,8 +370,13 @@ def _kept_settings(old, fonts, old_fonts, roots=None, old_roots=None, local=Fals
         if "latin_companion" in per:                # an id too: remap it by path, else fall back to the default (Z1)
             new = new_id_by_key.get(old_key_by_id.get(per["latin_companion"]))
             if per["latin_companion"] is not None:
-                per["latin_companion"] = new if new in (font.get("companions") or []) else \
-                    fresh["fonts"][fid].get("latin_companion")
+                allowed = (font.get("latin_candidates") if font.get("source_kind") == "mac-fbit3"
+                           else font.get("companions")) or []
+                per["latin_companion"] = new if new in allowed else fresh["fonts"][fid].get("latin_companion")
+        if per.get("htbl_companion") is not None:   # the HTBL table is an id as well
+            new = new_id_by_key.get(old_key_by_id.get(per["htbl_companion"]))
+            per["htbl_companion"] = new if new in (font.get("companions") or []) else \
+                fresh["fonts"][fid].get("htbl_companion")
         if "instance" in per:                       # an instance stays only while the font still has those axes
             per["instance"] = per["instance"] if _instance_fits(font, per["instance"]) else None
         if is_local:
@@ -1573,7 +1578,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current = self._load(job)
         files_dir = self._files_dir_ready(current)
         entry = next((item for item in (current.get("fonts") or []) if item.get("id") == font), None)
-        if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo"):
+        if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3"):
             raise _HttpError(404, "no source face")
         path = os.path.join(files_dir, "work", "preview", "%s.svf" % font)
         if not os.path.isfile(path):
@@ -1609,14 +1614,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._make_source_preview(job, files_dir, font)
         finally:
             if job.get("source") == "local":
-                target_dir = os.path.join(files_dir, "work", "preview", str(font.get("id")))
-                if os.path.isdir(target_dir):
-                    for name in os.listdir(target_dir):
-                        if name.startswith("source"):
-                            try:
-                                os.remove(os.path.join(target_dir, name))
-                            except OSError:
-                                pass
+                try:
+                    eff = settings.effective(job.get("fonts") or [], job.get("settings") or {}, font.get("id"))
+                except KeyError:
+                    eff = {}
+                ids = {font.get("id"), eff.get("htbl_companion"), eff.get("latin_companion")}
+                for fid in ids:
+                    target_dir = os.path.join(files_dir, "work", "preview", str(fid))
+                    if fid and os.path.isdir(target_dir):
+                        for name in os.listdir(target_dir):
+                            if name.startswith("source"):
+                                try:
+                                    os.remove(os.path.join(target_dir, name))
+                                except OSError:
+                                    pass
 
     def _make_source_preview(self, job, files_dir, font):
         """Bake or draw @p font's source preview into `work/preview/<font id>.png` (its own file: no shared name)."""
@@ -1648,6 +1659,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                         self._bake_flags(eff, source_kind), env=env):
                 self._render_preview(None, out_svf, out_png)
             return
+        if source_kind == "mac-fbit3":
+            by_id = {item.get("id"): item for item in fonts}
+            htbl = by_id.get(eff.get("htbl_companion"))
+            if htbl is None:
+                raise _HttpError(409, "choose the HTBL table")
+            htbl_abs = self._prepared_source(htbl, {}, sources, out_dir, env=env, keep=not local)
+            out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
+            if preview.bake_source_face(font, abs_src, None, None, out_svf, self.server.tools_dir,
+                                        self._bake_flags(eff, source_kind), env=env, htbl_abs=htbl_abs):
+                self._render_preview(None, out_svf, out_png)
+            return
         preview.source_png(font, abs_src, self._first_size(font, eff), out_png)
 
     @staticmethod
@@ -1669,13 +1691,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not ops:
             return plain
         last = ops[-1].get("op")
-        ext = "bdf" if last == "pcf-bdf" else "otf" if font.get("cff") else "ttf"
+        sfnt_ext = "otf" if font.get("cff") else "ttf"
+        ext = routes.op_ext(last, sfnt_ext)
         target_dir = os.path.join(out_dir, str(font.get("id")))
         target = os.path.join(target_dir, "source." + ext)
         if not keep or not os.path.isfile(target):
             # the build's own commands, in a subprocess with a time limit (an instancer on a large CJK font is slow and big)
             os.makedirs(target_dir, exist_ok=True)
-            argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, ext)
+            argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, sfnt_ext)
             try:
                 for argv in argvs:
                     done = preview.run_bounded(argv, target_dir, preview.TIMEOUT_S, env=env)

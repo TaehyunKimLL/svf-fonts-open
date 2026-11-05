@@ -113,7 +113,7 @@ def canonical_fonts():
     present, so a route that needs one is offered; the SVF kinds get their 1 and 2 bpp variants.
     """
     base = {"face_index": 0, "sizes": [16], "bdf": {"box": [16, 16]}, "dos": {"candidates": ["844"]},
-            "svf": {"bpp": 1}, "dos_bytes": 11520}
+            "svf": {"bpp": 1}, "dos_bytes": 11520, "mac": {"generation": 3}}
     fonts = [dict(base, source_kind=kind) for kind in presets.ALL_SOURCES]
     fonts += [dict(base, source_kind=kind, svf={"bpp": 2})
               for kind in ("svf-precomposed", "svf-jamo")]
@@ -1014,7 +1014,8 @@ class ApiTest(ApiBase):
                  "--baseline": "fit_baseline", "--binarize": "binarize", "--aa-refine": "aa_refine",
                  "--no-clean": "clean", "--hangul-ascent": "hangul_ascent"}
         TOOL_OF_LABEL = {"mkfont": "ascent", "dos raw": "jamo_ascent", "hanterm": "jamo_ascent",
-                         "bdfface": "latin_ascent", "bdfface + from-svf fit": "latin_ascent"}
+                         "bdfface": "latin_ascent", "bdfface + from-svf fit": "latin_ascent",
+                         "mac fbit 7.1 bdf + mkfont": "ascent"}
         every = {"mkfont": {"cell": 18, "ascent": 12, "width": 18, "mono_hint": True, "clip_cell": True,
                             "fit_cell": False, "latin": True, "space_advance": 5},
                  "jamoset": {"embolden": True, "symbols": True, "jset_version": 2, "jamo_ascent": 12,
@@ -1047,9 +1048,9 @@ class ApiTest(ApiBase):
         preview_js = js_json_block(js, "PREVIEW_KINDS")
         self.assertEqual(sorted(preview_js), sorted(presets.ALL_SOURCES))
         source = inspect.getsource(server.Handler._make_source_preview)
-        baked = set(re.findall(r'source_kind\s*==\s*"([a-z-]+)"', source))
+        baked = set(re.findall(r'source_kind\s*==\s*"([a-z0-9-]+)"', source))
         for group in re.findall(r'source_kind\s+in\s+\(([^)]*)\)', source):
-            baked.update(re.findall(r'"([a-z-]+)"', group))
+            baked.update(re.findall(r'"([a-z0-9-]+)"', group))
         self.assertEqual(sorted(k for k, how in preview_js.items() if how == "bake"), sorted(baked))
         drawn = sorted(k for k, how in preview_js.items() if how == "draw")
         self.assertEqual(drawn, ["bdf-iso10646", "bitmap", "outline", "outline-composite"])
@@ -1060,6 +1061,22 @@ class ApiTest(ApiBase):
         # The validator's source words (settings._SOURCE_WORDS / _SOURCE_ARTICLES) are what the page prints.
         self.assertEqual(js_json_block(js, "SOURCE_WORDS"), settings._SOURCE_WORDS)
         self.assertEqual(js_json_block(js, "SOURCE_ARTICLES"), settings._SOURCE_ARTICLES)
+
+    def test_page_layouts_cover_route_layouts(self):
+        """`maker.js` LAYOUTS is a fixed list the per-font layout select draws from: a route layout missing from it
+        would make the select reset the layout. A dos-raw font is exempt as in `settings._route_errors` (its layout is
+        `dos_layout`; canonical_fonts holds a candidate LAYOUTS rightly does not list)."""
+        with open(os.path.join(MAKER_DIR, "static", "maker.js"), encoding="utf-8") as f:
+            js = f.read()
+        page = set(re.search(r"const LAYOUTS = (\[.*?\]);", js).group(1).replace('"', "").strip("[]").split(", "))
+        want = set()
+        for font in canonical_fonts():
+            if font["source_kind"] == "dos-raw":
+                continue
+            for route in routes.routes(font):
+                want.update(route.layouts)
+        self.assertLessEqual(want, page, want - page)
+        self.assertIn("mac-htbl1", want)
 
     def test_page_advanced_lists_the_new_keys(self):
         with open(os.path.join(MAKER_DIR, "static", "maker.js"), encoding="utf-8") as f:

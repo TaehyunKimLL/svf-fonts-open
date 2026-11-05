@@ -14,6 +14,7 @@ for _p in (TEST_DIR, MAKER_DIR, os.path.join(REPO_DIR, "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -129,25 +130,37 @@ def assert_facecheck(test, zip_path):
     with tempfile.TemporaryDirectory(prefix="inputkinds-fc-") as d:
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(d)
-        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
-        for argv in (["git", "init", "-q"], ["git", "add", "-A"], git + ["commit", "-q", "-m", "x"]):
-            r = subprocess.run(argv, cwd=d, capture_output=True, text=True)
-            test.assertEqual(r.returncode, 0, r.stderr)
-        facecheck = os.path.join(TOOLS, "facecheck.py")
-        manifest = os.path.join(d, "..", os.path.basename(d) + ".tsv")
-        r = subprocess.run([sys.executable, "-I", facecheck, "manifest", "--git", d, "--rev", "HEAD", "--path", "svf",
-                            "-o", manifest], capture_output=True, text=True)
+        _facecheck(test, d)
+
+
+def assert_facecheck_tree(test, out_dir):
+    """The tree form of `assert_facecheck`: `out_dir/svf` copied into a temp git checkout as `svf/` passes the same
+    facecheck (`manifest`, `verify`) and every SVF in it parses as version 3."""
+    with tempfile.TemporaryDirectory(prefix="inputkinds-fc-") as d:
+        shutil.copytree(os.path.join(out_dir, "svf"), os.path.join(d, "svf"))
+        _facecheck(test, d)
+
+
+def _facecheck(test, d):
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+    for argv in (["git", "init", "-q"], ["git", "add", "-A"], git + ["commit", "-q", "-m", "x"]):
+        r = subprocess.run(argv, cwd=d, capture_output=True, text=True)
         test.assertEqual(r.returncode, 0, r.stderr)
-        with open(manifest) as fh:
-            test.assertGreaterEqual(len([line for line in fh if line.strip()]), 1)
-        r = subprocess.run([sys.executable, "-I", facecheck, "verify", manifest], cwd=d, capture_output=True, text=True)
-        os.remove(manifest)
-        test.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
-        faces = 0
-        for root, _dirs, names in os.walk(os.path.join(d, "svf")):
-            for name in names:
-                if name.lower().endswith(".svf"):
-                    with open(os.path.join(root, name), "rb") as fh:
-                        test.assertEqual(jamoset.parse_svfn(fh.read()).version, 3)
-                    faces += 1
-        test.assertGreaterEqual(faces, 1)
+    facecheck = os.path.join(TOOLS, "facecheck.py")
+    manifest = os.path.join(d, "..", os.path.basename(d) + ".tsv")
+    r = subprocess.run([sys.executable, "-I", facecheck, "manifest", "--git", d, "--rev", "HEAD", "--path", "svf",
+                        "-o", manifest], capture_output=True, text=True)
+    test.assertEqual(r.returncode, 0, r.stderr)
+    with open(manifest) as fh:
+        test.assertGreaterEqual(len([line for line in fh if line.strip()]), 1)
+    r = subprocess.run([sys.executable, "-I", facecheck, "verify", manifest], cwd=d, capture_output=True, text=True)
+    os.remove(manifest)
+    test.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
+    faces = 0
+    for root, _dirs, names in os.walk(os.path.join(d, "svf")):
+        for name in names:
+            if name.lower().endswith(".svf"):
+                with open(os.path.join(root, name), "rb") as fh:
+                    test.assertEqual(jamoset.parse_svfn(fh.read()).version, 3)
+                faces += 1
+    test.assertGreaterEqual(faces, 1)

@@ -173,13 +173,13 @@ GLYPHS = [(0x3021, [0x8001 | (y << 3) for y in range(16)], 16),
 
 
 class MacPrepTest(TmpCase):
-    def cli(self, sub, data):
-        """`(exit code, OUT bytes or b"")` of `python3 -P srcprep.py <sub> IN OUT` over @p data."""
+    def cli(self, sub, data, *flags):
+        """`(exit code, OUT bytes or b"")` of `python3 -P srcprep.py <sub> IN OUT [flags]` over @p data."""
         src = self.write("in.bin", data)
         out = os.path.join(self.dir, "out.bin")
         if os.path.exists(out):
             os.remove(out)
-        r = subprocess.run([sys.executable, "-P", os.path.join(MAKER_DIR, "srcprep.py"), sub, src, out],
+        r = subprocess.run([sys.executable, "-P", os.path.join(MAKER_DIR, "srcprep.py"), sub, src, out] + list(flags),
                            capture_output=True, text=True)
         content = b""
         if os.path.exists(out):
@@ -205,6 +205,17 @@ class MacPrepTest(TmpCase):
         struct.pack_into(">I", big, 14, srcprep.JM_CAP + 1)               # unpacked_len, the 4th header word
         with self.assertRaisesRegex(srcprep.PrepError, "too large"):
             srcprep.prepared_bytes(bytes(big), [{"op": "mac-fbit3"}])
+
+    def test_bdf_pixel_size(self):
+        bdf = (b"STARTFONT 2.1\nFONT x\nSIZE 12 75 75\nFONTBOUNDINGBOX 12 12 0 -2\nSTARTPROPERTIES 2\n"
+               b"FONT_ASCENT 10\nFONT_DESCENT 2\nENDPROPERTIES\nCHARS 0\nENDFONT\n")
+        code, out = self.cli("bdf-pixel-size", bdf, "--size", "12")
+        self.assertEqual(code, 0)
+        self.assertIn(b"STARTPROPERTIES 3\nPIXEL_SIZE 12\nFONT_ASCENT 10", out)
+        again = self.cli("bdf-pixel-size", out, "--size", "14")[1]                # replaced, not doubled
+        self.assertEqual(again.count(b"PIXEL_SIZE"), 1)
+        self.assertIn(b"STARTPROPERTIES 3\nPIXEL_SIZE 14", again)
+        self.assertEqual(self.cli("bdf-pixel-size", b"not a bdf", "--size", "12")[0], 2)
 
     def test_mac_htbl(self):
         self.assertEqual(self.cli("mac-htbl", macfx.htbl_fork()), (0, macfx.htbl_raw()))
