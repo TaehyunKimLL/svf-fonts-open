@@ -236,3 +236,13 @@ Electron relaunch.
 pre-queue check (path rules, the stat of every input, planning, free space). A hung input mount therefore delays other
 creates, activations and sweeps until that stat returns; the sweeps wait for a job's preview locks only with a short
 try-lock (0.5 s) and are recorded as pending when a bake holds them. This was accepted over a second lock.
+
+**Known limits of the cleanup (follow-up card t_d1aba4b8).**
+- Start-up and stop cleanup are bounded by one `Deadline` for the lifecycle lock, the preview locks, the stats and the
+  removals, but not everything: start-up `sweep_trash` (listdir, islink, isdir, one removal allowance per tombstone) and the
+  `os.rename` to a tombstone under the lifecycle and preview locks are not covered by it, and a failure to record a pending
+  entry waits for the pending lock and the synchronous write and fsync of `pending-sweeps.json` without a bound. A mount
+  that answers `stat` and then hangs on `rename` or `listdir` can therefore still hold start-up or shutdown.
+- The lifecycle lock is held across the raw stat/lstat/mkdir of `ensure_files_dir` and across the pre-queue reads of
+  `POST run` (inputs, licence hashing, planning, range-file copy). A hung removable or network volume used by one job
+  delays creates, activations and idle cleanup of unrelated jobs until the call returns.

@@ -758,6 +758,8 @@ class Store:
                 if remove_tree_bounded(trash, bound):
                     return True
                 reason = "removal did not finish in time"
+        except FileNotFoundError:
+            return True                                           # already removed by a bounded removal that finished
         except Exception as exc:
             reason = exc_text(exc, True)
         try:
@@ -888,6 +890,7 @@ class Store:
             dl = Deadline(RETRY_DEADLINE_S if deadline_s is None else deadline_s)
             dropped = []
             tombs = []
+            new_tombs = []
             for entry in entries:
                 if dl.expired():
                     break                                         # out of time: the rest stays for the next pass
@@ -936,30 +939,38 @@ class Store:
                         dropped.append((path, recorded))
                     elif status == "renamed":
                         dropped.append((path, recorded))
-                        tombs.append((trash, None))
+                        new_tombs.append({"path": trash, "output_dir": out, "output_id": list(oid), "job": job_id,
+                                          "files_id": None})
                 except TimeoutError:
                     continue                                      # a preview lock is held: kept
                 except Exception as exc:
-                    print("sweep: %s: %s" % (entry.get("path"), exc), file=sys.stderr)
-            fresh = []
-            for trash, _gen in tombs:                             # outside every lock but the pending one
-                if not dl.expired() and remove_tree_bounded(trash, min(REMOVE_BOUND_S, dl.remaining())):
-                    dropped.append((trash, _gen))
-                else:
-                    fresh.append(trash)
-            with self._pending_lock:                              # entries added or renewed meanwhile are kept
+                    print("sweep: %s: %s" % (entry.get("path"), type(exc).__name__), file=sys.stderr)
+            # The replacement of each renamed directory by its tombstone is saved BEFORE anything is removed: a removal
+            # that raises or is cut short can then never leave a directory that no entry names.
+            with self._pending_lock:
                 current = self._read_pending()
                 kept = [e for e in current if (e.get("path"), e.get("files_id")) not in dropped]
                 known = {e.get("path") for e in kept}
-                for trash in fresh:
-                    if trash not in known:                        # a tombstone made by this pass that is still there
-                        src = next((e for e in entries if os.path.dirname(e["path"]) == os.path.dirname(trash)
-                                    and e["job"] in trash), None)
-                        if src is not None:
-                            kept.append({"path": trash, "output_dir": src["output_dir"], "output_id": src["output_id"],
-                                         "job": src["job"], "files_id": None})
+                kept += [t for t in new_tombs if t["path"] not in known]
                 if kept != current:
                     self._write_pending(kept)
+            removed = []
+            for trash in [t for t, _g in tombs] + [t["path"] for t in new_tombs]:
+                if dl.expired():
+                    break
+                try:                                              # each removal on its own: one failure stops no other
+                    if remove_tree_bounded(trash, min(REMOVE_BOUND_S, dl.remaining())):
+                        removed.append(trash)
+                except FileNotFoundError:
+                    removed.append(trash)                         # already removed (a bounded removal finished first)
+                except Exception as exc:
+                    print("sweep: %s: %s" % (trash, type(exc).__name__), file=sys.stderr)    # kept: type only
+            if removed:
+                with self._pending_lock:
+                    current = self._read_pending()
+                    kept = [e for e in current if e.get("path") not in removed]
+                    if kept != current:
+                        self._write_pending(kept)
         finally:
             self._retry_lock.release()
 
@@ -1008,6 +1019,12 @@ class Worker(threading.Thread):
             position = len(self._queued)
         self.queue.put(job_id)
         return position
+
+    def owns(self, job_id):
+        """True while the worker still holds @p job_id: it is queued, or its run (including the completion cleanup that
+        follows the terminal state) has not been released yet. A job it owns cannot be activated again."""
+        with self._lock:
+            return job_id in self._queued or self._current == job_id
 
     def _position_locked(self, job_id):
         """The position of @p job_id with `self._lock` already held (`position`'s body)."""

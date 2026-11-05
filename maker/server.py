@@ -871,6 +871,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._refuse_cleanup_pending(job)
                 fresh = self._load(job)
                 if fresh.get("source") == "local" and fresh.get("state") in ("done", "failed"):
+                    if self.server.worker.owns(job):               # its run has published the end but is still cleaning up
+                        raise _HttpError(409, "job %s: the previous run is finishing; try again in a moment" % job)
                     self._claim_folder(fresh.get("output_id"), exclude=job, after=after)
                 return self._update(job, transition)
         finally:
@@ -915,23 +917,60 @@ class Handler(http.server.BaseHTTPRequestHandler):
         asked = self.server.touched.get(item["id"], self.server.started)
         return (time.monotonic() - asked > LOCAL_IDLE_SWEEP_S and time.time() - updated > LOCAL_IDLE_SWEEP_S)
 
-    def _verify_files_dir(self, job):
-        """Under a font's preview lock: the job still exists and its files directory is the generation the job records.
-        404 otherwise. A sweep or DELETE needs the preview locks to rename the directory away, so after this check and
-        until the lock is released nothing can move it; nothing here ever creates the directory or its parents."""
+    @contextlib.contextmanager
+    def _preview_dir(self, job, font):
+        """Hold font @p font's preview lock with the job's files directory made and its generation saved, for a bake.
+
+        Order: the lifecycle lock, then the preview lock (never waiting for a held preview lock while holding the
+        lifecycle lock: a try-lock, and on failure wait for it outside and try again). The directory is made and its
+        `files_id` persisted while both are held; then the lifecycle lock goes and the preview lock stays for the bake,
+        so a sweep (which needs both to rename the directory away) cannot slip in between making and using it. Refused
+        (404/409/503) for a job that is gone, whose cleanup is pending, or while the store is stopping. An upload job
+        only takes the preview lock."""
+        lock = _preview_lock(job, font)
+        store = self.server.store
+        self._exists(job)                                        # 404 for a job that is gone
+        if store.load(job).get("source") != "local":
+            with lock:
+                yield store.files_dir(self._load(job))
+            return
+        while True:
+            with self.server.create_lock:
+                if self.server.worker._stopping:
+                    raise _HttpError(503, "the server is stopping")
+                self._refuse_cleanup_pending(job)
+                if lock.acquire(blocking=False):
+                    try:
+                        current = self._load(job)
+                        files = self._ensure_dir(current)
+                    except BaseException:
+                        lock.release()
+                        raise
+                    break
+            lock.acquire()                                       # a bake holds it: wait with no other lock held
+            lock.release()
         try:
-            fresh = self.server.store.load(job)
+            yield files
+        finally:
+            lock.release()
+
+    def _exists(self, job):
+        try:
+            self.server.store.load(job)
+            return True
         except KeyError:
             raise _HttpError(404, "no job %s" % job)
-        if fresh.get("source") != "local":
-            return
-        files = self.server.store.files_dir(fresh)
+
+    def _ensure_dir(self, current):
+        """`ensure_files_dir` of a local job whose caller holds the lifecycle lock; 404 as `_files_dir_ready` says."""
         try:
-            if os.path.islink(files) or not os.path.isdir(files) \
-                    or list(sourcesmod.stat_id(files)) != list(fresh.get("files_id") or ()):
-                raise _HttpError(404, "the files directory of job %s is gone" % job)
-        except OSError:
-            raise _HttpError(404, "the files directory of job %s is gone" % job)
+            files = self.server.store.ensure_files_dir(current, locked=True)
+            self.server.touched[current["id"]] = time.monotonic()
+            return files
+        except jobs.OutputGone as exc:
+            raise _HttpError(404, str(exc))
+        except OSError as exc:
+            raise _HttpError(404, "output folder: %s" % _os_reason(exc))
 
     def _files_dir_ready(self, current):
         """The files directory of @p current, made when it is a local job's and the output folder is still the one
@@ -1525,7 +1564,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _job_preview(self, query, job, font, kind):
         current = self._load(job)
-        files_dir = self._files_dir_ready(current)
+        files_dir = self.server.store.files_dir(current)     # not made here: only `_preview_dir` makes it, under both locks
         by_id = {entry.get("id"): entry for entry in (current.get("fonts") or [])}
         entry = by_id.get(urllib.parse.unquote(font))
         if entry is None:
@@ -1534,8 +1573,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if kind == "source":
             path = os.path.join(files_dir, "work", "preview", "%s.png" % entry.get("id"))
             if not os.path.isfile(path):
-                with _preview_lock(job, entry.get("id")):
-                    self._verify_files_dir(job)
+                with self._preview_dir(job, entry.get("id")):
                     if not os.path.isfile(path):
                         fresh = self._load(job)              # the settings may have changed while we waited (W2)
                         fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}
@@ -1604,7 +1642,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         other previews). The `.json` carries `step_ascent`, the step's merged `--ascent` (or null)."""
         size, bpp = int(size), int(bpp)
         current = self._load(job)
-        files_dir = self._files_dir_ready(current)
+        files_dir = self.server.store.files_dir(current)
         sources = self.server.store.sources(current)
         fonts = current.get("fonts") or []
         entry = next((item for item in fonts if item.get("id") == font), None)
@@ -1618,8 +1656,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         probe_dir = os.path.join(files_dir, "work", "preview", font, "probe")
         out_svf = os.path.join(probe_dir, "%d-%d.svf" % (size, bpp))
         out_json = os.path.join(probe_dir, "%d-%d.json" % (size, bpp))
-        with _preview_lock(job, font):
-            self._verify_files_dir(job)
+        with self._preview_dir(job, font):
             os.makedirs(probe_dir, exist_ok=True)
             src = self._prepared_source(entry, eff, sources, os.path.join(files_dir, "work", "preview"),
                                         env=self._tool_env(current))
@@ -1701,15 +1738,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _job_source_face(self, query, job, font):
         """The baked source face of a DOS raw or SVF entry (`work/preview/<font id>.svf`), baked on demand."""
         current = self._load(job)
-        files_dir = self._files_dir_ready(current)
+        files_dir = self.server.store.files_dir(current)
         entry = next((item for item in (current.get("fonts") or []) if item.get("id") == font), None)
         if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3",
                                                              "mac-fbit1"):
             raise _HttpError(404, "no source face")
         path = os.path.join(files_dir, "work", "preview", "%s.svf" % font)
         if not os.path.isfile(path):
-            with _preview_lock(job, font):
-                self._verify_files_dir(job)
+            with self._preview_dir(job, font):
                 if not os.path.isfile(path):
                     fresh = self._load(job)
                     fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}

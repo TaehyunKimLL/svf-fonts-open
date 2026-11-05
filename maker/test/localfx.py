@@ -178,8 +178,8 @@ class LocalBase(unittest.TestCase):
         deadline = time.monotonic() + WAIT_S
         while time.monotonic() < deadline:
             job = self.job(jid)
-            if job["state"] in ("done", "failed"):
-                return job
+            if job["state"] in ("done", "failed") and not self.srv.worker.owns(jid):
+                return self.job(jid)                         # the worker has also finished its completion cleanup
             time.sleep(0.1)
         self.fail("job %s did not finish" % jid)
 

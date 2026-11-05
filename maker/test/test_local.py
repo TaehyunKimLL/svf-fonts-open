@@ -1490,6 +1490,143 @@ class LocalSweepTest(LocalRunBase):
             srv2.worker.stop()
             srv2.server_close()
 
+    def test_a_rerun_request_in_the_completion_window_is_refused_and_the_next_run_keeps_its_directory(self):
+        import threading
+        jobs_mod = sys.modules["jobs"]
+        jid = self.local_job()
+        self.select(jid)
+        real = jobs_mod.Worker._finish_local
+        at_finish, go = threading.Event(), threading.Event()
+        self.addCleanup(go.set)
+
+        def paused(worker, job_id):
+            at_finish.set()                                                     # 'done' is saved, cleanup not yet begun
+            go.wait(30)
+            return real(worker, job_id)
+        with mock.patch.object(jobs_mod.Worker, "_finish_local", paused):
+            self.assertEqual(self.api("POST", "/api/jobs/%s/run" % jid)[0], 200)
+            self.assertTrue(at_finish.wait(60))
+            self.assertEqual(self.job(jid)["state"], "done")                    # the end is already published
+            for method, path, body in (("POST", "/api/jobs/%s/detect" % jid, None),
+                                       ("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})):
+                status, answer = self.api(method, path, body)
+                self.assertEqual(status, 409, (path, answer))
+                self.assertIn("previous run is finishing", answer["error"])
+            go.set()
+            self.wait_done(jid)                                                 # ... and released by the worker
+        self.assertEqual(self.job(jid)["state"], "done")
+        st = self.job(jid)["settings"]
+        self.assertEqual(self.api("POST", "/api/jobs/%s/detect" % jid)[0], 200)
+        self.assertEqual(self.run_to_done(jid)["state"], "done")                # the rerun runs and finishes normally
+
+    def _done_job_with_a_directory(self):
+        jid, first = self.done_job()
+        store = self.srv.store
+        store.ensure_files_dir(store.load(jid))
+        fd = self.files_dir(jid)
+        job = store.load(jid)
+        entry = {"path": fd, "output_dir": job["output_dir"], "output_id": job["output_id"], "job": jid,
+                 "files_id": job["files_id"]}
+        pend = os.path.join(self.data, "pending-sweeps.json")
+        with open(pend, "w", encoding="utf-8") as f:
+            json.dump([entry], f)
+        return jid, fd, pend
+
+    def test_a_removal_that_raises_after_the_rename_leaves_a_tracked_tombstone(self):
+        jid, fd, pend = self._done_job_with_a_directory()
+        shutil.rmtree(self.srv.store.path(jid))                                 # the job's metadata is gone
+        real = shutil.rmtree
+
+        def deny(path, *a, **k):
+            if ".trash-" in str(path):
+                raise PermissionError("denied")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", deny):
+            self.srv.store.retry_pending_sweeps()
+        with open(pend, encoding="utf-8") as f:
+            entries = json.load(f)
+        self.assertEqual(len(entries), 1, entries)
+        self.assertTrue(entries[0]["path"].startswith(fd + ".trash-"), entries)  # the original entry became the tombstone's
+        self.assertTrue(os.path.isdir(entries[0]["path"]))
+        self.srv.store.retry_pending_sweeps()                                   # a later pass removes it
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-")], [])
+        with open(pend, encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])
+
+    def test_a_tombstone_removed_meanwhile_counts_as_removed(self):
+        jid, fd, pend = self._done_job_with_a_directory()
+        self.srv.store.update(jid, lambda j: j.update(state="failed"))
+        real = shutil.rmtree
+
+        def already(path, *a, **k):
+            if ".trash-" in str(path):
+                real(path, *a, **k)                                             # another removal got there first
+                raise FileNotFoundError(path)
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", already):
+            self.srv.store.retry_pending_sweeps()
+        with open(pend, encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-")], [])
+
+    def test_a_preview_paused_before_its_directory_is_made_cannot_race_a_sweep(self):
+        import threading
+        server_mod = sys.modules["server"]
+        jid = self.local_job()
+        self.select(jid)
+        store = self.srv.store
+        ttf = self.ttf
+        real = server_mod.Handler._preview_dir
+        paused, go = threading.Event(), threading.Event()
+        self.addCleanup(go.set)
+
+        def slow(handler, job, font):
+            paused.set()                                                        # between the handler's load and its locks
+            go.wait(20)
+            return real(handler, job, font)
+        res = {}
+        with mock.patch.object(server_mod.Handler, "_preview_dir", slow):
+            t = threading.Thread(target=lambda: res.update(
+                code=self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, ttf))[0]), daemon=True)
+            t.start()
+            self.assertTrue(paused.wait(20))
+            self.assertTrue(store.sweep_files(store.load(jid)))                 # a sweep completes in between
+            self.assertFalse(os.path.exists(self.files_dir(jid)))
+            go.set()
+            t.join(60)
+        self.assertEqual(res["code"], 200)
+        fd = self.files_dir(jid)
+        self.assertEqual(store.load(jid)["files_id"], [os.stat(fd).st_dev, os.stat(fd).st_ino])   # made and saved together
+        # no new previews while the store is stopping or the job's cleanup is pending
+        png = os.path.join(fd, "work", "preview", "%s.png" % ttf)
+        self.srv.cleanup_pending.add(jid)
+        os.remove(png)                                                          # (a cached preview is served without a bake)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, ttf))[0], 409)
+        self.srv.cleanup_pending.discard(jid)
+        self.srv.worker._stopping = True
+        self.addCleanup(setattr, self.srv.worker, "_stopping", False)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, ttf))[0], 503)
+
+    def test_a_real_failed_start_up_cleanup_leaves_the_job_inactive(self):
+        import threading
+        server_mod = sys.modules["server"]
+        jid, fd, pend = self._done_job_with_a_directory()
+        real = shutil.rmtree
+
+        def deny(path, *a, **k):
+            if ".trash-" in str(path):
+                raise PermissionError("denied")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", deny):
+            srv2 = server_mod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
+        try:
+            self.assertIn(jid, srv2.cleanup_pending)                            # from a real failed removal
+            self.assertEqual(self.job(jid)["state"], "done")
+            srv2.cleanup_pending.discard(jid)
+        finally:
+            srv2.worker.stop()
+            srv2.server_close()
+
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)
 
