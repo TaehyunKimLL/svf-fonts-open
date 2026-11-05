@@ -34,13 +34,13 @@ preview (as audited; the result preview of any produced face is now drawn in the
 | DOS johab raw (`.FNT`, `*.KOR`, HBIOS, san, 621, Dokkaebi, Kyra) | yes: by exact size (`DOS_SIZES`), candidates filtered by the layout opener; the owner confirms the layout | `jamoset.py SRC --layout L --check [--eng ENG] [--face 0\|1]`; `--eng` = a 2048/4096-byte file beside it | yes: baked with the same command at the first size, then `svfline` | detect.py:29-33, 241-253, 417-436; routes.py:144-150, 277-279; preview.py:146-197; server.py:906-913 |
 | DOS `johab844.py` (precomposed from raw pieces) | yes: an 11,520-byte raw font with candidate `844` (`dos_bytes`) | precomposed route `johab844`: `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng ENG]`; layout 844 and an 8x16 English font only; the chosen range is ignored and the note names the base face | n/a | routes.py `_johab844_commands`; settings.py `_route_errors`; B5 |
 | HWP `ASCII.PFT` (12x24 English, 12,288 bytes) / HBIOS 12x24 English (15,360) | yes: both are `eng` entries (`eng` = bytes and cell); a 15,360-byte file is HBIOS English only when `hbios_eng_like` (blank margin rows, 12 px cell, ink in `A`), else a Dokkaebi face; no UI override | `jamoset.py --eng FILE` on a DOS jamo route; refused below a 24 px face | no | detect.py `hbios_eng_like`; settings.py `_route_errors`; A5/B6 |
-| HWP Hangul `.PFT` | `unknown` (the repository has no reader either) | none (recipes: out of scope; feed a BDF or precomposed SVF instead) | no | recipes.md "HWP 1.x and 2.x fonts" |
+| HWP Hangul `.PFT` | Local mode only (Task 14): an `other` entry, format `hwp-pft`, named by its `.pft` extension (no byte rule) when its size is not an `eng` size, with the label that says to convert it elsewhere and add that file; an upload keeps `unknown (...)`. `ASCII.PFT` (12x24 `eng`) pairs with a 24 px DOS raw face from any folder of the batch (`detect.detect_file`, `HWP_PFT_LABEL`, `scan`) | none: the repository has no reader (recipes: feed a BDF or precomposed SVF) | no | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py); no real HWP file was run (`SVF_MAKER_REAL_PFT`) |
 | Windows `.FNT` / `.FON` | yes: `fnt`/`fon` -> `bitmap`; FON face 0 only | mkfont at the strike, 1 bpp | yes | detect.py:109-112, 391-415; routes.py:273-276 |
 | Mac TrueType with a Unicode cmap (`true` magic) | yes: `ttf` | as TTF | yes | detect.py:90-91 |
 | Mac TrueType with only a Mac Korean (1,3) or Wansung (3,5) cmap | yes: `mac_cmap_only` gives the entry a `mac-cmap` prep op and coverage is read through it (a font that also has a Unicode subtable gets none) | `source` step: `macsfnt.py unicode IN OUT`, then the TTF routes | Now yes (the prepared copy is drawn) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |
 | `.dfont`, suitcase, resource fork, AppleDouble, MacBinary | yes: `mac-rsrc`; one entry per `sfnt` resource (`rsrc-sfnt` op, plus `mac-cmap` when needed); only `NFNT`/`fbit` resources: one `other` entry; a corrupt map: one `unknown` entry | `source` step: `macsfnt.py extract IN OUT --id N` (then `unicode`) | Now yes (the prepared copy is drawn) | detect.py `_mac_head`, `_mac_entries`; B1 |
-| Mac HangulTalk 1.0 `fbit` (`--layout mac-fbit-45sets`) | no: `unknown` | no route (the tool exists: tools/jamoset.py:2471-2485) | no | detect.py:84-117 |
-| Mac HangulTalk 7.1 type-3 `fbit` (+ HTBL) | no | no `macfbit3.py` / `macfbit_svf.py` route | no | grep: neither tool named in maker/ |
+| Mac HangulTalk 1.0 `fbit` (`--layout mac-fbit-45sets`) | Local mode only (Task 12): `mac-fbit1`, a fork with an `fbit` of 45 sets and its `fdef` 3 (raw fork, AppleDouble, MacBinary); a bare `fbit` resource is an `other` entry that names the missing `fdef` (`detect._mac_fbit1_entry`) | route `mac fbit 1.0`: `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT` (`routes._mac10_commands`); a wrapped source ends in `<stem>.rsrc` for jamoset's golden lookup | yes: baked source face | `MacEndToEndTest.test_mac10_end_to_end_and_prepared_name`; Task 12 Step 1 outcome (a) held: the synthetic fixture (`macfx.fbit1_fork`, an all-zero `fdef`) passes `--check`. A real 1.0 font and its golden are not run (`SVF_MAKER_REAL_MAC1`, `RealMac1Test`) |
+| Mac HangulTalk 7.1 type-3 `fbit` (+ HTBL) | Local mode only (Task 11): `mac-fbit3` (resource fork, AppleDouble, MacBinary, JM archive, raw `fbit`), `mac-htbl` (the HTBL 1 table, 9,612 or 9,816 bytes raw) and `mac-suitcase` (FOND + NFNT with its strikes); the HTBL and an optional suitcase are companions, each planned as its own source step once, with `needs` on the face steps | routes `mac fbit 7.1 direct` / `derived`: `macfbit_svf.py build SRC HTBL -o OUT --mode ... [--latin]`; `mac fbit 7.1 bdf + mkfont`: `macfbit3.py bdf`, `srcprep.py bdf-pixel-size` (the tool's BDF has no `PIXEL_SIZE`), `mkfont.py` | yes: baked source face (needs the HTBL; a chosen suitcase is baked in) | `MacEndToEndTest` (direct verified with `macfbit_svf.py verify` and facecheck, wrapped and JM, derived and bdf + mkfont, gz fork, companion cascade, source face), `LocalKindsTest`, `MacRoutesTest`, `LocalSettingsTest`. A real 7.1.2 font and HTBL are not run (`SVF_MAKER_REAL_MAC3`, `RealMac3Test`) |
 | Embedded bitmap strikes (`EBDT`/`bdat`) | yes: `EBLC`/`bloc` strike sizes are listed (`strikes`); an sfnt with strikes and no outlines is a `bitmap` source at those sizes (`sizes_fixed`) | mkfont at the strike (planned and tested; a real bitmap-only font is run only by `SVF_MAKER_REAL_EBDT`) | yes for outline fonts | detect.py `_sfnt_entry`; srcprep.py `embedded_strikes`; A3/B1 |
 | WOFF / WOFF2 | no: `unknown` (not a recipe input either) | none | no | detect.py:84-117 |
 | SVF v3 (precomposed / jamo) | yes: `svf-precomposed` / `svf-jamo`, with JSET version and JMAP mode | copy, or `svf2to3.py --jset-version V --check`; precomposed 1 bpp also "from-svf fit" `jamoset.py --layout 844\|adaptive --from-svf --check` | yes: copied, then `svfline` | detect.py:438-451; routes.py:224-250, 286-296; preview.py:173-179 |
@@ -181,9 +181,9 @@ under google-chrome; `git diff 01a943f -- c/src c/include`: empty.
 5. **t_f3ef3189** - input kinds: done on branch maker-inputs (see section 1: VF instance, TTC faces, Mac TTF and containers,
    KSC/johab PCF, `johab844.py`, 12x24 `--eng`, `--from-svf` after `bdfface`, strike sizes). What remains of it: source and
    instance previews (t_9acea7ab), local-only mode and Mac `fbit` (t_cbd14d61), Electron, packaging, the jamo recogniser.
-6. **t_cbd14d61** - local-only mode: path-based sources, Mac `fbit` (`jamoset --layout mac-fbit-45sets`,
-   `macfbit3.py`, `macfbit_svf.py`) and HWP-derived inputs only there; outputs only in the chosen folder; 127.0.0.1
-   proven by test.
+6. **t_cbd14d61** - DONE (Tasks 1-15, branch maker-local): local-only mode with path-based sources, Mac `fbit` (both
+   generations) and the HWP lines only there; outputs only in the chosen folder; 127.0.0.1 proven by test. Closing
+   evidence and the open items are in section 8.
 7. **t_f04f1355** - Electron: port 0 + stdout handshake, per-launch token, load over http (not file://), userData as
    data root, native dialogs passing paths to the local mode, sidecar stops with the window.
 8. **t_e64a56a7** - packaging: replace `[sys.executable, "-P", tool]` (routes.py:20) with a sidecar tool entry
@@ -191,3 +191,43 @@ under google-chrome; `git diff 01a943f -- c/src c/include`: empty.
    the bundle.
 9. **t_bbceabe9 / t_e073891a / t_a1cf496b** - T16 tests are still worth landing (they exercise the routes end to
    end); T15's unit/README and the tailnet clause of t_a1cf496b should be re-scoped to the desktop direction.
+
+## 8. Local mode: closing evidence, the shell contract and what was not verified (card t_cbd14d61)
+
+**The card's closing measurement, mapped to tests** (all synthetic; no proprietary byte is in the repository):
+
+| Closing measurement | Evidence |
+|---|---|
+| Synthetic Mac/HWP-like files convert through local mode | `MacEndToEndTest` (test_plan_inputs.py: 7.1 direct, derived, bdf + mkfont, wrapped, JM, gz, companion failure cascade, 1.0 end to end); `test_ascii_pft_from_another_folder` (detection) and the DOS raw job of `LocalRunTest` |
+| Network off, 127.0.0.1 only | `LocalBindTest` (token, loopback-only bind, `main()` refusals); `NoNetworkTest.test_static_no_network_imports`, `test_network_off_in_process`, `test_network_off_namespace` (skips where `unshare -rn` is refused) |
+| README states no proprietary font is distributed | `test_readme_and_notice_wording` (test_server.py) |
+| Nothing is written outside the chosen output folder | `LocalSweepTest.test_no_write_outside_output`, `WriteTreeTest` (descriptor-relative writes, linked or swapped folders, replaced or removed output folder) |
+| Inputs never copied into the data directory | `LocalJobTest.test_no_upload_copy`, `LocalSweepTest.test_final_no_upload_copy`, `LocalPrivacyTest` (no input byte or exception message in any persistent artifact) |
+
+**What the Electron shell (card t_f04f1355) must do with this server**
+- Start `python3 -P maker/server.py` with `SVF_MAKER_TOKEN` (32 lower-case hex characters, new each launch),
+  `SVF_MAKER_BIND=127.0.0.1:0` (a non-loopback bind is refused, exit 2), `SVF_MAKER_DATA` under `userData`, optionally
+  `SVF_MAKER_ROOTS` (a colon-separated allow-list for sources and the output folder). Read the port from the stdout
+  line `svf-maker listening on 127.0.0.1:<port>`.
+- Load the page from `http://127.0.0.1:<port>/` (never `file://`: the `Host`/`Origin` checks refuse it) and add
+  `X-Maker-Token: <token>` to every request to `/api/` (exactly one header; `/` and `/static/*` need none but must carry
+  a `Host` naming the server). The page and the token never meet: the shell adds the header, the page never sends it.
+- Expose `window.svfMaker` (preload, `contextIsolation`-safe) with `pickFiles()` and `pickFolder()` (each resolves to an
+  array of absolute paths, `[]`/`null` for a cancelled dialog), `pickOutputDir()` (a path string or `null`) and
+  `openOutputFolder()` (called with no argument; the shell opens the job's output folder itself). With the bridge the page
+  hides its typed-path fields; without it the page takes typed paths.
+- Stop the server with SIGTERM (or SIGINT): the running job is cancelled, its tool processes killed, every files
+  directory swept. Do not SIGKILL it if it can be avoided: a killed run leaves `.svf-maker-<id>/` until the next start
+  (the start-up sweep removes it, and a pending-sweeps record keeps a failed removal).
+- The page asks once per session for the acknowledgement that converting a font is the user's responsibility; the shell
+  need not.
+
+**Not verified** (no way to run it on the host that built this; each is stated where it matters in the code and tests):
+the `unshare -rn` run (refused on the host; the static import scan and the in-process socket guard are the gate, and
+the guard cannot see tool subprocesses nor the user's own `recog.py` named by `SVF_RECOG_DIR`); real Apple HangulTalk
+7.1.2 and 1.0 files, real HWP `.PFT` files and a real 7.1.2 HTBL (the `SVF_MAKER_REAL_*` tests skip); macOS named
+resource forks on a Mac; Electron, its preload, `contextIsolation`, native dialogs and `shell.showItemInFolder` (a fake
+`window.svfMaker` stands in); FAT, exFAT and SMB/NAS mounts (the no-hard-link fallback and a refused `chmod` are
+exercised by mocks); a real disk-full condition (mocked); a case-insensitive filesystem; an inode overlap spelled any way
+but a symlinked parent; sync clients reading `.svf-maker-<id>/`; and `sessionStorage` persistence across a real
+Electron relaunch.

@@ -83,6 +83,16 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
 - Stopping the server (SIGTERM, SIGINT or exit) cancels the running job and kills its tool processes (each runs in its
   own session); a queued job stays queued and is re-queued at the next start.
 
+## Local mode: for the shell, and what has not been run
+
+The shell (card t_f04f1355) starts the server with `SVF_MAKER_TOKEN` and `SVF_MAKER_BIND=127.0.0.1:0`, reads the port
+from the stdout line, loads `http://127.0.0.1:<port>/`, adds `X-Maker-Token` to every `/api/` request, exposes
+`window.svfMaker` (`pickFiles`, `pickFolder`, `pickOutputDir`, `openOutputFolder`; the paths are absolute, a cancelled
+dialog gives `[]`/`null`, `openOutputFolder` takes no argument) and stops the server with SIGTERM. The full contract and
+the evidence for the card's closing measurement are in `docs/maker-audit.md`, section 8. Not verified here: `unshare -rn`,
+real Mac/HWP files, macOS named forks, Electron and native dialogs, FAT/exFAT/SMB mounts, disk full, case-insensitive
+filesystems and sync clients.
+
 ## What has not been run
 
 - **The `mask fit` route has never run a job**: it needs freetype-py and uharfbuzz (`JAMOSET_PYLIB`), which are not installed
