@@ -1578,7 +1578,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current = self._load(job)
         files_dir = self._files_dir_ready(current)
         entry = next((item for item in (current.get("fonts") or []) if item.get("id") == font), None)
-        if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3"):
+        if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3",
+                                                             "mac-fbit1"):
             raise _HttpError(404, "no source face")
         path = os.path.join(files_dir, "work", "preview", "%s.svf" % font)
         if not os.path.isfile(path):
@@ -1659,6 +1660,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                         self._bake_flags(eff, source_kind), env=env):
                 self._render_preview(None, out_svf, out_png)
             return
+        if source_kind == "mac-fbit1":
+            out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
+            if preview.bake_source_face(font, abs_src, None, None, out_svf, self.server.tools_dir,
+                                        self._bake_flags(eff, source_kind), env=env):
+                self._render_preview(None, out_svf, out_png)
+            return
         if source_kind == "mac-fbit3":
             by_id = {item.get("id"): item for item in fonts}
             htbl = by_id.get(eff.get("htbl_companion"))
@@ -1724,7 +1731,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         flags = []
         if jamoset.get("jset_version") is not None:
             flags += ["--jset-version", str(jamoset["jset_version"])]
-        if source_kind == "dos-raw":
+        if source_kind in ("dos-raw", "mac-fbit1"):
             if jamoset.get("jamo_ascent") is not None:
                 flags += ["--ascent", str(jamoset["jamo_ascent"])]
             if jamoset.get("embolden"):

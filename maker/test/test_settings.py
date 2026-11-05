@@ -1001,6 +1001,17 @@ class LocalSettingsTest(unittest.TestCase):
                       errors)
         self.assertNotIn("%s: no licence" % font["id"], errors)
 
+    def test_mac10_jamo_ascent_bound(self):
+        font = self.by["v1/Munjo16.rsrc"]
+        st = settings.defaults(self.fonts)
+        per = st["fonts"][font["id"]]
+        self.assertEqual((per["layout"], per["kinds"]), ("mac-fbit-45sets", ["jamo"]))
+        per["options"] = {"jamoset": {"jamo_ascent": 17}}
+        per["selected"] = True
+        self.assertIn("%s: jamo_ascent 17 is over the cell 16" % font["id"], settings.validate(self.fonts, st, self.src))
+        per["options"] = {"jamoset": {"jamo_ascent": 12}}
+        self.assertEqual(settings.validate(self.fonts, st, self.src), [])
+
     def test_suitcase_latin_only_at_a_listed_strike(self):
         font = self.by["Seoul12.rsrc"]
         self.assertEqual(font["latin_candidates"], [self.by["Suitcase.rsrc"]["id"]])

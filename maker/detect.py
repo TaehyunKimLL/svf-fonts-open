@@ -765,7 +765,7 @@ def _mac_kind_entries(rel, res, container, family, zipped, raw):
                               prep=prep, gz=zipped, mac={"generation": 3, "id": rid}))
             n += 1
             continue
-        one = _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped)
+        one = _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw)
         if one is not None:
             out.append(one)
             n += 1
@@ -787,9 +787,29 @@ def _mac_kind_entries(rel, res, container, family, zipped, raw):
     return out
 
 
-def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped):
-    """The HangulTalk 1.0 row (Task 12), or None when @p body is neither generation."""
-    return None
+FDEF_MIN = 0x716                      # the `fdef` 3 resource of a 1.0 font holds the tables jamoset.MacFbit slices
+
+
+def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw=None):
+    """The HangulTalk 1.0 row, an `other` row that names what is missing, or None when @p body is not a 45-set fbit.
+
+    A 1.0 font is an `fbit` with 45 glyph sets plus the `fdef` 3 resource of the same fork (the composition tables);
+    a raw `fbit` resource has no `fdef`, so it cannot be read and the entry says which piece to choose instead."""
+    if len(body) < 0x56 or struct.unpack(">H", body[0x54:0x56])[0] // 12 != 45:
+        return None
+    fdef = dict(types.get(b"fdef", ())).get(3, b"")
+    if raw == "mac-jm":
+        return _entry(rel, n, "mac-rsrc", "HangulTalk 1.0 fbit inside a JM archive: unpack it first", "other",
+                      family=family, gz=zipped)
+    if len(fdef) < FDEF_MIN:
+        return _entry(rel, n, "mac-rsrc", "HangulTalk 1.0 fbit resource without its fdef: choose the font's resource "
+                      "fork", "other", family=family, gz=zipped)
+    w0, _hi, _off, h = struct.unpack(">4H", body[0x56:0x5e])
+    if not w0 or not h:
+        return None
+    label = "HangulTalk 1.0 fbit (45 sets), %d x %d" % (w0 * 4, h)
+    return _entry(rel, n, "mac-rsrc", label, "mac-fbit1", family=family, sizes=[h], sizes_fixed=True,
+                  prep=[{"op": "mac-fork"}] if wrapped else [], gz=zipped, mac={"generation": 1, "id": rid})
 
 
 def _mac_entries(abs_path, rel, gz, zipped, local=False, raw=None):

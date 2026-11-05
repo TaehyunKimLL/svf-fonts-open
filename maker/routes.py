@@ -220,6 +220,12 @@ def _mac71_commands(mode):
     return commands
 
 
+def _mac10_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """`jamoset.py --layout mac-fbit-45sets SRC --check -o OUT`: a HangulTalk 1.0 font composes from its own fdef rule."""
+    argv = PY + [_tool(paths, "jamoset.py"), "--layout", "mac-fbit-45sets", paths["src"], "--check", "-o", paths["out"]]
+    return _with_extra([argv], extra)
+
+
 def _mac71_bdf_commands(font, size, bpp, layout, range_spec, paths, extra):
     """The fbit's planes composed into a BDF strike (`macfbit3.py bdf`), then `mkfont.py` on that BDF at its own size."""
     if not paths.get("htbl"):
@@ -429,6 +435,8 @@ def routes(font):
         if font.get("dos_bytes") == 11520 and "844" in layouts:   # a 16 px 8x4x4 raw font: its pieces make precomposed syllables
             out.append(Route("precomposed", "johab844", True, [], [1], [16], None, None, _johab844_commands))
         out.append(Route("jamo", "dos raw", True, layouts, [1], sizes, None, None, _dos_commands))
+    elif kind == "mac-fbit1":
+        out.append(Route("jamo", "mac fbit 1.0", True, ["mac-fbit-45sets"], [1], sizes, None, None, _mac10_commands))
     elif kind == "mac-fbit3":
         out.append(Route("jamo", "mac fbit 7.1 direct", True, ["mac-htbl1"], [1], sizes, None, None,
                          _mac71_commands("direct")))

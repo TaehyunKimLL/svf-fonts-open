@@ -1015,7 +1015,7 @@ class ApiTest(ApiBase):
                  "--no-clean": "clean", "--hangul-ascent": "hangul_ascent"}
         TOOL_OF_LABEL = {"mkfont": "ascent", "dos raw": "jamo_ascent", "hanterm": "jamo_ascent",
                          "bdfface": "latin_ascent", "bdfface + from-svf fit": "latin_ascent",
-                         "mac fbit 7.1 bdf + mkfont": "ascent"}
+                         "mac fbit 7.1 bdf + mkfont": "ascent", "mac fbit 1.0": "jamo_ascent"}
         every = {"mkfont": {"cell": 18, "ascent": 12, "width": 18, "mono_hint": True, "clip_cell": True,
                             "fit_cell": False, "latin": True, "space_advance": 5},
                  "jamoset": {"embolden": True, "symbols": True, "jset_version": 2, "jamo_ascent": 12,

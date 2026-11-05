@@ -11,7 +11,7 @@ it adds no preset here.
 
 # Every source_kind (Shared data shapes) in one list, for `plain`'s "the tools' defaults".
 ALL_SOURCES = ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859", "bdf-ksc5601",
-               "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3", "mac-htbl", "mac-suitcase",
+               "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase",
                "other"]
 
 PRESETS = {
@@ -108,15 +108,16 @@ def panel_argv(options, kind, route_label, bpp):
         second = []
         _num(second, "--jset-version", jamoset.get("jset_version"))
         return [first, second]
-    if jamoset.get("embolden") and route_label in ("dos raw", "hanterm"):
+    if jamoset.get("embolden") and route_label in ("dos raw", "hanterm", "mac fbit 1.0"):
         out.append("--embolden")
-    if jamoset.get("symbols") and (route_label in ("dos raw", "hanterm", "composite", "vector fit")
+    if jamoset.get("symbols") and (route_label in ("dos raw", "hanterm", "mac fbit 1.0", "composite", "vector fit")
                                    or (route_label == "experimental fit" and bpp == 2)):
         out.append("--symbols")
-    if jamoset.get("jset_version") is not None and route_label in ("dos raw", "hanterm", "composite", "experimental fit",
+    if jamoset.get("jset_version") is not None and route_label in ("dos raw", "hanterm", "mac fbit 1.0", "composite",
+                                                                   "experimental fit",
                                                                    "mask fit", "vector fit", "from-svf fit", "copy", "mac fbit 7.1 derived"):
         out += ["--jset-version", str(jamoset["jset_version"])]   # unset: a writer's own 1, an SVF upload keeps its block
-    if route_label in ("dos raw", "hanterm"):
+    if route_label in ("dos raw", "hanterm", "mac fbit 1.0"):
         _num(out, "--ascent", jamoset.get("jamo_ascent"))
     if route_label in ("composite", "experimental fit", "mask fit", "vector fit"):
         _num(out, "--baseline", jamoset.get("fit_baseline"))

@@ -70,6 +70,9 @@ def mac_tree(root):
         "raw/Seoul12.fbit": macfx.fbit3_raw(1), "raw/Seoul12.htbl1": macfx.htbl_raw(1),
         "nfnt/Only.rsrc": macfx.nfnt_only(),
         "gz/Seoul12.rsrc.gz": gzip.compress(macfx.fbit3_fork(1), mtime=0),
+        # HangulTalk 1.0 (the 45-set fbit with its fdef): raw fork, AppleDouble, MacBinary, and the bare resource
+        "v1/Munjo16.rsrc": macfx.fbit1_fork(), "v1/ad/._Munjo16": macfx.appledouble(macfx.fbit1_fork()),
+        "v1/mb/Munjo16.bin": macfx.macbinary(macfx.fbit1_fork()), "v1/raw/Munjo16.fbit": macfx.fbit1_raw(),
     }
     for rel, data in files.items():
         path = os.path.join(root, rel)

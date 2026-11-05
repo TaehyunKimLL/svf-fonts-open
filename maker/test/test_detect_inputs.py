@@ -323,6 +323,23 @@ class LocalKindsTest(DirCase):
         self.assertEqual(by["ad/._Seoul12"]["family"], "Seoul12")                 # no `._` in the family
         self.assertEqual(by["mb/Seoul12.bin"]["family"], "Seoul12")
 
+    def test_mac10_entry(self):
+        by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}
+        raw = by["v1/Munjo16.rsrc"]
+        self.assertEqual((raw["source_kind"], raw["label"], raw["sizes"], raw.get("mac")),
+                         ("mac-fbit1", "HangulTalk 1.0 fbit (45 sets), 16 x 16", [16], {"generation": 1, "id": 1}))
+        self.assertNotIn("prep", raw)
+        self.assertEqual(raw["coverage"], {"ascii": 0, "ks2350": 2350, "all": 11172, "compat": 51})
+        self.assertEqual(by["v1/ad/._Munjo16"]["prep"], [{"op": "mac-fork"}])
+        self.assertEqual(by["v1/mb/Munjo16.bin"]["prep"], [{"op": "mac-fork"}])
+        self.assertEqual(by["v1/ad/._Munjo16"]["family"], "Munjo16")
+
+    def test_mac10_raw_resource_is_other(self):
+        by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}
+        entry = by["v1/raw/Munjo16.fbit"]
+        self.assertEqual(entry["source_kind"], "other")
+        self.assertEqual(entry["label"], "HangulTalk 1.0 fbit resource without its fdef: choose the font's resource fork")
+
     def test_mac71_in_upload_mode_is_other(self):
         for f in detect.scan(self.mac):
             self.assertEqual(f["source_kind"], "other", f["path"])

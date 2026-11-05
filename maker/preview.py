@@ -223,6 +223,10 @@ def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=
             if not commands:
                 shutil.copyfile(abs_path, out_svf)
                 return os.path.exists(out_svf)
+        elif kind == "mac-fbit1":
+            route = routes.route_for(font, "jamo", False)
+            size = (font.get("sizes") or [None])[0]
+            commands = route.commands(font, size, 1, "mac-fbit-45sets", ("2350", None), paths, [list(extra)])
         elif kind == "mac-fbit3":
             if not htbl_abs:
                 return False                 # the type-3 fbit composes through its HTBL 1 table

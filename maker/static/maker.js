@@ -59,13 +59,14 @@ const ROUTES = {
   "svf-precomposed": [{"kind": "precomposed", "label": "copy", "native": true, "bpps": [1, 2]},
                       {"kind": "jamo", "label": "from-svf fit", "native": false, "bpps": [1]}],
   "svf-jamo": [{"kind": "jamo", "label": "copy", "native": true, "bpps": [1, 2]}],
+  "mac-fbit1": [{"kind": "jamo", "label": "mac fbit 1.0", "native": true, "bpps": [1]}],
   "mac-fbit3": [{"kind": "jamo", "label": "mac fbit 7.1 direct", "native": true, "bpps": [1]},
                 {"kind": "jamo", "label": "mac fbit 7.1 derived", "native": false, "bpps": [1]},
                 {"kind": "precomposed", "label": "mac fbit 7.1 bdf + mkfont", "native": true, "bpps": [1]}]
 };
 
 const KINDS = ["precomposed", "jamo"];
-const LAYOUTS = ["844", "adaptive", "hanterm-johab", "mac-htbl1"];
+const LAYOUTS = ["844", "adaptive", "hanterm-johab", "mac-htbl1", "mac-fbit-45sets"];
 const DEST_FIXED = ["dos", "jamo-extra"];
 
 // The advanced panel's inputs (Shared data shapes `options`); `group` is the tool the key belongs to, and a key in
@@ -118,6 +119,7 @@ const OPTION_VISIBLE = {
   "from-svf fit": {"1": ["jset_version"]},
   "bdfface": {"1": ["latin_ascent", "hangul_ascent"]},
   "bdfface + from-svf fit": {"1": ["jset_version", "latin_ascent", "hangul_ascent"]},
+  "mac fbit 1.0": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
   "mac fbit 7.1 direct": {"1": []},
   "mac fbit 7.1 derived": {"1": ["jset_version"]},
   "mac fbit 7.1 bdf + mkfont": {"1": ["cell", "ascent", "width", "space_advance"]}
@@ -130,7 +132,7 @@ const OPTION_VISIBLE = {
 const PREVIEW_KINDS = {
   "outline": "draw", "outline-composite": "draw", "bitmap": "draw", "bdf-iso10646": "draw",
   "bdf-iso8859": "none", "bdf-ksc5601": "none", "bdf-johab": "none", "hbf": "none",
-  "dos-raw": "bake", "svf-precomposed": "bake", "svf-jamo": "bake", "mac-fbit3": "bake", "mac-htbl": "none",
+  "dos-raw": "bake", "svf-precomposed": "bake", "svf-jamo": "bake", "mac-fbit3": "bake", "mac-fbit1": "bake", "mac-htbl": "none",
   "mac-suitcase": "none", "other": "none"
 };
 
@@ -138,7 +140,7 @@ const PREVIEW_KINDS = {
 const SOURCE_WORDS = {
   "dos-raw": "DOS raw", "outline": "outline", "outline-composite": "outline", "bitmap": "bitmap",
   "bdf-iso10646": "bitmap", "bdf-iso8859": "bitmap", "bdf-ksc5601": "bitmap", "bdf-johab": "bitmap", "hbf": "bitmap",
-  "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit", "mac-htbl": "Mac table",
+  "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit", "mac-fbit1": "Mac fbit", "mac-htbl": "Mac table",
   "mac-suitcase": "Mac suitcase"
 };
 const SOURCE_ARTICLES = {

@@ -70,7 +70,7 @@ MAX_SIZES = 16                  # a sizes list longer than this would plan more 
 # font's own. `_source_phrase` adds the article ("a bitmap source", "an outline source", "an SVF source").
 _SOURCE_WORDS = {"dos-raw": "DOS raw", "outline": "outline", "outline-composite": "outline", "bitmap": "bitmap",
                  "bdf-iso10646": "bitmap", "bdf-iso8859": "bitmap", "bdf-ksc5601": "bitmap", "bdf-johab": "bitmap",
-                 "hbf": "bitmap", "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit",
+                 "hbf": "bitmap", "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit", "mac-fbit1": "Mac fbit",
                  "mac-htbl": "Mac table", "mac-suitcase": "Mac suitcase"}
 
 # The article each source word takes (G2): chosen by the word, not by its first letter (`an SVF`, `a DOS raw`).
@@ -119,7 +119,7 @@ def _batch_defaults():
 def _font_kinds(font):
     """The per-font `kinds` default: `jamo` alone for a native-jamo source, both for a composite TTF, else precomposed."""
     kind = font.get("source_kind")
-    if kind in ("dos-raw", "bdf-johab", "svf-jamo", "mac-fbit3"):
+    if kind in ("dos-raw", "bdf-johab", "svf-jamo", "mac-fbit3", "mac-fbit1"):
         return ["jamo"]
     if kind == "outline-composite":
         return ["precomposed", "jamo"]
@@ -138,6 +138,8 @@ def _font_layout(font):
         return "hanterm-johab"
     if kind == "mac-fbit3":
         return "mac-htbl1"
+    if kind == "mac-fbit1":
+        return "mac-fbit-45sets"
     return "844"
 
 
@@ -520,12 +522,12 @@ def _ascent_cell_errors(fid, values, font=None, batch_covered=False):
                 used.add(route.label)
     jamoset_options = _jamoset_options(values)
     jamo_cell = None
-    if kind == "dos-raw":
+    if kind in ("dos-raw", "mac-fbit1"):
         font_sizes = font.get("sizes")
         jamo_cell = font_sizes[0] if isinstance(font_sizes, list) and font_sizes else None
     elif kind == "bdf-johab":
         jamo_cell = box_h
-    if used & {"dos raw", "hanterm"}:
+    if used & {"dos raw", "hanterm", "mac fbit 1.0"}:
         over("jamo_ascent", jamoset_options.get("jamo_ascent"), jamo_cell)
     if used & {"composite", "experimental fit", "mask fit", "vector fit"}:
         baseline = jamoset_options.get("fit_baseline")
@@ -1489,7 +1491,10 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
             sid = "s%02d" % counter
             step_dir = os.path.join(work_root, sid)
             os.makedirs(step_dir, exist_ok=True)
-            argvs, prepared = routes.source_commands(ops, src, step_dir, tools_dir, "otf" if font.get("cff") else "ttf")
+            # a HangulTalk 1.0 source keeps its original stem (`Munjo16.rsrc`): jamoset looks its golden up by that name
+            last = (font.get("family") or "source") + ".rsrc" if font.get("source_kind") == "mac-fbit1" else None
+            argvs, prepared = routes.source_commands(ops, src, step_dir, tools_dir, "otf" if font.get("cff") else "ttf",
+                                                     last_name=last)
             steps.append(_step(sid, fid, "source", None, None, None, None, argvs,
                                "work/%s/%s" % (sid, os.path.basename(prepared))))
             src = prepared

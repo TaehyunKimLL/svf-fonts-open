@@ -897,6 +897,31 @@ class MacEndToEndTest(localfx.LocalBase):
         self.assertGreaterEqual(len([c for c in chars if 0x3131 <= c <= 0x318E]), 50)  # and the compat jamo (the blank one is omitted)
         self.assertNotIn(0x41, chars)                                              # the BDF holds no ASCII
 
+    def test_mac10_end_to_end_and_prepared_name(self):
+        for n, (root, path) in enumerate([(self.p("v1"), "Munjo16.rsrc"), (self.p("v1", "ad"), "._Munjo16"),
+                                          (self.p("v1", "mb"), "Munjo16.bin")]):
+            with self.subTest(path=path):
+                out = os.path.join(self.tmp, "o%d" % n)
+                os.makedirs(out)
+                jid = self.local_job([root], out)
+                job = self.job(jid)
+                font = next(f for f in job["fonts"] if f["source_kind"] == "mac-fbit1")
+                st = job["settings"]
+                st["fonts"][font["id"]].update(selected=True, dest="jamo-extra", kinds=["jamo"])
+                self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+                done = self.done(jid)
+                face = next(s for s in done["steps"] if s["kind"] == "jamo")
+                self.assertEqual(face["name"], "MUNJ16J.SVF")
+                self.assertEqual(face["state"], "done")
+                if path != "Munjo16.rsrc":                                          # wrapped: a source step first
+                    src = next(s for s in done["steps"] if s["kind"] == "source")
+                    self.assertTrue(src["output"].endswith("/Munjo16.rsrc"), src["output"])
+                with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
+                    self.assertIn("check: composed 11172 syllables", f.read())       # jamoset's own verdict line
+                rel = next(f for f in done["result"]["files"] if f.endswith(".SVF"))
+                with open(os.path.join(out, rel), "rb") as fh:
+                    self.assertEqual(jamoset.parse_svfn(fh.read()).version, 3)
+
     def test_mac71_gz_fork(self):
         jid, font = self.mac_job([self.p("gz"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc.gz")
         job = self.done(jid)

@@ -91,7 +91,7 @@ class PresetTest(unittest.TestCase):
             "plain": {"argv": {}, "layout": None, "bpp": None,
                       "sources": ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859",
                                   "bdf-ksc5601", "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo",
-                                  "mac-fbit3", "mac-htbl", "mac-suitcase", "other"],
+                                  "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase", "other"],
                       "reproduces": "the tools' defaults"},
             "dos-l-1bpp": {
                 "argv": {"precomposed": ["--cell", "16", "--bpp", "1", "--unicode",
@@ -492,6 +492,18 @@ class MacRoutesTest(unittest.TestCase):
         self.assertEqual(routes.route_for(self.MAC, "jamo", False).label, "mac fbit 7.1 direct")
         self.assertEqual(routes.route_for(self.MAC, "jamo", True, "mac fbit 7.1 derived").label, "mac fbit 7.1 derived")
         self.assertEqual(routes.route_for(self.MAC, "precomposed", False).label, "mac fbit 7.1 bdf + mkfont")
+
+    def test_mac10_route_and_panel(self):
+        font10 = dict(font(), source_kind="mac-fbit1", family="Munjo16", sizes=[16], sizes_fixed=True,
+                      mac={"generation": 1})
+        (route,) = routes.routes(font10)
+        self.assertEqual((route.kind, route.label, route.native, route.layouts, route.bpps, route.sizes),
+                         ("jamo", "mac fbit 1.0", True, ["mac-fbit-45sets"], [1], [16]))
+        argv = route.commands(font10, 16, 1, "mac-fbit-45sets", ("2350", None), dict(P, src="/w/Munjo16.rsrc"), [])
+        self.assertEqual(argv, [PY + ["/T/jamoset.py", "--layout", "mac-fbit-45sets", "/w/Munjo16.rsrc", "--check",
+                                       "-o", "/w/OUT.SVF"]])
+        self.assertEqual(presets.panel_argv(EVERY, "jamo", "mac fbit 1.0", 1),
+                         [["--embolden", "--symbols", "--jset-version", "2", "--ascent", "12"]])
 
     def test_source_commands_mac_ops(self):
         argvs, last = routes.source_commands([{"op": "mac-fork"}, {"op": "mac-fbit3"}], "/s", "/w", "/t")
