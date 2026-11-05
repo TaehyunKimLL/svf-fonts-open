@@ -4,7 +4,8 @@
   python3 -m unittest discover -s maker/test -p 'test_*.py'
 """
 
-import os, sys
+import os
+import shutil, sys
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 MAKER_DIR = os.path.dirname(TEST_DIR)
 REPO_DIR = os.path.dirname(MAKER_DIR)
@@ -271,6 +272,7 @@ class FixRoundTwoTest(unittest.TestCase):
     def _tree(self):
         import tempfile
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         os.makedirs(os.path.join(d, "dos"))
         with open(os.path.join(d, "dos", "A.SVF"), "wb") as f:
             f.write(b"x")

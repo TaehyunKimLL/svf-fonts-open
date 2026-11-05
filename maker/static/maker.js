@@ -163,6 +163,8 @@ const saveEl = $("save");
 const runEl = $("run");
 const detectEl = $("detect");
 const cancelEl = $("cancel");
+const deleteJobEl = $("delete-job");
+const jobNoticeEl = $("job-notice");
 const settingsEl = $("settings");
 const filesEl = $("files");
 const folderEl = $("folder");
@@ -556,6 +558,8 @@ function renderStatus() {
     runEl.hidden = true;
     detectEl.hidden = true;
     cancelEl.hidden = true;
+    deleteJobEl.hidden = true;
+    jobNoticeEl.hidden = true;
     return;
   }
   const local = job.source === "local";
@@ -571,6 +575,10 @@ function renderStatus() {
   runEl.hidden = job.state !== "detected";
   detectEl.hidden = !(job.state === "uploading" || job.state === "failed" || job.state === "done");   // I1/S1
   cancelEl.hidden = job.state !== "queued" && job.state !== "running";
+  // a local job holds its output folder (409 for another job) until it is deleted or has been idle for a while
+  deleteJobEl.hidden = !(local && job.state !== "queued" && job.state !== "running");
+  jobNoticeEl.textContent = escapeNotice(job.notice || "");      // e.g. intermediates left in a moved output folder
+  jobNoticeEl.hidden = !job.notice;
 }
 
 // ---- jobs list ------------------------------------------------------------------------------------------------
@@ -2043,6 +2051,7 @@ async function loadJob(id) {
   jobId = job.id;
   settings = clone(job.settings || {batch: {}, fonts: {}});
   dirty = false;
+  if (job.source === "local") restoreSources(job);
   renderAll();
   if (job.state === "queued" || job.state === "running") startPolling();
 }
@@ -2225,6 +2234,30 @@ function addRoots(picked) {
   if (added) renderSources();
 }
 
+// The sources panel shows the job that is open: its roots and its output folder as the server holds them.
+function restoreSources(j) {
+  state.roots = (j.roots || []).map((item) => item.path);
+  state.output = j.output_dir || "";
+  sourcePathsEl.value = state.roots.join("\n");
+  outputDirEl.value = state.output;
+  renderSources();
+}
+
+async function deleteJob() {
+  clearNotice();
+  if (!jobId) return;
+  try {
+    await api("DELETE", "/api/jobs/" + encodeURIComponent(jobId));
+  } catch (err) { return; }
+  stopPolling();
+  job = null;
+  jobId = null;
+  settings = {batch: {}, fonts: {}};
+  history.replaceState(null, "", location.pathname);
+  renderAll();
+  await renderJobs();
+}
+
 async function chooseRoots(which) {
   const b = bridge();
   if (!b || typeof b[which] !== "function") return;
@@ -2269,25 +2302,23 @@ async function detectLocal() {
   if (!paths.length) { notice("choose files or a folder first"); return; }
   if (!output) { notice("choose an output folder"); return; }
   await acknowledge();                                // nothing is created before the user has read it
-  const idle = job && job.state !== "queued" && job.state !== "running";
-  if (jobId && idle && job.source === "local" && job.output_dir === output) {
-    // the same output folder: the job stays (it owns the faces it wrote there, and keeps its log); only its sources change
-    if (job.state === "done" || job.state === "failed") {
-      try {
-        await api("POST", "/api/jobs/" + encodeURIComponent(jobId) + "/detect");   // back to `detected`, ownership kept
-      } catch (err) { return; }
-    }
-  } else {
-    let created;
-    try {
-      created = await api("POST", "/api/jobs", {source: "local", output_dir: output});
-    } catch (err) { return; }                         // e.g. "output folder is in use by job ...": the notice says so
+  const idle = job && job.state !== "queued" && job.state !== "running" && job.source === "local";
+  let created;
+  try {
+    // the open job is offered for reuse: the server decides by the folder's real path and identity, not by the
+    // spelling (a trailing slash or a symlinked parent is the same folder), so a folder never gets a second job
+    created = await api("POST", "/api/jobs", idle ? {source: "local", output_dir: output, reuse: jobId}
+                                                  : {source: "local", output_dir: output});
+  } catch (err) { return; }                           // e.g. "output folder is in use by job ...": the notice says so
+  if (created.reused !== true) {
     jobId = created.id;
     job = {id: jobId, state: "uploading", source: "local"};
     settings = {batch: {}, fonts: {}};
     renderStatus();
     history.replaceState(null, "", "?job=" + jobId);
   }
+  // the open job stays when it is for this folder (it owns the faces it wrote there and keeps its log); the sources
+  // PUT is also accepted on a done or failed job, which goes back to `uploading` with its `owned` record kept
   let answer;
   try {
     answer = await api("PUT", "/api/jobs/" + encodeURIComponent(jobId) + "/sources", {paths});
@@ -2306,6 +2337,7 @@ function wire() {
   chooseFolderEl.onclick = () => chooseRoots("pickFolder");
   chooseOutputEl.onclick = chooseOutput;
   detectLocalEl.onclick = detectLocal;
+  deleteJobEl.onclick = deleteJob;
   openFolderEl.onclick = async () => {
     const b = bridge();
     if (b && typeof b.openOutputFolder === "function") {

@@ -443,11 +443,21 @@ def _has_jamo_features(font):
     return {"ljmo", "vjmo", "tjmo"} <= {record.FeatureTag for record in records}
 
 
-def _axis_label(a):
-    return "%s %g..%g" % (a["tag"], a["min"], a["max"])
+KNOWN_AXES = ("wght", "wdth", "slnt", "ital", "opsz")
 
 
-def _sfnt_entry(rel, face_index, fmt, label, font, prep, gz):
+def _axis_label(a, local=False):
+    tag = a["tag"] if not local or a["tag"] in KNOWN_AXES else "axis"      # a local job names only registered axes
+    return "%s %g..%g" % (tag, a["min"], a["max"])
+
+
+def _fixed_charset(reg, kind):
+    """The charset words a local job may carry: one fixed word per kind, never the file's own registry text."""
+    return {"bdf-iso10646": "iso10646", "bdf-iso8859": "iso8859", "bdf-johab": "johab",
+            "bdf-ksc5601": "ksc5601"}.get(kind, "unrecognized charset")
+
+
+def _sfnt_entry(rel, face_index, fmt, label, font, prep, gz, local=False):
     """The entry of one open sfnt face: ttf, otf, a TTC face or a Mac `sfnt` resource.
 
     Outlines make an `outline` entry, embedded strikes alone a `bitmap` one at those sizes; @p prep is the list of
@@ -460,7 +470,7 @@ def _sfnt_entry(rel, face_index, fmt, label, font, prep, gz):
     strikes = facts["strikes"]
     suffix = ""
     if facts["variable"] is not None:
-        suffix += "; variable (%s)" % ", ".join(_axis_label(a) for a in facts["variable"]["axes"])
+        suffix += "; variable (%s)" % ", ".join(_axis_label(a, local) for a in facts["variable"]["axes"])
     if strikes:
         suffix += "; bitmap strikes %s" % ", ".join(str(n) for n in strikes)
     if facts["mac_cmap"]:
@@ -570,7 +580,12 @@ def _detect_file(abs_path, rel, local=False):
         family = family or _stem(rel)
         bdf = {"registry": ("%s-%s" % (reg, enc)) if enc else reg, "box": box}
         kind = _bdf_kind(reg)
-        label = "BDF (%s)" % reg
+        if local:
+            word = _fixed_charset(reg, kind)
+            bdf = {"registry": word, "box": box}
+            label = "BDF (%s)" % word
+        else:
+            label = "BDF (%s)" % reg
         if kind == "other":
             return [_entry(rel, 0, "bdf", label + ": not convertible", "other", family, style, bdf=bdf, gz=zipped)]
         if kind == "bdf-iso10646":
@@ -593,7 +608,7 @@ def _detect_file(abs_path, rel, local=False):
                        sizes=[box[1]] if box else [], sizes_fixed=True, gz=zipped)]
 
     if fmt == "pcf":
-        ksc = _ksc_pcf_entry(abs_path, rel, gz)
+        ksc = _ksc_pcf_entry(abs_path, rel, gz, local)
         if ksc is not None:
             return [ksc]
         sizes = bitmap_strikes(abs_path, hint=_pcf_pixel_hint(_head_bytes(abs_path, gz)))
@@ -718,7 +733,7 @@ def _ttc_entries(abs_path, rel, gz, zipped):
     return out
 
 
-def _ksc_pcf_entry(abs_path, rel, gz):
+def _ksc_pcf_entry(abs_path, rel, gz, local=False):
     """The entry of a PCF whose charset is KS X 1001 or johab (a source for bdfface.py / hanterm), else None.
 
     The conversion to BDF is srcprep's (`pcf-bdf` prep op); the box is the converted BDF's FONTBOUNDINGBOX. Any other
@@ -737,6 +752,8 @@ def _ksc_pcf_entry(abs_path, rel, gz):
         return None
     family = str(props.get("FAMILY_NAME", "")).strip() or _stem(rel)
     bdf = {"registry": ("%s-%s" % (reg, enc)) if enc else reg, "box": box}
+    if local:
+        reg = bdf["registry"] = _fixed_charset(reg, kind)
     return _entry(rel, 0, "pcf", "PCF (%s)" % reg, kind, family, sizes=[box[1]] if box else [], sizes_fixed=True,
                   bdf=bdf, prep=[{"op": "pcf-bdf"}])
 
@@ -1639,6 +1656,14 @@ def scan(sources, local=False):
             if with_root:                                  # a local job keeps the name-table strings short and clean
                 for field in ("family", "style", "version"):
                     entry[field] = _clean_name(entry.get(field))
+                var = entry.get("variable")
+                if isinstance(var, dict):                  # instance names are name-table strings; tags are labelled by a fixed word
+                    for inst in var.get("instances") or []:
+                        inst["name"] = _clean_name(inst.get("name"))
+                    for ax in var.get("axes") or []:
+                        if ax["tag"] not in KNOWN_AXES:
+                            entry["label"] = entry["label"].replace("%s %g..%g" % (ax["tag"], ax["min"], ax["max"]),
+                                                                    "axis %g..%g" % (ax["min"], ax["max"]))
             hits = find_licences(real_of[key], None, licences, ceilings[key[0]] if with_root else ceiling)
             entry["licences"] = []
             for p in hits:

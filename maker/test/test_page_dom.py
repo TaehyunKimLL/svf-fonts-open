@@ -777,6 +777,54 @@ class LocalPageTest(localfx.LocalBase):
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertLessEqual(set(before), set(self.srv.store.load(jid)["owned"]))
 
+    DETECT_AGAIN = """
+      const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
+      await waitFor(() => visible(document.getElementById('sources-panel')));
+      const restored = {paths: document.getElementById('source-paths').value, output: document.getElementById('output-dir').value};
+      document.getElementById('source-paths').value = %s;
+      document.getElementById('output-dir').value = %s;
+      document.getElementById('detect-local').click();
+      await sleep(300);
+      if (visible(document.getElementById('ack'))) document.getElementById('ack-ok').click();
+      await waitFor(() => document.getElementById('state').textContent.includes('detected'));
+      return {id: new URLSearchParams(location.search).get('job'), restored};
+    """
+
+    def test_another_spelling_of_the_output_folder_keeps_the_job(self):
+        """A trailing slash, or a symlinked parent, is the same folder: the open job is re-detected (its owned faces
+        kept), no second job is made, a done job is taken back to detected by the sources PUT alone."""
+        jid = self.done_job()
+        before = self.srv.store.load(jid)["owned"]
+        link = os.path.join(self.tmp, "link")
+        os.symlink(os.path.dirname(self.out), link)
+        paths = json.dumps("\n".join(self.roots))
+        for spelling in (self.out + "/", os.path.join(link, os.path.basename(self.out))):
+            out = self.drive(self.DETECT_AGAIN % (paths, json.dumps(spelling)), query="?job=" + jid)
+            self.assertEqual(out["id"], jid, spelling)
+            self.assertEqual(len(self.srv.store.list()), 1, spelling)
+            self.assertEqual(out["restored"]["paths"], "\n".join(r["path"] for r in self.job(jid)["roots"]))
+            self.assertEqual(out["restored"]["output"], self.out)              # the reload shows the job's own folder
+            self.assertEqual(set(self.srv.store.load(jid)["owned"]), set(before))
+            self.assertEqual(self.job(jid)["state"], "detected")
+            self.assertIsNone(self.job(jid)["result"])
+            self.assertEqual(self.run_to_done(jid)["state"], "done")           # and it runs again over its own faces
+
+    def test_the_job_notice_and_a_delete_button_for_an_abandoned_job(self):
+        jid = self.local_job()                                                  # detected, nobody ran it
+        self.srv.store.update(jid, lambda j: j.update(notice="intermediate files remain in .svf-maker-X (moved)"))
+        out = self.drive("""
+      const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
+      await waitFor(() => visible(document.getElementById('job-notice')));
+      const notice = document.getElementById('job-notice').textContent;
+      document.getElementById('delete-job').click();
+      await waitFor(() => document.getElementById('state').textContent === 'no job');
+      return {notice, deleteShown: visible(document.getElementById('delete-job'))};
+    """, query="?job=" + jid)
+        self.assertIn("intermediate files remain", out["notice"])
+        self.assertFalse(out["deleteShown"])
+        self.assertEqual(self.api("GET", "/api/jobs/%s" % jid)[0], 404)
+        self.assertEqual(self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out})[0], 200)   # the folder is free
+
     def test_sync_caveat_is_shown(self):
         with open(os.path.join(MAKER_DIR, "static", "index.html"), encoding="utf-8") as f:
             html = f.read()

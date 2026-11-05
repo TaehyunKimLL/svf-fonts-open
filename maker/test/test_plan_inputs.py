@@ -19,7 +19,9 @@ import json
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
+from unittest import mock
 
 import detect
 import fixtures
@@ -954,6 +956,90 @@ class MacEndToEndTest(localfx.LocalBase):
         self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
         r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))
         self.assertEqual((r[0], json.loads(r[2])["error"]), (404, "choose the HTBL table"))
+
+    def test_a_changed_htbl_companion_refuses_the_run(self):
+        """The pre-run check covers the HTBL table too (replaced, removed, or its size changed)."""
+        jid, font = self.mac_job([self.p("Seoul12.rsrc"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc")
+        path = self.p("InputBackSupport.rsrc")
+        with open(path, "rb") as f:
+            original = f.read()
+        message = "InputBackSupport.rsrc: the input changed since detection: detect again"
+        with open(path, "ab") as f:
+            f.write(b"x")                                                      # size changed
+        self.assertEqual(self.api("POST", "/api/jobs/%s/run" % jid)[1:], ({"error": message},))
+        with open(path, "wb") as f:
+            f.write(original)
+        os.rename(path, path + ".old")                                         # replaced: same bytes, new inode
+        with open(path, "wb") as f:
+            f.write(original)
+        self.assertEqual(self.api("POST", "/api/jobs/%s/run" % jid)[0], 409)
+        os.remove(path)                                                        # removed
+        self.assertEqual(self.api("POST", "/api/jobs/%s/run" % jid)[0], 409)
+        os.rename(path + ".old", path)                                         # the detected file is back
+        self.assertEqual(self.api("POST", "/api/jobs/%s/run" % jid)[0], 200)
+        self.assertEqual(self.wait_done(jid)["state"], "done")
+
+    def test_a_gz_source_leaves_no_decompressed_copy_after_a_bake(self):
+        jid, font = self.mac_job([self.p("gz"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc.gz")
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))[0], 200)
+        left = []
+        for dirpath, _d, names in os.walk(os.path.join(self.files_dir(jid), "work", "preview")):
+            left += [os.path.join(dirpath, n) for n in names if "probe" not in dirpath and not n.endswith((".svf", ".png"))]
+        self.assertEqual(left, [])
+
+    def test_two_fonts_sharing_companions_bake_with_their_own_copies(self):
+        import preview
+        roots = [self.p("ad/._Seoul12"), self.p("mb/Seoul12.bin"), self.p("InputBackSupport.rsrc"),
+                 self.p("Suitcase.rsrc")]
+        jid = self.local_job(roots)
+        job = self.job(jid)
+        fbits = [f for f in job["fonts"] if f["source_kind"] == "mac-fbit3"]
+        self.assertEqual(len(fbits), 2)
+        htbl = next(f["id"] for f in job["fonts"] if f["source_kind"] == "mac-htbl")
+        suit = next(f["id"] for f in job["fonts"] if f["source_kind"] == "mac-suitcase")
+        st = job["settings"]
+        for f in fbits:
+            st["fonts"][f["id"]].update(htbl_companion=htbl, latin_companion=suit)
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        seen, gate = {}, threading.Barrier(2, timeout=20)
+        real = preview.bake_source_face
+
+        def spy(font, abs_src, layout, eng, out_svf, tools, flags, **kw):
+            seen[font["id"]] = (kw.get("htbl_abs"), kw.get("latin_abs"))
+            self.assertTrue(os.path.isfile(kw["htbl_abs"]))
+            gate.wait()                                   # both bakes hold their companions at the same time
+            ok = real(font, abs_src, layout, eng, out_svf, tools, flags, **kw)
+            self.assertTrue(os.path.isfile(kw["htbl_abs"]))
+            return ok
+        answers = []
+        with mock.patch.object(preview, "bake_source_face", spy):
+            threads = [threading.Thread(target=lambda i=f["id"]: answers.append(
+                self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, i))[0])) for f in fbits]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(60)
+        self.assertEqual(answers, [200, 200])
+        self.assertEqual(len({v[0] for v in seen.values()}), 2, seen)           # not one shared file
+
+    def test_a_hangultalk1_preview_uses_the_plans_stem_name(self):
+        import preview
+        import settings as settingsmod
+        jid = self.local_job([self.p("v1/ad")])
+        font = next(f for f in self.job(jid)["fonts"] if f["source_kind"] == "mac-fbit1")
+        st = self.job(jid)["settings"]
+        st["fonts"][font["id"]].update(selected=True, dest="jamo-extra", kinds=["jamo"])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        names = []
+        real = preview.bake_source_face
+
+        def spy(font_, abs_src, *a, **k):
+            names.append(os.path.basename(abs_src))
+            return real(font_, abs_src, *a, **k)
+        with mock.patch.object(preview, "bake_source_face", spy):
+            self.assertEqual(self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))[0], 200)
+        self.assertEqual(names, [settingsmod.prepared_name(font)])
+        self.assertTrue(names[0].endswith(".rsrc") and not names[0].startswith("source"), names)
 
 
 if __name__ == "__main__":

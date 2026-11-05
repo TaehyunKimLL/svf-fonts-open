@@ -219,6 +219,8 @@ class WriteTreeTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="svf-tree-")
         self.addCleanup(self._tmp.cleanup)
         self.out = os.path.realpath(self._tmp.name)
+        for suffix in (".moved", ".gone"):                   # the tests that move the folder away leave it beside it
+            self.addCleanup(shutil.rmtree, self.out + suffix, True)
         st = os.stat(self.out)
         self.oid = [st.st_dev, st.st_ino]
         self.job = {"id": "0123456789ab"}

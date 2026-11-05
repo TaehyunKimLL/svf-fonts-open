@@ -1089,8 +1089,9 @@ class ApiTest(ApiBase):
             recipes = f.read()
         self.assertIn("## Local mode (desktop app)", readme)
         self.assertIn("No proprietary font is distributed", readme)
-        self.assertIn("the maker makes no outbound connection and sends nothing anywhere (no telemetry, no crash upload, "
-                      "no update check); the tests pin that", readme)
+        self.assertIn("has no code that makes an outbound connection and sends nothing anywhere (no telemetry, no crash "
+                      "upload, no update check)", readme)
+        self.assertNotIn("the tests pin that", readme)                          # the evidence is weaker: section 8 says how
         self.assertIn("HANGUL*.PFT is not read; ASCII.PFT is a companion", readme)
         self.assertIn("SVF_RECOG_DIR", readme)
         self.assertIn("responsibility", readme)

@@ -133,7 +133,8 @@ def log_header(job, repo_head_value):
 
     Per font: its id, path, label, family/style, sizes, coverage, jamo state and licence choice, then the effective
     settings (the preset name and `presets.PRESETS[name]["argv"]` in full) as fenced JSON, then the font's detection
-    error (the traceback) in a fenced block when it carries one.
+    error (the traceback) in a fenced block when an upload job's font carries one (a local job's detection
+    errors are written to the log by the server when it stamps the scan, as type and frames only).
     """
     fonts = job.get("fonts") or []
     lines = ["# svf-maker %s" % (job.get("id") or ""), "",
@@ -150,7 +151,7 @@ def log_header(job, repo_head_value):
             json.dumps(font.get("sizes")), json.dumps(font.get("coverage")), json.dumps(font.get("jamo")),
             json.dumps(eff.get("licence"), sort_keys=True)))
         lines += ["```json", _json(shown), "```"]
-        if font.get("error"):
+        if font.get("error") and job.get("source") != "local":    # a local job's was moved to the log when detect stamped it
             lines += ["", "Detection error:", "```", str(font["error"]), "```"]
         lines.append("")
     return "\n".join(lines) + "\n"

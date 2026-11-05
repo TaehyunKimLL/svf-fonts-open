@@ -440,6 +440,31 @@ class LocalRunTest(LocalRunBase):
         with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
             self.assertIn(deep, f.read())                                          # D4: the log names the full path
 
+    def test_a_repo_licence_is_looked_up_in_the_repository_not_the_output_folder(self):
+        jid = self.local_job()
+        self.assertFalse(os.path.exists(os.path.join(self.out, "svf")))            # the output folder has no svf/ tree
+
+        def pick(st):
+            st["fonts"][self.ttf]["licence"] = {"kind": "repo", "path": "dos/OFLMARU.TXT"}
+        self.select(jid, pick)
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+
+    def test_sources_put_on_a_done_job_keeps_ownership_and_clears_the_answer(self):
+        jid, first = self.done_job()
+        owned = self.srv.store.load(jid)["owned"]
+        self.assertTrue(owned)
+        status, body = self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})
+        self.assertEqual(status, 200, body)
+        job = self.job(jid)
+        self.assertEqual((job["state"], job["result"], job["error"]), ("uploading", None, None))
+        self.assertEqual(self.srv.store.load(jid)["owned"], owned)
+        self.assertEqual(self.api("POST", "/api/jobs/%s/detect" % jid)[0], 200)
+        # the same folder under another spelling: the server answers with the job it already has
+        status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out + "/", "reuse": jid})
+        self.assertEqual((status, body["id"], body["reused"]), (200, jid, True), body)
+        self.assertEqual(len(self.srv.store.list()), 1)
+
     def test_input_changed_since_detection(self):
         jid = self.local_job()
         self.select(jid)
@@ -643,6 +668,29 @@ class LocalPrivacyTest(LocalRunBase):
         self.assertNotIn("Traceback", log)
         self.assert_no_marker(job)
 
+    def test_a_charset_registry_never_reaches_a_label(self):
+        d = os.path.join(self.tmp, "tree", "in", "reg")
+        os.makedirs(d)
+        for name, reg in (("a.bdf", self.MARK.lower()), ("b.bdf", "ksc5601-%s" % self.MARK.lower()),
+                          ("c.bdf", "iso10646-%s" % self.MARK.lower())):
+            with open(os.path.join(d, name), "w", encoding="latin-1") as f:
+                f.write("STARTFONT 2.1\nFONT -x-fixed-medium-r-normal--16-160-75-75-c-80-%s-1\nSIZE 16 75 75\n"
+                        "FONTBOUNDINGBOX 8 16 0 -2\nCHARSET_REGISTRY \"%s\"\nCHARSET_ENCODING \"1\"\n"
+                        "STARTPROPERTIES 0\nENDPROPERTIES\nCHARS 0\nENDFONT\n" % (reg, reg))
+        jid = self.local_job(self.roots + [d])
+        job = self.job(jid)
+        labels = {f["path"].rsplit("/", 1)[-1]: f["label"] for f in job["fonts"]}
+        self.assertEqual(labels["a.bdf"], "BDF (unrecognized charset): not convertible")
+        self.assertTrue(labels["b.bdf"].startswith("BDF (ksc5601)"), labels)
+        self.assertTrue(labels["c.bdf"].startswith("BDF (iso10646)"), labels)
+        self.assertNotIn(self.MARK.lower(), json.dumps(job).lower())
+        for dirpath, _d, names in os.walk(self.srv.store.root if hasattr(self.srv.store, "root") else self.tmp):
+            for n in names:
+                if n.endswith(".bdf"):
+                    continue
+                with open(os.path.join(dirpath, n), "rb") as f:
+                    self.assertNotIn(self.MARK.lower().encode(), f.read().lower(), n)
+
     def test_tool_output_and_step_errors_are_not_kept(self):
         import jobs
         real = jobs.run_command
@@ -824,7 +872,7 @@ class LocalSweepTest(LocalRunBase):
         calls = []
 
         def once(path, *a, **k):
-            if not calls and path == fd:
+            if path == fd:
                 calls.append(path)
                 raise OSError("busy")
             return real(path, *a, **k)
@@ -841,7 +889,8 @@ class LocalSweepTest(LocalRunBase):
         self.srv.store.retry_pending_sweeps()
         self.assertFalse(os.path.exists(fd))
         with open(pending, encoding="utf-8") as f:
-            self.assertEqual(json.load(f), [])
+            left = json.load(f)
+        self.assertEqual([e["path"] for e in left], ["/tmp/x"])                  # another folder at /tmp: kept, not dropped
 
     def test_pending_sweep_of_a_replaced_output_folder(self):
         jid = self.local_job()
@@ -862,7 +911,15 @@ class LocalSweepTest(LocalRunBase):
         self.srv.store.retry_pending_sweeps()
         self.assertTrue(os.path.exists(keep))                                    # a replaced folder is never touched
         with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
-            self.assertEqual(json.load(f), [])                                   # the entry is stale: dropped
+            self.assertEqual(len(json.load(f)), 1)                               # kept until the original returns
+        shutil.rmtree(self.out)
+        os.rename(self.out + ".old", self.out)                                   # the original is back
+        self.srv.store.retry_pending_sweeps()
+        self.assertFalse(os.path.exists(fd))
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])
+        os.rename(self.out, self.out + ".old")
+        os.makedirs(self.out)
         # the same with the output folder replaced by a symlink to a folder that holds that name
         with mock.patch.object(shutil, "rmtree", fail):
             jid2 = self.new_job(self.out + ".old")
@@ -874,6 +931,29 @@ class LocalSweepTest(LocalRunBase):
         os.symlink(other, self.out + ".old")
         self.srv.store.retry_pending_sweeps()
         self.assertTrue(os.path.isdir(os.path.join(other, ".svf-maker-" + jid2)))
+
+    def test_a_pending_sweep_is_retried_at_later_sweep_points(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        os.rename(self.out, self.out + ".away")                                    # unmounted
+        self.assertFalse(self.srv.store.sweep_files(self.srv.store.load(jid)))
+        os.rename(self.out + ".away", self.out)                                    # the folder is back
+        self.assertTrue(os.path.isdir(fd))
+        self.srv.sweep_idle()                                                      # an idle sweep point, no restart
+        self.assertFalse(os.path.exists(fd))
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])
+        # a job deleted while its folder is away is swept at the next delete
+        self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
+        a = self.local_job()
+        fa = self.files_dir(a)
+        os.rename(self.out, self.out + ".away")
+        self.assertEqual(self.api("DELETE", "/api/jobs/%s" % a)[0], 200)
+        self.assertTrue(os.path.isdir(os.path.join(self.out + ".away", ".svf-maker-" + a)))
+        os.rename(self.out + ".away", self.out)
+        b = self.local_job()
+        self.assertEqual(self.api("DELETE", "/api/jobs/%s" % b)[0], 200)           # a later delete retries it
+        self.assertFalse(os.path.exists(fa))
 
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)

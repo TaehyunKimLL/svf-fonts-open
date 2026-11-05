@@ -97,6 +97,7 @@ def _sweep_idle(server, now=None):
                 server.store.sweep_files(server.store.load(item["id"]))
             except KeyError:
                 continue
+    server.store.retry_pending_sweeps()
 
 
 def _drop_preview_locks(job_id):
@@ -791,6 +792,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise _HttpError(400, "output folder: %s" % exc.reason)
         store = self.server.store
         output_id = list(sourcesmod.stat_id(real))
+        reuse = body.get("reuse")
+        if isinstance(reuse, str):                            # the page's open job, when it is for this very folder
+            try:                                              # (the server's own realpath/identity decides, not the spelling)
+                held = store.load(reuse)
+            except KeyError:
+                held = None
+            if (held is not None and held.get("source") == "local" and held.get("output_id") == output_id
+                    and held.get("state") not in ("queued", "running")):
+                self.send_json({"id": reuse, "reused": True, "output_dir": held.get("output_dir")})
+                return
         with self.server.create_lock:
             for item in store.list():
                 if (item.get("source") == "local" and item.get("output_id") == output_id
@@ -802,7 +813,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         except (ValueError, KeyError, OSError):
                             pass
                     raise _HttpError(409, "output folder is in use by job %s (delete it, or wait until it has been "
-                                          "idle for %d minutes)" % (item["id"], LOCAL_IDLE_SWEEP_S // 60))
+                                          "idle for %d minutes)" % (item["id"], LOCAL_IDLE_SWEEP_S // 60),
+                                     {"job": item["id"]})
             job = store.create(source="local", output_dir=real, output_id=output_id)
         try:
             store.ensure_files_dir(job)
@@ -849,7 +861,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current = self._load(job)
         if current.get("source") != "local":
             raise _HttpError(409, "job %s is an upload job" % job)
-        if current.get("state") not in ("uploading", "detected"):
+        if current.get("state") not in ("uploading", "detected", "done", "failed"):
             raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
         body = self._json_body()
         paths = body.get("paths") if isinstance(body, dict) else None
@@ -885,10 +897,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 pass
 
         def transition(j):
-            if j.get("state") not in ("uploading", "detected"):
+            if j.get("state") not in ("uploading", "detected", "done", "failed"):
                 raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
             j["roots"] = roots
             j["state"] = "uploading"                          # the fonts of the earlier roots are stale: detect again
+            j["result"] = None                                # a finished job's answer is not the new sources'
+            j["error"] = None                                 # (`owned`, the faces it wrote, stays: a rerun may replace them)
             j["upload"] = {"files": len(files), "bytes": total,
                            "refused": ["%s: %s" % (item["path"], item["reason"]) for item in refused]}
         updated = self._update(job, transition)
@@ -1246,6 +1260,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         local = first.get("source") == "local"
         # a fresh index: the checkout's current names count (a local job's: what its output folder holds)
         index = naming.RepoIndex(os.path.join(first["output_dir"], "svf") if local else self.server.svf_dir)
+        repo_index = naming.RepoIndex(self.server.svf_dir) if local else None      # the repository's licence files, not the output folder's
 
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
@@ -1255,7 +1270,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if local:
                 self._check_local_run(j, fonts, sources)
             errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources,
-                                        own_earlier=jobs.own_earlier(j) if local else ())
+                                        own_earlier=jobs.own_earlier(j) if local else (), repo_index=repo_index)
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
             try:
@@ -1304,8 +1319,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     @staticmethod
     def _inputs_of_selected(j, fonts):
-        """The scan entries a run of the selected fonts reads: each font, its Latin companion, its chosen licence file
-        and its range list."""
+        """The scan entries a run of the selected fonts reads: each font, its Latin companion, its HTBL table, its chosen
+        licence file and its range list."""
         by_id = {font.get("id"): font for font in fonts}
         by_key = {(font.get("root", 0), font.get("path")): font for font in fonts}
         st = j.get("settings") or {}
@@ -1317,7 +1332,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 continue
             if not eff.get("selected"):
                 continue
-            wanted = [by_id.get(fid), by_id.get(eff.get("latin_companion"))]
+            wanted = [by_id.get(fid), by_id.get(eff.get("latin_companion")), by_id.get(eff.get("htbl_companion"))]
             licence = eff.get("licence")
             if isinstance(licence, dict) and licence.get("kind") == "upload":
                 wanted.append(by_key.get((licence.get("root", 0), licence.get("path"))))
@@ -1618,21 +1633,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             self._make_source_preview(job, files_dir, font)
         finally:
-            if job.get("source") == "local":
-                try:
-                    eff = settings.effective(job.get("fonts") or [], job.get("settings") or {}, font.get("id"))
-                except KeyError:
-                    eff = {}
-                ids = {font.get("id"), eff.get("htbl_companion"), eff.get("latin_companion")}
-                for fid in ids:
-                    target_dir = os.path.join(files_dir, "work", "preview", str(fid))
-                    if fid and os.path.isdir(target_dir):
-                        for name in os.listdir(target_dir):
-                            if name.startswith("source"):
-                                try:
-                                    os.remove(os.path.join(target_dir, name))
-                                except OSError:
-                                    pass
+            if job.get("source") == "local":                 # every prepared or decompressed copy goes; the probe stays
+                font_dir = os.path.join(files_dir, "work", "preview", str(font.get("id")))
+                if os.path.isdir(font_dir):
+                    for name in os.listdir(font_dir):
+                        if name == "probe":
+                            continue
+                        path = os.path.join(font_dir, name)
+                        try:
+                            if os.path.isdir(path) and not os.path.islink(path):
+                                shutil.rmtree(path)
+                            else:
+                                os.remove(path)
+                        except OSError:
+                            pass
 
     def _make_source_preview(self, job, files_dir, font):
         """Bake or draw @p font's source preview into `work/preview/<font id>.png` (its own file: no shared name)."""
@@ -1644,15 +1658,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         eff = settings.effective(fonts, job.get("settings") or {}, font.get("id"))
         env = self._tool_env(job)
         local = job.get("source") == "local"
+        scope = os.path.join(out_dir, str(font.get("id")), "with")   # this font's own copies of its companions: no sharing
         abs_src = self._prepared_source(font, eff, sources, out_dir, env=env, keep=not local)
-        if abs_src != self._plain_source(font, self._source_abs(sources, font), out_dir):
+        if settings.source_ops(font, eff):
             font = dict(font, face_index=0)            # a prepared file holds the one face the build reads
         source_kind = font.get("source_kind") or ""
         if source_kind == "dos-raw":
             layout = eff.get("dos_layout")
             if not layout:
                 raise _HttpError(409, "confirm the DOS Johab layout")
-            eng_abs = self._companion_abs(eff, fonts, sources, out_dir)
+            eng_abs = self._companion_abs(eff, fonts, sources, scope)
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, layout, eng_abs, out_svf, self.server.tools_dir,
                                         self._bake_flags(eff, source_kind), env=env):
@@ -1675,9 +1690,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             htbl = by_id.get(eff.get("htbl_companion"))
             if htbl is None:
                 raise _HttpError(409, "choose the HTBL table")
-            htbl_abs = self._prepared_source(htbl, {}, sources, out_dir, env=env, keep=not local)
+            htbl_abs = self._prepared_source(htbl, {}, sources, scope, env=env, keep=not local)
             suitcase = by_id.get(eff.get("latin_companion")) if font.get("latin_candidates") else None
-            latin_abs = (self._prepared_source(suitcase, {}, sources, out_dir, env=env, keep=not local)
+            latin_abs = (self._prepared_source(suitcase, {}, sources, scope, env=env, keep=not local)
                          if suitcase is not None else None)             # the chosen Latin suitcase goes into the bake
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, None, None, out_svf, self.server.tools_dir,
@@ -1709,11 +1724,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sfnt_ext = "otf" if font.get("cff") else "ttf"
         ext = routes.op_ext(last, sfnt_ext)
         target_dir = os.path.join(out_dir, str(font.get("id")))
-        target = os.path.join(target_dir, "source." + ext)
+        last = settings.prepared_name(font)                  # the plan's rule for a HangulTalk 1.0 `<stem>.rsrc`
+        target = os.path.join(target_dir, last or "source." + ext)
         if not keep or not os.path.isfile(target):
             # the build's own commands, in a subprocess with a time limit (an instancer on a large CJK font is slow and big)
             os.makedirs(target_dir, exist_ok=True)
-            argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, sfnt_ext)
+            argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, sfnt_ext,
+                                                     last_name=last)
             try:
                 for argv in argvs:
                     done = preview.run_bounded(argv, target_dir, preview.TIMEOUT_S, env=env)
@@ -1722,12 +1739,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if produced != target or not os.path.isfile(target):
                     raise OSError("no converted source")
             except (OSError, subprocess.SubprocessError):
-                for name in os.listdir(target_dir):
-                    if name.startswith("source"):
-                        try:
-                            os.remove(os.path.join(target_dir, name))
-                        except OSError:
-                            pass
+                try:
+                    os.remove(target)
+                except OSError:
+                    pass
                 raise _HttpError(404, "no preview")
         return target
 

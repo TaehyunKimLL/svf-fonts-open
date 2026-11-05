@@ -488,6 +488,7 @@ class Store:
                 self._locks.pop(job_id, None)
         if self.on_delete is not None:
             self.on_delete(job_id)
+        self.retry_pending_sweeps()                       # a folder that came back since the last sweep point
 
 
     # ---- the sweeps of a local job's files directory (`<output_dir>/.svf-maker-<id>/`) --------------------------
@@ -515,9 +516,12 @@ class Store:
                  "job": job["id"], "files_id": job.get("files_id")}
         with self._pending_lock:
             entries = self._read_pending()
-            if not any(e.get("path") == files for e in entries):
+            fresh = not any(e.get("path") == files for e in entries)
+            if fresh:
                 entries.append(entry)
                 self._write_pending(entries)
+        if not fresh:
+            return                                        # logged when first recorded: once per directory, not per sweep
         try:
             zipout.append_log(self.path(job["id"]), "\nsweep: %s: %s; intermediate files may remain there\n"
                               % (files, reason))
@@ -560,7 +564,8 @@ class Store:
     def retry_pending_sweeps(self):
         """Retry each pending sweep; it deletes only a real `.svf-maker-<job id>` directory directly inside the output
         folder it was recorded for, when that folder is still the same one. An entry is dropped when the directory is
-        gone, when the retry succeeds, or when a check fails (a replaced folder never becomes the original again)."""
+        gone, when the retry succeeds, or when a check on the directory fails. While another folder (or none) is
+        mounted at the path the entry stays: it is taken up when the ORIGINAL identity returns."""
         with self._pending_lock:
             entries = self._read_pending()
             if not entries:
@@ -578,7 +583,10 @@ class Store:
                         continue
                     if mounted and not os.path.lexists(path):
                         continue                                  # confirmed gone
-                    if (not mounted or not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name)
+                    if not mounted:
+                        kept.append(entry)                        # another folder is mounted there: wait for the original
+                        continue
+                    if (not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name)
                             or os.path.basename(path) != name or os.path.dirname(path) != out
                             or os.path.islink(path) or not os.path.isdir(path)):
                         print("sweep: %s: not the directory this job made; left alone" % path, file=sys.stderr)
@@ -700,6 +708,7 @@ class Worker(threading.Thread):
 
     def sweep_local_files(self):
         """Sweep the files directory of every local job (at stop; the start-up thread does the same)."""
+        self.store.retry_pending_sweeps()
         for item in self.store.list():
             if item.get("source") == "local":
                 try:
@@ -842,6 +851,7 @@ class Worker(threading.Thread):
                     self.store.update(job_id, lambda j: j.update(
                         notice="intermediate files remain in %s inside the output folder (moved, removed or busy); "
                                "they are swept when the folder is back" % (FILES_DIR_PREFIX + job_id)))
+                self.store.retry_pending_sweeps()
             except Exception:
                 self._log_failure(job_id, self._trace_text(job_id))
 

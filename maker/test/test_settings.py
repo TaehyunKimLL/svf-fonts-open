@@ -80,7 +80,8 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(s[fid("composite/Composite.ttf")]["layout"], "adaptive")
         self.assertEqual((s[fid("dos/HAN.FNT")]["kinds"], s[fid("dos/HAN.FNT")]["dest"], s[fid("dos/HAN.FNT")]["bpp"]), (["jamo"], "jamo-extra", [1]))
         nan = s[fid("nanum/NanumGothic-Bold.ttf")]
-        self.assertEqual(sorted(nan), sorted(settings.FONT_ONLY_KEYS))        # nothing differs from the batch: no batch key stored
+        self.assertEqual(sorted(nan), sorted(k for k in settings.FONT_ONLY_KEYS if k != "htbl_companion"))   # upload: as before
+        self.assertNotIn("htbl_companion", settings.effective(FONTS, S, fid("nanum/NanumGothic-Bold.ttf")))   # nor in BUILD.md
         self.assertEqual(nan["names"], {})
         self.assertEqual(settings.effective(FONTS, S, fid("svf/JAMO6J.SVF"))["names"], {"jamo/16/1": "JAMO6J.SVF"})   # a 16x16 cell; "6J" names the 621 layout
         self.assertEqual(settings.effective(FONTS, S, fid("nanum/NanumGothic-Bold.ttf"))["names"], {"precomposed/16/1": "NANUM16.SVF", "precomposed/16/2": "NANUM16A.SVF"})
@@ -982,6 +983,60 @@ class LocalSettingsTest(unittest.TestCase):
         self.fonts = detect.scan(self.src, local=True)
         self.by = {f["path"]: f for f in self.fonts}
         self.index = naming.RepoIndex(os.path.join(REPO_DIR, "svf"))
+
+    def test_repo_licence_is_checked_in_the_repo_and_collisions_in_the_output_tree(self):
+        """run_ready gets two trees: the output folder (name collisions) and the repository svf/ (repo licences)."""
+        font = self.by["Seoul12.rsrc"]
+        st = settings.defaults(self.fonts)
+        per = st["fonts"][font["id"]]
+        per.update(selected=True, licence={"kind": "repo", "path": "dos/OFLMARU.TXT"})
+        out = os.path.join(os.path.realpath(self._tmp.name), "out", "svf")
+        os.makedirs(os.path.join(out, "jamo-extra"))
+        empty = naming.RepoIndex(out)                                       # an output folder with no svf/dos/OFLMARU.TXT
+        errors = settings.run_ready(self.fonts, st, empty, self.src, repo_index=self.index)
+        self.assertFalse([e for e in errors if "licence path" in e], errors)  # exists in the repository
+        errors = settings.run_ready(self.fonts, st, empty, self.src)           # judged in the wrong tree (the old behaviour)
+        self.assertTrue([e for e in errors if "licence path" in e], errors)
+        os.makedirs(os.path.join(out, "dos"))
+        with open(os.path.join(out, "dos", "ONLYOUT.TXT"), "w") as f:       # in the output folder only
+            f.write("x")
+        per["licence"] = {"kind": "repo", "path": "dos/ONLYOUT.TXT"}
+        errors = settings.run_ready(self.fonts, st, naming.RepoIndex(out), self.src, repo_index=self.index)
+        self.assertIn("%s: licence path dos/ONLYOUT.TXT is not a text file in svf/" % font["id"], errors)
+        per["licence"] = None                                                # a collision is the output tree's business
+        per["dest"] = "jamo-extra"
+        per["names"] = {"jamo/12/1": "TAKEN12.SVF"}
+        with open(os.path.join(out, "jamo-extra", "TAKEN12.SVF"), "wb") as f:
+            f.write(b"x")
+        errors = settings.run_ready(self.fonts, st, naming.RepoIndex(out), self.src, repo_index=self.index)
+        self.assertIn("%s: TAKEN12.SVF already exists in svf/jamo-extra; choose another name" % font["id"], errors)
+
+    def test_licence_and_range_paths_are_judged_under_their_own_root(self):
+        import localfx
+        a = os.path.join(os.path.realpath(self._tmp.name), "ra")
+        b = os.path.join(os.path.realpath(self._tmp.name), "rb")
+        for d in (a, b):
+            os.makedirs(d)
+        shutil.copy(os.path.join(self.mac, "Seoul12.rsrc"), a)
+        with open(os.path.join(b, "OFL.txt"), "w") as f:
+            f.write("SIL Open Font License")
+        with open(os.path.join(b, "R.txt"), "w") as f:
+            f.write("U+AC00\n")
+        src = Sources("local", [a, b])
+        fonts = detect.scan(src, local=True)
+        font = next(f for f in fonts if f["path"] == "Seoul12.rsrc")
+        st = settings.defaults(fonts)
+        per = st["fonts"][font["id"]]
+        per["selected"] = True
+        per["licence"] = {"kind": "upload", "root": 1, "path": "OFL.txt"}
+        self.assertFalse([e for e in settings.validate(fonts, st, src) if "licence file" in e or "licence root" in e])
+        per["licence"] = {"kind": "upload", "root": 0, "path": "OFL.txt"}       # the same name, but not in root 0
+        self.assertTrue([e for e in settings.validate(fonts, st, src) if "is not a licence file" in e])
+        per["licence"] = None
+        per["range"], per["range_root"] = "R.txt", 1
+        self.assertFalse([e for e in settings.validate(fonts, st, src) if "range" in e])
+        per["range_root"] = 0
+        self.assertTrue([e for e in settings.validate(fonts, st, src) if "range" in e])
 
     def test_htbl_companion(self):
         font = self.by["Seoul12.rsrc"]

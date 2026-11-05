@@ -209,7 +209,6 @@ def _font_defaults(font, batch, fmap=None):
         "experimental": False,
         "dos_layout": None,
         "latin_companion": _default_companion(font, fmap),
-        "htbl_companion": (font.get("companions") or [None])[0] if font.get("source_kind") == "mac-fbit3" else None,
         "licence": _upload_licence(licences[0]) if licences else None,
         "names": {},
         "licence_name": _licence_name(font.get("family", ""), licences[0] if licences else None),
@@ -218,7 +217,18 @@ def _font_defaults(font, batch, fmap=None):
         "dy": None,
         "jamo_route": None,
     })
+    if font.get("source_kind") == "mac-fbit3":               # only a Mac type-3 fbit has one: an upload job's keys stay as before
+        per["htbl_companion"] = (font.get("companions") or [None])[0]
     return per
+
+
+def prepared_name(font):
+    """The file name of a font's converted source when the tools need a fixed one, else None. A HangulTalk 1.0 source
+    keeps its original stem (`Munjo16.rsrc`): jamoset looks its golden up by that name. The plan and the previews use
+    this one rule."""
+    if font.get("source_kind") != "mac-fbit1":
+        return None
+    return (os.path.basename(str(font.get("family") or "").replace("\\", "/")) or "source") + ".rsrc"
 
 
 def source_ops(font, eff):
@@ -336,6 +346,8 @@ def _effective(settings, font, font_id):
             eff[key] = None
     eff["options"] = _merge_options(batch.get("options"), per.get("options"))
     for key in FONT_ONLY_KEYS:
+        if key == "htbl_companion" and key not in per:        # absent for every font but a Mac type-3 fbit (upload files unchanged)
+            continue
         if key != "names":
             eff[key] = per.get(key, _FONT_ONLY_DEFAULTS[key])
     if RANGE_ROOT_KEY in per:                                # the list's root: its own, else (when the font keeps the
@@ -383,12 +395,20 @@ def _font_map(fonts):
 
 
 def _entry_paths(fonts, formats):
-    """The relative paths of the batch entries whose `format` is in @p formats."""
-    return {font.get("path") for font in fonts if font.get("format") in formats}
+    """The (root, relative path) of the batch entries whose `format` is in @p formats (an upload entry is root 0)."""
+    return {(font.get("root", 0), font.get("path")) for font in fonts if font.get("format") in formats}
+
+
+def _has_path(paths, root, path):
+    """True when (@p root, @p path) is in @p paths; a value of an unhashable type is simply not there."""
+    try:
+        return (root, path) in paths
+    except TypeError:
+        return False
 
 
 def _licence_paths(fonts):
-    """Every upload path a licence may name: the scan's licence candidates and the batch's list files.
+    """Every (root, upload path) a licence may name: the scan's licence candidates and the batch's list files.
 
     `detect` classifies a `.txt` as `licence`/`list` but a name-only licence such as `COPYING` (no `.txt`) keeps its
     sniffed format, so the candidates the scan found for each font are the reliable set.
@@ -396,7 +416,7 @@ def _licence_paths(fonts):
     paths = set(_entry_paths(fonts, ("list",)))
     for font in fonts:
         for licence in font.get("licences") or []:
-            paths.add(licence.get("path"))
+            paths.add((licence.get("root", 0), licence.get("path")))
     return paths
 
 
@@ -760,7 +780,8 @@ def _shape_errors(fid, font, eff, per, batch, fonts, sources):
         errors.append("%s: bpp has a repeated value" % fid)
     rng = eff.get("range")
     if "range" in per and rng not in NAMED_RANGE_NAMES:
-        if rng not in _entry_paths(fonts, ("list",)) or not _list_present(sources, per.get(RANGE_ROOT_KEY, 0), rng):
+        if not _has_path(_entry_paths(fonts, ("list",)), per.get(RANGE_ROOT_KEY, 0), rng) \
+                or not _list_present(sources, per.get(RANGE_ROOT_KEY, 0), rng):
             errors.append("%s: range %s is %s" % (fid, rng, _RANGE_MESSAGE))
     if RANGE_ROOT_KEY in per and not _root_ok(sources, per[RANGE_ROOT_KEY]):
         errors.append("%s: range root %s is not a source" % (fid, per[RANGE_ROOT_KEY]))
@@ -785,18 +806,19 @@ def _shape_errors(fid, font, eff, per, batch, fonts, sources):
             errors.append("%s: licence kind %s is not upload, repo or text"
                           % (fid, licence.get("kind") if isinstance(licence, dict) else licence))
         elif licence["kind"] == "upload":
-            if licence.get("path") not in _licence_paths(fonts):
+            root_bad = (sources is not None and (sources.kind == "local" or "root" in licence)
+                        and not _root_ok(sources, licence.get("root")))
+            if root_bad and any(p == licence.get("path") for _r, p in _licence_paths(fonts)):
+                errors.append("%s: licence root %s is not a source" % (fid, licence.get("root")))
+            elif not _has_path(_licence_paths(fonts), licence.get("root", 0), licence.get("path")):
                 errors.append("%s: licence %s is not a licence file in the batch" % (fid, licence.get("path")))
             elif sources is not None:
-                if (sources.kind == "local" or "root" in licence) and not _root_ok(sources, licence.get("root")):
-                    errors.append("%s: licence root %s is not a source" % (fid, licence.get("root")))
-                else:
-                    try:
-                        size = os.path.getsize(sources.abs_of(licence.get("root", 0), licence.get("path") or ""))
-                    except (OSError, ValueError):
-                        size = None
-                    if size == 0:
-                        errors.append("%s: licence text is empty" % fid)
+                try:
+                    size = os.path.getsize(sources.abs_of(licence.get("root", 0), licence.get("path") or ""))
+                except (OSError, ValueError):
+                    size = None
+                if size == 0:
+                    errors.append("%s: licence text is empty" % fid)
         elif licence["kind"] == "text":
             if not isinstance(licence.get("text"), str) or not licence["text"].strip():
                 errors.append("%s: licence text is empty" % fid)
@@ -852,7 +874,8 @@ def _batch_shape_errors(batch, fonts, sources):
         errors.append("batch: bpp has a repeated value")
     rng = batch.get("range")
     if "range" in batch and rng not in NAMED_RANGE_NAMES:
-        if rng not in _entry_paths(fonts, ("list",)) or not _list_present(sources, batch.get(RANGE_ROOT_KEY, 0), rng):
+        if not _has_path(_entry_paths(fonts, ("list",)), batch.get(RANGE_ROOT_KEY, 0), rng) \
+                or not _list_present(sources, batch.get(RANGE_ROOT_KEY, 0), rng):
             errors.append("batch: range %s is %s" % (rng, _RANGE_MESSAGE))
     if RANGE_ROOT_KEY in batch and not _root_ok(sources, batch[RANGE_ROOT_KEY]):
         errors.append("batch: range root %s is not a source" % batch[RANGE_ROOT_KEY])
@@ -1119,7 +1142,7 @@ def _licence_sha(index, licence, sources, licence_paths):
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
     if kind == "upload":
         path = licence.get("path")
-        if not isinstance(path, str) or path not in licence_paths:
+        if not isinstance(path, str) or not _has_path(licence_paths, licence.get("root", 0), path):
             return None
         sources = Sources.coerce(sources)
         if sources is None:
@@ -1144,7 +1167,7 @@ def _licence_sha(index, licence, sources, licence_paths):
     return None
 
 
-def _licence_present_ok(index, dest, licence_name, licence, sources, licence_paths):
+def _licence_present_ok(index, dest, licence_name, licence, sources, licence_paths, repo_index=None):
     """True when the chosen licence's bytes equal the destination's `svf/<dest>/<licence_name>`.
 
     The existing file's sha comes from the index (the walk's on-disk spelling of the name); the chosen licence's
@@ -1164,7 +1187,7 @@ def _licence_present_ok(index, dest, licence_name, licence, sources, licence_pat
         return False
     if existing is None:
         return False
-    return _licence_sha(index, licence, sources, licence_paths) == existing
+    return _licence_sha(repo_index or index, licence, sources, licence_paths) == existing
 
 
 def _clash_errors(selected, index, sources, licence_paths):
@@ -1210,14 +1233,16 @@ def _clash_errors(selected, index, sources, licence_paths):
     return errors
 
 
-def run_ready(fonts, settings, index, sources, own_earlier=()):
+def run_ready(fonts, settings, index, sources, own_earlier=(), repo_index=None):
     """`validate`'s rules plus the ones the checkout decides: a missing licence, a name `svf/` already holds.
 
     `sources` (a `Sources`, or the upload directory string) is required: an `upload` licence's bytes must be compared with
     the destination's, so a name clash with other bytes is refused here, not overwritten later. Passing `None` is a
     caller's bug and raises at once (G4). `validate`'s list is returned unchanged, then this function's own new
     errors, each at most once (G3). @p own_earlier is a local job's set of `<dest>/<NAME>` paths it wrote on an earlier
-    run: those names are not "already there". A local job needs no licence.
+    run: those names are not "already there". A local job needs no licence. @p index is the tree the files are
+    written into (name collisions); @p repo_index is the repository's `svf/` (which repo licence files exist, and their
+    bytes), defaulting to @p index, which is right for an upload job (both are the checkout).
     """
     if sources is None:
         raise TypeError("run_ready needs upload_dir")
@@ -1244,7 +1269,8 @@ def run_ready(fonts, settings, index, sources, own_earlier=()):
     if not selected:
         add("batch: nothing selected")
     licence_paths = _licence_paths(fonts)
-    text_paths = {text["path"] for text in index.texts}
+    repo = repo_index or index
+    text_paths = {text["path"] for text in repo.texts}
     for fid, font, eff in selected:
         if font.get("source_kind") == "mac-fbit3" and not eff.get("htbl_companion"):
             add("%s: needs an HTBL 1 table (InputBackSupport or <Name>.htbl1): add it to the sources" % fid)
@@ -1286,14 +1312,14 @@ def run_ready(fonts, settings, index, sources, own_earlier=()):
         if (isinstance(licence_name, str) and licence_name and licence_name.upper() in known
                 and "%s/%s" % (dest, licence_name) not in own_earlier
                 and (licence is not None or sources.kind != "local") and not repo_missing):
-            if not _licence_present_ok(index, dest, licence_name, licence, sources, licence_paths):
+            if not _licence_present_ok(index, dest, licence_name, licence, sources, licence_paths, repo):
                 add("%s: %s already exists in svf/%s; choose another name" % (fid, licence_name, dest))
     all_names = []
     for fid, font, eff in selected:
         all_names += [name for name in (eff.get("names") or {}).values() if isinstance(name, str)]
     for name in naming.duplicates(all_names):
         add("name %s is used twice" % name)
-    for message in _clash_errors(selected, index, sources, licence_paths):
+    for message in _clash_errors(selected, repo, sources, licence_paths):
         add(message)
     return errors
 
@@ -1494,7 +1520,7 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
             step_dir = os.path.join(work_root, sid)
             os.makedirs(step_dir, exist_ok=True)
             # a HangulTalk 1.0 source keeps its original stem (`Munjo16.rsrc`): jamoset looks its golden up by that name
-            last = (font.get("family") or "source") + ".rsrc" if font.get("source_kind") == "mac-fbit1" else None
+            last = prepared_name(font)
             argvs, prepared = routes.source_commands(ops, src, step_dir, tools_dir, "otf" if font.get("cff") else "ttf",
                                                      last_name=last)
             steps.append(_step(sid, fid, "source", None, None, None, None, argvs,
