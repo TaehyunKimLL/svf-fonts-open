@@ -188,7 +188,8 @@ def source_png(font, abs_path, size, out_path):
     return False
 
 
-def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=(), env=None, htbl_abs=None):
+def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=(), env=None, htbl_abs=None,
+                     latin_abs=None):
     """Bake @p font's source into @p out_svf for a preview; True only when this bake really produced @p out_svf.
 
     A `.gz` source is decompressed first (`materialize`). An `svf-*` source is copied (v3) or converted (v2,
@@ -225,15 +226,19 @@ def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=
                 return os.path.exists(out_svf)
         elif kind == "mac-fbit1":
             route = routes.route_for(font, "jamo", False)
+            if route is None:
+                return False
             size = (font.get("sizes") or [None])[0]
             commands = route.commands(font, size, 1, "mac-fbit-45sets", ("2350", None), paths, [list(extra)])
         elif kind == "mac-fbit3":
             if not htbl_abs:
                 return False                 # the type-3 fbit composes through its HTBL 1 table
             route = routes.route_for(font, "jamo", False)
+            if route is None:
+                return False
             size = (font.get("sizes") or [None])[0]
-            commands = route.commands(font, size, 1, "mac-htbl1", ("2350", None), dict(paths, htbl=htbl_abs, latin=None),
-                                      [list(extra)])
+            commands = route.commands(font, size, 1, "mac-htbl1", ("2350", None),
+                                      dict(paths, htbl=htbl_abs, latin=latin_abs), [list(extra)])
         elif kind != "dos-raw":
             return False
         else:

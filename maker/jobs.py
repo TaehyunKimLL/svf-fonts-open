@@ -25,6 +25,7 @@ import re
 import secrets
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -66,7 +67,25 @@ def exc_text(exc, local):
     return type(exc).__name__
 
 
-_TOOL_VERDICT = re.compile(r"^(check|verify)\b")
+# The one verdict line the tools print (jamoset.check / jamovec): fixed words and numbers only. A line that merely
+# starts with "check" is not kept: its tail could be input text.
+_TOOL_VERDICT = re.compile(
+    r"^check: composed \d+ syllables from \d+ glyphs, JSET \d+ bytes"
+    r"(; dy -?\d+\.\.-?\d+ on \d+ glyphs)?"
+    r"(; tables are the adaptive layout's \(\d+/\d+/\d+ sets, \d+x\d+ classes\))?"
+    r"(; identical to johab844\.py)?$")
+
+# Set by make_server in local mode: what reaches stderr is the exception's type and frames, never its message.
+SAFE_DIAGNOSTICS = False
+
+
+def print_exc():
+    """`traceback.print_exc()`; in local mode only the types and frames (`detect.safe_trace`)."""
+    exc = sys.exc_info()[1]
+    if SAFE_DIAGNOSTICS and exc is not None:
+        print(detect.safe_trace(exc), file=sys.stderr, flush=True)
+    else:
+        traceback.print_exc()
 
 
 def tool_text(text, local):
@@ -353,10 +372,15 @@ class Store:
             raise OutputGone("output folder is gone or changed")
         files = self.files_dir(job)
         for path in (files, os.path.join(files, "work"), os.path.join(files, "work", "tmp")):
-            if not os.path.isdir(path):
+            try:
+                mode = os.lstat(path).st_mode
+            except FileNotFoundError:
                 os.mkdir(path, 0o700)
                 os.chmod(path, 0o700)
-        job["files_id"] = list(stat_id(files))          # the directory's own identity (saved by the callers that save)
+                continue
+            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):    # a link planted at the name would lead elsewhere
+                raise OutputGone("the files directory is a link or not a folder: refusing to use it")
+        job["files_id"] = list(stat_id(files))          # the directory's own identity (a run saves it and checks it per step)
         return files
 
     def sources(self, job):
@@ -527,10 +551,10 @@ class Store:
                     shutil.rmtree(files)
                     return True
                 except Exception as exc:
-                    self._add_pending(job, files, "%s: %s" % (type(exc).__name__, exc))
+                    self._add_pending(job, files, exc_text(exc, True) if type(exc) is not OutputGone else str(exc))
                     return False
         except Exception:
-            traceback.print_exc()
+            print_exc()
             return False
 
     def retry_pending_sweeps(self):
@@ -772,9 +796,18 @@ class Worker(threading.Thread):
 
     @staticmethod
     def _output_same(job):
-        """True while a local job's output folder is still the folder that was picked."""
+        """True while a local job's output folder is still the folder that was picked, and its files directory (when
+        the job has made one) is still the directory it made: not replaced, not turned into a link."""
         try:
-            return stat_id(job["output_dir"]) == tuple(job.get("output_id") or ())
+            if stat_id(job["output_dir"]) != tuple(job.get("output_id") or ()):
+                return False
+            known = job.get("files_id")
+            if known:
+                files = os.path.join(job["output_dir"], FILES_DIR_PREFIX + job["id"])
+                st = os.lstat(files)
+                if stat.S_ISLNK(st.st_mode) or [st.st_dev, st.st_ino] != list(known):
+                    return False
+            return True
         except OSError:
             return False
 
@@ -832,7 +865,7 @@ class Worker(threading.Thread):
         try:
             zipout.append_log(self.store.path(job_id), "\nworker: %s\n" % text)
         except Exception:
-            traceback.print_exc()
+            print_exc()
 
     # ---- one job -----------------------------------------------------------------------------------------------
 
@@ -937,10 +970,7 @@ class Worker(threading.Thread):
 
         def fail(job):
             if job.get("source") == "local":                     # no exception message in a local job's records
-                message = str(exc) if isinstance(exc, OutputGone) else "%s: %s" % (type(exc).__name__,
-                                                                                   exc_text(exc, True))
-                if message.endswith(": " + type(exc).__name__):
-                    message = type(exc).__name__
+                message = str(exc) if isinstance(exc, OutputGone) else exc_text(exc, True)
                 self._fail_job(job, job_dir, message, safe)
             else:
                 self._fail_job(job, job_dir, str(exc) if isinstance(exc, OutputGone)
@@ -948,7 +978,7 @@ class Worker(threading.Thread):
         try:
             self.store.update(job_id, fail)
         except Exception:
-            traceback.print_exc()
+            print_exc()
 
     def _fail_job(self, job, job_dir, message, detail=None):
         """Mark @p job `failed` with @p message and fail its `running`/`pending` steps; the caller holds the job lock."""
@@ -961,7 +991,7 @@ class Worker(threading.Thread):
         try:
             zipout.append_log(job_dir, "\n%s\n%s\n" % (message, detail or ""))
         except Exception:
-            traceback.print_exc()
+            print_exc()
 
     def _run_step(self, job, job_dir, files_dir, sources, gz_upload, plain, fonts_by_id, step, cancel):
         """Run one step: `running`, its commands (or its copy), its facts, its preview, its log block and a save."""
@@ -1080,7 +1110,7 @@ class Worker(threading.Thread):
         local = env is not None                         # only a local job has a tool environment of its own
         recog = caps.recog_dir(os.environ) if self.caps.get("recog") else None
         if recog is None:
-            line = next((l for l in (stdout or "").splitlines() if l.startswith("check:")), "")
+            line = next((l for l in (stdout or "").splitlines() if _TOOL_VERDICT.match(l)), "")
             return {"available": False, "structural": line}
         step_dir = os.path.join(files_dir, "work", step.get("id") or "")
         out_json = os.path.join(step_dir, "identity.json")
@@ -1235,15 +1265,12 @@ class Worker(threading.Thread):
         except zipout.NameClash as exc:
             job["state"] = "failed"
             job["error"] = "name clash: %s" % exc.path
-        except OutputGone as exc:
+        except (OutputGone, zipout.NoteRefused, zipout.TreeRefused) as exc:        # messages the maker wrote itself
             job["state"] = "failed"
             job["error"] = str(exc)
-        except (zipout.NoteRefused, ValueError) as exc:
+        except (ValueError, OSError) as exc:                                       # anything else: the type, no message
             job["state"] = "failed"
-            job["error"] = str(exc)
-        except OSError as exc:
-            job["state"] = "failed"
-            job["error"] = "%s: %s" % (type(exc).__name__, exc.strerror or exc)
+            job["error"] = exc_text(exc, True)
         else:
             kept = ["svf/" + item["identical_to"] for item in result["skipped"]] + [
                 "svf/" + rel for rel in result.pop("kept_texts", ())]

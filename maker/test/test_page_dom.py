@@ -751,6 +751,32 @@ class LocalPageTest(localfx.LocalBase):
         self.assertEqual(out["batch"], ["chars.txt", 1])
         self.assertEqual(out["font"], ["chars.txt", 1])
 
+    def test_new_sources_keep_the_job_and_its_ownership(self):
+        """Picking sources again with the same output folder re-detects the SAME job: its faces stay its own, so a
+        re-run into the folder is not refused as someone else's names."""
+        jid = self.done_job()
+        before = self.srv.store.load(jid)["owned"]
+        self.assertTrue(before)
+        paths = json.dumps("\n".join(self.roots))
+        out = self.drive("""
+      const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
+      await waitFor(() => visible(document.getElementById('sources-panel')));
+      document.getElementById('source-paths').value = %s;
+      document.getElementById('output-dir').value = %s;
+      document.getElementById('detect-local').click();
+      await waitFor(() => visible(document.getElementById('ack')));
+      document.getElementById('ack-ok').click();
+      await waitFor(() => document.getElementById('state').textContent.includes('detected'));
+      document.getElementById('run').click();
+      await waitFor(() => document.getElementById('state').textContent.includes('written to'));
+      return {id: new URLSearchParams(location.search).get('job'), state: document.getElementById('state').textContent};
+    """ % (paths, json.dumps(self.out)), query="?job=" + jid)
+        self.assertEqual(out["id"], jid)                                          # the same job, not a new one
+        self.assertEqual(len(self.srv.store.list()), 1)
+        job = self.job(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertLessEqual(set(before), set(self.srv.store.load(jid)["owned"]))
+
     def test_sync_caveat_is_shown(self):
         with open(os.path.join(MAKER_DIR, "static", "index.html"), encoding="utf-8") as f:
             html = f.read()

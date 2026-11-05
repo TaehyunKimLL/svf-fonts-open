@@ -535,6 +535,17 @@ class WorkerTest(unittest.TestCase):
             self.assertEqual(j["state"], "failed")
             self.assertEqual(j["error"], message)
 
+    def test_tool_text_keeps_only_the_exact_verdict_format(self):
+        verdict = "check: composed 11172 syllables from 5 glyphs, JSET 501 bytes"
+        text = "\n".join([verdict, "check: QZMARKERQZ", "verify QZMARKERQZ", "check: composed 11172 syllables from 5 glyphs, "
+                           "JSET 501 bytes QZMARKERQZ", "font QZMARKERQZ"])
+        kept = jobs.tool_text(text, True)
+        self.assertIn(verdict, kept)
+        self.assertNotIn("QZMARKERQZ", kept)
+        self.assertIn("4 line(s) not kept", kept)
+        self.assertEqual(jobs.tool_text(verdict + "; identical to johab844.py", True), verdict + "; identical to johab844.py")
+        self.assertEqual(jobs.tool_text(text, False), text)                       # an upload job keeps it all
+
     def test_needs_cascade(self):
         j = self.job_with_steps(["sys.exit(3)", "open(sys.argv[1],'wb').write(open(NEODG,'rb').read())"],
                                 kinds=["source", "jamo"])

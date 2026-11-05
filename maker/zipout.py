@@ -66,6 +66,10 @@ class NameClash(Exception):
         self.path = path
 
 
+class TreeRefused(ValueError):
+    """The output tree is not safe to write into (a link where a folder should be): the message is the maker's own."""
+
+
 class NoteRefused(ValueError):
     """`naming.note_text` refused a note (a control character, or a line over 512 bytes).
 
@@ -637,7 +641,9 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
                                          _utc_now().date().isoformat(), commands,
                                          licence=NO_LICENCE_LINE if no_licence else None)
         except ValueError as exc:
-            message = "note for %s: %s" % (font_id, exc)
+            # a local job's message names no character or value of the input
+            message = "note for %s: %s" % (font_id, "the note text was refused (a control character or an over-long line)"
+                                           if local else exc)
             job["error"] = message
             append_log(job_dir, "\n%s\n" % message)
             raise NoteRefused(message)                   # never a partial zip
@@ -749,6 +755,7 @@ class _OutputTree:
         self.output_dir = output_dir
         self.output_id = tuple(output_id)
         self._dirs = {}
+        self._parent = {}                                  # rel path of a cached folder -> (parent fd, its name)
         try:
             self.root = os.open(output_dir, os.O_RDONLY | os.O_DIRECTORY)
         except OSError:
@@ -768,6 +775,22 @@ class _OutputTree:
         if (here.st_dev, here.st_ino) != self.output_id or (held.st_dev, held.st_ino) != self.output_id:
             raise OutputGone("output folder is gone or changed")
 
+    def verify(self, rel_dir):
+        """Prove that every cached folder on the way to @p rel_dir is still the entry its name has in its parent
+        (same device and inode, not a link): a folder renamed away, replaced or swapped for a link since it was opened
+        means the descriptor no longer leads where the path says. `OutputGone` otherwise."""
+        walked = ""
+        for part in rel_dir.split("/"):
+            walked = walked + "/" + part if walked else part
+            parent, name = self._parent[walked]
+            try:
+                here = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                held = os.fstat(self._dirs[walked])
+            except OSError:
+                raise OutputGone("output folder is gone or changed")
+            if not stat.S_ISDIR(here.st_mode) or (here.st_dev, here.st_ino) != (held.st_dev, held.st_ino):
+                raise OutputGone("output folder is gone or changed")
+
     def dir(self, rel_dir):
         """The descriptor of the folder @p rel_dir below the output folder (made 0755 as needed), never through a link."""
         if rel_dir in self._dirs:
@@ -778,28 +801,32 @@ class _OutputTree:
             if walked in self._dirs:
                 current = self._dirs[walked]
                 continue
+            parent_fd, made = current, False
             try:
                 mode = os.lstat(part, dir_fd=current).st_mode
             except FileNotFoundError:
                 self.check()                               # never make a folder in a folder that went away
                 try:
                     os.mkdir(part, 0o755, dir_fd=current)
-                    try:
-                        os.chmod(part, 0o755, dir_fd=current)
-                    except OSError:
-                        pass
+                    made = True
                 except FileExistsError:
                     pass                                    # another writer made it first: it is checked just below
                 mode = os.lstat(part, dir_fd=current).st_mode
             if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-                raise ValueError("%s is a symlink or not a folder: refusing to write through it" % walked)
+                raise TreeRefused("%s is a symlink or not a folder: refusing to write through it" % walked)
             try:
                 fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
             except OSError as exc:
                 if exc.errno in (errno.ELOOP, errno.ENOTDIR):
-                    raise ValueError("%s is a symlink or not a folder: refusing to write through it" % walked)
+                    raise TreeRefused("%s is a symlink or not a folder: refusing to write through it" % walked)
                 raise
+            if made:
+                try:
+                    os.fchmod(fd, 0o755)                      # through the descriptor: a name swapped meanwhile is not followed
+                except OSError:
+                    pass
             self._dirs[walked] = current = fd
+            self._parent[walked] = (parent_fd, part)
         return current
 
     def close(self):
@@ -845,13 +872,14 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
                 f.flush()
+                try:
+                    os.fchmod(f.fileno(), 0o644)
+                except OSError:
+                    pass                                     # FAT/exFAT cannot hold a mode: the file is still good
                 os.fsync(f.fileno())
-            try:
-                os.chmod(tmp, 0o644, dir_fd=dfd)
-            except OSError:
-                pass                                         # FAT/exFAT cannot hold a mode: the file is still good
             digest = hashlib.sha256(data).hexdigest()
             tree.check()
+            tree.verify(rel_dir)
             if always:
                 os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
             elif rel in owned:
@@ -861,6 +889,15 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
                 os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
             else:
                 _land_new(dfd, tmp, name, rel, digest, job["id"])
+            try:
+                tree.check()
+                tree.verify(rel_dir)                           # still where the path says, after the landing too
+            except OutputGone:
+                try:
+                    os.remove(name, dir_fd=dfd)                # take back what was just placed (through the same descriptor)
+                except OSError:
+                    pass
+                raise
             landed.append(rel)
             on_landed(rel, digest)
     except BaseException as exc:
@@ -879,7 +916,7 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
 def _land_new(dfd, tmp, name, rel, digest, job_id):
     """Put the temp file at the NEW name @p name in folder @p dfd without ever replacing a file already there."""
     try:
-        os.link(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+        os.link(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)
         return
     except FileExistsError:
         raise NameClash(job_id, rel)

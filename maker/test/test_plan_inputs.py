@@ -922,6 +922,21 @@ class MacEndToEndTest(localfx.LocalBase):
                 with open(os.path.join(out, rel), "rb") as fh:
                     self.assertEqual(jamoset.parse_svfn(fh.read()).version, 3)
 
+    def test_mac71_source_face_uses_the_chosen_suitcase(self):
+        """A suitcase picked as the Latin companion reaches the preview bake: the baked source face then carries ASCII."""
+        roots = [self.p("Seoul12.rsrc"), self.p("InputBackSupport.rsrc"), self.p("Suitcase.rsrc")]
+        jid, font = self.mac_job(roots, "Seoul12.rsrc")
+        r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))
+        self.assertEqual(r[0], 200)
+        self.assertNotIn(0x41, jamoset.parse_svfn(r[2]).glyphs)                    # no suitcase chosen: no ASCII
+        suit = next(f["id"] for f in self.job(jid)["fonts"] if f["source_kind"] == "mac-suitcase")
+        st = self.job(jid)["settings"]
+        st["fonts"][font["id"]]["latin_companion"] = suit
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))
+        self.assertEqual(r[0], 200)
+        self.assertIn(0x41, jamoset.parse_svfn(r[2]).glyphs)
+
     def test_mac71_gz_fork(self):
         jid, font = self.mac_job([self.p("gz"), self.p("InputBackSupport.rsrc")], "Seoul12.rsrc.gz")
         job = self.done(jid)

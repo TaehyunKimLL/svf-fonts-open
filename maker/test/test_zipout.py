@@ -21,6 +21,7 @@ import importlib.util
 import json
 import shutil
 import tempfile
+import time
 import unittest
 import warnings
 import zipfile
@@ -193,6 +194,24 @@ class SourcesZipTest(_ZipBase):
         self.assertEqual(build[:40], open(os.path.join(JD, "log.md"), encoding="utf-8").read()[:40])
 
 
+class LocalNoteRefusedTest(_ZipBase):
+    def test_a_local_collect_refuses_a_note_without_quoting_the_character(self):
+        message = "note_text: family carries the control character '\\x07' QZMARKERQZ"
+        local = Sources("local", [JD])
+        with mock.patch.object(naming, "note_text", side_effect=ValueError(message)):
+            with self.assertRaises(zipout.NoteRefused) as ctx:
+                zipout.collect(JOB, JD, JD, IDX, FONTS, EFF, REPO, local)
+        self.assertNotIn("x07", str(ctx.exception))
+        self.assertNotIn("QZMARKERQZ", str(ctx.exception))
+        self.assertNotIn("QZMARKERQZ", JOB["error"])
+        with open(os.path.join(JD, "log.md"), encoding="utf-8") as f:
+            self.assertNotIn("QZMARKERQZ", f.read())
+        with mock.patch.object(naming, "note_text", side_effect=ValueError(message)):
+            with self.assertRaises(zipout.NoteRefused) as ctx:                      # an upload keeps the message
+                zipout.collect(dict(JOB), JD, JD, IDX, FONTS, EFF, REPO, Sources("upload", [JD + "/upload"]))
+        self.assertIn("QZMARKERQZ", str(ctx.exception))
+
+
 class WriteTreeTest(unittest.TestCase):
     """`write_tree`'s guarantees without a server: ownership, atomic no-clobber for new names, no stray temp files."""
 
@@ -288,10 +307,84 @@ class WriteTreeTest(unittest.TestCase):
 
     def test_a_chmod_that_is_refused_does_not_fail_the_write(self):
         import errno
-        with mock.patch("os.chmod", side_effect=OSError(errno.EPERM, "fat")):
+        with mock.patch("os.fchmod", side_effect=OSError(errno.EPERM, "fat")):
             got, landed = self.tree({"svf/dos/X.SVF": b"mine"}, {})
         self.assertEqual(got, ["svf/dos/X.SVF"])
         self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"mine")
+
+    def test_no_path_based_chmod_or_following_link(self):
+        """chmod goes through descriptors (fchmod) and link does not follow a symlink: a name swapped in between cannot
+        redirect them."""
+        real_link = os.link
+        seen = []
+
+        def link(src, dst, *a, **k):
+            seen.append(k.get("follow_symlinks"))
+            return real_link(src, dst, *a, **k)
+        with mock.patch("os.chmod") as chmod, mock.patch("os.link", link):
+            self.tree({"svf/dos/X.SVF": b"mine"}, {}, [("BUILD.md", b"b")])
+        chmod.assert_not_called()
+        self.assertEqual(seen, [False])
+
+    def test_svf_renamed_away_between_two_landings_stops_the_write(self):
+        landed = []
+
+        def swap(rel, sha):
+            landed.append(rel)
+            if len(landed) == 1:
+                os.rename(os.path.join(self.out, "svf"), os.path.join(self.out, "svf.moved"))
+        with self.assertRaises(sources.OutputGone) as ctx:
+            zipout.write_tree(self.job, {"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b", "svf/dos/C.SVF": b"c"}, [],
+                              self.out, self.oid, {}, swap)
+        self.assertEqual(str(ctx.exception), "output folder is gone or changed")
+        self.assertEqual(landed, ["svf/dos/A.SVF"])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.out, "svf.moved", "dos"))), ["A.SVF"])   # nothing followed it
+        self.assertFalse(os.path.exists(os.path.join(self.out, "svf")))                              # and nothing re-made
+
+    def test_dest_swapped_for_a_symlink_between_two_landings_stops_the_write(self):
+        elsewhere = tempfile.mkdtemp(prefix="svf-elsewhere-")
+        self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)
+        landed = []
+
+        def swap(rel, sha):
+            landed.append(rel)
+            if len(landed) == 1:
+                os.rename(os.path.join(self.out, "svf", "dos"), os.path.join(self.out, "svf", "dos.moved"))
+                os.symlink(elsewhere, os.path.join(self.out, "svf", "dos"))
+        with self.assertRaises(sources.OutputGone):
+            zipout.write_tree(self.job, {"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b"}, [], self.out, self.oid, {}, swap)
+        self.assertEqual(os.listdir(elsewhere), [])
+        self.assertEqual(landed, ["svf/dos/A.SVF"])
+
+    def test_a_thread_swapping_the_dest_never_leaves_an_unreported_file_behind(self):
+        import threading
+        files = {"svf/dos/F%03d.SVF" % i: b"x%d" % i for i in range(80)}
+        moved = os.path.join(self.out, "moved")
+        started = threading.Event()
+        landed = []
+
+        def swapper():
+            started.wait(10)
+            try:
+                os.rename(os.path.join(self.out, "svf", "dos"), moved)
+            except OSError:
+                pass
+
+        def note(rel, sha):
+            landed.append(rel)
+            if len(landed) == 3:
+                started.set()
+                time.sleep(0.05)                                          # let the swapper run between two landings
+        t = threading.Thread(target=swapper)
+        t.start()
+        try:
+            zipout.write_tree(self.job, files, [], self.out, self.oid, {}, note)
+        except sources.OutputGone:
+            pass
+        t.join(10)
+        self.assertTrue(os.path.isdir(moved))
+        # every file in the swapped-away folder was reported as landed: later ones were unlinked, not left behind
+        self.assertLessEqual({"svf/dos/" + n for n in os.listdir(moved)}, set(landed))
 
     def test_a_symlinked_destination_is_refused(self):
         elsewhere = tempfile.mkdtemp(prefix="svf-elsewhere-")

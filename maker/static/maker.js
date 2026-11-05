@@ -2269,19 +2269,25 @@ async function detectLocal() {
   if (!paths.length) { notice("choose files or a folder first"); return; }
   if (!output) { notice("choose an output folder"); return; }
   await acknowledge();                                // nothing is created before the user has read it
-  // this page's earlier local job holds the output folder: it is replaced by the new one
-  if (jobId && job && job.source === "local" && job.state !== "queued" && job.state !== "running") {
-    try { await api("DELETE", "/api/jobs/" + encodeURIComponent(jobId)); } catch (err) { /* the new job reports it */ }
+  const idle = job && job.state !== "queued" && job.state !== "running";
+  if (jobId && idle && job.source === "local" && job.output_dir === output) {
+    // the same output folder: the job stays (it owns the faces it wrote there, and keeps its log); only its sources change
+    if (job.state === "done" || job.state === "failed") {
+      try {
+        await api("POST", "/api/jobs/" + encodeURIComponent(jobId) + "/detect");   // back to `detected`, ownership kept
+      } catch (err) { return; }
+    }
+  } else {
+    let created;
+    try {
+      created = await api("POST", "/api/jobs", {source: "local", output_dir: output});
+    } catch (err) { return; }                         // e.g. "output folder is in use by job ...": the notice says so
+    jobId = created.id;
+    job = {id: jobId, state: "uploading", source: "local"};
+    settings = {batch: {}, fonts: {}};
+    renderStatus();
+    history.replaceState(null, "", "?job=" + jobId);
   }
-  let created;
-  try {
-    created = await api("POST", "/api/jobs", {source: "local", output_dir: output});
-  } catch (err) { return; }
-  jobId = created.id;
-  job = {id: jobId, state: "uploading", source: "local"};
-  settings = {batch: {}, fonts: {}};
-  renderStatus();
-  history.replaceState(null, "", "?job=" + jobId);
   let answer;
   try {
     answer = await api("PUT", "/api/jobs/" + encodeURIComponent(jobId) + "/sources", {paths});

@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import traceback
+import unicodedata
 
 import bdfface
 import jamoaa
@@ -344,6 +345,18 @@ def layout_px(name, data, face=0):
 
 
 # ---- the file --------------------------------------------------------------------------------------------------
+
+NAME_CAP = 64
+
+
+def _clean_name(value):
+    """A name-table string for a local job's records: control characters (and the bidi controls) removed, at most
+    NAME_CAP characters."""
+    if not isinstance(value, str):
+        return value
+    kept = "".join(ch for ch in value if unicodedata.category(ch) not in ("Cc", "Cf", "Zl", "Zp"))
+    return kept[:NAME_CAP]
+
 
 def safe_trace(exc):
     """An exception as text that can be kept in a log of a local job: the type names and the stack frames
@@ -1623,6 +1636,9 @@ def scan(sources, local=False):
             else:
                 entry["coverage"] = _coverage_of_entry(path, entry, src, face, sources.tmp_dir)
             entry["jamo"] = jamo_label(entry)
+            if with_root:                                  # a local job keeps the name-table strings short and clean
+                for field in ("family", "style", "version"):
+                    entry[field] = _clean_name(entry.get(field))
             hits = find_licences(real_of[key], None, licences, ceilings[key[0]] if with_root else ceiling)
             entry["licences"] = []
             for p in hits:

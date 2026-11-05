@@ -649,7 +649,7 @@ class LocalPrivacyTest(LocalRunBase):
 
         def noisy(argv, cwd, timeout, cancel, env=None):
             if any("HAN.FNT" in str(a) for a in argv):
-                return {"exit": 1, "seconds": 0.0, "error": None, "stdout": "check: 3 ok\nfont " + self.MARK + "\n",
+                return {"exit": 1, "seconds": 0.0, "error": None, "stdout": "check: composed 11172 syllables from 5 glyphs, JSET 501 bytes\nfont " + self.MARK + "\n",
                         "stderr": "error: " + self.MARK + "\n"}
             return real(argv, cwd, timeout, cancel, env)
         jid = self.local_job()
@@ -663,8 +663,81 @@ class LocalPrivacyTest(LocalRunBase):
         self.assertIn("not kept", bad["stderr_tail"])
         with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
             log = f.read()
-        self.assertIn("check: 3 ok", log)                                          # the tools' own verdict line stays
+        self.assertIn("check: composed 11172 syllables from 5 glyphs, JSET 501 bytes", log)   # the tools' own verdict line stays
         self.assert_no_marker(job, self.job(jid))
+
+    def test_a_check_line_with_input_text_is_not_kept(self):
+        import jobs
+        real = jobs.run_command
+
+        def noisy(argv, cwd, timeout, cancel, env=None):
+            if any("HAN.FNT" in str(a) for a in argv):
+                return {"exit": 1, "seconds": 0.0, "error": None,
+                        "stdout": "check: " + self.MARK + "\nverify " + self.MARK + "\n",
+                        "stderr": "check: composed 11172 syllables from 5 glyphs, JSET 501 bytes " + self.MARK + "\n"}
+            return real(argv, cwd, timeout, cancel, env)
+        jid = self.local_job()
+        self.select(jid)
+        with mock.patch.object(jobs, "run_command", noisy):
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assert_no_marker(job, self.job(jid))
+
+    def test_write_tree_errors_are_sanitized_in_the_job_error(self):
+        import zipout
+        cases = [(ValueError("bad \x07 " + self.MARK), "ValueError"),
+                 (OSError(5, "Input/output error", "/secret/" + self.MARK), "OSError: Input/output error"),
+                 (RuntimeError(self.MARK), "RuntimeError")]
+        for exc, want in cases:
+            with self.subTest(exc=type(exc).__name__):
+                out = os.path.join(self.tmp, "o%s" % type(exc).__name__)
+                os.makedirs(out)
+                jid = self.local_job(out=out)
+                self.select(jid)
+                with mock.patch.object(zipout, "write_tree", side_effect=exc):
+                    job = self.run_to_done(jid)
+                self.assertEqual((job["state"], job["error"]), ("failed", want))
+                self.assert_no_marker(job)
+
+    def test_a_refused_note_names_no_character(self):
+        """POST run checks the notes (run_ready and the note check of the planned steps): neither answer quotes the
+        control character or the input's text that made naming.note_text refuse."""
+        import naming
+        jid = self.new_detected()
+        message = "note_text: family carries the control character '\\x07' " + self.MARK
+        real = naming.note_text
+
+        def refuse_commands(*args, **kwargs):
+            if args[6]:                                                 # the note check of the planned steps
+                raise ValueError(message)
+            return real(*args, **kwargs)
+        for patch in (mock.patch.object(naming, "note_text", refuse_commands),
+                      mock.patch.object(naming, "note_text", side_effect=ValueError(message))):   # run_ready's own check
+            with patch:
+                status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+            self.assertEqual(status, 400, body)
+            self.assertNotIn("x07", json.dumps(body))
+            self.assertNotIn(self.MARK, json.dumps(body))
+
+    def new_detected(self):
+        out = os.path.join(self.tmp, "o-refused")
+        os.makedirs(out, exist_ok=True)
+        jid = self.local_job(out=out)
+        self.select(jid)
+        return jid
+
+    def test_stderr_gets_type_and_frames_only_with_the_token(self):
+        import contextlib
+        import detect
+        import io
+        jid = self.new_job()
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})[0], 200)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), mock.patch.object(detect, "scan", side_effect=RuntimeError("boom " + self.MARK)):
+            status, body = self.api("POST", "/api/jobs/%s/detect" % jid)
+        self.assertEqual(status, 500)
+        self.assertIn("RuntimeError", err.getvalue())
+        self.assertNotIn(self.MARK, err.getvalue())
 
     def test_source_and_readback_errors_are_the_type_only(self):
         import jobs
@@ -879,6 +952,40 @@ class LocalSweepTest(LocalRunBase):
         self.assertEqual(again["state"], "done", again.get("error"))
         self.assertFalse(os.path.exists(planted))
         self.assertEqual(self.raw("GET", "/api/jobs/%s/identity/%s.json" % (jid, step["id"]))[0], 404)
+
+    def test_a_linked_files_directory_is_refused(self):
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        elsewhere = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(elsewhere)
+        shutil.rmtree(fd)
+        os.symlink(elsewhere, fd)
+        ttf = next(f["id"] for f in self.job(jid)["fonts"] if f["path"] == "Munjo.ttf")
+        r = self.probe(jid, ttf)
+        self.assertEqual(r[0], 404)
+        status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+        self.assertEqual(status, 409)
+        self.assertEqual(os.listdir(elsewhere), [])
+
+    def test_the_files_directory_replaced_during_the_run_fails_the_job(self):
+        import jobs
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        real = jobs.run_command
+        done = []
+
+        def swap_then_run(argv, cwd, timeout, cancel, env=None):
+            if not done:
+                done.append(1)
+                os.rename(fd, fd + ".away")
+                os.mkdir(fd)
+            return real(argv, cwd, timeout, cancel, env)
+        with mock.patch.object(jobs, "run_command", swap_then_run):
+            self.assertEqual(self.api("POST", "/api/jobs/%s/run" % jid)[0], 200)
+            job = self.wait_done(jid)
+        self.assertEqual((job["state"], job["error"]), ("failed", "output folder is gone or changed"))
 
     def test_idle_sweep(self):
         import time

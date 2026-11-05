@@ -553,6 +553,9 @@ def main(argv=None):
         if name == "bdf-pixel-size":
             p.add_argument("--size", type=int, required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "mac-fork-named" and sys.platform != "darwin":
+        print("srcprep: mac-fork-named: macOS only", file=sys.stderr)
+        return 2
     try:
         with open(a.src + "/..namedfork/rsrc" if a.cmd == "mac-fork-named" else a.src, "rb") as fh:
             data = fh.read(MAX_BYTES + 1)

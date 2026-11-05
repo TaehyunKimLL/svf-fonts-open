@@ -384,6 +384,16 @@ class LocalKindsTest(DirCase):
         self.assertEqual(by["ASCII.PFT"]["format"], "eng")                          # kept: a DOS font is in the batch
         self.assertEqual(by["HAN.FNT"]["companions"], [])                          # but not offered to a 16 px face
 
+    def test_name_table_strings_are_capped_and_cleaned_in_a_local_scan(self):
+        family = "Fam\x07ily" + "x" * 5000
+        self.put("r/Long.ttf", inputfx.ttf(family, BOX1))
+        (local,) = detect.scan(Sources("local", [self.dir("r")]), local=True)
+        self.assertLessEqual(len(local["family"]), 64)
+        self.assertNotIn("\x07", local["family"])
+        self.assertTrue(local["family"].startswith("Family"))
+        (up,) = detect.scan(self.dir("r"))                                       # an upload scan keeps today's strings
+        self.assertGreater(len(up["family"]), 1000)
+
     def test_named_fork_off_elsewhere(self):
         """Off macOS a file with an empty data fork is `unknown` and no `..namedfork` path is opened or even asked for."""
         self.put("empty.bin", b"")

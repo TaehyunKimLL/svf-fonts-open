@@ -501,7 +501,8 @@ def make_server(host, port, repo_dir, data_root, token=None):
             try:
                 _sweep_idle(server)
             except Exception:
-                traceback.print_exc()
+                jobs.print_exc()
+    jobs.SAFE_DIAGNOSTICS = token is not None
     if token is not None:
         threading.Thread(target=idle_sweeper, daemon=True, name="svf-maker-idle-sweep").start()
     server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
@@ -639,7 +640,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except TimeoutError:                            # W8: an idle read is over; the reservation is released below
             self._reply_error(_HttpError(400, "stalled body"))
         except Exception as exc:                        # anything uncaught is a 500 with the traceback on stderr
-            traceback.print_exc()
+            jobs.print_exc()
             # with the token (local mode) the answer names the type only: the message may quote an input's bytes
             self._reply_error(_HttpError(500, type(exc).__name__ if self.server.token is not None
                                          else "%s: %s" % (type(exc).__name__, exc)))
@@ -1392,7 +1393,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                  zipout.note_commands(materialized, font, sources, files_dir, self.server.tools_dir)
                                  if local else zipout.note_commands(materialized, font))
             except ValueError as exc:
-                raise _HttpError(400, "note for %s: %s" % (font_id, exc))
+                raise _HttpError(400, "note for %s: %s" % (font_id, "the note text was refused (a control character or an "
+                                                          "over-long line)" if local else exc))
 
     def _job_cancel(self, query, job):
         result = self.server.worker.cancel(job)
@@ -1674,10 +1676,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if htbl is None:
                 raise _HttpError(409, "choose the HTBL table")
             htbl_abs = self._prepared_source(htbl, {}, sources, out_dir, env=env, keep=not local)
+            suitcase = by_id.get(eff.get("latin_companion")) if font.get("latin_candidates") else None
+            latin_abs = (self._prepared_source(suitcase, {}, sources, out_dir, env=env, keep=not local)
+                         if suitcase is not None else None)             # the chosen Latin suitcase goes into the bake
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, None, None, out_svf, self.server.tools_dir,
-                                        self._bake_flags(eff, source_kind), env=env, htbl_abs=htbl_abs):
-                self._render_preview(None, out_svf, out_png)
+                                        self._bake_flags(eff, source_kind), env=env, htbl_abs=htbl_abs,
+                                        latin_abs=latin_abs):
+                self._render_preview(None, out_svf, out_png)           # a face with ASCII needs no Latin chain
             return
         preview.source_png(font, abs_src, self._first_size(font, eff), out_png)
 

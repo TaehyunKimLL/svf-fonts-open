@@ -1265,7 +1265,9 @@ def run_ready(fonts, settings, index, sources, own_earlier=()):
                                  os.path.basename(font.get("path", "")), font.get("version") or "",
                                  datetime.date.today().isoformat(), [])
             except ValueError as exc:
-                add("%s: note: %s" % (fid, exc))
+                # a local job's message names no character of the input (the control character is quoted otherwise)
+                add("%s: note: %s" % (fid, "the note text was refused (a control character or an over-long line)"
+                                      if sources.kind == "local" else exc))
         dest = eff.get("dest")
         if not isinstance(dest, str):
             continue
