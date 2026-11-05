@@ -17,6 +17,7 @@ what was produced; only a job with no `done` face (or a cancel, a name clash or 
 The library assumes `maker/` and `tools/` are on sys.path (the entry points set it).
 """
 
+import contextlib
 import json
 import os
 import queue
@@ -25,6 +26,7 @@ import secrets
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -274,6 +276,10 @@ class Store:
         self._locks_guard = threading.Lock()
         # Called with the job id after `delete` removed its directory (the server drops its per-font preview locks).
         self.on_delete = None
+        # Called with a local job (a dict with `id` and `fonts`) -> a context manager that holds its preview locks while
+        # its files directory is swept, so a preview GET cannot re-make the directory under `rmtree`.
+        self.on_sweep = None
+        self._pending_lock = threading.Lock()
 
     def lock(self, job_id):
         """The `threading.Lock` of @p job_id, made once: two handlers never write one job's file together."""
@@ -418,12 +424,106 @@ class Store:
             job = self.load(job_id)
             if job.get("state") in ("queued", "running"):
                 raise ValueError("job %s is %s" % (job_id, job.get("state")))
+            if job.get("source") == "local":
+                self.sweep_files(job)                     # before the metadata goes: a failure is kept as pending
             shutil.rmtree(self.path(job_id))
         with self._locks_guard:
             if self._locks.get(job_id) is lock:         # never drop a lock a later caller already made
                 self._locks.pop(job_id, None)
         if self.on_delete is not None:
             self.on_delete(job_id)
+
+
+    # ---- the sweeps of a local job's files directory (`<output_dir>/.svf-maker-<id>/`) --------------------------
+
+    def _pending_path(self):
+        return os.path.join(self.data_root, "pending-sweeps.json")
+
+    def _read_pending(self):
+        try:
+            with open(self._pending_path(), encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return []
+        return [e for e in data if isinstance(e, dict)] if isinstance(data, list) else []
+
+    def _write_pending(self, entries):
+        os.makedirs(self.data_root, exist_ok=True)
+        tmp = self._pending_path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(entries, f, indent=2)
+        os.replace(tmp, self._pending_path())
+
+    def _add_pending(self, job, files, reason):
+        entry = {"path": files, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"),
+                 "job": job["id"]}
+        with self._pending_lock:
+            entries = self._read_pending()
+            if not any(e.get("path") == files for e in entries):
+                entries.append(entry)
+                self._write_pending(entries)
+        try:
+            zipout.append_log(self.path(job["id"]), "\nsweep: %s: %s\n" % (files, reason))
+        except OSError:
+            pass                                          # the metadata directory is already gone
+
+    def sweep_files(self, job):
+        """Remove a local job's files directory; True when it is gone. Never raises.
+
+        Only when the output folder is still the one picked (`output_id`) and the path is a real directory. A failure
+        (busy, changed folder) is recorded in `pending-sweeps.json` with the folder's identity and logged to `log.md`;
+        `retry_pending_sweeps` takes it up later. The job's preview locks are held meanwhile (`on_sweep`)."""
+        if job.get("source") != "local":
+            return True
+        files = self.files_dir(job)
+        try:
+            hold = self.on_sweep(job) if self.on_sweep is not None else contextlib.nullcontext()
+            with hold:
+                if not os.path.lexists(files):
+                    return True
+                try:
+                    if stat_id(job["output_dir"]) != tuple(job.get("output_id") or ()):
+                        raise OutputGone("output folder is gone or changed")
+                    if os.path.islink(files) or not os.path.isdir(files):
+                        raise OSError("not a real directory")
+                    shutil.rmtree(files)
+                    return True
+                except Exception as exc:
+                    self._add_pending(job, files, "%s: %s" % (type(exc).__name__, exc))
+                    return False
+        except Exception:
+            traceback.print_exc()
+            return False
+
+    def retry_pending_sweeps(self):
+        """Retry each pending sweep; it deletes only a real `.svf-maker-<job id>` directory directly inside the output
+        folder it was recorded for, when that folder is still the same one. An entry is dropped when the directory is
+        gone, when the retry succeeds, or when a check fails (a replaced folder never becomes the original again)."""
+        with self._pending_lock:
+            kept = []
+            for entry in self._read_pending():
+                try:
+                    path, job_id = entry["path"], entry["job"]
+                    out, oid = entry["output_dir"], tuple(entry["output_id"])
+                    name = ".svf-maker-" + job_id
+                    if not os.path.lexists(path):
+                        continue
+                    if (not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name) or os.path.basename(path) != name
+                            or os.path.dirname(path) != out or stat_id(out) != oid
+                            or os.path.islink(path) or not os.path.isdir(path)):
+                        print("sweep: %s: not the directory this job made; left alone" % path, file=sys.stderr)
+                        continue
+                    try:
+                        job = self.load(job_id)
+                    except KeyError:
+                        job = {"id": job_id, "fonts": []}
+                    hold = self.on_sweep(job) if self.on_sweep is not None else contextlib.nullcontext()
+                    with hold:
+                        shutil.rmtree(path)
+                except Exception as exc:
+                    print("sweep: %s: %s" % (entry.get("path"), exc), file=sys.stderr)
+                    kept.append(entry)
+            self._write_pending(kept)
 
 
 # ---- the worker ------------------------------------------------------------------------------------------------
@@ -512,12 +612,24 @@ class Worker(threading.Thread):
                 event.set()
         preview.kill_all()                          # an in-flight bake or probe of a request thread has its own session too
         deadline = time.monotonic() + timeout
+        idle = False
         while time.monotonic() < deadline:
             with self._lock:
                 if self._current is None:
-                    return True
+                    idle = True
+                    break
             time.sleep(0.05)
-        return False
+        self.sweep_local_files()                    # whatever a GET re-made, and the running job's leftovers
+        return idle
+
+    def sweep_local_files(self):
+        """Sweep the files directory of every local job (at stop; the start-up thread does the same)."""
+        for item in self.store.list():
+            if item.get("source") == "local":
+                try:
+                    self.store.sweep_files(self.store.load(item["id"]))
+                except KeyError:
+                    continue
 
     def recover(self):
         """Called once before `start()`: a `running` job is `failed`/`interrupted`, a `queued` one re-enqueued.
@@ -528,13 +640,14 @@ class Worker(threading.Thread):
         """
         jobs = self.store.list()
         for item in jobs:
-            if item["state"] == "running":
+            # a local job that was queued is not re-enqueued either: its files directory is gone with the process
+            if item["state"] == "running" or (item["state"] == "queued" and item.get("source") == "local"):
                 try:
                     self.store.update(item["id"], lambda job: job.update(state="failed", error="interrupted"))
                 except KeyError:
                     continue
         for item in sorted(jobs, key=lambda item: item["created"]):
-            if item["state"] == "queued":
+            if item["state"] == "queued" and item.get("source") != "local":
                 try:
                     self.enqueue(item["id"])
                 except KeyError:
@@ -602,6 +715,27 @@ class Worker(threading.Thread):
                 except Exception:                   # housekeeping must not kill the worker either
                     self._log_failure(job_id, traceback.format_exc())
 
+    def _finish_local(self, job_id):
+        """After a local job: its reports and identity scores move to `<metadata>/steps/` (the files directory is about
+        to go), then the files directory is swept. Never raises."""
+        def move(j):
+            meta, files = self.store.meta_dir(j["id"]), self.store.files_dir(j)
+            os.makedirs(os.path.join(meta, "steps"), exist_ok=True)
+            for step in j.get("steps") or []:
+                sid = step.get("id")
+                for kind in ("report", "identity"):
+                    src = os.path.join(files, "work", sid or "", kind + ".json")
+                    if sid and os.path.isfile(src):
+                        dst = os.path.join(meta, "steps", "%s.%s.json" % (sid, kind))
+                        shutil.copyfile(src, dst)
+                        if kind == "report" and step.get("report"):
+                            step["report"] = "steps/%s.report.json" % sid
+        try:
+            self.store.update(job_id, move)
+            self.store.sweep_files(self.store.load(job_id))
+        except Exception:
+            self._log_failure(job_id, traceback.format_exc())
+
     def _job_env(self, job):
         """A local job's tool environment: `TMPDIR` inside its files directory, no bytecode beside the tools. None
         (the default `ENV`) for an upload job."""
@@ -644,6 +778,9 @@ class Worker(threading.Thread):
             self._job_failed(job_id, job_dir, exc)
         except Exception as exc:
             self._job_failed(job_id, job_dir, exc)
+        finally:
+            if job.get("source") == "local":
+                self._finish_local(job_id)
 
     def _run_steps(self, job, job_dir, files_dir, sources, cancel):
         """`run_job`'s body, once the job is `running` and its cancel event is settled."""

@@ -507,5 +507,234 @@ class LocalRunTest(LocalRunBase):
         self.assertEqual(self.wait_done(jid)["state"], "done")
 
 
+class LocalSweepTest(LocalRunBase):
+    def probe(self, jid, fid):
+        eff_sizes = self.job(jid)["settings"]["fonts"][fid].get("sizes") or self.job(jid)["settings"]["batch"]["sizes"]
+        return self.raw("GET", "/api/jobs/%s/probe/%s/%d/1.json" % (jid, fid, eff_sizes[0]))
+
+    def test_sweep_points(self):
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        self.assertTrue(os.path.isdir(fd))                                      # made at create
+        self.assertEqual(self.probe(jid, self.ttf)[0], 200)
+        self.assertTrue(os.path.isdir(os.path.join(fd, "work", "preview", self.ttf, "probe")))
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertFalse(os.path.exists(fd))                                    # gone after the run ends
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, self.dos))[0], 200)
+        self.assertTrue(os.path.isdir(fd))                                      # re-made by a GET on the done job
+        r = self.api("DELETE", "/api/jobs/%s" % jid)
+        self.assertEqual(r[0], 200)
+        self.assertFalse(os.path.exists(fd))                                    # gone after DELETE
+        # a second server over the same data root sweeps what a crashed one left (start-up thread)
+        out2 = os.path.join(self.tmp, "out2")
+        os.makedirs(out2)
+        jid2 = self.local_job(out=out2)
+        self.select(jid2)
+        self.assertEqual(self.run_to_done(jid2)["state"], "done")
+        planted = os.path.join(out2, ".svf-maker-" + jid2)
+        os.makedirs(os.path.join(planted, "work", "preview"))
+        server2 = None
+        try:
+            import server as servermod
+            server2 = servermod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
+            server2.startup_sweep.join(10)
+            self.assertFalse(os.path.exists(planted))
+        finally:
+            if server2 is not None:
+                server2.worker.stop()
+                server2.server_close()
+        # Worker.stop() removes one a GET re-made
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid2, self.dos))[0], 200)
+        self.assertTrue(os.path.isdir(planted))
+        self.srv.worker.stop()
+        self.assertFalse(os.path.exists(planted))
+
+    def test_pending_sweeps_retried(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        real = shutil.rmtree
+        calls = []
+
+        def once(path, *a, **k):
+            if not calls and path == fd:
+                calls.append(path)
+                raise OSError("busy")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", once):
+            self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
+        pending = os.path.join(self.data, "pending-sweeps.json")
+        with open(pending, encoding="utf-8") as f:
+            entries = json.load(f)
+        self.assertEqual([e["path"] for e in entries], [fd])
+        self.assertTrue(os.path.isdir(fd))
+        entries.append({"path": "/tmp/x", "output_dir": "/tmp", "output_id": [1, 2], "job": "0123456789ab"})
+        with open(pending, "w", encoding="utf-8") as f:
+            json.dump(entries, f)
+        self.srv.store.retry_pending_sweeps()
+        self.assertFalse(os.path.exists(fd))
+        with open(pending, encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])
+
+    def test_pending_sweep_of_a_replaced_output_folder(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        real = shutil.rmtree
+
+        def fail(path, *a, **k):
+            if path == fd:
+                raise OSError("busy")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", fail):
+            self.api("DELETE", "/api/jobs/%s" % jid)
+        os.rename(self.out, self.out + ".old")
+        os.makedirs(os.path.join(self.out, ".svf-maker-" + jid))
+        keep = os.path.join(self.out, ".svf-maker-" + jid, "keep.txt")
+        with open(keep, "w") as f:
+            f.write("mine")
+        self.srv.store.retry_pending_sweeps()
+        self.assertTrue(os.path.exists(keep))                                    # a replaced folder is never touched
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])                                   # the entry is stale: dropped
+        # the same with the output folder replaced by a symlink to a folder that holds that name
+        with mock.patch.object(shutil, "rmtree", fail):
+            jid2 = self.new_job(self.out + ".old")
+            fd2 = self.files_dir_in(self.out + ".old", jid2)
+            self.api("DELETE", "/api/jobs/%s" % jid2)
+        other = os.path.join(self.tmp, "other")
+        os.makedirs(os.path.join(other, ".svf-maker-" + jid2))
+        os.rename(self.out + ".old", self.out + ".older")
+        os.symlink(other, self.out + ".old")
+        self.srv.store.retry_pending_sweeps()
+        self.assertTrue(os.path.isdir(os.path.join(other, ".svf-maker-" + jid2)))
+
+    def files_dir_in(self, out, jid):
+        return os.path.join(out, ".svf-maker-" + jid)
+
+    def test_idle_sweep(self):
+        import time
+        server_mod = sys.modules["server"]
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        self.assertEqual(self.probe(jid, self.ttf)[0], 200)
+        self.assertTrue(os.path.isdir(fd))
+        self.srv.sweep_idle(now=time.monotonic() + server_mod.LOCAL_IDLE_SWEEP_S - 5)
+        self.assertTrue(os.path.isdir(fd))                                      # not idle long enough
+        self.srv.sweep_idle(now=time.monotonic() + server_mod.LOCAL_IDLE_SWEEP_S + 5)
+        self.assertFalse(os.path.exists(fd))
+        self.assertEqual(self.probe(jid, self.ttf)[0], 200)                     # re-made on demand
+        self.assertTrue(os.path.isdir(fd))
+
+    def test_results_served_from_output(self):
+        jid, job = self.done_job()
+        step = next(s for s in job["steps"] if s["kind"] == "jamo")
+        r = self.raw("GET", "/api/jobs/%s/face/%s.svf" % (jid, step["id"]))
+        self.assertEqual(r[0], 200)
+        self.assertEqual(r[2], self.read_out(step["written"]))
+        self.assertEqual(r[1].get("Cache-Control"), "no-store")
+        r = self.raw("GET", "/api/jobs/%s/zip" % jid)
+        self.assertEqual((r[0], json.loads(r[2])["error"]), (404, "a local job writes a folder"))
+        os.rename(self.out, self.out + ".moved")
+        r = self.raw("GET", "/api/jobs/%s/face/%s.svf" % (jid, step["id"]))
+        self.assertEqual((r[0], json.loads(r[2])["error"]), (404, "face not in the output folder"))
+
+    def test_reports_moved_to_steps(self):
+        jid, job = self.done_job()
+        step = next(s for s in job["steps"] if s["kind"] == "precomposed")
+        meta = self.srv.store.path(jid)
+        self.assertTrue(os.path.isfile(os.path.join(meta, "steps", "%s.report.json" % step["id"])))
+        self.assertEqual(step["report"], "steps/%s.report.json" % step["id"])
+        r = self.raw("GET", "/api/jobs/%s/report/%s.json" % (jid, step["id"]))
+        self.assertEqual(r[0], 200)
+        self.assertIsInstance(json.loads(r[2]), dict)
+        self.assertEqual([f for f in walk_rel(self.out) if f.endswith("report.json")], [])
+
+    def test_output_folder_gone(self):
+        jid = self.local_job()
+        self.select(jid)
+        os.rename(self.out, self.out + ".moved")
+        os.mkdir(self.out)
+        r = self.probe(jid, self.ttf)
+        self.assertEqual((r[0], json.loads(r[2])["error"]), (404, "output folder is gone or changed"))
+        status, body = self.api("POST", "/api/jobs/%s/run" % jid)
+        self.assertEqual((status, body["error"]), (409, "output folder is gone or changed"))
+        self.assertEqual(os.listdir(self.out), [])
+        os.rmdir(self.out)
+        os.rename(self.out + ".moved", self.out)
+        self.assertEqual(self.run_to_done(jid)["state"], "done")
+
+    def test_no_store_headers(self):
+        jid, job = self.done_job()
+        step = next(s for s in job["steps"] if s["kind"] == "precomposed")
+        urls = ["/api/jobs/%s/face/%s.svf" % (jid, step["id"]),
+                "/api/jobs/%s/source/%s.svf" % (jid, self.dos),
+                "/api/jobs/%s/probe/%s/16/1.svf" % (jid, self.ttf),
+                "/api/jobs/%s/probe/%s/16/1.json" % (jid, self.ttf),
+                "/api/jobs/%s/preview/%s/source.png" % (jid, self.ttf),
+                "/api/jobs/%s/report/%s.json" % (jid, step["id"])]
+        for url in urls:
+            r = self.raw("GET", url)
+            self.assertEqual(r[0], 200, url)
+            self.assertEqual(r[1].get("Cache-Control"), "no-store", url)
+
+    def snapshot(self, root):
+        import hashlib
+        out = {}
+        for dirpath, _d, names in os.walk(root):
+            for name in names:
+                path = os.path.join(dirpath, name)
+                st = os.stat(path)
+                with open(path, "rb") as f:
+                    out[os.path.relpath(path, root)] = (st.st_size, st.st_mtime_ns, hashlib.sha256(f.read()).hexdigest())
+        return out
+
+    def test_no_write_outside_output(self):
+        sentinels = {}
+        for name in ("HOME", "TMPDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME"):
+            d = os.path.join(self.tmp, "sentinel-" + name)
+            os.makedirs(d)
+            sentinels[name] = d
+        import jobs
+        import tempfile as tempmod
+        before = self.snapshot(os.path.join(self.tmp, "tree", "in"))
+        localfx.read_only(self, os.path.join(self.tmp, "tree", "in"))
+        with mock.patch.dict(os.environ, sentinels), mock.patch.object(tempmod, "tempdir", sentinels["TMPDIR"]), \
+                mock.patch.dict(jobs.ENV, {"HOME": sentinels["HOME"]}), \
+                mock.patch.dict(sys.modules["preview"].ENV, {"HOME": sentinels["HOME"]}):
+            jid = self.local_job()
+            gz = next(f["id"] for f in self.job(jid)["fonts"] if f["path"] == "hanterm.bdf.gz")
+            self.select(jid, lambda st: st["fonts"][gz].update(selected=True, dest="jamo-extra", kinds=["jamo"]))
+            fd = self.files_dir(jid)
+            self.assertEqual(self.probe(jid, self.ttf)[0], 200)                 # while it existed: 0700, files 0600
+            self.assertEqual(mode_of(fd), 0o700)
+            for dirpath, dirnames, names in os.walk(fd):
+                for d in dirnames:
+                    self.assertEqual(mode_of(os.path.join(dirpath, d)), 0o700, d)
+                for n in names:
+                    self.assertEqual(mode_of(os.path.join(dirpath, n)), 0o600, n)
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.srv.worker.stop()
+        self.assertEqual(self.snapshot(os.path.join(self.tmp, "tree", "in")), before)
+        for name, d in sentinels.items():
+            self.assertEqual(os.listdir(d), [], name)
+        self.assertEqual(sorted(walk_rel(self.out)), sorted(job["result"]["files"]))
+        meta = self.srv.store.path(jid)
+        self.assertLessEqual({n for n in os.listdir(meta)}, {"job.json", "log.md", "steps"})
+        allowed_top = {"tree", "data", "sentinel-HOME", "sentinel-TMPDIR", "sentinel-XDG_CACHE_HOME",
+                       "sentinel-XDG_CONFIG_HOME"}
+        self.assertEqual(set(os.listdir(self.tmp)), allowed_top)
+        for dirpath, _d, names in os.walk(self.data):
+            rel = os.path.relpath(dirpath, self.data)
+            for n in names:
+                self.assertTrue(rel.startswith("jobs") or n == "pending-sweeps.json", (rel, n))
+
+    def test_final_no_upload_copy(self):
+        jid, job = self.done_job()
+        self.assertLessEqual(set(os.listdir(self.srv.store.path(jid))), {"job.json", "log.md", "steps"})
+
+
 if __name__ == "__main__":
     unittest.main()

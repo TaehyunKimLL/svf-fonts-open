@@ -31,6 +31,7 @@ import subprocess
 import stat
 import tempfile
 import threading
+import time
 import traceback
 import urllib.parse
 
@@ -52,6 +53,7 @@ JOB_CAP = 268435456
 FILE_CAP = 2000
 
 CHUNK = 1 << 20                          # the upload body is read in 1 MB chunks
+LOCAL_IDLE_SWEEP_S = 1800                 # a `detected` local job untouched this long loses its files directory
 STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png",
                 ".wasm": "application/wasm"}
 UPLOAD_TMP = ".upload-"                   # `_receive`'s temp files: never counted as uploads (they are in flight)
@@ -72,6 +74,29 @@ def _preview_lock(job_id, font_id):
         if lock is None:
             lock = _PREVIEW_LOCKS[(job_id, font_id)] = threading.Lock()
         return lock
+
+
+@contextlib.contextmanager
+def _sweep_locks(job):
+    """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`)."""
+    with contextlib.ExitStack() as stack:
+        for font_id in dict.fromkeys(font.get("id") for font in job.get("fonts") or []):
+            if font_id:
+                stack.enter_context(_preview_lock(job["id"], font_id))
+        yield
+
+
+def _sweep_idle(server, now=None):
+    """Sweep the files directory of every `detected` local job nobody touched for `LOCAL_IDLE_SWEEP_S`."""
+    now = time.monotonic() if now is None else now
+    for item in server.store.list():
+        if item.get("source") != "local" or item["state"] != "detected":
+            continue
+        if now - server.touched.get(item["id"], server.started) > LOCAL_IDLE_SWEEP_S:
+            try:
+                server.store.sweep_files(server.store.load(item["id"]))
+            except KeyError:
+                continue
 
 
 def _drop_preview_locks(job_id):
@@ -389,6 +414,12 @@ def _instance_fits(font, instance):
 class _Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
 
+    def server_close(self):
+        stopping = getattr(self, "stopping", None)
+        if stopping is not None:
+            stopping.set()                                # the idle sweeper ends with the server
+        super().server_close()
+
     @property
     def port(self):
         """The bound port (`server_address[1]`): a test binds `127.0.0.1:0` and reads the real one here."""
@@ -421,6 +452,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
         os.umask(0o077)                                  # local mode: nothing it makes is readable by others
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
+    store.on_sweep = _sweep_locks
     static_dir = os.path.join(MAKER_DIR, "static")
     capabilities = caps.compute(static_dir, os.environ, local=token is not None)
     worker = jobs.Worker(store, repo_dir, os.path.join(repo_dir, "svf"), os.path.join(repo_dir, "tools"),
@@ -440,6 +472,29 @@ def make_server(host, port, repo_dir, data_root, token=None):
     server.data_root = store.data_root
     server.create_lock = threading.Lock()                # one local job per output folder, checked under it
     server.index = naming.RepoIndex(server.svf_dir)
+    server.started = time.monotonic()
+    server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
+    server.sweep_idle = lambda now=None: _sweep_idle(server, now)
+    local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only
+
+    def startup_sweep():
+        store.retry_pending_sweeps()
+        for job_id in local_ids:
+            try:
+                store.sweep_files(store.load(job_id))
+            except KeyError:
+                continue
+    server.startup_sweep = threading.Thread(target=startup_sweep, daemon=True, name="svf-maker-startup-sweep")
+    server.startup_sweep.start()
+
+    def idle_sweeper():
+        while not server.stopping.wait(60):
+            try:
+                _sweep_idle(server)
+            except Exception:
+                traceback.print_exc()
+    server.stopping = threading.Event()
+    threading.Thread(target=idle_sweeper, daemon=True, name="svf-maker-idle-sweep").start()
     server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
     server.inflight = {}                                  # job id -> the `PUT files` requests not answered yet (Y3)
     return server
@@ -741,7 +796,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """The files directory of @p current, made when it is a local job's and the output folder is still the one
         picked; 404 `output folder is gone or changed` when it is not. For an upload job it is the job directory."""
         try:
-            return self.server.store.ensure_files_dir(current)
+            files = self.server.store.ensure_files_dir(current)
+            if current.get("source") == "local":
+                self.server.touched[current["id"]] = time.monotonic()
+            return files
         except jobs.OutputGone as exc:
             raise _HttpError(404, str(exc))
         except OSError as exc:
@@ -1332,7 +1390,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         fonts = {item.get("id"): item for item in (fresh.get("fonts") or [])}
                         if entry.get("id") not in fonts:
                             raise _HttpError(404, "no font %s" % font)
-                        self._make_source_preview(fresh, files_dir, fonts[entry.get("id")])
+                        self._make_preview(fresh, files_dir, fonts[entry.get("id")])
             if not os.path.isfile(path):
                 raise _HttpError(404, "no preview")
             self._serve_file(path, "image/png",
@@ -1350,10 +1408,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if (found is None or found.get("state") != "done" or found.get("kind") not in ("precomposed", "jamo")
                 or not found.get("output")):
             raise _HttpError(404, "no face")
-        path = os.path.join(files_dir, found["output"])
-        if not _inside(files_dir, path) or not os.path.isfile(path):
-            raise _HttpError(404, "no face")
+        if current.get("source") == "local" and current.get("state") == "done":
+            path = self._output_face(current, found)       # the result lives in the output folder, not the files directory
+        else:
+            path = os.path.join(files_dir, found["output"])
+            if not _inside(files_dir, path) or not os.path.isfile(path):
+                raise _HttpError(404, "no face")
         self._serve_bytes(path, "application/octet-stream", self._no_store(current))
+
+    @staticmethod
+    def _output_face(current, step):
+        """The face a done local step wrote (or found identical) in the output folder, else 404."""
+        out = current.get("output_dir") or ""
+        rel = step.get("written") or ("svf/" + step["identical_to"] if step.get("identical_to") else None)
+        message = "face not in the output folder"
+        if not rel:
+            raise _HttpError(404, message)
+        path = os.path.join(out, rel)
+        try:
+            same = sourcesmod.stat_id(out) == tuple(current.get("output_id") or ())
+        except OSError:
+            same = False
+        if not same or not _inside(out, path) or not os.path.isfile(path) or os.path.islink(path):
+            raise _HttpError(404, message)
+        return path
 
     def _job_report(self, query, job, step):
         """The `--report` JSON of a `done` mkfont step of this job."""
@@ -1362,8 +1440,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
         if found is None or found.get("state") != "done" or not found.get("report"):
             raise _HttpError(404, "no report")
-        path = os.path.join(files_dir, found["report"])
-        if not _inside(files_dir, path) or not os.path.isfile(path):
+        base = self.server.store.meta_dir(job) if str(found["report"]).startswith("steps/") else files_dir
+        path = os.path.join(base, found["report"])
+        if not _inside(base, path) or not os.path.isfile(path):
             raise _HttpError(404, "no report")
         self._serve_bytes(path, "application/json", self._no_store(current))
 
@@ -1459,8 +1538,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         found = next((item for item in (current.get("steps") or []) if item.get("id") == step), None)
         if found is None or found.get("state") != "done" or found.get("kind") != "jamo":
             raise _HttpError(404, "no identity")
-        path = os.path.join(files_dir, "work", step, "identity.json")
-        if not _inside(files_dir, path) or not os.path.isfile(path):
+        meta = self.server.store.meta_dir(job)
+        path = os.path.join(meta, "steps", "%s.identity.json" % step)
+        if not os.path.isfile(path):
+            path = os.path.join(files_dir, "work", step, "identity.json")
+        if not (_inside(meta, path) or _inside(files_dir, path)) or not os.path.isfile(path):
             raise _HttpError(404, "no identity")
         self._serve_bytes(path, "application/json", self._no_store(current))
 
@@ -1480,7 +1562,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if font not in fonts:
                         raise _HttpError(404, "no source face")
                     try:
-                        self._make_source_preview(fresh, files_dir, fonts[font])
+                        self._make_preview(fresh, files_dir, fonts[font])
                     except _HttpError as exc:
                         if exc.status == 409:                  # an unconfirmed DOS layout: no source face yet
                             raise _HttpError(404, exc.message)
@@ -1499,6 +1581,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _caps(self, query):
         self.send_json({key: bool(value) for key, value in self.server.caps.items()})
 
+    def _make_preview(self, job, files_dir, font):
+        """`_make_source_preview`, and for a local job the converted copy of the input is removed after the bake."""
+        try:
+            self._make_source_preview(job, files_dir, font)
+        finally:
+            if job.get("source") == "local":
+                target_dir = os.path.join(files_dir, "work", "preview", str(font.get("id")))
+                if os.path.isdir(target_dir):
+                    for name in os.listdir(target_dir):
+                        if name.startswith("source"):
+                            try:
+                                os.remove(os.path.join(target_dir, name))
+                            except OSError:
+                                pass
+
     def _make_source_preview(self, job, files_dir, font):
         """Bake or draw @p font's source preview into `work/preview/<font id>.png` (its own file: no shared name)."""
         fonts = job.get("fonts") or []
@@ -1508,7 +1605,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         out_png = os.path.join(out_dir, "%s.png" % font.get("id"))
         eff = settings.effective(fonts, job.get("settings") or {}, font.get("id"))
         env = self._tool_env(job)
-        abs_src = self._prepared_source(font, eff, sources, out_dir, env=env)
+        local = job.get("source") == "local"
+        abs_src = self._prepared_source(font, eff, sources, out_dir, env=env, keep=not local)
         if abs_src != self._plain_source(font, self._source_abs(sources, font), out_dir):
             font = dict(font, face_index=0)            # a prepared file holds the one face the build reads
         source_kind = font.get("source_kind") or ""
@@ -1538,11 +1636,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             raise _HttpError(404, "no preview")
 
-    def _prepared_source(self, font, eff, sources, out_dir, env=None):
+    def _prepared_source(self, font, eff, sources, out_dir, env=None, keep=True):
         """The file the build's tools read for @p font: its plain source when no conversion is planned, else the
         converted copy `out_dir/<font id>/source.<ext>` (`settings.source_ops`: TTC face, Mac cmap or container,
         variable instance, PCF), written once. The caller holds the font's preview lock; the keyed settings drop the
-        copy with the font's other previews. A conversion that fails is 'no preview' (404)."""
+        copy with the font's other previews. With @p keep False (a local job's bake) an earlier copy is not reused, and the
+        caller removes the copy when it is done. A conversion that fails is 'no preview' (404)."""
         plain = self._plain_source(font, self._source_abs(sources, font), out_dir)
         ops = settings.source_ops(font, eff)
         if not ops:
@@ -1551,7 +1650,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         ext = "bdf" if last == "pcf-bdf" else "otf" if font.get("cff") else "ttf"
         target_dir = os.path.join(out_dir, str(font.get("id")))
         target = os.path.join(target_dir, "source." + ext)
-        if not os.path.isfile(target):
+        if not keep or not os.path.isfile(target):
             # the build's own commands, in a subprocess with a time limit (an instancer on a large CJK font is slow and big)
             os.makedirs(target_dir, exist_ok=True)
             argvs, produced = routes.source_commands(ops, plain, target_dir, self.server.tools_dir, ext)
@@ -1636,6 +1735,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _job_zip(self, query, job):
         current = self._load(job)
+        if current.get("source") == "local":
+            raise _HttpError(404, "a local job writes a folder")
         if current.get("state") != "done":
             raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
         rel = ((current.get("result") or {}).get("zip")) or ""
