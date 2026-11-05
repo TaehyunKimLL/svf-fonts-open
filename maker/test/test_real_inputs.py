@@ -30,6 +30,36 @@ def real(var):
     return unittest.skipUnless(os.environ.get(var) and os.path.isfile(os.environ.get(var, "")), "%s names no file" % var)
 
 
+@unittest.skipUnless(sys.platform == "darwin" and os.path.isfile(os.environ.get("SVF_MAKER_REAL_NAMEDFORK", "")),
+                     "SVF_MAKER_REAL_NAMEDFORK names no file (and this is not macOS)")
+class NamedForkTest(unittest.TestCase):
+    """A macOS file whose fonts live in its native resource fork: a local job over it lists their entries and runs the
+    first one that needs no companion. Unverifiable off macOS; the stand-in tests are in test_detect_inputs."""
+
+    def test_named_fork(self):
+        import localfx
+        import time
+
+        class Case(localfx.LocalBase):
+            def runTest(self):
+                path = os.environ["SVF_MAKER_REAL_NAMEDFORK"]
+                jid = self.local_job([path])
+                job = self.job(jid)
+                named = [f for f in job["fonts"] if (f.get("prep") or [{}])[0].get("op") == "mac-fork-named"]
+                self.assertTrue(named, "no entry came from the named fork")
+                font = next((f for f in named if f["source_kind"] in ("mac-fbit1", "outline", "outline-composite")), None)
+                if font is None:
+                    return                                              # a 7.1 fbit needs its HTBL: detection is the check
+                st = job["settings"]
+                st["fonts"][font["id"]].update(selected=True, dest="new/named")
+                self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+                self.assertEqual(self.run_to_done(jid)["state"], "done")
+        case = Case()
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+
 class RealInputsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="real-inputs-")

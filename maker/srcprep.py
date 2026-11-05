@@ -8,6 +8,7 @@ for the two conversions no tool in tools/ has:
     srcprep.py pcf-bdf SRC OUT               a PCF (or .pcf.gz) as a BDF 2.1 text
     srcprep.py mac-fork SRC OUT              the resource fork of an AppleDouble / MacBinary / raw fork file
     srcprep.py mac-htbl SRC OUT              the HTBL 1 table of a fork or a raw table
+    srcprep.py mac-fork-named SRC OUT        the native resource fork of a macOS file (SRC/..namedfork/rsrc)
     srcprep.py bdf-pixel-size SRC OUT --size N   a BDF with PIXEL_SIZE N set (FreeType otherwise derives it from SIZE)
 
 Exit 0 and OUT written; exit 2 with the reason on stderr. Stdlib and fontTools only. It runs under `python3 -P`, which
@@ -545,7 +546,7 @@ def main(argv=None):
     p.add_argument("src")
     p.add_argument("out")
     p.add_argument("--index", type=int, required=True)
-    for name in ("pcf-bdf", "mac-fork", "mac-htbl", "bdf-pixel-size"):
+    for name in ("pcf-bdf", "mac-fork", "mac-htbl", "bdf-pixel-size", "mac-fork-named"):
         p = sub.add_parser(name)
         p.add_argument("src")
         p.add_argument("out")
@@ -553,13 +554,13 @@ def main(argv=None):
             p.add_argument("--size", type=int, required=True)
     a = ap.parse_args(argv)
     try:
-        with open(a.src, "rb") as fh:
+        with open(a.src + "/..namedfork/rsrc" if a.cmd == "mac-fork-named" else a.src, "rb") as fh:
             data = fh.read(MAX_BYTES + 1)
         if len(data) > MAX_BYTES:
             raise PrepError("too large")
         if a.cmd == "ttc-face":
             out = ttc_face_bytes(data, a.index)
-        elif a.cmd == "mac-fork":
+        elif a.cmd in ("mac-fork", "mac-fork-named"):
             out = mac_fork_bytes(data)
         elif a.cmd == "mac-htbl":
             out = mac_htbl_bytes(data)

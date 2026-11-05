@@ -206,6 +206,22 @@ class MacPrepTest(TmpCase):
         with self.assertRaisesRegex(srcprep.PrepError, "too large"):
             srcprep.prepared_bytes(bytes(big), [{"op": "mac-fbit3"}])
 
+    def test_mac_fork_named_reads_the_named_fork_path(self):
+        """The CLI opens `IN/..namedfork/rsrc`; a directory shaped like that stands in for a macOS file here."""
+        d = os.path.join(self.dir, "Seoul12")
+        os.makedirs(os.path.join(d, "..namedfork"))
+        with open(os.path.join(d, "..namedfork", "rsrc"), "wb") as fh:
+            fh.write(macfx.fbit3_fork())
+        out = os.path.join(self.dir, "out.rsrc")
+        r = subprocess.run([sys.executable, "-P", os.path.join(MAKER_DIR, "srcprep.py"), "mac-fork-named", d, out],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, "rb") as fh:
+            self.assertEqual(fh.read(), macfx.fbit3_fork())
+        r = subprocess.run([sys.executable, "-P", os.path.join(MAKER_DIR, "srcprep.py"), "mac-fork-named",
+                            self.write("plain.bin", b"x"), out], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)                                          # no named fork there
+
     def test_bdf_pixel_size(self):
         bdf = (b"STARTFONT 2.1\nFONT x\nSIZE 12 75 75\nFONTBOUNDINGBOX 12 12 0 -2\nSTARTPROPERTIES 2\n"
                b"FONT_ASCENT 10\nFONT_DESCENT 2\nENDPROPERTIES\nCHARS 0\nENDFONT\n")

@@ -340,6 +340,38 @@ class LocalKindsTest(DirCase):
         self.assertEqual(entry["source_kind"], "other")
         self.assertEqual(entry["label"], "HangulTalk 1.0 fbit resource without its fdef: choose the font's resource fork")
 
+    def test_named_fork_off_elsewhere(self):
+        """Off macOS a file with an empty data fork is `unknown` and no `..namedfork` path is opened or even asked for."""
+        self.put("empty.bin", b"")
+        seen = []
+        real_open, real_size = open, os.path.getsize
+
+        def spy_open(path, *a, **k):
+            seen.append(str(path))
+            return real_open(path, *a, **k)
+
+        def spy_size(path):
+            seen.append(str(path))
+            return real_size(path)
+        with mock.patch("builtins.open", spy_open), mock.patch("os.path.getsize", spy_size):
+            fonts = detect.scan(Sources("local", [self.root + "/empty.bin"]), local=True)
+        self.assertEqual([(f["source_kind"], f["label"]) for f in fonts], [("other", "unknown")])
+        self.assertEqual([p for p in seen if "namedfork" in p], [])
+
+    def test_named_fork_read_where_the_platform_offers_it(self):
+        """The macOS branch, with the named fork supplied by a stand-in (this host has none): the entries are the fork's,
+        their prep starts with `mac-fork-named`, and the scan prepares them from the named fork's bytes."""
+        import macfx
+        self.put("Seoul12", b"")
+        fork = macfx.fbit3_fork()
+        with mock.patch.object(detect, "_named_fork", lambda path: fork):
+            fonts = detect.scan(Sources("local", [self.root + "/Seoul12"]), local=True)
+        (entry,) = fonts
+        self.assertEqual((entry["source_kind"], entry["prep"]),
+                         ("mac-fbit3", [{"op": "mac-fork-named"}, {"op": "mac-fbit3"}]))
+        self.assertEqual(entry["coverage"], {"ascii": 0, "ks2350": 2350, "all": 2350, "compat": 51})
+        self.assertNotIn("cannot prepare", entry["label"])
+
     def test_mac71_in_upload_mode_is_other(self):
         for f in detect.scan(self.mac):
             self.assertEqual(f["source_kind"], "other", f["path"])

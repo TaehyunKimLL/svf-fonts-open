@@ -10,6 +10,7 @@ import io
 import os
 import re
 import struct
+import sys
 import tempfile
 import time
 import traceback
@@ -659,6 +660,12 @@ def _detect_file(abs_path, rel, local=False):
         label = "archive: extract it first, then choose the folder" if local else "archive"
         return [_entry(rel, 0, "archive", label, "other", family=_stem(rel))]
 
+    if local and not gz:
+        named = _named_fork(abs_path)             # macOS only: a Mac file whose fonts live in its native resource fork
+        if named is not None:
+            found = _mac_entries(abs_path, rel, gz, zipped, local, None, named)
+            if any(e["source_kind"] != "other" or e.get("prep") for e in found):
+                return found
     return [_entry(rel, 0, "unknown", "unknown" if local else "unknown (%s)" % head[:8].hex(), "other",
                    family=_stem(rel), gz=zipped)]
 
@@ -812,14 +819,32 @@ def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw=None
                   prep=[{"op": "mac-fork"}] if wrapped else [], gz=zipped, mac={"generation": 1, "id": rid})
 
 
-def _mac_entries(abs_path, rel, gz, zipped, local=False, raw=None):
+NAMED_FORK = "/..namedfork/rsrc"
+
+
+def _named_fork(abs_path):
+    """The bytes of a macOS file's native resource fork (`<file>/..namedfork/rsrc`), or None. Only on macOS and only for
+    a local scan: elsewhere the path does not exist and is never opened."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        size = os.path.getsize(abs_path + NAMED_FORK)
+        if not 0 < size <= srcprep.MAX_BYTES:
+            return None
+        with open(abs_path + NAMED_FORK, "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _mac_entries_of(abs_path, rel, gz, zipped, local=False, raw=None, named=None):
     """One entry per `sfnt` resource of a Mac container (capped at _FACE_CAP); a container with only bitmap fonts is one
     `other` entry and a corrupt resource map one `unknown` entry: the file never vanishes.
 
     With @p local (a local job) the Mac `fbit` / `HTBL` / suitcase rows of the spec's 9.2 table are listed (`raw` names
     a JM archive or a raw resource file, `mac-jm` / `mac-fbit-raw` / `mac-htbl-raw`); without it every such file is one
     `other` entry "not converted here (local-only mode)", so an upload job can never run those routes."""
-    data = _read_bytes(abs_path, gz)
+    data = named if named is not None else _read_bytes(abs_path, gz)
     not_converted = "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)"
     if raw and not local:
         return [_entry(rel, 0, "mac-rsrc", not_converted, "other", family=_stem(rel), gz=zipped)]
@@ -865,6 +890,17 @@ def _mac_entries(abs_path, rel, gz, zipped, local=False, raw=None):
                               family=_stem(rel), gz=zipped))
     if len(all_sfnts) > len(sfnts):
         out[-1]["label"] += "; more faces not listed"
+    return out
+
+
+def _mac_entries(abs_path, rel, gz, zipped, local=False, raw=None, named=None):
+    """`_mac_entries_of`; with @p named (a macOS native resource fork read from `<file>/..namedfork/rsrc`) every entry's
+    prep starts with `mac-fork-named`, the op that reads that fork again at run time."""
+    out = _mac_entries_of(abs_path, rel, gz, zipped, local, raw, named)
+    if named is not None:
+        for entry in out:
+            if entry.get("prep") is not None or entry["source_kind"] not in ("other", "unknown"):
+                entry["prep"] = [{"op": "mac-fork-named"}] + list(entry.get("prep") or [])
     return out
 
 
@@ -1557,9 +1593,14 @@ def scan(sources, local=False):
             if entry.get("prep") and time.monotonic() < deadline:
                 # the font as the tools will read it: a prep entry's composite test and coverage run on those bytes
                 try:
-                    if data is None and raw is None:
-                        raw = _read_bytes(path)
-                    src, face = srcprep.prepared_bytes(data if data is not None else raw, entry["prep"]), 0
+                    ops = entry["prep"]
+                    if ops and ops[0].get("op") == "mac-fork-named":       # the fork is read from the file's named fork
+                        base, ops = _named_fork(path) or b"", ops[1:]
+                    else:
+                        if data is None and raw is None:
+                            raw = _read_bytes(path)
+                        base = data if data is not None else raw
+                    src, face = srcprep.prepared_bytes(base, ops), 0
                 except Exception as ex:           # a damaged table must not take the scan down
                     cannot = str(ex) or type(ex).__name__
                     cannot_type = type(ex).__name__
