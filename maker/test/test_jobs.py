@@ -244,6 +244,8 @@ class WorkerTest(unittest.TestCase):
                 except KeyError:
                     pass
         self.worker.queue.join()
+        self.worker.stop(timeout=30)
+        self.worker.join(30)
         shutil.rmtree(self.root, ignore_errors=True)
 
     def job_with_steps(self, scripts, kinds=None, dest="new/fixture", source="NEODG16.SVF", src_bytes=None,
@@ -559,6 +561,21 @@ class WorkerTest(unittest.TestCase):
         steps[0]["needs"] = []
         steps[1]["needs"] = ["s01"]
         server.Handler._check_steps(None, fd, Sources("upload", [fd]), [], steps)         # earlier: fine
+
+    def test_stop_ends_the_thread(self):
+        self.assertTrue(self.worker.is_alive())
+        self.assertTrue(self.worker.stop(timeout=10))
+        self.worker.join(10)
+        self.assertFalse(self.worker.is_alive())
+        self.assertTrue(self.worker.stop(timeout=10))           # idempotent, also on a dead thread
+
+    def test_stop_with_a_queued_job_does_not_run_it(self):
+        j = self.job_with_steps(["import time; time.sleep(30)", "pass"])
+        self.worker.enqueue(j["id"])
+        wait_until(lambda: self.store.load(j["id"])["state"] == "running")
+        self.worker.stop(timeout=20)
+        self.worker.join(10)
+        self.assertFalse(self.worker.is_alive())
 
     def test_enqueue_refuses_a_job_that_is_not_ready(self):
         j = self.job_with_steps(["pass"])

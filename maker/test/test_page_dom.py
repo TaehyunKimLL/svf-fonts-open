@@ -57,6 +57,7 @@ class PageDomTest(unittest.TestCase):
             r = subprocess.run(["bash", os.path.join(MAKER_DIR, "build-wasm.sh")], capture_output=True, text=True)
             if r.returncode != 0:
                 raise unittest.SkipTest("the preview module is not built and emcc is missing")
+        sys.stderr.write("test_page_dom: %d threads in the test process at start\n" % threading.active_count())
         cls.tmp = tempfile.mkdtemp(prefix="svf-page-dom-")
         cls.fx = fixtures.write_fixtures(os.path.join(cls.tmp, "fx"))
         cls.srv = server.make_server("127.0.0.1", 0, REPO_DIR, os.path.join(cls.tmp, "data"))
@@ -70,6 +71,7 @@ class PageDomTest(unittest.TestCase):
                 while cls.srv.worker.cancel(item["id"]) != "not running":
                     time.sleep(0.05)
             cls.srv.shutdown()
+            cls.srv.worker.stop()
             cls.srv.server_close()
             shutil.rmtree(cls.tmp, ignore_errors=True)
 

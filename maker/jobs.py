@@ -605,7 +605,8 @@ class Worker(threading.Thread):
     def stop(self, timeout=30):
         """Stop for good: no job starts any more, the running one is cancelled through the usual group kill (every tool
         child runs in its own session and would outlive this process), and the call waits up to @p timeout seconds for it
-        to end. Idempotent; True when nothing was left running."""
+        to end, then ends the worker thread (a sentinel on the queue, joined). Idempotent; True when nothing was left
+        running."""
         with self._lock:
             self._stopping = True
             for event in self.cancels.values():
@@ -619,6 +620,10 @@ class Worker(threading.Thread):
                     idle = True
                     break
             time.sleep(0.05)
+        if self.is_alive():
+            self.queue.put(None)                    # end the thread: it would block in queue.get() for ever
+            if idle and threading.current_thread() is not self:
+                self.join(max(0.0, deadline - time.monotonic()) + 1.0)
         self.sweep_local_files()                    # whatever a GET re-made, and the running job's leftovers
         return idle
 
@@ -697,6 +702,9 @@ class Worker(threading.Thread):
         """
         while True:
             job_id = self.queue.get()
+            if job_id is None:                      # `stop` posted the sentinel: the thread ends
+                self.queue.task_done()
+                return
             try:
                 if self._stopping:                  # the server is going down: a queued job stays queued for the next start
                     continue

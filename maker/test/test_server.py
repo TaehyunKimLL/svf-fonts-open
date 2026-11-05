@@ -194,6 +194,7 @@ class ApiBase(unittest.TestCase):
             while time.monotonic() < deadline and self.srv.worker.cancel(item["id"]) != "not running":
                 time.sleep(0.05)
         self.srv.shutdown()
+        self.srv.worker.stop()                    # ends the Worker thread (it would block in queue.get() for ever)
         self.srv.server_close()
         self.thread.join(WAIT_S)
         shutil.rmtree(self.data, ignore_errors=True)
@@ -780,6 +781,7 @@ class ApiTest(ApiBase):
             self.assertGreater(srv.server_address[1], 0)
         finally:
             if srv is not None:
+                srv.worker.stop()
                 srv.server_close()
             shutil.rmtree(data, ignore_errors=True)
 
@@ -1672,6 +1674,36 @@ class ProbeTest(ApiBase):
             self.assertEqual((rows[0] - face.ascent, rows[-1] + 1 - face.ascent), (top, bottom), hex(cp))
 
 
+
+
+class ThreadLeakTest(unittest.TestCase):
+    """A server, its worker and its sweepers must all end when the test stops them: the full suite runs under a
+    `pids.max` slice, and a leaked Worker thread per server starves the Chrome of `test_page_dom`."""
+
+    def test_a_server_and_its_helpers_end_with_stop(self):
+        before = {t.ident for t in threading.enumerate()}
+        data = tempfile.mkdtemp(prefix="svf-leak-")
+        self.addCleanup(shutil.rmtree, data, ignore_errors=True)
+        for token in (None, "0123456789abcdef0123456789abcdef"):
+            umask = os.umask(0o022)
+            os.umask(umask)
+            try:
+                srv = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data, token=token)
+            finally:
+                os.umask(umask)
+            thread = threading.Thread(target=srv.serve_forever, daemon=True)
+            thread.start()
+            srv.shutdown()
+            srv.worker.stop()
+            srv.server_close()
+            thread.join(10)
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            left = [t.name for t in threading.enumerate() if t.ident not in before]
+            if not left:
+                break
+            time.sleep(0.1)
+        self.assertEqual(left, [])
 
 
 class LocalBindTest(unittest.TestCase):
