@@ -6,6 +6,8 @@ for the two conversions no tool in tools/ has:
 
     srcprep.py ttc-face SRC OUT --index N    face N of a TTC/OTC saved as a plain sfnt
     srcprep.py pcf-bdf SRC OUT               a PCF (or .pcf.gz) as a BDF 2.1 text
+    srcprep.py mac-fork SRC OUT              the resource fork of an AppleDouble / MacBinary / raw fork file
+    srcprep.py mac-htbl SRC OUT              the HTBL 1 table of a fork or a raw table
 
 Exit 0 and OUT written; exit 2 with the reason on stderr. Stdlib and fontTools only. It runs under `python3 -P`, which
 drops the script directory from sys.path, so it puts maker/ and tools/ there itself.
@@ -23,6 +25,7 @@ import io
 import struct
 import zlib
 
+import macfbit3
 import macsfnt
 from fontTools.ttLib import TTFont, TTLibError
 
@@ -161,6 +164,30 @@ def mac_resources(data):
     return container, res
 
 
+def mac_fork_bytes(data):
+    """The raw resource fork held by @p data (AppleDouble, MacBinary or the fork itself), once it parses as one."""
+    try:
+        fork = macsfnt.resource_fork(data)
+        _fork_guard(fork)
+        macsfnt.resources(fork)
+    except (macsfnt.MacError, struct.error, IndexError) as e:
+        raise PrepError(str(e) or type(e).__name__)
+    return fork
+
+
+def mac_htbl_bytes(data):
+    """The `HTBL` 1 table of @p data (a fork holding it, or the raw table), checked: a 204-byte jamo part and at least
+    the 2,350 syllable entries. Raises PrepError("not an HTBL 1 table")."""
+    try:
+        table = macfbit3.load_htbl1(data)
+        ok = (len(table) >= 8 + 204 + 4 * 2350 and struct.unpack(">I", table[:4])[0] == 204)
+    except (ValueError, struct.error, IndexError):
+        ok = False
+    if not ok:
+        raise PrepError("not an HTBL 1 table")
+    return table
+
+
 # ---- ops -------------------------------------------------------------------------------------------------------
 
 def prepared_bytes(data, ops):
@@ -206,6 +233,17 @@ def _apply_op(data, op):
         return buf.getvalue()
     if kind == "pcf-bdf":
         return pcf_to_bdf(data)
+    if kind == "mac-fork":
+        return mac_fork_bytes(data)
+    if kind == "mac-fbit3":
+        try:
+            return macfbit3.load_fbit(data)
+        except (ValueError, struct.error, IndexError) as e:
+            raise PrepError(str(e) or type(e).__name__)
+    if kind == "mac-htbl":
+        return mac_htbl_bytes(data)
+    if kind == "mac-fork-named":
+        raise PrepError("named forks are read by the CLI only")
     raise PrepError("unsupported prep op %r" % kind)
 
 
@@ -475,16 +513,24 @@ def main(argv=None):
     p.add_argument("src")
     p.add_argument("out")
     p.add_argument("--index", type=int, required=True)
-    p = sub.add_parser("pcf-bdf")
-    p.add_argument("src")
-    p.add_argument("out")
+    for name in ("pcf-bdf", "mac-fork", "mac-htbl"):
+        p = sub.add_parser(name)
+        p.add_argument("src")
+        p.add_argument("out")
     a = ap.parse_args(argv)
     try:
         with open(a.src, "rb") as fh:
             data = fh.read(MAX_BYTES + 1)
         if len(data) > MAX_BYTES:
             raise PrepError("too large")
-        out = ttc_face_bytes(data, a.index) if a.cmd == "ttc-face" else pcf_to_bdf(data)
+        if a.cmd == "ttc-face":
+            out = ttc_face_bytes(data, a.index)
+        elif a.cmd == "mac-fork":
+            out = mac_fork_bytes(data)
+        elif a.cmd == "mac-htbl":
+            out = mac_htbl_bytes(data)
+        else:
+            out = pcf_to_bdf(data)
         with open(a.out, "wb") as fh:
             fh.write(out)
     except (PrepError, OSError) as e:

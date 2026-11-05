@@ -14,13 +14,16 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
 
 import gzip
 import io
+import struct
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 import bdfface
 import fixtures
 import inputfx
+import macfx
 import srcprep
 from PIL import Image, ImageFont
 from fontTools.ttLib import TTFont
@@ -167,6 +170,51 @@ class SrcprepTest(TmpCase):
 BOX = (50, 0, 950, 800)
 GLYPHS = [(0x3021, [0x8001 | (y << 3) for y in range(16)], 16),
           (0x3022, [0xFFFF if y == 8 else 0 for y in range(16)], 16)]
+
+
+class MacPrepTest(TmpCase):
+    def cli(self, sub, data):
+        """`(exit code, OUT bytes or b"")` of `python3 -P srcprep.py <sub> IN OUT` over @p data."""
+        src = self.write("in.bin", data)
+        out = os.path.join(self.dir, "out.bin")
+        if os.path.exists(out):
+            os.remove(out)
+        r = subprocess.run([sys.executable, "-P", os.path.join(MAKER_DIR, "srcprep.py"), sub, src, out],
+                           capture_output=True, text=True)
+        content = b""
+        if os.path.exists(out):
+            with open(out, "rb") as fh:
+                content = fh.read()
+        return r.returncode, content
+
+    def test_mac_fork_unwraps(self):
+        f = macfx.fbit3_fork()
+        for wrapped in (macfx.appledouble(f), macfx.macbinary(f)):
+            self.assertEqual(self.cli("mac-fork", wrapped), (0, f))
+        self.assertEqual(self.cli("mac-fork", f), (0, f))
+        self.assertEqual(self.cli("mac-fork", b"not a fork at all")[0], 2)
+
+    def test_mac_fork_refuses_oversized(self):
+        f = macfx.fbit3_fork()
+        with mock.patch.object(srcprep, "MAX_BYTES", 100):
+            with self.assertRaises(srcprep.PrepError):
+                srcprep._apply_op(f, {"op": "mac-fork"})
+
+    def test_mac_htbl(self):
+        self.assertEqual(self.cli("mac-htbl", macfx.htbl_fork()), (0, macfx.htbl_raw()))
+        self.assertEqual(self.cli("mac-htbl", macfx.htbl_raw()), (0, macfx.htbl_raw()))
+        self.assertEqual(self.cli("mac-htbl", macfx.htbl_raw_padded()), (0, macfx.htbl_raw_padded()))
+        bad = struct.pack(">I", 200) + macfx.htbl_raw()[4:]
+        self.assertEqual(self.cli("mac-htbl", bad)[0], 2)
+        self.assertEqual(self.cli("mac-htbl", macfx.htbl_raw()[:300])[0], 2)
+
+    def test_apply_op_mac(self):
+        self.assertEqual(srcprep.prepared_bytes(macfx.jm(macfx.fbit3_fork()), [{"op": "mac-fbit3"}]), macfx.fbit3_raw())
+        self.assertEqual(srcprep.prepared_bytes(macfx.appledouble(macfx.fbit3_fork()),
+                                                [{"op": "mac-fork"}, {"op": "mac-fbit3"}]), macfx.fbit3_raw())
+        self.assertEqual(srcprep.prepared_bytes(macfx.htbl_fork(), [{"op": "mac-htbl"}]), macfx.htbl_raw())
+        with self.assertRaisesRegex(srcprep.PrepError, "named forks are read by the CLI only"):
+            srcprep.prepared_bytes(b"x", [{"op": "mac-fork-named"}])
 
 
 class PcfTest(TmpCase):
