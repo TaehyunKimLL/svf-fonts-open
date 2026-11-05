@@ -45,7 +45,7 @@ or put in a zip. The two Mac `fbit` generations and the HWP-derived inputs are a
   `HTBL` table (`macfbit3.py`, `macfbit_svf.py`), from a resource fork, an AppleDouble or MacBinary file, a raw
   resource, or the 7.1.2 Installer's `JM` archive; the HWP `ASCII.PFT` companion and HWP-derived BDF/SVF; hanterm
   BDF - all by path, in local mode.
-- 127.0.0.1 only, proven by test; a per-launch token hook the Electron shell will use; no outbound connection ever,
+- 127.0.0.1 only (tested: loopback-only bind, a static import scan and an in-process socket guard; not the tool subprocesses, see docs/maker-audit.md section 8); a per-launch token hook the Electron shell will use; no outbound connection ever,
   proven by test; no proprietary bytes in `job.json`, the logs or the shipped notes.
 - The proofs run on synthetic fixtures built inside the tests; the real-file checks are env-gated and skip here.
 - The existing gates stay green: the maker suite (682 tests at `ce976f8`), `make -C c check`, `c/src` untouched,
@@ -120,7 +120,7 @@ The maker today (`ce976f8`):
   port (a `file://` page sends `Origin: null` and is refused). There is no token. Static files are served with
   `Cache-Control: no-cache` + `ETag`; the byte endpoints too; the probe JSON with `no-cache` only.
 - `GET /api/caps` is `{"wasm", "mask_libs", "recog"}` (booleans), computed once at start (`caps.compute`); the page
-  does not call it yet (`maker/README.md`).
+  calls it once at load, for the `local` flag this branch adds (`maker/README.md`).
 - The page tables and their drift test (`test_server.py test_page_js_tables_match_python`, `:869`): `ROUTES` is
   compared with `routes.routes` over `canonical_fonts()`; `OPTION_VISIBLE` is derived from the flags
   `presets.panel_argv(options, kind, label, bpp)` emits with every option set, and `panel_argv` branches on
@@ -856,7 +856,8 @@ buttons only when `window.svfMaker` exists and hides the typed-path fields then 
 > user picked and an output folder; the fonts are read in place, converted, and the faces are written only into that
 > folder. In that mode nothing is uploaded, nothing is copied into the maker's data directory, no zip is made, and
 > the files the conversion needs on the way are kept inside the output folder and removed when the job ends. The
-> maker never connects to anything but the local page on 127.0.0.1. No proprietary font, bitmap or table is in this
+> maker has no code that connects anywhere but to its own local page on 127.0.0.1 (the tests check its imports and its own
+> sockets; `docs/maker-audit.md` section 8 says what they do not cover). No proprietary font, bitmap or table is in this
 > repository; the local-mode tests build synthetic inputs in the test and the checks on real files run only where an
 > environment variable names the user's own copies.
 
@@ -864,8 +865,8 @@ buttons only when `window.svfMaker` exists and hides the typed-path fields then 
 `/api` request needs `X-Maker-Token`), the loopback rule, `POST /api/jobs {"source": "local", "output_dir"}` and
 `PUT /api/jobs/<id>/sources {"paths": [...]}`, what is written into the output folder and what `.svf-maker-<id>/` is,
 the Mac rows of 9.2 with their tools, the HWP line ("`HANGUL*.PFT` is not read; `ASCII.PFT` is a companion"), and
-the sentence "the maker makes no outbound connection and sends nothing anywhere (no telemetry, no crash upload, no
-update check); the tests pin that". `docs/maker-audit.md` section 1 rows for Mac fbit (both) and HWP `.PFT` and the
+the sentence "has no code that makes an outbound connection and sends nothing anywhere (no telemetry, no crash upload, no
+update check)" followed by what the tests check and do not (the closing slice replaced the stronger "the tests pin that"). `docs/maker-audit.md` section 1 rows for Mac fbit (both) and HWP `.PFT` and the
 gap list item 6 are updated at the closing slice; `docs/recipes.md` "Classic Mac Korean bitmap fonts" gets one line
 pointing at the maker's local mode.
 

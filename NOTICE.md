@@ -85,7 +85,7 @@ The maker (`maker/`) has a local mode for such fonts: the desktop app passes it 
 user picked and an output folder; the fonts are read in place, converted, and the faces are written only into that
 folder. In that mode nothing is uploaded, nothing is copied into the maker's data directory, no zip is made, and
 the files the conversion needs on the way are kept inside the output folder and removed when the job ends. The
-maker never connects to anything but the local page on 127.0.0.1. No proprietary font, bitmap or table is in this
+maker has no code that connects anywhere but to its own local page on 127.0.0.1 (the tests check its imports and its own sockets; docs/maker-audit.md section 8 says what they do not cover). No proprietary font, bitmap or table is in this
 repository; the local-mode tests build synthetic inputs in the test and the checks on real files run only where an
 environment variable names the user's own copies. Having the right to convert a font is the user's own responsibility
 (the maker checks no licence in local mode and asks for an acknowledgement); anyone who publishes a result should check

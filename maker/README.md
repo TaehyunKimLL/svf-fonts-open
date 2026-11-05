@@ -60,7 +60,7 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
 - **No proprietary font is distributed**: no proprietary font, bitmap or table is in this repository or in the maker.
   The tests build synthetic inputs; checks on real files run only where an environment variable names your own copy
   (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, ...).
-- the maker makes no outbound connection and sends nothing anywhere (no telemetry, no crash upload, no update check); the tests pin that. The one optional
+- the maker has no code that makes an outbound connection and sends nothing anywhere (no telemetry, no crash upload, no update check). The tests check that the maker's own modules import no network library and that an in-process socket guard sees no connection to anything but 127.0.0.1; they do not see its tool subprocesses. The one optional
   external piece is the identity check: `SVF_RECOG_DIR` names your own `recog.py`, and the no-network tests do not
   cover that external code.
 
@@ -74,14 +74,15 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
 
 ## Notes
 
-- `GET /api/caps` is served and tested but the page does not call it yet: it learns what is missing from the notices
-  (the module, the libraries, the recogniser) and from `mask_ok` on the font entries. It is for a shell that wants to
-  show the capabilities up front.
+- `GET /api/caps` is called by the page once at load, only to learn whether local mode is on (`local`: the sources panel
+  instead of the upload panel); what is missing (the module, the libraries, the recogniser) it still learns from the
+  notices and from `mask_ok` on the font entries.
 - The server still renders a PNG for baked sources (a DOS raw or SVF entry) into `work/preview/<font>.png`. The page no
   longer shows it (it draws the baked face with WASM); it stays because `test_preview.py` and the source-PNG route use it
   as the byte oracle's image form. Nothing else depends on it.
 - Stopping the server (SIGTERM, SIGINT or exit) cancels the running job and kills its tool processes (each runs in its
-  own session); a queued job stays queued and is re-queued at the next start.
+  own session); a queued upload job stays queued and is re-queued at the next start; a queued or running local job is
+  marked failed (`interrupted`), because its files directory goes with the process.
 
 ## Local mode: for the shell, and what has not been run
 
