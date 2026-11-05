@@ -360,7 +360,8 @@ class SourcesScanTest(DirCase):
         self.assertEqual(fonts["x.bin"]["label"], "unknown")
         self.assertRegex(fonts["bad.ttf"]["label"], r"^unreadable: [A-Za-z_]+$")
         self.assertEqual(fonts["bad.ttf"]["error_type"], fonts["bad.ttf"]["label"].split(": ")[1])
-        self.assertIn("Traceback", fonts["bad.ttf"]["error"])
+        self.assertIn("  detect.py:", fonts["bad.ttf"]["error"])          # type and frames, no message
+        self.assertNotIn("Traceback", fonts["bad.ttf"]["error"])
         self.assertEqual(fonts["z.zip"]["format"], "archive")
         self.assertEqual(fonts["z.zip"]["label"], "archive: extract it first, then choose the folder")
         up = {f["path"]: f for f in detect.scan(self.dir("r"))}                 # an upload keeps today's labels

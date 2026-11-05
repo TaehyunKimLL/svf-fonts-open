@@ -314,6 +314,20 @@ def layout_px(name, data, face=0):
 
 # ---- the file --------------------------------------------------------------------------------------------------
 
+def safe_trace(exc):
+    """An exception as text that can be kept in a log of a local job: the type names and the stack frames
+    (`file:line:function`, the file's base name), never an exception message or its args, which a parser may build from
+    the bytes of the input it choked on. The chained causes follow the same way."""
+    lines, seen, cur = [], set(), exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        lines.append(type(cur).__name__)
+        for frame in traceback.extract_tb(cur.__traceback__):
+            lines.append("  %s:%d:%s" % (os.path.basename(frame.filename), frame.lineno, frame.name))
+        cur = cur.__cause__ or cur.__context__
+    return "\n".join(lines)
+
+
 def detect_file(abs_path, rel, local=False):
     """The font entries of one file (Shared data shapes without id/licences/companions; coverage None, jamo "none").
 
@@ -330,7 +344,8 @@ def detect_file(abs_path, rel, local=False):
         return [_entry(rel, 0, "unreadable", str(e), "other", family=_stem(rel), error=str(e))]
     except Exception as e:
         label = "unreadable: %s" % type(e).__name__ if local else "unreadable: %s: %s" % (type(e).__name__, e)
-        entry = _entry(rel, 0, "unreadable", label, "other", family=_stem(rel), error=traceback.format_exc())
+        entry = _entry(rel, 0, "unreadable", label, "other", family=_stem(rel),
+                       error=safe_trace(e) if local else traceback.format_exc())
         if local:
             entry["error_type"] = type(e).__name__
         return [entry]

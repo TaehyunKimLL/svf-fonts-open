@@ -55,6 +55,37 @@ MAX_AGE = 7 * 86400
 # How often the runner looks at the child (the Task 12 brief's 0.5 s; the page's own poll is 2 s, Global Constraints).
 POLL_S = 0.5
 
+def exc_text(exc, local):
+    """An exception as the text a job keeps (a step's `error`, a job's `error`). An upload job keeps the message. A local
+    job never does: a parser's message may quote the bytes of the input it choked on, and job.json and log.md are
+    persistent. It keeps the type, and the system's own `strerror` of an `OSError`."""
+    if not local:
+        return str(exc) or exc.__class__.__name__
+    if isinstance(exc, OSError) and exc.strerror:
+        return "%s: %s" % (type(exc).__name__, exc.strerror)
+    return type(exc).__name__
+
+
+_TOOL_VERDICT = re.compile(r"^(check|verify)\b")
+
+
+def tool_text(text, local):
+    """A tool's stdout or stderr as a local job keeps it: only the tools' own verdict lines (`check: ...`,
+    `verify ...`), which carry numbers and fixed words; every other line may quote input bytes (a family name, a bad
+    value) and is replaced by a count. An upload job keeps everything."""
+    if not local:
+        return text
+    kept, dropped = [], 0
+    for line in (text or "").splitlines():
+        if _TOOL_VERDICT.match(line):
+            kept.append(line)
+        elif line.strip():
+            dropped += 1
+    if dropped:
+        kept.append("[%d line(s) not kept: the tool's output may quote input bytes]" % dropped)
+    return "\n".join(kept)
+
+
 # A failed step's `stderr_tail` is the last 2000 characters of its stderr (Shared data shapes).
 STDERR_TAIL = 2000
 
@@ -727,7 +758,7 @@ class Worker(threading.Thread):
                 if self._claim(job_id) == "queued":
                     self.run_job(job_id)
             except Exception:                       # one broken job must not stop the worker for the others
-                self._log_failure(job_id, traceback.format_exc())
+                self._log_failure(job_id, self._trace_text(job_id))
             finally:
                 with self._lock:
                     if self._current == job_id:
@@ -737,7 +768,7 @@ class Worker(threading.Thread):
                 try:
                     self.retain()
                 except Exception:                   # housekeeping must not kill the worker either
-                    self._log_failure(job_id, traceback.format_exc())
+                    self._log_failure(job_id, self._trace_text(job_id))
 
     @staticmethod
     def _output_same(job):
@@ -770,7 +801,7 @@ class Worker(threading.Thread):
                     notice="intermediate files remain in %s inside the output folder (moved, removed or busy); "
                            "they are swept when the folder is back" % (FILES_DIR_PREFIX + job_id)))
         except Exception:
-            self._log_failure(job_id, traceback.format_exc())
+            self._log_failure(job_id, self._trace_text(job_id))
 
     def _job_env(self, job):
         """A local job's tool environment: `TMPDIR` inside its files directory, no bytecode beside the tools. None
@@ -778,6 +809,14 @@ class Worker(threading.Thread):
         if job.get("source") != "local":
             return None
         return dict(ENV, TMPDIR=os.path.join(self.store.files_dir(job), "work", "tmp"), PYTHONDONTWRITEBYTECODE="1")
+
+    def _trace_text(self, job_id):
+        """The traceback of the exception being handled, as text safe to keep: a local job's has no messages."""
+        try:
+            local = self.store.load(job_id).get("source") == "local"
+        except Exception:
+            local = False
+        return detect.safe_trace(sys.exc_info()[1]) if local else traceback.format_exc()
 
     def _log_failure(self, job_id, text):
         """Put @p text in @p job_id's `log.md` when its directory is still there, else on stderr (V3)."""
@@ -884,10 +923,21 @@ class Worker(threading.Thread):
         and `delete`/`cancel` see a finished job. The stack goes to the job's `log.md`; a second failure while
         recording the first is printed, not raised.
         """
-        message = str(exc) if isinstance(exc, OutputGone) else "%s: %s" % (type(exc).__name__, exc)
+        full = traceback.format_exc()
+        safe = detect.safe_trace(exc)
+
+        def fail(job):
+            if job.get("source") == "local":                     # no exception message in a local job's records
+                message = str(exc) if isinstance(exc, OutputGone) else "%s: %s" % (type(exc).__name__,
+                                                                                   exc_text(exc, True))
+                if message.endswith(": " + type(exc).__name__):
+                    message = type(exc).__name__
+                self._fail_job(job, job_dir, message, safe)
+            else:
+                self._fail_job(job, job_dir, str(exc) if isinstance(exc, OutputGone)
+                               else "%s: %s" % (type(exc).__name__, exc), full)
         try:
-            self.store.update(job_id,
-                              lambda job: self._fail_job(job, job_dir, message, traceback.format_exc()))
+            self.store.update(job_id, fail)
         except Exception:
             traceback.print_exc()
 
@@ -921,8 +971,9 @@ class Worker(threading.Thread):
             step["error"] = error
         else:
             step["state"] = "done"
-        step["stderr_tail"] = stderr[-STDERR_TAIL:]
-        zipout.append_log(job_dir, zipout.log_step(step, stdout, stderr))
+        local = sources.kind == "local"
+        step["stderr_tail"] = tool_text(stderr, local)[-STDERR_TAIL:]
+        zipout.append_log(job_dir, zipout.log_step(step, tool_text(stdout, local), tool_text(stderr, local)))
         self.store.save(job)
 
     def _execute(self, files_dir, sources, gz_upload, plain, step, font, cancel, env=None):
@@ -942,7 +993,7 @@ class Worker(threading.Thread):
                 os.makedirs(os.path.dirname(out_abs), exist_ok=True)
                 shutil.copyfile(source, out_abs)
             except _SOURCE_ERRORS as exc:
-                return "", "", str(exc) or exc.__class__.__name__
+                return "", "", exc_text(exc, sources.kind == "local")
             step["exit"] = 0
             step["seconds"] = 0.0
             return "", "", None
@@ -950,7 +1001,7 @@ class Worker(threading.Thread):
             step["argv"] = [[self._plain_token(token, files_dir, sources, gz_upload, plain) for token in argv]
                             for argv in argvs]
         except _SOURCE_ERRORS as exc:
-            return "", "", str(exc) or exc.__class__.__name__
+            return "", "", exc_text(exc, sources.kind == "local")
         stdout, stderr, seconds = [], [], 0.0
         cwd = os.path.dirname(out_abs)
         for argv in step["argv"]:
@@ -1004,9 +1055,9 @@ class Worker(threading.Thread):
                           or self._plain_source(font, files_dir, sources, plain))
                 step["quality"] = quality.measure(data, reference, source, step.get("size"))
         except ValueError as exc:
-            return str(exc)
+            return exc_text(exc, sources.kind == "local")
         except _SOURCE_ERRORS as exc:
-            return str(exc) or exc.__class__.__name__
+            return exc_text(exc, sources.kind == "local")
         if step.get("kind") == "jamo":
             step["identity"] = self._identity(files_dir, step, cancel or threading.Event(), stdout, self._job_env(job))
         return None
@@ -1017,6 +1068,7 @@ class Worker(threading.Thread):
         `{"available": true, ...the face summary}`, `{"available": false, "error": ...}` (a non-zero exit, a timeout, an
         unreadable JSON), or without the capability `{"available": false, "structural": <the `check:` line>}`. The
         scorer's full JSON stays in `work/sNN/identity.json`."""
+        local = env is not None                         # only a local job has a tool environment of its own
         recog = caps.recog_dir(os.environ) if self.caps.get("recog") else None
         if recog is None:
             line = next((l for l in (stdout or "").splitlines() if l.startswith("check:")), "")
@@ -1035,13 +1087,14 @@ class Worker(threading.Thread):
         result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))
         if result["error"] is not None or result["exit"] != 0:
             tail = (result["stderr"] or "").strip().splitlines()
-            reason = "timed out" if result["error"] == "timeout" else (result["error"] or (tail[-1] if tail else "exit %s" % result["exit"]))
+            reason = "timed out" if result["error"] == "timeout" else (
+                result["error"] or (tail[-1] if tail and not local else "exit %s" % result["exit"]))
             return {"available": False, "error": reason}
         try:
             with open(out_json, encoding="utf-8") as f:
                 data = json.load(f)
         except (OSError, ValueError) as exc:
-            return {"available": False, "error": "unreadable identity.json: %s" % exc}
+            return {"available": False, "error": "unreadable identity.json: %s" % exc_text(exc, local)}
         if not data.get("applicable", True):
             return {"available": True, "applicable": False, "reason": data.get("reason", "")}
         return dict(data.get("face") or {}, available=True)

@@ -170,7 +170,7 @@ class LocalJobTest(LocalBase):
         self.assertNotIn("error", bad)
         self.assertRegex(bad["error_type"], r"^[A-Za-z_]+$")
         with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
-            self.assertIn("Traceback", f.read())
+            self.assertIn("  detect.py:", f.read())          # type and frames (file:line:function)
 
     def test_local_font_without_a_licence_has_none_and_is_not_selected(self):
         jid = self.local_job()
@@ -569,9 +569,9 @@ class LocalRunTest(LocalRunBase):
         job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done", job.get("error"))
         with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
-            self.assertIn("Traceback", f.read())
+            self.assertIn("  detect.py:", f.read())
         build = self.read_out("build-%s/BUILD.md" % jid).decode("utf-8")
-        self.assertNotIn("Traceback", build)
+        self.assertNotIn("  detect.py:", build)                                       # frames stay in log.md
         self.assertIn("bad.ttf", build)                                            # the type is named, nothing more
 
     def test_a_stale_job_does_not_block_the_folder_for_ever(self):
@@ -604,6 +604,99 @@ class LocalRunTest(LocalRunBase):
         self.assertFalse([n for n in new if "sweep" in n], new)
         self.assertIsNone(srv.startup_sweep)
         self.assertFalse(os.path.exists(os.path.join(data, "pending-sweeps.json")))
+
+
+class LocalPrivacyTest(LocalRunBase):
+    """No exception message and no tool output line (which may quote the bytes of an input) reaches a persistent
+    artifact of a local job: job.json, log.md, BUILD.md, notes, the output tree, the API answers."""
+
+    MARK = "QZMARKERQZ"
+
+    def assert_no_marker(self, *answers):
+        for answer in answers:
+            self.assertNotIn(self.MARK, json.dumps(answer) if not isinstance(answer, (str, bytes)) else str(answer))
+        needle = self.MARK.encode("ascii")
+        for dirpath, _d, names in os.walk(self.tmp):
+            for name in names:
+                path = os.path.join(dirpath, name)
+                with open(path, "rb") as f:
+                    self.assertNotIn(needle, f.read(), path)
+
+    def test_a_detection_error_keeps_the_type_and_frames_only(self):
+        import detect
+        real = detect._detect_file
+
+        def boom(abs_path, rel, local=False):
+            if rel == "Munjo.ttf":
+                raise ValueError("bad table " + self.MARK)
+            return real(abs_path, rel, local)
+        with mock.patch.object(detect, "_detect_file", boom):
+            jid = self.local_job()
+        job = self.job(jid)
+        entry = next(f for f in job["fonts"] if f["path"] == "Munjo.ttf")
+        self.assertEqual(entry["label"], "unreadable: ValueError")
+        with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
+            log = f.read()
+        self.assertIn("ValueError", log)
+        self.assertRegex(log, r"  test_local\.py:\d+:boom")                    # frames as file:line:function
+        self.assertNotIn("Traceback", log)
+        self.assert_no_marker(job)
+
+    def test_tool_output_and_step_errors_are_not_kept(self):
+        import jobs
+        real = jobs.run_command
+
+        def noisy(argv, cwd, timeout, cancel, env=None):
+            if any("HAN.FNT" in str(a) for a in argv):
+                return {"exit": 1, "seconds": 0.0, "error": None, "stdout": "check: 3 ok\nfont " + self.MARK + "\n",
+                        "stderr": "error: " + self.MARK + "\n"}
+            return real(argv, cwd, timeout, cancel, env)
+        jid = self.local_job()
+        self.select(jid)
+        with mock.patch.object(jobs, "run_command", noisy):
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        bad = next(s for s in job["steps"] if s["font"] == self.dos)
+        self.assertEqual(bad["state"], "failed")
+        self.assertNotIn(self.MARK, bad["stderr_tail"])
+        self.assertIn("not kept", bad["stderr_tail"])
+        with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
+            log = f.read()
+        self.assertIn("check: 3 ok", log)                                          # the tools' own verdict line stays
+        self.assert_no_marker(job, self.job(jid))
+
+    def test_source_and_readback_errors_are_the_type_only(self):
+        import jobs
+        import quality
+        import preview
+        jid = self.local_job()
+        gz = next(f["id"] for f in self.job(jid)["fonts"] if f["path"] == "hanterm.bdf.gz")
+        self.select(jid, lambda st: st["fonts"][gz].update(selected=True, dest="jamo-extra", kinds=["jamo"]))
+        with mock.patch.object(preview, "materialize", side_effect=ValueError("bad gzip " + self.MARK)), \
+                mock.patch.object(quality, "face_facts", side_effect=ValueError("bad face " + self.MARK)):
+            job = self.run_to_done(jid)
+        errors = {s["error"] for s in job["steps"] if s["state"] == "failed"}
+        self.assertTrue(errors <= {"ValueError"}, errors)
+        self.assertTrue(errors)
+        self.assert_no_marker(job)
+
+    def test_a_job_level_exception_is_the_type_only(self):
+        import zipout
+        jid = self.local_job()
+        self.select(jid)
+        with mock.patch.object(zipout, "collect", side_effect=RuntimeError("boom " + self.MARK)):
+            job = self.run_to_done(jid)
+        self.assertEqual((job["state"], job["error"]), ("failed", "RuntimeError"))
+        self.assert_no_marker(job)
+
+    def test_a_500_answer_names_the_type_only_with_the_token(self):
+        import detect
+        jid = self.new_job()
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})[0], 200)
+        with mock.patch.object(detect, "scan", side_effect=RuntimeError("boom " + self.MARK)):
+            status, body = self.api("POST", "/api/jobs/%s/detect" % jid)
+        self.assertEqual((status, body["error"]), (500, "RuntimeError"))
+        self.assert_no_marker(body)
 
 
 class LocalSweepTest(LocalRunBase):

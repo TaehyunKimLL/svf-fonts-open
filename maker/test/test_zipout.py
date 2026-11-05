@@ -282,6 +282,56 @@ class WriteTreeTest(unittest.TestCase):
             self.tree({}, {}, [("BUILD.md", b"b")])
         self.assertEqual(os.listdir(elsewhere), [])
 
+    def test_linked_svf_or_build_dir_is_refused_whatever_the_depth(self):
+        elsewhere = tempfile.mkdtemp(prefix="svf-elsewhere-")
+        self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)
+        os.symlink(elsewhere, os.path.join(self.out, "svf"))                      # svf itself is a link
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.tree({"svf/dos/X.SVF": b"mine"}, {})
+        self.assertEqual(os.listdir(elsewhere), [])
+        os.remove(os.path.join(self.out, "svf"))
+        os.symlink(elsewhere, os.path.join(self.out, "build-0123456789ab"))      # build-<id> is a link
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            self.tree({}, {}, [("BUILD.md", b"b")])
+        self.assertEqual(os.listdir(elsewhere), [])
+        os.remove(os.path.join(self.out, "build-0123456789ab"))
+        open(os.path.join(elsewhere, "target"), "w").close()
+        os.makedirs(os.path.join(self.out, "svf", "dos"))
+        os.symlink(os.path.join(elsewhere, "target"), os.path.join(self.out, "svf", "dos", "X.SVF"))   # a linked name
+        with self.assertRaises(zipout.NameClash):
+            self.tree({"svf/dos/X.SVF": b"mine"}, {})
+        self.assertEqual(os.listdir(elsewhere), ["target"])
+        self.assertEqual(_read(os.path.join(elsewhere, "target")), b"")
+
+    def test_the_output_folder_replaced_between_two_files_stops_the_write(self):
+        landed = []
+
+        def swap(rel, sha):
+            landed.append(rel)
+            if len(landed) == 1:
+                os.rename(self.out, self.out + ".moved")
+                os.mkdir(self.out)
+        with self.assertRaises(sources.OutputGone) as ctx:
+            zipout.write_tree(self.job, {"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b"}, [], self.out, self.oid, {}, swap)
+        self.assertEqual(landed, ["svf/dos/A.SVF"])
+        self.assertEqual(ctx.exception.landed, ["svf/dos/A.SVF"])
+        self.assertEqual(os.listdir(self.out), [])                              # the replacement is untouched
+        self.assertEqual(sorted(os.listdir(os.path.join(self.out + ".moved", "svf", "dos"))), ["A.SVF"])
+
+    def test_the_output_folder_removed_between_two_files_is_not_re_made(self):
+        landed = []
+
+        def remove(rel, sha):
+            landed.append(rel)
+            if len(landed) == 1:
+                os.rename(self.out, self.out + ".gone")
+        with self.assertRaises(sources.OutputGone):
+            zipout.write_tree(self.job, {"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b"}, [("BUILD.md", b"x")], self.out,
+                              self.oid, {}, remove)
+        self.assertFalse(os.path.exists(self.out))                              # makedirs did not bring it back
+        self.assertEqual(landed, ["svf/dos/A.SVF"])
+        self.assertEqual(sorted(os.listdir(os.path.join(self.out + ".gone", "svf", "dos"))), ["A.SVF"])
+
     def test_output_gone(self):
         self.oid = [self.oid[0], self.oid[1] + 1]
         with self.assertRaises(sources.OutputGone):

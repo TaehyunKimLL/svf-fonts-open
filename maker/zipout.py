@@ -721,13 +721,15 @@ _DETECT_BLOCK = re.compile(r"## Detection error: ([^\n]*)\n.*?## End detection e
 _NO_LINK_ERRNOS = (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK)
 
 
-def _sha_of_file(path):
-    """The sha256 hex digest of the regular file @p path, or None when it is absent or unreadable."""
+def _sha_of_file(path, dir_fd=None):
+    """The sha256 hex digest of the regular file @p path (relative to @p dir_fd when given), or None when it is absent,
+    not a regular file or unreadable. A link is never followed."""
     try:
-        if not stat.S_ISREG(os.lstat(path).st_mode):
+        if not stat.S_ISREG(os.lstat(path, dir_fd=dir_fd).st_mode):
             return None
         digest = hashlib.sha256()
-        with open(path, "rb") as f:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        with os.fdopen(fd, "rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 digest.update(chunk)
         return digest.hexdigest()
@@ -735,88 +737,146 @@ def _sha_of_file(path):
         return None
 
 
+class _OutputTree:
+    """The verified output folder, held by an open directory descriptor.
+
+    Every directory made and every file written goes through descriptors relative to that one folder, with
+    `O_NOFOLLOW`, so a link anywhere below it is refused and nothing can land outside it; `check()` re-proves, before
+    each directory creation and each landing, that the folder at the recorded path is still the folder that was
+    picked (and still the one this descriptor holds), else `OutputGone`: a removed folder is never re-made."""
+
+    def __init__(self, output_dir, output_id):
+        self.output_dir = output_dir
+        self.output_id = tuple(output_id)
+        self._dirs = {}
+        try:
+            self.root = os.open(output_dir, os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            raise OutputGone("output folder is gone or changed")
+        try:
+            self.check()
+        except BaseException:
+            os.close(self.root)
+            raise
+
+    def check(self):
+        try:
+            held = os.fstat(self.root)
+            here = os.stat(self.output_dir)
+        except OSError:
+            raise OutputGone("output folder is gone or changed")
+        if (here.st_dev, here.st_ino) != self.output_id or (held.st_dev, held.st_ino) != self.output_id:
+            raise OutputGone("output folder is gone or changed")
+
+    def dir(self, rel_dir):
+        """The descriptor of the folder @p rel_dir below the output folder (made 0755 as needed), never through a link."""
+        if rel_dir in self._dirs:
+            return self._dirs[rel_dir]
+        current, walked = self.root, ""
+        for part in rel_dir.split("/"):
+            walked = walked + "/" + part if walked else part
+            if walked in self._dirs:
+                current = self._dirs[walked]
+                continue
+            try:
+                mode = os.lstat(part, dir_fd=current).st_mode
+            except FileNotFoundError:
+                self.check()                               # never make a folder in a folder that went away
+                os.mkdir(part, 0o755, dir_fd=current)
+                try:
+                    os.chmod(part, 0o755, dir_fd=current)
+                except OSError:
+                    pass
+                mode = stat.S_IFDIR
+            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+                raise ValueError("%s is a symlink or not a folder: refusing to write through it" % walked)
+            try:
+                fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+            except OSError as exc:
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise ValueError("%s is a symlink or not a folder: refusing to write through it" % walked)
+                raise
+            self._dirs[walked] = current = fd
+        return current
+
+    def close(self):
+        for fd in self._dirs.values():
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.close(self.root)
+        except OSError:
+            pass
+
+
 def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
     """Land @p entries (`svf/<dest>/<NAME>` -> bytes) and the @p sidecar files into @p output_dir; return the
     output-relative paths that landed.
 
-    Every file is written to a fresh `<path>.<random>.tmp` (fsynced) first. A path the job owns (@p owned: path -> the sha256 this job
-    wrote there) is replaced when the file is still those bytes or is gone, else it is `NameClash` (someone else's file
-    now). A new name is claimed without ever replacing a file: `os.link` of the temp file (`FileExistsError` is a
-    `NameClash`), or on a filesystem without hard links (FAT/exFAT, many SMB shares) an `O_EXCL` claim, an atomic
-    `os.replace` over the claim and a read-back that must match. The sidecar goes to `build-<id>/` and is always
-    replaced. Only `svf/<dest>/` and `build-<id>/` are made. @p on_landed(rel, sha256) is called as each file lands,
-    so a partial landing is owned too. On an exception the temp files are removed and the paths that landed are
-    attached as `.landed`. `OutputGone` when @p output_dir is no longer the folder with @p output_id.
+    Every file is written to a fresh `<name>.<random>.tmp` (fsynced) first. A path the job owns (@p owned: path -> the
+    sha256 this job wrote there) is replaced when the file is still those bytes or is gone, else it is `NameClash`
+    (someone else's file now). A new name is claimed without ever replacing a file: `os.link` of the temp file
+    (`FileExistsError` is a `NameClash`), or on a filesystem without hard links (FAT/exFAT, many SMB shares) an
+    `O_EXCL` claim, an atomic `os.replace` over the claim and a read-back that must match. The sidecar goes to
+    `build-<id>/` and is always replaced. Only `svf/<dest>/` and `build-<id>/` are made, through descriptors of the
+    verified output folder (`_OutputTree`): a link below the folder is refused, and a folder renamed, removed or
+    replaced between two files stops the write with `OutputGone` and is never re-made. @p on_landed(rel, sha256) is
+    called as each file lands, so a partial landing is owned too. On an exception the temp files are removed and the
+    paths that landed are attached as `.landed`.
     """
-    try:
-        same = stat_id(output_dir) == tuple(output_id)
-    except OSError:
-        same = False
-    if not same:
-        raise OutputGone("output folder is gone or changed")
+    tree = _OutputTree(output_dir, output_id)
     prefix = "build-%s/" % job["id"]
     items = [(rel, data, False) for rel, data in entries.items()] + [(prefix + n, d, True) for n, d in sidecar]
     landed, tmps = [], []
     try:
         for rel, data, always in items:
             _check_entry_path(rel)
-            path = os.path.join(output_dir, rel)
-            _make_dirs(output_dir, os.path.dirname(rel))
-            tmp = "%s.%s.tmp" % (path, secrets.token_hex(4))     # never a name the user may already have
-            fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-            tmps.append(tmp)
+            tree.check()
+            rel_dir, _, name = rel.rpartition("/")
+            dfd = tree.dir(rel_dir)
+            tmp = "%s.%s.tmp" % (name, secrets.token_hex(4))     # never a name the user may already have
+            fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o644, dir_fd=dfd)
+            tmps.append((dfd, tmp))
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
                 f.flush()
                 os.fsync(f.fileno())
             try:
-                os.chmod(tmp, 0o644)
+                os.chmod(tmp, 0o644, dir_fd=dfd)
             except OSError:
                 pass                                         # FAT/exFAT cannot hold a mode: the file is still good
             digest = hashlib.sha256(data).hexdigest()
+            tree.check()
             if always:
-                os.replace(tmp, path)
+                os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
             elif rel in owned:
-                current = _sha_of_file(path)
+                current = _sha_of_file(name, dfd)
                 if current is not None and current != owned[rel]:
                     raise NameClash(job["id"], rel)
-                os.replace(tmp, path)
+                os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
             else:
-                _land_new(tmp, path, rel, digest, job["id"])
+                _land_new(dfd, tmp, name, rel, digest, job["id"])
             landed.append(rel)
             on_landed(rel, digest)
     except BaseException as exc:
         exc.landed = list(landed)
         raise
     finally:
-        for tmp in tmps:
+        for dfd, tmp in tmps:
             try:
-                os.remove(tmp)
+                os.remove(tmp, dir_fd=dfd)
             except OSError:
                 pass
+        tree.close()
     return landed
 
 
-def _make_dirs(output_dir, rel_dir):
-    """Make the folders of @p rel_dir under @p output_dir (0755, whatever the umask), refusing a symlink on the way:
-    nothing is written outside the output folder. The output folder itself is never touched."""
-    current = output_dir
-    for part in rel_dir.split("/"):
-        current = os.path.join(current, part)
-        if os.path.islink(current):
-            raise ValueError("%s is a symlink: refusing to write through it" % os.path.relpath(current, output_dir))
-        if not os.path.isdir(current):
-            os.mkdir(current)
-            try:
-                os.chmod(current, 0o755)
-            except OSError:
-                pass
-
-
-def _land_new(tmp, path, rel, digest, job_id):
-    """Put the temp file at the NEW name @p path without ever replacing a file already there."""
+def _land_new(dfd, tmp, name, rel, digest, job_id):
+    """Put the temp file at the NEW name @p name in folder @p dfd without ever replacing a file already there."""
     try:
-        os.link(tmp, path)
+        os.link(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
         return
     except FileExistsError:
         raise NameClash(job_id, rel)
@@ -824,18 +884,18 @@ def _land_new(tmp, path, rel, digest, job_id):
         if exc.errno not in _NO_LINK_ERRNOS:
             raise
     try:                                                 # no hard links here: claim the name, then swap the content in
-        os.close(os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+        os.close(os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=dfd))
     except FileExistsError:
         raise NameClash(job_id, rel)
     try:
-        os.replace(tmp, path)
-        if _sha_of_file(path) != digest:
+        os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+        if _sha_of_file(name, dfd) != digest:
             raise OSError(errno.EIO, "verify failed")
     except BaseException:
-        current = _sha_of_file(path)
+        current = _sha_of_file(name, dfd)
         if current in (digest, hashlib.sha256(b"").hexdigest()):   # still our claim or our bytes: take it back
             try:
-                os.remove(path)
+                os.remove(name, dir_fd=dfd)
             except OSError:
                 pass
         raise

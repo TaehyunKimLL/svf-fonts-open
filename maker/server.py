@@ -635,7 +635,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._reply_error(_HttpError(400, "stalled body"))
         except Exception as exc:                        # anything uncaught is a 500 with the traceback on stderr
             traceback.print_exc()
-            self._reply_error(_HttpError(500, "%s: %s" % (type(exc).__name__, exc)))
+            # with the token (local mode) the answer names the type only: the message may quote an input's bytes
+            self._reply_error(_HttpError(500, type(exc).__name__ if self.server.token is not None
+                                         else "%s: %s" % (type(exc).__name__, exc)))
 
     def _check_token(self, path):
         """With a token, every `/api/` request carries exactly one `X-Maker-Token`, compared as bytes; else 403."""
