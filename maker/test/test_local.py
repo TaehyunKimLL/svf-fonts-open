@@ -1047,6 +1047,74 @@ class LocalSweepTest(LocalRunBase):
             gate.set()
             t.join(10)
 
+    def test_a_hung_stat_costs_one_thread_per_path_however_often_it_is_asked(self):
+        import threading
+        import time
+        jobs_mod = sys.modules["jobs"]
+        gate = threading.Event()
+        real = jobs_mod.stat_id
+        self.addCleanup(gate.set)
+
+        def hung(path):
+            gate.wait(20)
+            return real(path)
+        before = threading.active_count()
+        with mock.patch.object(jobs_mod, "stat_id", hung):
+            for _ in range(25):
+                with self.assertRaises(OSError):
+                    jobs_mod.stat_id_bounded(self.out, 0.05)
+            self.assertLessEqual(threading.active_count() - before, 1)
+            gate.set()
+            time.sleep(0.3)
+            self.assertEqual(jobs_mod.stat_id_bounded(self.out, 2), real(self.out))     # and it is usable again
+        self.assertLessEqual(threading.active_count() - before, 0)
+
+    def test_a_create_does_not_wait_for_a_slow_pending_stat(self):
+        import threading
+        import time
+        jobs_mod = sys.modules["jobs"]
+        away = os.path.join(self.tmp, "away")
+        os.makedirs(away)
+        jid, fd = self._pending_job()                                          # pending entry for self.out
+        self.srv.touched[jid] = time.monotonic() - sys.modules["server"].LOCAL_IDLE_SWEEP_S - 10
+        path = os.path.join(self.srv.store.path(jid), "job.json")
+        with open(path, encoding="utf-8") as f:
+            stored = json.load(f)
+        stored["updated"] = time.time() - sys.modules["server"].LOCAL_IDLE_SWEEP_S - 10
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(stored, f)
+        real = jobs_mod.stat_id
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+
+        def slow_for_other(p):
+            if p == "/nonexistent-mount":
+                gate.wait(6)
+            return real(p)
+        pend = os.path.join(self.data, "pending-sweeps.json")
+        with open(pend, encoding="utf-8") as f:
+            data = json.load(f)
+        data.append({"path": "/nonexistent/.svf-maker-0123456789ab", "output_dir": "/nonexistent-mount", "output_id": [1, 2],
+                     "job": "0123456789ab"})
+        with open(pend, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        with mock.patch.object(jobs_mod, "stat_id", slow_for_other):
+            started = time.monotonic()
+            status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out})
+            took = time.monotonic() - started
+        self.assertEqual(status, 200, body)                                    # the idle job was taken over
+        self.assertLess(took, 3, took)
+
+    def test_detect_on_a_finished_job_is_refused_while_another_job_holds_the_folder(self):
+        jid, first = self.done_job()
+        other = self.new_job(self.out)
+        status, body = self.api("POST", "/api/jobs/%s/detect" % jid)
+        self.assertEqual(status, 409, body)
+        self.assertEqual(body.get("job"), other)
+        self.assertEqual(self.job(jid)["state"], "done")                       # untouched
+        self.assertEqual(self.api("DELETE", "/api/jobs/%s" % other)[0], 200)
+        self.assertEqual(self.api("POST", "/api/jobs/%s/detect" % jid)[0], 200)
+
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)
 

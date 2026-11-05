@@ -823,7 +823,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     and item["state"] in self.ACTIVE_STATES):
                 if item["state"] in ("uploading", "detected") and self._job_idle(item):
                     try:
-                        store.delete(item["id"])              # abandoned for the idle window: taken over
+                        store.delete(item["id"], retry=False)  # taken over; no slow pending retry under create_lock
                         continue
                     except (ValueError, KeyError, OSError):
                         pass
@@ -954,6 +954,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current = self._load(job)
         local = current.get("source") == "local"
         self._refuse_upload_in_flight(job)
+        if local and current.get("state") in ("done", "failed"):     # it becomes active again: the folder must be free
+            with self.server.create_lock:
+                self._claim_folder(current.get("output_id"), exclude=job)
         if local:
             self._files_dir_ready(current)                   # the scan's temp copies go under the files directory
         scanned_roots = list(current.get("roots") or [])

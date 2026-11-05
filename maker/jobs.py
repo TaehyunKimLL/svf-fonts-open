@@ -47,16 +47,28 @@ STAT_TIMEOUT_S = 5.0          # a stat of a recorded output folder that takes lo
 STOP_STAT_TIMEOUT_S = 1.0     # the same at stop, so shutdown is not held by a mount
 
 
+_STATS_IN_FLIGHT = set()      # paths with a stat still running: one daemon thread per path, however often it is asked
+_STATS_LOCK = threading.Lock()
+
+
 def stat_id_bounded(path, timeout=STAT_TIMEOUT_S):
     """`stat_id(path)`, but `OSError` when it does not return within @p timeout seconds (the stat runs in a daemon
-    thread that is left behind)."""
+    thread that is left behind). While a stat of @p path is still running (a hung mount) a further call does not start
+    another thread: it raises at once, so the threads stay bounded by the number of distinct paths."""
     box = []
+    with _STATS_LOCK:
+        if path in _STATS_IN_FLIGHT:
+            raise OSError("stat still pending: %s" % path)
+        _STATS_IN_FLIGHT.add(path)
 
     def run():
         try:
             box.append(("ok", stat_id(path)))
         except BaseException as exc:
             box.append(("err", exc))
+        finally:
+            with _STATS_LOCK:
+                _STATS_IN_FLIGHT.discard(path)
     thread = threading.Thread(target=run, daemon=True, name="svf-maker-stat")
     thread.start()
     thread.join(timeout)
@@ -493,7 +505,7 @@ class Store:
         out.sort(key=lambda item: (item["created"], item["id"]), reverse=True)
         return out
 
-    def delete(self, job_id):
+    def delete(self, job_id, retry=True):
         """Remove the job's directory; `ValueError` for a `queued` or `running` job (the worker owns it).
 
         The state check and the removal hold the job's own lock (W1): a `POST /run` that turns an `uploading` job
@@ -513,7 +525,8 @@ class Store:
                 self._locks.pop(job_id, None)
         if self.on_delete is not None:
             self.on_delete(job_id)
-        self.retry_pending_sweeps()                       # a folder that came back since the last sweep point
+        if retry:
+            self.retry_pending_sweeps()                   # a folder that came back since the last sweep point
 
 
     # ---- the sweeps of a local job's files directory (`<output_dir>/.svf-maker-<id>/`) --------------------------
