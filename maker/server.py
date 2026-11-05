@@ -77,12 +77,19 @@ def _preview_lock(job_id, font_id):
 
 
 @contextlib.contextmanager
-def _sweep_locks(job):
-    """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`)."""
+def _sweep_locks(job, timeout=None):
+    """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`).
+    With @p timeout each lock is waited for that long; `TimeoutError` (nothing held) when one is not free."""
     with contextlib.ExitStack() as stack:
         for font_id in dict.fromkeys(font.get("id") for font in job.get("fonts") or []):
             if font_id:
-                stack.enter_context(_preview_lock(job["id"], font_id))
+                lock = _preview_lock(job["id"], font_id)
+                if timeout is None:
+                    stack.enter_context(lock)
+                elif lock.acquire(timeout=timeout):
+                    stack.callback(lock.release)
+                else:
+                    raise TimeoutError(font_id)
         yield
 
 
@@ -799,13 +806,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except KeyError:
                 held = None
             if (held is not None and held.get("source") == "local" and held.get("output_id") == output_id
-                    and held.get("state") not in ("queued", "running")):
+                    and held.get("output_dir") == real                    # the recorded path, not only the same inode:
+                    and held.get("state") not in ("queued", "running")):  # a renamed folder is a new job
                 with self.server.create_lock:                 # one active job per folder holds for a reused job too
                     self._claim_folder(output_id, exclude=reuse)
                 self.send_json({"id": reuse, "reused": True, "output_dir": held.get("output_dir")})
                 return
         with self.server.create_lock:
-            self._claim_folder(output_id)
+            try:
+                self._claim_folder(output_id)
+            except _HttpError as exc:
+                if isinstance(reuse, str):                    # the page offered its open job and it was not accepted
+                    exc.message += ("; a renamed or moved folder is a new job and does not carry over the faces an "
+                                    "earlier job wrote there")
+                raise
             job = store.create(source="local", output_dir=real, output_id=output_id)
         try:
             store.ensure_files_dir(job)
@@ -823,7 +837,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     and item["state"] in self.ACTIVE_STATES):
                 if item["state"] in ("uploading", "detected") and self._job_idle(item):
                     try:
-                        store.delete(item["id"], retry=False)  # taken over; no slow pending retry under create_lock
+                        store.delete(item["id"])              # abandoned for the idle window: taken over
                         continue
                     except (ValueError, KeyError, OSError):
                         pass
@@ -954,9 +968,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current = self._load(job)
         local = current.get("source") == "local"
         self._refuse_upload_in_flight(job)
-        if local and current.get("state") in ("done", "failed"):     # it becomes active again: the folder must be free
-            with self.server.create_lock:
-                self._claim_folder(current.get("output_id"), exclude=job)
+        reactivate = local and current.get("state") in ("done", "failed")   # it becomes active again
         if local:
             self._files_dir_ready(current)                   # the scan's temp copies go under the files directory
         scanned_roots = list(current.get("roots") or [])
@@ -979,7 +991,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 kept = _kept_settings(j.get("settings") or {}, fonts, j.get("fonts") or [])
             j.update(state="detected", fonts=fonts, settings=kept, steps=[], result=None, error=None)
-        current = self._update(job, transition)
+        if reactivate:                                       # the folder claim and the state change are one step
+            with self.server.create_lock:
+                self._claim_folder(current.get("output_id"), exclude=job)
+                current = self._update(job, transition)
+        else:
+            current = self._update(job, transition)
         # outside the job lock: waiting for a bake's preview lock must not stall this job's PUTs (Y6)
         self._clear_previews(job, cleared + [font.get("id") for font in fonts])
         self.send_json(current)
