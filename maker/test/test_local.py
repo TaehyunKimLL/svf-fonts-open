@@ -866,7 +866,7 @@ class LocalSweepTest(LocalRunBase):
         try:
             import server as servermod
             server2 = servermod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
-            server2.startup_sweep.join(10)
+            self.assertIsNone(server2.startup_sweep)                         # the cleanup is synchronous: done by now
             self.assertFalse(os.path.exists(planted))
         finally:
             if server2 is not None:
@@ -1061,15 +1061,15 @@ class LocalSweepTest(LocalRunBase):
         lock = server_mod._preview_lock(a, font_id)
         lock.acquire()                                                          # another sweep holds the preview lock
         self.addCleanup(lambda: lock.locked() and lock.release())
-        with mock.patch.object(shutil, "rmtree", hang):
+        with mock.patch.object(shutil, "rmtree", hang), mock.patch.object(sys.modules["jobs"], "STOP_SWEEP_TOTAL_S", 1.5):
             started = time.monotonic()
             self.srv.worker.sweep_local_files()
             took = time.monotonic() - started
-            self.assertLess(took, 6, took)
+            self.assertLess(took, 4, took)                                      # one deadline for all the waits
             lock.release()
             started = time.monotonic()
             self.srv.worker.sweep_local_files()                                 # now the removal itself hangs
-            self.assertLess(time.monotonic() - started, 6)
+            self.assertLess(time.monotonic() - started, 4)
         with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
             paths = [e["path"] for e in json.load(f)]
         self.assertTrue([p for p in paths if p.startswith(fa + ".trash-")], paths)   # the tombstone is left for the next start
@@ -1267,6 +1267,163 @@ class LocalSweepTest(LocalRunBase):
         with mock.patch("os.fsync", lambda fd_: (synced.append(fd_), real(fd_))[1]):
             self.srv.store._write_pending([{"path": "x"}])
         self.assertGreaterEqual(len(synced), 2)                                 # the file and its directory
+
+    def test_a_retry_paused_after_its_state_check_cannot_be_overtaken_by_a_reactivation(self):
+        import threading
+        jid, first = self.done_job()
+        store = self.srv.store
+        store.ensure_files_dir(store.load(jid))                                 # a preview made the directory again
+        fd = self.files_dir(jid)
+        job = store.load(jid)
+        entry = {"path": fd, "output_dir": job["output_dir"], "output_id": job["output_id"], "job": jid,
+                 "files_id": job["files_id"]}
+        with open(os.path.join(self.data, "pending-sweeps.json"), "w", encoding="utf-8") as f:
+            json.dump([entry], f)
+        inside, go = threading.Event(), threading.Event()
+        self.addCleanup(go.set)
+        real = store.on_sweep
+
+        def paused(j, timeout=None):
+            inside.set()                                                        # the state check is behind us
+            self.assertTrue(go.wait(20))
+            return real(j, timeout)
+        store.on_sweep = paused
+        self.addCleanup(setattr, store, "on_sweep", real)
+        retry = threading.Thread(target=store.retry_pending_sweeps, daemon=True)
+        retry.start()
+        self.assertTrue(inside.wait(20))
+        answers = []
+        put = threading.Thread(target=lambda: answers.append(
+            self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})[0]), daemon=True)
+        put.start()
+        put.join(0.5)
+        self.assertTrue(put.is_alive())                                         # it waits for the lifecycle lock
+        self.assertEqual(self.job(jid)["state"], "done")                        # and has changed nothing
+        go.set()
+        retry.join(20)
+        put.join(20)
+        self.assertEqual(answers, [200])                                        # it went ahead after the rename
+        self.assertFalse(os.path.exists(fd))                                    # the old generation is gone
+        self.assertEqual(self.api("POST", "/api/jobs/%s/detect" % jid)[0], 200)
+        self.assertTrue(os.path.isdir(fd))                                      # the active job has a fresh directory
+        self.assertEqual([n for n in os.listdir(self.out) if ".trash-" in n], [])
+
+    def test_startup_cleanup_finishes_before_the_server_exists_and_unfinished_jobs_stay_inactive(self):
+        import threading
+        server_mod = sys.modules["server"]
+        jobs_mod = sys.modules["jobs"]
+        jid, first = self.done_job()
+        job = self.srv.store.load(jid)
+        with open(os.path.join(self.data, "pending-sweeps.json"), "w", encoding="utf-8") as f:
+            json.dump([{"path": os.path.join(self.out, ".svf-maker-0123456789ab"), "output_dir": self.out,
+                        "output_id": job["output_id"], "job": "0123456789ab", "files_id": None}], f)
+        inside, go = threading.Event(), threading.Event()
+        self.addCleanup(go.set)
+        real = jobs_mod.Store.retry_pending_sweeps
+
+        def paused(store, *a, **k):
+            inside.set()
+            go.wait(20)
+            return real(store, *a, **k)
+        made = []
+        with mock.patch.object(jobs_mod.Store, "retry_pending_sweeps", paused):
+            t = threading.Thread(target=lambda: made.append(
+                server_mod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)), daemon=True)
+            t.start()
+            self.assertTrue(inside.wait(20))                                    # paused on the pending entry
+            t.join(0.5)
+            self.assertTrue(t.is_alive() and not made)                          # no server object, so no request served
+            go.set()
+            t.join(30)
+        self.assertEqual(len(made), 1)
+        made[0].worker.stop()
+        made[0].server_close()
+        # a job whose cleanup did not finish is inactive: 409 on every way back in
+        self.srv.cleanup_pending.add(jid)
+        for method, path, body in (("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots}),
+                                   ("POST", "/api/jobs/%s/detect" % jid, None),
+                                   ("POST", "/api/jobs/%s/run" % jid, None),
+                                   ("POST", "/api/jobs", {"source": "local", "output_dir": self.out, "reuse": jid})):
+            status, answer = self.api(method, path, body)
+            self.assertEqual(status, 409, (path, answer))
+            self.assertIn("cleanup pending", answer["error"])
+        self.assertEqual(self.job(jid)["state"], "done")
+        self.srv.cleanup_pending.discard(jid)
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})[0], 200)
+
+    def test_a_put_that_saw_detected_cannot_activate_a_job_that_finished_meanwhile(self):
+        import threading
+        server_mod = sys.modules["server"]
+        jid = self.local_job()
+        self.select(jid)
+        inside, go = threading.Event(), threading.Event()
+        self.addCleanup(go.set)
+        real = server_mod.Handler._json_body
+
+        def paused(handler):
+            if handler.command == "PUT" and handler.path.endswith("/sources"):
+                inside.set()                                                    # the snapshot said `detected`
+                go.wait(20)
+            return real(handler)
+        answers = []
+        with mock.patch.object(server_mod.Handler, "_json_body", paused):
+            put = threading.Thread(target=lambda: answers.append(
+                self.api("PUT", "/api/jobs/%s/sources" % jid, {"paths": self.roots})), daemon=True)
+            put.start()
+            self.assertTrue(inside.wait(20))
+            self.assertEqual(self.run_to_done(jid)["state"], "done")           # it finishes meanwhile ...
+            other = self.new_job(self.out)                                      # ... and another job claims the folder
+            go.set()
+            put.join(30)
+        self.assertEqual(answers[0][0], 409, answers)                           # no activation without a claim
+        self.assertEqual(answers[0][1].get("job"), other)
+        self.assertEqual(self.job(jid)["state"], "done")
+
+    def test_completion_preview_failed_delete_then_retry_keeps_tracking(self):
+        jobs_mod = sys.modules["jobs"]
+        jid, first = self.done_job()
+        fd = self.files_dir(jid)
+        ttf = next(f["id"] for f in self.job(jid)["fonts"] if f["path"] == "Munjo.ttf")
+        self.assertFalse(os.path.exists(fd))                                    # swept at the end of the run
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, ttf))[0], 200)   # a new generation
+        self.assertTrue(os.path.isdir(fd))
+        self.assertEqual(self.srv.store.load(jid)["files_id"], [os.stat(fd).st_dev, os.stat(fd).st_ino])   # saved at creation
+        real = shutil.rmtree
+
+        def fail(path, *a, **k):
+            if str(path).startswith(fd):
+                raise OSError("busy")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", fail):
+            self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            entries = json.load(f)
+        self.assertEqual(len(entries), 1, entries)                              # tracked although the metadata is gone
+        self.assertTrue(entries[0]["path"].startswith(fd + ".trash-"))
+        self.srv.store.retry_pending_sweeps()
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-")], [])
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), [])
+
+    def test_stop_with_several_jobs_and_delayed_locks_returns_within_the_single_deadline(self):
+        import time
+        server_mod = sys.modules["server"]
+        jobs_mod = sys.modules["jobs"]
+        held = []
+        for n in range(3):
+            out = os.path.join(self.tmp, "out%d" % n)
+            os.makedirs(out)
+            jid = self.local_job(out=out)
+            for font in self.srv.store.load(jid)["fonts"][:2]:
+                lock = server_mod._preview_lock(jid, font["id"])
+                lock.acquire()
+                held.append(lock)
+                self.addCleanup(lambda lk=lock: lk.locked() and lk.release())
+        with mock.patch.object(jobs_mod, "STOP_SWEEP_TOTAL_S", 1.0):
+            started = time.monotonic()
+            self.srv.worker.sweep_local_files()
+            took = time.monotonic() - started
+        self.assertLess(took, 2.5, took)                                        # not 6 waits of the allowance
 
     def files_dir_in(self, out, jid):
         return os.path.join(out, ".svf-maker-" + jid)

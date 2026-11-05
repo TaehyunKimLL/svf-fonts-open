@@ -53,6 +53,7 @@ JOB_CAP = 268435456
 FILE_CAP = 2000
 
 CHUNK = 1 << 20                          # the upload body is read in 1 MB chunks
+STARTUP_CLEANUP_S = 30.0                                  # the whole start-up cleanup, one deadline
 LOCAL_IDLE_SWEEP_S = 1800                 # a `detected` local job untouched this long loses its files directory
 STATIC_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png",
                 ".wasm": "application/wasm"}
@@ -79,14 +80,16 @@ def _preview_lock(job_id, font_id):
 @contextlib.contextmanager
 def _sweep_locks(job, timeout=None):
     """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`).
-    With @p timeout each lock is waited for that long; `TimeoutError` (nothing held) when one is not free."""
+    With @p timeout (seconds, in all) every lock is waited for within that one allowance, not per font; `TimeoutError`
+    (nothing held) when it runs out."""
+    end = None if timeout is None else time.monotonic() + timeout
     with contextlib.ExitStack() as stack:
         for font_id in dict.fromkeys(font.get("id") for font in job.get("fonts") or []):
             if font_id:
                 lock = _preview_lock(job["id"], font_id)
-                if timeout is None:
+                if end is None:
                     stack.enter_context(lock)
-                elif lock.acquire(timeout=timeout):
+                elif lock.acquire(timeout=max(0.0, end - time.monotonic())):
                     stack.callback(lock.release)
                 else:
                     raise TimeoutError(font_id)
@@ -104,6 +107,12 @@ def _sweep_idle(server, now=None):
                 server.store.sweep_files(server.store.load(item["id"]))
             except KeyError:
                 continue
+    for job_id in list(server.cleanup_pending):           # the start-up cleanup that did not finish
+        try:
+            if server.store.sweep_files(server.store.load(job_id)):
+                server.cleanup_pending.discard(job_id)
+        except KeyError:
+            server.cleanup_pending.discard(job_id)
     server.store.retry_pending_sweeps()
 
 
@@ -483,7 +492,8 @@ def make_server(host, port, repo_dir, data_root, token=None):
     server.caps = capabilities
     server.token = token
     server.data_root = store.data_root
-    server.create_lock = threading.Lock()                # one local job per output folder, checked under it
+    server.create_lock = store.lifecycle                  # THE lifecycle lock (order documented at `Store.__init__`)
+    server.cleanup_pending = set()                        # old local jobs whose start-up cleanup did not finish
     server.index = naming.RepoIndex(server.svf_dir)
     server.started = time.monotonic()
     server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
@@ -491,20 +501,32 @@ def make_server(host, port, repo_dir, data_root, token=None):
     local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only
     have_pending = os.path.exists(os.path.join(store.data_root, "pending-sweeps.json"))
 
-    def startup_sweep():
-        store.retry_pending_sweeps()
+    def startup_cleanup():
+        """Before the first request: the pending retry and the sweep of every local job of an earlier run, within ONE
+        absolute deadline. A job whose cleanup did not finish stays inactive (409 'cleanup pending') until the idle
+        sweeper has finished it; nothing here runs on a background thread, so no request can reopen a job between its
+        state check and its directory's removal."""
+        deadline = jobs.Deadline(STARTUP_CLEANUP_S)
+        store.retry_pending_sweeps(deadline_s=deadline.remaining())
         for job_id in local_ids:
+            if deadline.expired():
+                server.cleanup_pending.add(job_id)
+                continue
             try:
                 job = store.load(job_id)
-                store.sweep_files(job)
-                store.sweep_trash(job)
             except KeyError:
                 continue
+            try:
+                if not store.sweep_files(job, deadline=deadline):
+                    server.cleanup_pending.add(job_id)
+                store.sweep_trash(job)
+            except Exception:
+                jobs.print_exc()
+                server.cleanup_pending.add(job_id)
     server.stopping = threading.Event()
-    server.startup_sweep = None
+    server.startup_sweep = None                           # (kept for callers: the cleanup is synchronous now)
     if token is not None or local_ids or have_pending:    # an upload-only server has nothing to sweep
-        server.startup_sweep = threading.Thread(target=startup_sweep, daemon=True, name="svf-maker-startup-sweep")
-        server.startup_sweep.start()
+        startup_cleanup()
 
     def idle_sweeper():
         while not server.stopping.wait(60):
@@ -802,44 +824,80 @@ class Handler(http.server.BaseHTTPRequestHandler):
         store = self.server.store
         output_id = list(sourcesmod.stat_id(real))
         reuse = body.get("reuse")
-        if isinstance(reuse, str):                            # the page's open job, when it is for this very folder
-            try:                                              # (the server's own realpath/identity decides, not the spelling)
-                held = store.load(reuse)
-            except KeyError:
-                held = None
-            if (held is not None and held.get("source") == "local" and held.get("output_id") == output_id
-                    and held.get("output_dir") == real                    # the recorded path, not only the same inode:
-                    and held.get("state") not in ("queued", "running")):  # a renamed folder is a new job
-                with self.server.create_lock:                 # one active job per folder holds for a reused job too
-                    self._claim_folder(output_id, exclude=reuse)
-                self.send_json({"id": reuse, "reused": True, "output_dir": held.get("output_dir")})
-                return
-        with self.server.create_lock:
-            try:
-                self._claim_folder(output_id)
-            except _HttpError as exc:
-                if isinstance(reuse, str):                    # the page offered its open job and it was not accepted
-                    exc.message += ("; a renamed or moved folder is a new job and does not carry over the faces an "
-                                    "earlier job wrote there")
-                raise
-            job = store.create(source="local", output_dir=real, output_id=output_id)
+        after = []                                            # takeover removals to finish once the lock is released
         try:
-            store.ensure_files_dir(job)
-        except (jobs.OutputGone, OSError) as exc:
-            store.delete(job["id"])
-            raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
-        self.send_json({"id": job["id"]})
+            with self.server.create_lock:                     # the lifecycle lock: every decision below reads fresh state
+                held = None
+                if isinstance(reuse, str):                    # the page's open job, when it is for this very folder
+                    try:                                      # (the server's own realpath/identity decides, not the spelling)
+                        held = store.load(reuse)
+                    except KeyError:
+                        held = None
+                if (held is not None and held.get("source") == "local" and held.get("output_id") == output_id
+                        and held.get("output_dir") == real                    # the recorded path, not only the same inode:
+                        and held.get("state") not in ("queued", "running")):  # a renamed folder is a new job
+                    self._refuse_cleanup_pending(reuse)
+                    self._claim_folder(output_id, exclude=reuse, after=after)
+                    answer = {"id": reuse, "reused": True, "output_dir": held.get("output_dir")}
+                else:
+                    try:
+                        self._claim_folder(output_id, after=after)
+                    except _HttpError as exc:
+                        if isinstance(reuse, str):            # the page offered its open job and it was not accepted
+                            exc.message += ("; a renamed or moved folder is a new job and does not carry over the faces "
+                                            "an earlier job wrote there")
+                        raise
+                    job = store.create(source="local", output_dir=real, output_id=output_id)
+                    try:
+                        store.ensure_files_dir(job, locked=True)
+                    except (jobs.OutputGone, OSError) as exc:
+                        after.append(store.delete(job["id"], locked=True))
+                        raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
+                    answer = {"id": job["id"]}
+        finally:
+            for finish in after:
+                finish()
+        self.send_json(answer)
 
-    def _claim_folder(self, output_id, exclude=None):
-        """409 naming the job that holds the output folder @p output_id (the caller holds `create_lock`); a job
-        abandoned for the idle window is deleted instead (taken over). @p exclude is the job that wants the folder."""
+    def _activate(self, job, transition):
+        """Apply @p transition, which makes local job @p job active (uploading, detected, queued), under the lifecycle
+        lock. Whether the folder must be claimed is decided here, inside the lock, from the job's state as it is now (never
+        from the handler's earlier snapshot): a job that is `done` or `failed` now claims the folder first (409 naming the
+        job that holds it). A job of an earlier run whose cleanup is pending is refused."""
+        after = []
+        try:
+            with self.server.create_lock:
+                self._refuse_cleanup_pending(job)
+                fresh = self._load(job)
+                if fresh.get("source") == "local" and fresh.get("state") in ("done", "failed"):
+                    self._claim_folder(fresh.get("output_id"), exclude=job, after=after)
+                return self._update(job, transition)
+        finally:
+            for finish in after:
+                finish()
+
+    def _refuse_cleanup_pending(self, job):
+        """409 for a job of an earlier run whose start-up cleanup has not finished: it stays inactive until the idle
+        sweeper has removed its leftovers."""
+        if job in self.server.cleanup_pending:
+            raise _HttpError(409, "cleanup pending: the earlier files of job %s are still being removed; try again "
+                                  "later" % job, {"job": job})
+
+    def _claim_folder(self, output_id, exclude=None, after=None):
+        """409 naming the job that holds the output folder @p output_id (the caller holds the lifecycle lock); a job
+        abandoned for the idle window is deleted instead (taken over; its removal is appended to @p after, to be run once
+        the lock is released). @p exclude is the job that wants the folder."""
         store = self.server.store
         for item in store.list():
             if (item.get("source") == "local" and item.get("output_id") == output_id and item["id"] != exclude
                     and item["state"] in self.ACTIVE_STATES):
                 if item["state"] in ("uploading", "detected") and self._job_idle(item):
                     try:
-                        store.delete(item["id"])              # abandoned for the idle window: taken over
+                        finish = store.delete(item["id"], locked=True)     # abandoned for the idle window: taken over
+                        if after is not None:
+                            after.append(finish)
+                        else:
+                            finish()
                         continue
                     except (ValueError, KeyError, OSError):
                         pass
@@ -929,12 +987,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             j["error"] = None                                 # (`owned`, the faces it wrote, stays: a rerun may replace them)
             j["upload"] = {"files": len(files), "bytes": total,
                            "refused": ["%s: %s" % (item["path"], item["reason"]) for item in refused]}
-        if current.get("state") in ("done", "failed"):         # it becomes active again: no other job may hold the folder
-            with self.server.create_lock:
-                self._claim_folder(current.get("output_id"), exclude=job)
-                updated = self._update(job, transition)
-        else:
-            updated = self._update(job, transition)
+        updated = self._activate(job, transition)
         self._clear_previews(job, [font.get("id") for font in updated.get("fonts") or []])
         self.send_json({"roots": roots, "files": len(files), "bytes": total, "refused": refused})
 
@@ -970,7 +1023,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         current = self._load(job)
         local = current.get("source") == "local"
         self._refuse_upload_in_flight(job)
-        reactivate = local and current.get("state") in ("done", "failed")   # it becomes active again
         if local:
             self._files_dir_ready(current)                   # the scan's temp copies go under the files directory
         scanned_roots = list(current.get("roots") or [])
@@ -993,12 +1045,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 kept = _kept_settings(j.get("settings") or {}, fonts, j.get("fonts") or [])
             j.update(state="detected", fonts=fonts, settings=kept, steps=[], result=None, error=None)
-        if reactivate:                                       # the folder claim and the state change are one step
-            with self.server.create_lock:
-                self._claim_folder(current.get("output_id"), exclude=job)
-                current = self._update(job, transition)
-        else:
-            current = self._update(job, transition)
+        current = self._activate(job, transition) if local else self._update(job, transition)
         # outside the job lock: waiting for a bake's preview lock must not stall this job's PUTs (Y6)
         self._clear_previews(job, cleared + [font.get("id") for font in fonts])
         self.send_json(current)
@@ -1318,7 +1365,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if local:                                      # reports and scores kept from an earlier run are not this run's
                 shutil.rmtree(os.path.join(store.meta_dir(job), "steps"), ignore_errors=True)
             j.update(state="queued", error=None, steps=steps, result=None)
-        self._update(job, transition)
+        if local:
+            self._activate(job, transition)                  # under the lifecycle lock, from the state as it is now
+        else:
+            self._update(job, transition)
         position = self.server.worker.enqueue(job)          # the position it really got (W13)
         current = self._load(job)
         current["queue_position"] = position
@@ -1330,7 +1380,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         that was detected, and the folder has room for the output."""
         store = self.server.store
         try:
-            store.ensure_files_dir(j)
+            store.ensure_files_dir(j, locked=True, persist=False)     # the run holds the lifecycle lock and saves j
         except jobs.OutputGone as exc:
             raise _HttpError(409, str(exc))
         except OSError as exc:
