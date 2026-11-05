@@ -920,3 +920,14 @@ Each with my recommendation; the design above assumes the recommendation.
 - **D12. The data root `<userData>/maker`** (`~/.config/svf-maker/maker` on Linux) rather than today's default
   `~/.local/share/svf-maker` - Electron's convention, one place to remove. Alternative: keep the server's default
   (then two users of the source-mode server and the app would share one store).
+
+## 15. Rulings on section 14 (2026-11-05, controller)
+
+D1 sidecar death -> message box with restart (new token/port). D2 `window-all-closed` quits on macOS too. D3 persist the last
+output folder path in `shell-state.json` (path only, no file content). D4 `run-tool` only, no `-P path.py` shim. D5 optional
+recogniser through an external interpreter (`SVF_RECOG_PYTHON` running the shipped `recog_score.py`); `caps.recog` stays false
+until set. D6 pin the verified versions. D7 no `--no-sandbox` by default; document the workaround. D8 exclude stdlib
+readline/curses, prefer the Pillow PyPI wheel, ship the LGPL notices, record the check in THIRD-PARTY. D9 build on this host
+first (glibc 2.39 floor), container build later. D10 remember window size/zoom in `shell-state.json`. D11 `--exit-with-parent`
+by getppid polling on POSIX. D12 data root `<userData>/maker`. Rulings of the controller, reversible by editing this section
+and the plan.
