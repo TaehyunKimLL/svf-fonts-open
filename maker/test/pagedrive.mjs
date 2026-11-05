@@ -1,4 +1,4 @@
-// pagedrive.mjs CHROME URL SCRIPT_FILE - loads URL in headless Chrome and evaluates the async function body in
+// pagedrive.mjs CHROME URL SCRIPT_FILE [--header NAME:VALUE]... [--preload FILE] - loads URL in headless Chrome and evaluates the async function body in
 // SCRIPT_FILE in the page (helpers: sleep(ms), waitFor(fn, ms)); prints the JSON it returns on stdout. Chrome is driven
 // over the DevTools protocol with node's built-in WebSocket (no playwright). Exit 1 with the page's error on stderr.
 import { spawn } from 'node:child_process';
@@ -6,7 +6,21 @@ import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const [chrome, url, scriptFile] = process.argv.slice(2);
+const [chrome, url, scriptFile, ...options] = process.argv.slice(2);
+// --header NAME:VALUE (any number) is sent with every request the page makes (Network.setExtraHTTPHeaders, the way the
+// Electron shell adds the maker's token); --preload FILE is evaluated in every new document before the page's own
+// scripts run (Page.addScriptToEvaluateOnNewDocument: a stand-in for the shell's preload bridge).
+const extraHeaders = {};
+let preloadFile = null;
+for (let i = 0; i < options.length; i++) {
+  if (options[i] === '--header') {
+    const text = options[++i] || '';
+    const cut = text.indexOf(':');
+    extraHeaders[text.slice(0, cut)] = text.slice(cut + 1);
+  } else if (options[i] === '--preload') {
+    preloadFile = options[++i];
+  }
+}
 const profile = mkdtempSync(join(tmpdir(), 'pagedrive-'));
 // Chrome's own temp files (/tmp/com.google.Chrome.*) go under the profile and leave with it
 mkdirSync(join(profile, 'tmp'));
@@ -67,6 +81,11 @@ try {
   const { result: { targetId } } = await send('Target.createTarget', { url: 'about:blank' });
   const { result: { sessionId } } = await send('Target.attachToTarget', { targetId, flatten: true });
   await send('Page.enable', {}, sessionId);
+  if (Object.keys(extraHeaders).length) {
+    await send('Network.enable', {}, sessionId);
+    await send('Network.setExtraHTTPHeaders', { headers: extraHeaders }, sessionId);
+  }
+  if (preloadFile) await send('Page.addScriptToEvaluateOnNewDocument', { source: readFileSync(preloadFile, 'utf8') }, sessionId);
   await send('Page.navigate', { url }, sessionId);
   await until(() => events.some((e) => e.method === 'Page.loadEventFired' && e.sessionId === sessionId), 60000, 'page load');
   const body = readFileSync(scriptFile, 'utf8');

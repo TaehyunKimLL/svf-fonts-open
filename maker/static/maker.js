@@ -176,6 +176,26 @@ const sizesEl = $("sizes");
 const bppEl = $("bpp");
 const rangeEl = $("range");
 const presetEl = $("preset");
+const openFolderEl = $("open-folder");
+const uploadPanelEl = $("upload-panel");
+const sourcesPanelEl = $("sources-panel");
+const rootsEl = $("source-roots");
+const sourcePathsEl = $("source-paths");
+const sourcePathsLabelEl = $("source-paths-label");
+const outputDirEl = $("output-dir");
+const outputDirLabelEl = $("output-dir-label");
+const outputShownEl = $("output-shown");
+const chooseFilesEl = $("choose-files");
+const chooseFolderEl = $("choose-folder");
+const chooseOutputEl = $("choose-output");
+const detectLocalEl = $("detect-local");
+const ackEl = $("ack");
+const ackOkEl = $("ack-ok");
+
+// Local mode (the server was started with a per-launch token): the fonts are read where they are and the results are
+// written into an output folder. `roots` and `output` are what the bridge picked (typed paths are read from the fields).
+const state = {local: false, roots: [], output: "", acknowledged: false};
+const ACK_KEY = "svfMakerAcknowledged";
 
 let job = null;              // the job JSON of GET /api/jobs/<id>, plus `effective_names`
 let repo = null;             // GET /api/repo
@@ -529,6 +549,7 @@ function hasSourcePreview(font, per) {
 function renderStatus() {
   if (!job) {
     stateEl.textContent = "no job";
+    openFolderEl.hidden = true;
     positionEl.hidden = true;
     downloadEl.hidden = true;
     saveEl.hidden = true;
@@ -537,7 +558,11 @@ function renderStatus() {
     cancelEl.hidden = true;
     return;
   }
-  stateEl.textContent = "job " + job.id + " — " + job.state + (job.error ? " (" + job.error + ")" : "");
+  const local = job.source === "local";
+  stateEl.textContent = "job " + job.id + " — " + job.state + (job.error ? " (" + job.error + ")" : "") +
+    (local && job.state === "done" && job.output_dir ? " — written to " + job.output_dir : "");
+  openFolderEl.hidden = !(local && job.state === "done");
+  openFolderEl.disabled = !bridgeCan("openOutputFolder");
   positionEl.hidden = job.queue_position === null || job.queue_position === undefined;
   positionEl.textContent = positionEl.hidden ? "" : "queue position " + job.queue_position;
   downloadEl.hidden = !(job.state === "done" && job.result && job.result.zip);
@@ -749,19 +774,39 @@ function sizesText(font) {
   return font.sizes_fixed ? sizes + " (fixed)" : sizes;
 }
 
+// An uploaded licence is `upload:<path>`; in a local job it also names the root it was found under:
+// `upload:<root>:<path>` (the server resolves a path against its root). A licence is optional either way.
+function uploadLicenceValue(licence) {
+  return "upload:" + (state.local ? (licence.root || 0) + ":" : "") + licence.path;
+}
+
+function parseUploadLicence(value) {
+  if (state.local) {
+    const m = /^upload:(\d+):([\s\S]*)$/.exec(value);
+    if (m) return {kind: "upload", root: Number(m[1]), path: m[2]};
+  }
+  return {kind: "upload", path: value.slice(7)};
+}
+
+// A font's path as the table shows it: a local job's names the root it lives under (`a/Munjo.ttf`).
+function fontPathText(font) {
+  if (!state.local || !job || !Array.isArray(job.roots) || !job.roots[font.root || 0]) return font.path || "";
+  return job.roots[font.root || 0].name + "/" + font.path;
+}
+
 function licenceSelect(font, per) {
   const select = el("select", {class: "licence"});
   select.setAttribute("aria-label", "licence for " + fontName(font));
   const stored = (per && per.licence) || null;
   const options = [["", "none"]];
   for (const licence of font.licences || []) {
-    options.push(["upload:" + licence.path,
+    options.push([uploadLicenceValue(licence),
                   licence.path + (licence.first_line ? " — " + licence.first_line : "")]);
   }
   for (const text of (repo && repo.texts) || []) options.push(["repo:" + text.path, "svf/" + text.path]);
   options.push(["text:", "paste…"]);
-  if (stored && stored.kind === "upload" && !options.some(([value]) => value === "upload:" + stored.path)) {
-    options.push(["upload:" + stored.path, stored.path]);
+  if (stored && stored.kind === "upload" && !options.some(([value]) => value === uploadLicenceValue(stored))) {
+    options.push([uploadLicenceValue(stored), stored.path]);
   }
   if (stored && stored.kind === "repo" && !options.some(([value]) => value === "repo:" + stored.path)) {
     options.push(["repo:" + stored.path, "svf/" + stored.path]);
@@ -779,13 +824,13 @@ function licenceSelect(font, per) {
   const write = () => {
     if (!per) return;
     if (select.value === "") per.licence = null;
-    else if (select.value.startsWith("upload:")) per.licence = {kind: "upload", path: select.value.slice(7)};
+    else if (select.value.startsWith("upload:")) per.licence = parseUploadLicence(select.value);
     else if (select.value.startsWith("repo:")) per.licence = {kind: "repo", path: select.value.slice(5)};
     else per.licence = {kind: "text", text: area.value};
     markDirty();
   };
   if (stored && stored.kind === "text") select.value = "text:";
-  else if (stored && stored.kind === "upload") select.value = "upload:" + stored.path;
+  else if (stored && stored.kind === "upload") select.value = uploadLicenceValue(stored);
   else if (stored && stored.kind === "repo") select.value = "repo:" + stored.path;
   sync();
   select.disabled = !per;
@@ -839,7 +884,9 @@ function fontMainRow(font, per, override) {
   }
   tr.append(cell);
 
-  tr.append(el("td", {}, bdi(font.label || "")));
+  const labelCell = el("td", {}, bdi(font.label || ""));
+  if (state.local) labelCell.append(el("div", {class: "sub"}, bdi(fontPathText(font))));
+  tr.append(labelCell);
   tr.append(el("td", {}, bdi([font.family, font.style].filter(Boolean).join(" "))));
   tr.append(el("td", {class: "nums", text: sizesText(font)}));
   tr.append(el("td", {class: "nums", text: coverageText(font)}));
@@ -1289,7 +1336,7 @@ function jamoRouteSelect(per, font, refresh) {
 
 function overridePanel(font, per) {
   const grid = el("div", {class: "override-grid"});
-  grid.append(el("h3", {}, bdi(font.path + (font.version ? " — " + font.version : ""))));
+  grid.append(el("h3", {}, bdi(fontPathText(font) + (font.version ? " — " + font.version : ""))));
   const refresh = [];
 
   const kinds = perFontKinds(per, font, refresh);
@@ -2106,8 +2153,119 @@ async function cancel() {
 
 // ---- wiring ---------------------------------------------------------------------------------------------------
 
+// ---- local mode: the sources panel, the shell bridge, the acknowledgement ------------------------------------------
+
+// The Electron shell's preload exposes `window.svfMaker` (pickFiles, pickFolder, pickOutputDir, openOutputFolder). Without
+// it the page takes typed paths. The bridge is read when it is used, never cached.
+function bridge() { return typeof window !== "undefined" && window.svfMaker ? window.svfMaker : null; }
+function bridgeCan(name) { const b = bridge(); return !!b && typeof b[name] === "function"; }
+
+function renderSources() {
+  uploadPanelEl.hidden = state.local;
+  sourcesPanelEl.hidden = !state.local;
+  if (!state.local) return;
+  const shell = bridge() !== null;
+  chooseFilesEl.hidden = !shell;
+  chooseFolderEl.hidden = !shell;
+  chooseOutputEl.hidden = !shell;
+  sourcePathsLabelEl.hidden = shell;                  // the typed fields exist only when there is no bridge
+  outputDirLabelEl.hidden = shell;
+  rootsEl.innerHTML = "";
+  for (const path of state.roots) rootsEl.append(el("li", {}, bdi(path)));
+  rootsEl.hidden = !shell;
+  outputShownEl.textContent = shell ? escapeControls(state.output) : "";
+}
+
+function addRoots(picked) {
+  if (!Array.isArray(picked)) return;                 // null: the dialog was cancelled
+  let added = false;
+  for (const path of picked) {
+    if (typeof path === "string" && path && !state.roots.includes(path)) { state.roots.push(path); added = true; }
+  }
+  if (added) renderSources();
+}
+
+async function chooseRoots(which) {
+  const b = bridge();
+  if (!b || typeof b[which] !== "function") return;
+  try { addRoots(await b[which]()); } catch (err) { notice(String(err)); }
+}
+
+async function chooseOutput() {
+  const b = bridge();
+  if (!b || typeof b.pickOutputDir !== "function") return;
+  try {
+    const picked = await b.pickOutputDir();
+    if (typeof picked === "string" && picked) { state.output = picked; renderSources(); }
+  } catch (err) { notice(String(err)); }
+}
+
+// The one-time notice before the first local job of a page session: converting is the user's responsibility. It is
+// remembered for the page session (and the tab, in sessionStorage), never on the server.
+function acknowledged() {
+  if (state.acknowledged) return true;
+  try { return window.sessionStorage.getItem(ACK_KEY) === "1"; } catch (err) { return false; }
+}
+
+function acknowledge() {
+  if (acknowledged()) return Promise.resolve();
+  return new Promise((resolve) => {
+    ackEl.hidden = false;
+    ackOkEl.focus();
+    ackOkEl.onclick = () => {
+      state.acknowledged = true;
+      try { window.sessionStorage.setItem(ACK_KEY, "1"); } catch (err) { /* no storage: the page session still counts */ }
+      ackEl.hidden = true;
+      resolve();
+    };
+  });
+}
+
+async function detectLocal() {
+  clearNotice();
+  const shell = bridge() !== null;
+  const paths = shell ? state.roots.slice() : sourcePathsEl.value.split("\n").map((line) => line.trim()).filter(Boolean);
+  const output = shell ? state.output : outputDirEl.value.trim();
+  if (!paths.length) { notice("choose files or a folder first"); return; }
+  if (!output) { notice("choose an output folder"); return; }
+  await acknowledge();                                // nothing is created before the user has read it
+  // this page's earlier local job holds the output folder: it is replaced by the new one
+  if (jobId && job && job.source === "local" && job.state !== "queued" && job.state !== "running") {
+    try { await api("DELETE", "/api/jobs/" + encodeURIComponent(jobId)); } catch (err) { /* the new job reports it */ }
+  }
+  let created;
+  try {
+    created = await api("POST", "/api/jobs", {source: "local", output_dir: output});
+  } catch (err) { return; }
+  jobId = created.id;
+  job = {id: jobId, state: "uploading", source: "local"};
+  settings = {batch: {}, fonts: {}};
+  renderStatus();
+  history.replaceState(null, "", "?job=" + jobId);
+  let answer;
+  try {
+    answer = await api("PUT", "/api/jobs/" + encodeURIComponent(jobId) + "/sources", {paths});
+  } catch (err) { return; }
+  renderRefused((answer.refused || []).map((item) => item.path + ": " + item.reason));
+  try {
+    await api("POST", "/api/jobs/" + encodeURIComponent(jobId) + "/detect");
+  } catch (err) { return; }
+  await reload();                                    // the job's `upload.refused` carries the same lines
+  await renderJobs();
+}
+
 function wire() {
   settingsEl.addEventListener("submit", (event) => event.preventDefault());
+  chooseFilesEl.onclick = () => chooseRoots("pickFiles");
+  chooseFolderEl.onclick = () => chooseRoots("pickFolder");
+  chooseOutputEl.onclick = chooseOutput;
+  detectLocalEl.onclick = detectLocal;
+  openFolderEl.onclick = async () => {
+    const b = bridge();
+    if (b && typeof b.openOutputFolder === "function") {
+      try { await b.openOutputFolder(); } catch (err) { notice(String(err)); }   // no argument: the shell opens the output
+    }
+  };
   uploadEl.onclick = upload;
   saveEl.onclick = save;
   runEl.onclick = run;
@@ -2132,6 +2290,12 @@ function wire() {
 
 async function init() {
   wire();
+  try {
+    state.local = (await api("GET", "/api/caps")).local === true;
+  } catch (err) {
+    state.local = false;
+  }
+  renderSources();
   let repoError = null;
   try {
     repo = await api("GET", "/api/repo");

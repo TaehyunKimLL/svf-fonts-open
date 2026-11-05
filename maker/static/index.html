@@ -18,6 +18,7 @@
     </span>
     <span class="grow"></span>
     <a id="download" class="button" href="#" hidden>download zip</a>
+    <button id="open-folder" type="button" hidden>open folder</button>
     <button id="save" type="button" hidden>save settings</button>
     <button id="run" type="button" hidden>run</button>
     <button id="detect" type="button" hidden>edit and re-run</button>
@@ -25,23 +26,55 @@
   </div>
 </header>
 
+<div id="ack" class="modal" role="dialog" aria-modal="true" aria-labelledby="ack-title" hidden>
+  <div class="modal-box">
+    <h2 id="ack-title">before you convert</h2>
+    <p id="ack-text">You are responsible for having the right to convert the fonts you choose. Converted faces are written only to your chosen output folder. If you publish them, check each font's licence.</p>
+    <div class="row"><button id="ack-ok" type="button">OK</button></div>
+  </div>
+</div>
+
 <p id="notice" class="notice" role="status" hidden></p>
 <ul id="refused" class="refused" hidden></ul>
 
 <main class="layout">
   <aside class="panel">
-    <h2>upload</h2>
-    <div class="row">
-      <label class="label">files <input id="files" type="file" multiple></label>
+    <div id="upload-panel">
+      <h2>upload</h2>
+      <div class="row">
+        <label class="label">files <input id="files" type="file" multiple></label>
+      </div>
+      <div class="row">
+        <label class="label">folder <input id="folder" type="file" webkitdirectory multiple></label>
+      </div>
+      <div class="row">
+        <button id="upload" type="button">upload</button>
+        <span class="sub" id="upload-count"></span>
+      </div>
+      <p class="sub">the chosen files are PUT one by one with their folder path, then the batch is detected.</p>
     </div>
-    <div class="row">
-      <label class="label">folder <input id="folder" type="file" webkitdirectory multiple></label>
+    <div id="sources-panel" hidden>
+      <h2>sources</h2>
+      <p class="sub">local mode: the fonts are read where they are, nothing is uploaded or copied; the faces and notes
+        are written only into the output folder you choose.</p>
+      <div class="row">
+        <button id="choose-files" type="button" hidden>choose files</button>
+        <button id="choose-folder" type="button" hidden>choose folder</button>
+      </div>
+      <ul id="source-roots" class="roots"></ul>
+      <label class="label" id="source-paths-label">paths, one absolute path per line
+        <textarea id="source-paths" rows="4" spellcheck="false" placeholder="/home/me/fonts/Seoul12.rsrc"></textarea></label>
+      <div class="row">
+        <button id="choose-output" type="button" hidden>choose output folder</button>
+        <span id="output-shown" class="sub"></span>
+      </div>
+      <label class="label" id="output-dir-label">output folder
+        <input id="output-dir" type="text" spellcheck="false" placeholder="/home/me/svf-out"></label>
+      <p class="sub" id="sync-caveat">intermediate files are kept in .svf-maker-&lt;id&gt;/ inside this folder while the maker runs; choose a folder that is not synced</p>
+      <div class="row">
+        <button id="detect-local" type="button">detect</button>
+      </div>
     </div>
-    <div class="row">
-      <button id="upload" type="button">upload</button>
-      <span class="sub" id="upload-count"></span>
-    </div>
-    <p class="sub">the chosen files are PUT one by one with their folder path, then the batch is detected.</p>
     <h2>jobs</h2>
     <ul id="jobs" class="jobs"></ul>
   </aside>

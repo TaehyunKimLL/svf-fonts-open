@@ -27,6 +27,7 @@ for _p in (MAKER_DIR, TEST_DIR, os.path.join(REPO_DIR, "tools")):
 
 import fixtures  # noqa: E402
 import inputfx  # noqa: E402
+import localfx  # noqa: E402
 import server  # noqa: E402
 
 DRIVER = os.path.join(TEST_DIR, "pagedrive.mjs")
@@ -552,6 +553,179 @@ await sleep(2500);
 return {rows: document.querySelectorAll('canvas.grid-row').length, nav: document.querySelector('.glyph-grid div').textContent};
 """)
         self.assertEqual(out["rows"], 16, out)
+
+
+ACK_TEXT = ("You are responsible for having the right to convert the fonts you choose. Converted faces are written "
+            "only to your chosen output folder. If you publish them, check each font's licence.")
+
+
+class LocalPageTest(localfx.LocalBase):
+    """The sources panel, the shell bridge, the written-to line and the acknowledgement popup of a local-mode page,
+    driven in headless Chrome against a server with the per-launch token (sent as an extra header, the way the
+    Electron shell will). Skips like PageDomTest."""
+
+    def setUp(self):
+        self.chrome = browser()
+        if not self.chrome or not shutil.which("node"):
+            self.skipTest("no headless Chrome or node: the page is not driven")
+        if not os.path.isfile(os.path.join(MAKER_DIR, "static", "wasm", "svf.wasm")):
+            self.skipTest("the preview module is not built")
+        super().setUp()
+
+    def drive(self, script, query="", headers=True, preload=None):
+        fd, path = tempfile.mkstemp(suffix=".js", dir=self.tmp)
+        with os.fdopen(fd, "w") as f:
+            f.write(script)
+        argv = ["node", DRIVER, self.chrome, "http://127.0.0.1:%d/%s" % (self.port, query), path]
+        if headers:
+            argv += ["--header", "X-Maker-Token:" + localfx.TOKEN]
+        if preload:
+            pre = os.path.join(self.tmp, "preload.js")
+            with open(pre, "w") as f:
+                f.write(preload)
+            argv += ["--preload", pre]
+        env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WAIT_S - 20))
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                start_new_session=True, env=env)
+        try:
+            stdout, stderr = proc.communicate(timeout=WAIT_S)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            self.fail("the page driver timed out after %d s" % WAIT_S)
+        self.assertEqual(proc.returncode, 0, stderr)
+        return json.loads(stdout)
+
+    def done_job(self):
+        jid = self.local_job()
+        job = self.job(jid)
+        ttf = next(f["id"] for f in job["fonts"] if f["path"] == "Munjo.ttf")
+        st = job["settings"]
+        st["fonts"][ttf].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        self.assertEqual(self.run_to_done(jid)["state"], "done")
+        return jid
+
+    TYPED = """
+      const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
+      await waitFor(() => visible(document.getElementById('sources-panel')));
+    """
+
+    def test_without_the_header_every_api_call_is_403(self):
+        out = self.drive("const r = await fetch('/api/caps'); return r.status;", headers=False)
+        self.assertEqual(out, 403)
+
+    def typed_script(self, tail):
+        paths = json.dumps("\n".join(self.roots))
+        return self.TYPED + """
+      const fileInputsShown = [...document.querySelectorAll('input[type=file]')].filter(visible).length;
+      const seen = {
+        upload: visible(document.getElementById('upload-panel')),
+        files: fileInputsShown,
+        paths: visible(document.getElementById('source-paths')),
+        output: visible(document.getElementById('output-dir')),
+        chooseFiles: visible(document.getElementById('choose-files')),
+        chooseOutput: visible(document.getElementById('choose-output')),
+      };
+      document.getElementById('source-paths').value = %s;
+      document.getElementById('output-dir').value = %s;
+      document.getElementById('source-paths').dispatchEvent(new Event('input', {bubbles: true}));
+      document.getElementById('output-dir').dispatchEvent(new Event('input', {bubbles: true}));
+      const ack = document.getElementById('ack');
+      let shown = 0;
+      new MutationObserver(() => { if (visible(ack)) shown++; }).observe(ack, {attributes: true});
+      const rows = () => [...document.querySelectorAll('#fonts tr[data-font]')];
+      const detectOnce = async () => {
+        document.getElementById('detect-local').click();
+        await sleep(300);
+        if (visible(ack)) {
+          seen.ackText = document.getElementById('ack-text').textContent.replace(/\\s+/g, ' ').trim();
+          seen.jobsWhileAsking = (await (await fetch('/api/jobs')).json()).jobs.length;
+          document.getElementById('ack-ok').click();
+        }
+        await waitFor(() => rows().length >= 5);
+      };
+      %s
+    """ % (paths, json.dumps(self.out), tail)
+
+    def test_sources_panel_with_typed_paths(self):
+        out = self.drive(self.typed_script("""
+      await detectOnce();
+      seen.rows = rows().map((tr) => tr.textContent);
+      seen.ackShown = shown;
+      return seen;
+    """))
+        self.assertEqual(out["upload"], False)
+        self.assertEqual(out["files"], 0)
+        self.assertEqual((out["paths"], out["output"]), (True, True))
+        self.assertEqual((out["chooseFiles"], out["chooseOutput"]), (False, False))
+        self.assertTrue(any("a/Munjo.ttf" in row for row in out["rows"]), out["rows"])
+        self.assertTrue(any("b/HAN.FNT" in row for row in out["rows"]), out["rows"])
+
+    def test_the_acknowledgement_shows_once_per_page_session(self):
+        out = self.drive(self.typed_script("""
+      await detectOnce();
+      const firstShown = shown;
+      rows().forEach((tr) => tr.remove());
+      await detectOnce();                      // a second local job in the same page: no popup this time
+      seen.shownFirst = firstShown;
+      seen.shownTotal = shown;
+      seen.rows = rows().length;
+      return seen;
+    """))
+        self.assertEqual(out["ackText"], ACK_TEXT)
+        self.assertEqual(out["jobsWhileAsking"], 0)                              # nothing is created before OK
+        self.assertEqual((out["shownFirst"], out["shownTotal"]), (1, 1))
+        self.assertGreaterEqual(out["rows"], 5)
+
+    def test_run_says_written_and_open_folder_disabled(self):
+        jid = self.done_job()
+        out = self.drive("""
+      const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
+      await waitFor(() => document.getElementById('state').textContent.includes('written to'));
+      const open = document.getElementById('open-folder');
+      return {state: document.getElementById('state').textContent, open: visible(open), disabled: open.disabled,
+              download: visible(document.getElementById('download'))};
+    """, query="?job=" + jid)
+        self.assertIn("written to " + self.out, out["state"])
+        self.assertEqual((out["open"], out["disabled"], out["download"]), (True, True, False))
+
+    BRIDGE = """
+      window.svfMaker = {pickFolder: async () => [%s], pickFiles: async () => [], pickOutputDir: async () => %s,
+                         openOutputFolder: async (...a) => { window.__opened = a.length; }, platform: "linux"};
+    """
+
+    def test_bridge_fills_and_opens(self):
+        jid = self.done_job()
+        root = json.dumps(self.roots[0])
+        pre = self.BRIDGE % (root, json.dumps(self.out))
+        out = self.drive("""
+      const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
+      await waitFor(() => visible(document.getElementById('sources-panel')));
+      const seen = {paths: visible(document.getElementById('source-paths')), output: visible(document.getElementById('output-dir')),
+                    chooseFolder: visible(document.getElementById('choose-folder'))};
+      document.getElementById('choose-folder').click();
+      await waitFor(() => document.getElementById('source-roots').textContent.includes(%s));
+      document.getElementById('choose-output').click();
+      await waitFor(() => document.getElementById('sources-panel').textContent.includes(%s));
+      await waitFor(() => document.getElementById('state').textContent.includes('written to'));
+      const open = document.getElementById('open-folder');
+      seen.openEnabled = visible(open) && !open.disabled;
+      open.click();
+      await waitFor(() => window.__opened !== undefined);
+      seen.opened = window.__opened;
+      return seen;
+    """ % (root, json.dumps(self.out)), query="?job=" + jid, preload=pre)
+        self.assertEqual((out["paths"], out["output"], out["chooseFolder"]), (False, False, True))
+        self.assertTrue(out["openEnabled"])
+        self.assertEqual(out["opened"], 0)                                      # called with no argument
+
+    def test_sync_caveat_is_shown(self):
+        with open(os.path.join(MAKER_DIR, "static", "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("intermediate files are kept in .svf-maker-&lt;id&gt;/ inside this folder while the maker runs; "
+                      "choose a folder that is not synced", html)
+        self.assertNotIn(' style="', html)                                       # the CSP allows no inline style
 
 
 if __name__ == "__main__":
