@@ -830,6 +830,55 @@ class LocalSweepTest(LocalRunBase):
         self.srv.sweep_idle(now=time.monotonic() + server_mod.LOCAL_IDLE_SWEEP_S + 5)
         self.assertFalse(os.path.exists(fd))
 
+    def test_sweep_still_happens_when_report_preservation_fails(self):
+        """SOL: a report that cannot be copied (steps/ unwritable, disk full) must not skip the end-of-job sweep."""
+        import jobs
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        real = shutil.copyfile
+
+        def boom(src, dst, *a, **k):
+            if os.sep + "steps" + os.sep in dst:
+                raise OSError(28, "No space left on device")
+            return real(src, dst, *a, **k)
+        with mock.patch.object(shutil, "copyfile", boom):
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertFalse(os.path.exists(fd))
+
+    def test_sweep_still_happens_when_the_metadata_save_fails(self):
+        import jobs
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        real = jobs.Store.update
+
+        def update(store, job_id, fn):
+            if getattr(fn, "__name__", "") == "move":                           # _finish_local's report preservation
+                raise OSError(5, "Input/output error")
+            return real(store, job_id, fn)
+        with mock.patch.object(jobs.Store, "update", update):
+            job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertFalse(os.path.exists(fd))
+
+    def test_identity_files_of_a_previous_run_do_not_survive_a_new_run(self):
+        """SOL: metadata steps/<id>.identity.json belongs to the run that made it. A rerun whose identity check is
+        unavailable must not answer with the earlier run's scores."""
+        jid, first = self.done_job()
+        step = next(s for s in first["steps"] if s["kind"] == "jamo")
+        steps_dir = os.path.join(self.srv.store.path(jid), "steps")
+        os.makedirs(steps_dir, exist_ok=True)
+        planted = os.path.join(steps_dir, "%s.identity.json" % step["id"])
+        with open(planted, "w") as f:
+            f.write('{"stale": true}')
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/identity/%s.json" % (jid, step["id"]))[0], 200)
+        again = self.rerun(jid)
+        self.assertEqual(again["state"], "done", again.get("error"))
+        self.assertFalse(os.path.exists(planted))
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/identity/%s.json" % (jid, step["id"]))[0], 404)
+
     def test_idle_sweep(self):
         import time
         server_mod = sys.modules["server"]

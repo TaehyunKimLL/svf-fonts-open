@@ -425,6 +425,68 @@ class SourcesScanTest(DirCase):
         fonts = detect.scan(Sources("local", [fonts_dir + "/Munjo.ttf"]))
         self.assertEqual(fonts[0]["licences"], [])                         # alone: no licence found
 
+    def test_upload_scan_matches_the_base_implementation_on_the_fixture_tree(self):
+        """The upload scan of the standard fixture tree, as the implementation at ce976f8 (before `Sources`) produced it:
+        ids, paths, formats, kinds, labels, sizes, licences and companions. The expected rows were generated from that
+        commit and are written out here, so a change in the new code can fail this test."""
+        fx = os.path.join(self.root, "fx")
+        fixtures.write_fixtures(fx)
+        got = [(f["id"], f["path"], f["format"], f["source_kind"], f["label"], f["sizes"],
+                [l["path"] for l in f["licences"]], f["companions"]) for f in detect.scan(fx)]
+        want = [
+            ('f01', 'bdf/COPYING', 'unknown', 'other', 'unknown (436f707972696768)', [], [], []),
+            ('f02', 'bdf/iso.bdf', 'bdf', 'bdf-iso10646', 'BDF (iso10646)', [16], ['bdf/COPYING'], []),
+            ('f03', 'bdf/johab.bdf', 'bdf', 'bdf-johab', 'BDF (johab)', [16], ['bdf/COPYING'], []),
+            ('f04', 'bdf/ksc.bdf', 'bdf', 'bdf-ksc5601', 'BDF (ksx1001.1998)', [24], ['bdf/COPYING'],
+             ['f02', 'f05', 'f13']),
+            ('f05', 'bdf/latin.bdf', 'bdf', 'bdf-iso8859', 'BDF (iso8859)', [16], ['bdf/COPYING'], []),
+            ('f06', 'composite/Composite.ttf', 'ttf', 'outline-composite', 'TTF', [16], ['composite/LICENSE.txt'], []),
+            ('f07', 'composite/LICENSE.txt', 'licence', 'other', 'licence text', [], [], []),
+            ('f08', 'dos/ENG.FNT', 'eng', 'other', 'Latin companion (--eng)', [], ['dos/LICENSE.txt'], []),
+            ('f09', 'dos/HAN.FNT', 'dos-raw', 'dos-raw', 'probable DOS Johab (844, 844-ihnm)', [16],
+             ['dos/LICENSE.txt'], ['f08']),
+            ('f10', 'dos/LICENSE.txt', 'licence', 'other', 'licence text', [], [], []),
+            ('f11', 'fnt/win.fnt', 'fnt', 'bitmap', 'Windows FNT; no openable size', [], [], []),
+            ('f12', 'hbf/ascii.bin', 'unknown', 'other', 'unknown (0000000000000000)', [], [], []),
+            ('f13', 'hbf/ascii.hbf', 'hbf', 'hbf', 'HBF', [16], [], []),
+            ('f14', 'list.txt', 'list', 'other', 'list file', [], [], []),
+            ('f15', 'nanum/NanumGothic-Bold.ttf', 'ttf', 'outline', 'TTF', [16], ['nanum/OFL.txt'], []),
+            ('f16', 'nanum/OFL.txt', 'licence', 'other', 'licence text', [], [], []),
+            ('f17', 'nolic/NoLicence.ttf', 'ttf', 'outline', 'TTF', [16], [], []),
+            ('f18', 'otf/Cff.otf', 'otf', 'outline', 'OTF', [16], ['otf/LICENSE.txt'], []),
+            ('f19', 'otf/LICENSE.txt', 'licence', 'other', 'licence text', [], [], []),
+            ('f20', 'pcf/18x18ko.pcf.gz', 'pcf', 'bitmap', 'PCF', [18], [], []),
+            ('f21', 'svf/JAMO6J.SVF', 'svf', 'svf-jamo', 'SVF v3', [16], ['svf/LICENSE-OFL.txt', 'svf/NEODGM.TXT'], []),
+            ('f22', 'svf/LICENSE-OFL.txt', 'licence', 'other', 'licence text', [], ['svf/NEODGM.TXT'], []),
+            ('f23', 'svf/NEODG16.SVF', 'svf', 'svf-precomposed', 'SVF v3', [16],
+             ['svf/LICENSE-OFL.txt', 'svf/NEODGM.TXT'], []),
+            ('f24', 'svf/NEODGM.TXT', 'licence', 'other', 'licence text', [], ['svf/LICENSE-OFL.txt'], []),
+        ]
+        if not fixtures.HAS_PCF:
+            self.skipTest("the PCF fixture is missing here: the ids would shift")
+        self.assertEqual(got, want)
+        for f in detect.scan(Sources("upload", [fx])):
+            self.assertNotIn("root", f)
+
+    def test_a_too_large_licence_file_is_not_read_or_attached(self):
+        """SOL: a file refused as "too large, skipped" is no licence: it is not opened, hashed or attached."""
+        import sources
+        self.put("r/Munjo.ttf", inputfx.ttf("Munjo", BOX1))
+        self.put("r/OFL.txt", b"SIL Open Font License, Version 1.1\n" + b"x" * 200)
+        real_open = open
+        opened = []
+
+        def spy(path, *a, **k):
+            opened.append(str(path))
+            return real_open(path, *a, **k)
+        with mock.patch.object(sources, "LOCAL_FILE_CAP", 100), mock.patch("builtins.open", spy):
+            fonts = detect.scan(Sources("local", [self.dir("r")]), local=True)
+        by = {f["path"]: f for f in fonts}
+        self.assertEqual(by["OFL.txt"]["label"], "too large, skipped")
+        self.assertEqual(by["Munjo.ttf"]["licences"], [])
+        self.assertEqual(by["OFL.txt"]["licences"], [])
+        self.assertEqual([p for p in opened if p.endswith("OFL.txt")], [])
+
     def test_upload_scan_entries(self):
         """The upload scan's shape, spelled out: no root key, root-relative paths, today's symlink entry."""
         self.put("a/Munjo.ttf", inputfx.ttf("Munjo", BOX1))

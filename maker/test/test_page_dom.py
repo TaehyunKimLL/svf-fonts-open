@@ -720,6 +720,37 @@ class LocalPageTest(localfx.LocalBase):
         self.assertTrue(out["openEnabled"])
         self.assertEqual(out["opened"], 0)                                      # called with no argument
 
+    def test_a_list_file_range_on_another_root_sets_range_root(self):
+        """A list file picked under the second root: choosing it as the range stores `range_root` beside `range`
+        (batch and per font), and the select shows it again after the reload."""
+        with open(os.path.join(self.roots[1], "chars.txt"), "w", encoding="utf-8") as f:
+            f.write("\uac00\uac01\n")
+        jid = self.local_job()
+        job = self.job(jid)
+        fid = next(f["id"] for f in job["fonts"] if f["path"] == "Munjo.ttf")
+        out = self.drive("""
+      const id = new URLSearchParams(location.search).get('job');
+      const apiJob = async () => (await (await fetch('/api/jobs/' + id)).json());
+      const pick = async (sel) => {
+        await waitFor(() => [...sel.options].some((o) => o.value === 'list:1:chars.txt'));
+        sel.value = 'list:1:chars.txt';
+        sel.dispatchEvent(new Event('change', {bubbles: true}));
+      };
+      const batch = document.getElementById('range');
+      await pick(batch);
+      const perFont = [...document.querySelectorAll('select[aria-label^="range for"]')]
+        .find((s) => s.getAttribute('aria-label').includes('(FONTID)'));
+      await pick(perFont);
+      document.getElementById('save').click();
+      await waitFor(async () => { const j = await apiJob(); return j.settings.batch.range === 'chars.txt'; });
+      const j = await apiJob();
+      await waitFor(() => document.getElementById('range').value === 'list:1:chars.txt');   // drawn again after the reload
+      return {batch: [j.settings.batch.range, j.settings.batch.range_root],
+              font: [j.settings.fonts['FONTID'].range, j.settings.fonts['FONTID'].range_root]};
+    """.replace("FONTID", fid), query="?job=" + jid)
+        self.assertEqual(out["batch"], ["chars.txt", 1])
+        self.assertEqual(out["font"], ["chars.txt", 1])
+
     def test_sync_caveat_is_shown(self):
         with open(os.path.join(MAKER_DIR, "static", "index.html"), encoding="utf-8") as f:
             html = f.read()

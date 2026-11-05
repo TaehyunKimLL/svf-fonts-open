@@ -610,19 +610,58 @@ function layoutOptions(stored) {
   return options;
 }
 
-function rangeOptions(stored) {
+const NAMED_RANGES = ["11172", "2350", "ksx1001-nohanja", "ksx1001-symbols", "ksx1001", "jamo", "cp949"];
+
+// A range select's value: a named range as it is; a list file as its path, and in a local job as `list:<root>:<path>`
+// (the same path can sit under two roots; the settings keep `range` and `range_root` apart).
+function rangeValue(range, root) {
+  if (state.local && range !== undefined && range !== null && !NAMED_RANGES.includes(range)) {
+    return "list:" + (root || 0) + ":" + range;
+  }
+  return range;
+}
+
+// Store a range select's value into a settings dict (the batch's or a font's): `range`, and `range_root` for a list file.
+function setRange(target, value) {
+  const m = /^list:(\d+):([\s\S]*)$/.exec(value);
+  if (state.local && m) {
+    target.range = m[2];
+    target.range_root = Number(m[1]);
+  } else {
+    target.range = value;
+    delete target.range_root;
+  }
+}
+
+function rangeOptions(stored, storedRoot) {
   const options = [["11172", "11172 (all Hangul)"], ["2350", "2350 (KS X 1001)"],
     ["ksx1001-nohanja", "KS X 1001 without hanja"], ["ksx1001-symbols", "KS X 1001 symbols"], ["ksx1001", "KS X 1001"],
     ["jamo", "compatibility jamo"], ["cp949", "CP949"]];
   if (job) {
     for (const font of job.fonts || []) {
-      if (font.format === "list" && font.path && !options.some(([value]) => value === font.path)) {
-        options.push([font.path, "file " + font.path]);
+      const value = rangeValue(font.path, font.root);
+      if (font.format === "list" && font.path && !options.some(([v]) => v === value)) {
+        options.push([value, "file " + fontPathText(font)]);
       }
     }
   }
-  if (stored && !options.some(([value]) => value === stored)) options.push([stored, stored]);
+  const have = rangeValue(stored, storedRoot);
+  if (stored && !options.some(([value]) => value === have)) options.push([have, stored]);
   return options;
+}
+
+// The per-font range select: the batch's range unless the font names its own (a list file also names its root).
+function perFontRange(per, font) {
+  const select = el("select");
+  select.setAttribute("aria-label", "range for " + fontName(font));
+  fillSelect(select, [["", "(batch)"]].concat(rangeOptions(per.range, per.range_root)),
+             "range" in per ? rangeValue(per.range, per.range_root) : "");
+  select.onchange = () => {
+    if (select.value === "") { delete per.range; delete per.range_root; } else setRange(per, select.value);
+    markDirty();
+  };
+  if (settings.batch.range !== undefined) select.title = "empty: the batch's value (" + settings.batch.range + ")";
+  return select;
 }
 
 function presetOptions(stored) {
@@ -664,7 +703,8 @@ function renderBatchForm() {
     box.disabled = !!reason;
     box.title = reason ? reason.join("; ") : "";
   }
-  fillSelect(rangeEl, rangeOptions(batch.range), batch.range === undefined ? "2350" : batch.range);
+  fillSelect(rangeEl, rangeOptions(batch.range, batch.range_root),
+             batch.range === undefined ? "2350" : rangeValue(batch.range, batch.range_root));
   fillSelect(presetEl, presetOptions(batch.preset), batch.preset === undefined ? "plain" : batch.preset);
   presetEl.title = presetTitle(presetEl.value);          // Q2: the long `reproduces` text lives in the tooltip
   fillOptions($("advanced-fields"), batch.options || {});
@@ -732,7 +772,7 @@ function readBatch() {
   batch.layout = layoutEl.value || null;
   batch.sizes = parseSizes(sizesEl.value);
   batch.bpp = batchBpp();
-  batch.range = rangeEl.value;
+  setRange(batch, rangeEl.value);
   batch.preset = presetEl.value;
   const read = readOptions($("advanced-fields"), batch.options);
   if (read.bad.length) {
@@ -1364,7 +1404,7 @@ function overridePanel(font, per) {
   grid.append(el("label", {class: "label"}, el("span", {text: "sizes "}), perFontSizes(per, font)));
   grid.append(el("label", {class: "label"}, el("span", {text: "bpp "}), bpp));
   grid.append(el("label", {class: "label"}, el("span", {text: "range "}),
-    perFontSelect(per, "range", rangeOptions(per.range), settings.batch.range, font)));
+    perFontRange(per, font)));
   grid.append(el("label", {class: "label"}, el("span", {text: "preset "}),
     perFontSelect(per, "preset", presetOptions(per.preset), settings.batch.preset, font)));
   grid.append(jamoRouteSelect(per, font, refresh));

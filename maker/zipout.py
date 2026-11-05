@@ -782,12 +782,15 @@ class _OutputTree:
                 mode = os.lstat(part, dir_fd=current).st_mode
             except FileNotFoundError:
                 self.check()                               # never make a folder in a folder that went away
-                os.mkdir(part, 0o755, dir_fd=current)
                 try:
-                    os.chmod(part, 0o755, dir_fd=current)
-                except OSError:
-                    pass
-                mode = stat.S_IFDIR
+                    os.mkdir(part, 0o755, dir_fd=current)
+                    try:
+                        os.chmod(part, 0o755, dir_fd=current)
+                    except OSError:
+                        pass
+                except FileExistsError:
+                    pass                                    # another writer made it first: it is checked just below
+                mode = os.lstat(part, dir_fd=current).st_mode
             if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
                 raise ValueError("%s is a symlink or not a folder: refusing to write through it" % walked)
             try:

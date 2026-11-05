@@ -1264,6 +1264,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise _HttpError(400, str(exc))
             self._check_steps(files_dir, sources, fonts, steps)
             self._check_notes(fonts, steps, sources, files_dir)
+            if local:                                      # reports and scores kept from an earlier run are not this run's
+                shutil.rmtree(os.path.join(store.meta_dir(job), "steps"), ignore_errors=True)
             j.update(state="queued", error=None, steps=steps, result=None)
         self._update(job, transition)
         position = self.server.worker.enqueue(job)          # the position it really got (W13)

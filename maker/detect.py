@@ -1561,7 +1561,8 @@ def scan(sources, local=False):
     key_of_real = {}
     for key, path in real_of.items():
         key_of_real.setdefault(path, key)               # the first root keeps a path two roots reach
-    licences = _licence_folders(list(real_of.values()))
+    # a file refused (a link, "too large, skipped") is no licence: it is never opened, hashed or attached
+    licences = _licence_folders([real_of[key] for key in keys if key not in refusal])
     if with_root:
         ceilings = {}
         for i, base in enumerate(sources.roots):

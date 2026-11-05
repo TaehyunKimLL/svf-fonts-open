@@ -780,7 +780,10 @@ class Worker(threading.Thread):
 
     def _finish_local(self, job_id):
         """After a local job: its reports and identity scores move to `<metadata>/steps/` (the files directory is about
-        to go), then the files directory is swept. Never raises."""
+        to go), then the files directory is swept. The sweep does not depend on the move: it runs in a `finally`, so a
+        report that cannot be kept (steps/ unwritable, disk full, the save failing) never leaves the intermediates
+        behind. A kept file of an earlier run whose step produced none this time is removed: it is not this run's.
+        Never raises."""
         def move(j):
             meta, files = self.store.meta_dir(j["id"]), self.store.files_dir(j)
             os.makedirs(os.path.join(meta, "steps"), exist_ok=True)
@@ -788,20 +791,26 @@ class Worker(threading.Thread):
                 sid = step.get("id")
                 for kind in ("report", "identity"):
                     src = os.path.join(files, "work", sid or "", kind + ".json")
+                    dst = os.path.join(meta, "steps", "%s.%s.json" % (sid, kind))
                     if sid and os.path.isfile(src):
-                        dst = os.path.join(meta, "steps", "%s.%s.json" % (sid, kind))
                         shutil.copyfile(src, dst)
                         if kind == "report" and step.get("report"):
                             step["report"] = "steps/%s.report.json" % sid
+                    elif sid and os.path.isfile(dst):
+                        os.remove(dst)
         try:
-            self.store.update(job_id, move)
-            job = self.store.load(job_id)
-            if not self.store.sweep_files(job):
-                self.store.update(job_id, lambda j: j.update(
-                    notice="intermediate files remain in %s inside the output folder (moved, removed or busy); "
-                           "they are swept when the folder is back" % (FILES_DIR_PREFIX + job_id)))
-        except Exception:
-            self._log_failure(job_id, self._trace_text(job_id))
+            try:
+                self.store.update(job_id, move)
+            except Exception:
+                self._log_failure(job_id, self._trace_text(job_id))
+        finally:
+            try:
+                if not self.store.sweep_files(self.store.load(job_id)):
+                    self.store.update(job_id, lambda j: j.update(
+                        notice="intermediate files remain in %s inside the output folder (moved, removed or busy); "
+                               "they are swept when the folder is back" % (FILES_DIR_PREFIX + job_id)))
+            except Exception:
+                self._log_failure(job_id, self._trace_text(job_id))
 
     def _job_env(self, job):
         """A local job's tool environment: `TMPDIR` inside its files directory, no bytecode beside the tools. None

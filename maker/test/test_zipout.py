@@ -223,11 +223,36 @@ class WriteTreeTest(unittest.TestCase):
         self.assertEqual([n for _d, _s, ns in os.walk(self.out) for n in ns if n.endswith(".tmp")], [])
 
     def test_two_writers_one_new_name(self):
-        got, landed = self.tree({"svf/dos/X.SVF": b"first"}, {})
-        self.assertEqual(got, ["svf/dos/X.SVF"])
-        with self.assertRaises(zipout.NameClash):                       # the later writer: its index was built before
-            self.tree({"svf/dos/X.SVF": b"second"}, {})
-        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"first")
+        """Two threads race one NEW name through write_tree: both have written their temp file and both reach the
+        claim at the same moment (a barrier inside os.link). Exactly one wins; the other is a NameClash; the file holds
+        the winner's bytes; no temp file is left."""
+        import threading
+        barrier = threading.Barrier(2, timeout=20)
+        real_link = os.link
+        results = {}
+
+        def racing_link(*args, **kwargs):
+            barrier.wait()                                           # both writers are here before either links
+            return real_link(*args, **kwargs)
+
+        def writer(name, data):
+            try:
+                results[name] = ("landed", zipout.write_tree(self.job, {"svf/dos/X.SVF": data}, [], self.out, self.oid,
+                                                             {}, lambda rel, sha: None))
+            except zipout.NameClash as exc:
+                results[name] = ("clash", exc.path)
+            except BaseException as exc:                                # a thread must never vanish silently
+                results[name] = ("error", repr(exc))
+        with mock.patch("os.link", racing_link):
+            threads = [threading.Thread(target=writer, args=(n, d)) for n, d in (("a", b"first"), ("b", b"second"))]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(30)
+        self.assertEqual(sorted(kind for kind, _ in results.values()), ["clash", "landed"], results)
+        winner = next(n for n, (kind, _) in results.items() if kind == "landed")
+        self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), {"a": b"first", "b": b"second"}[winner])
+        self.assertEqual([n for _d, _s, ns in os.walk(self.out) for n in ns if n.endswith(".tmp")], [])
 
     def test_owned_is_replaced_only_when_unchanged_or_absent(self):
         owned = {"svf/dos/X.SVF": self.sha(b"v1")}
