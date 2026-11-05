@@ -1078,6 +1078,28 @@ class ApiTest(ApiBase):
         self.assertLessEqual(want, page, want - page)
         self.assertIn("mac-htbl1", want)
 
+    def test_readme_and_notice_wording(self):
+        """The wording the card promises: no proprietary font is distributed, no outbound connection, and the user's own
+        responsibility for converting a font (static read of the documents)."""
+        with open(os.path.join(REPO_DIR, "maker", "README.md"), encoding="utf-8") as f:
+            readme = f.read()
+        with open(os.path.join(REPO_DIR, "NOTICE.md"), encoding="utf-8") as f:
+            notice = f.read()
+        with open(os.path.join(REPO_DIR, "docs", "recipes.md"), encoding="utf-8") as f:
+            recipes = f.read()
+        self.assertIn("## Local mode (desktop app)", readme)
+        self.assertIn("No proprietary font is distributed", readme)
+        self.assertIn("the maker makes no outbound connection and sends nothing anywhere (no telemetry, no crash upload, "
+                      "no update check); the tests pin that", readme)
+        self.assertIn("HANGUL*.PFT is not read; ASCII.PFT is a companion", readme)
+        self.assertIn("SVF_RECOG_DIR", readme)
+        self.assertIn("responsibility", readme)
+        self.assertIn("The maker (`maker/`) has a local mode for such fonts", notice)
+        self.assertIn("environment variable names the user's own copies.", notice)
+        self.assertIn("No proprietary font", notice)
+        self.assertIn("responsibility", notice)
+        self.assertIn("local mode", recipes[recipes.index("## Classic Mac Korean bitmap fonts"):])
+
     def test_page_advanced_lists_the_new_keys(self):
         with open(os.path.join(MAKER_DIR, "static", "maker.js"), encoding="utf-8") as f:
             js = f.read()

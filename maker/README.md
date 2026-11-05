@@ -31,6 +31,39 @@ It writes `maker/static/wasm/svf.js` and `svf.wasm` (git-ignored; `SVF_WASM_OUT`
 line of `c/ports/web/emcc-flags.sh`, the same as `web/build.sh`. Without the module the page says "preview module not
 built: run maker/build-wasm.sh" and every preview cell shows that text; nothing else breaks.
 
+## Local mode (desktop app)
+
+With the token set (above) the maker reads fonts **where they are** and writes the faces only into an output folder the
+user picked. Nothing is uploaded, nothing is copied into the data directory, no zip is made. The desktop app drives it:
+
+- `POST /api/jobs {"source": "local", "output_dir": "/abs/folder"}` creates the job (403 without the token);
+  `PUT /api/jobs/<id>/sources {"paths": [...]}` gives it the files or folders to read (each is checked: absolute, not a
+  link, not the data folder, not overlapping the output folder or another input; an optional `SVF_MAKER_ROOTS`
+  allow-list limits them further); then the usual `POST detect`, `PUT settings`, `POST run`. A picked path is read in
+  place; an archive is listed, not unpacked.
+- A run writes `svf/<dest>/<NAME>.SVF` and its note (and a licence text when one was chosen) and `build-<id>/`
+  (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`) into the output folder, and nothing else.
+  A name the job did not write itself is never replaced. While a job lives, the files the conversion needs on the way
+  are kept in `.svf-maker-<id>/` inside the output folder (mode 0700) and removed when the job ends, is deleted or
+  the server stops; choose a folder that is not synced.
+- A licence is **optional**: when none is chosen the note and `BUILD.md` say "licence: not checked (user's
+  responsibility)". Converting a font you have no right to convert is your own responsibility; if you publish a result,
+  check the font's licence. The page asks you to acknowledge this once per session.
+- What it reads besides the usual kinds: classic Mac **HangulTalk 7.1 type-3 `fbit`** fonts (a resource fork, an
+  AppleDouble `._Name`, a MacBinary `.bin`, a JM archive, a raw `fbit` resource) with their **HTBL 1** table
+  (`InputBackSupport` or `<Name>.htbl1`, picked as another source) and an optional Latin suitcase (FOND + NFNT),
+  through `macfbit_svf.py` (direct or derived) or `macfbit3.py bdf` + `mkfont.py`; and **HangulTalk 1.0** fonts (the
+  fork with its `fdef`) through `jamoset.py --layout mac-fbit-45sets`. A raw 1.0 `fbit` resource without its `fdef` is
+  listed with what is missing. HWP: HANGUL*.PFT is not read; ASCII.PFT is a companion (a 12x24 English font) for a
+  24 px DOS raw face, from any folder of the batch. A licence file next to a font picked as a single file is used only
+  when it is picked too (or the folder is chosen).
+- **No proprietary font is distributed**: no proprietary font, bitmap or table is in this repository or in the maker.
+  The tests build synthetic inputs; checks on real files run only where an environment variable names your own copy
+  (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, ...).
+- the maker makes no outbound connection and sends nothing anywhere (no telemetry, no crash upload, no update check); the tests pin that. The one optional
+  external piece is the identity check: `SVF_RECOG_DIR` names your own `recog.py`, and the no-network tests do not
+  cover that external code.
+
 ## Optional environment
 
 - `JAMOSET_PYLIB` - the folder holding freetype-py and uharfbuzz, for the `mask fit` route and `binarize mono`

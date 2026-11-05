@@ -240,7 +240,9 @@ line's baseline at its top row + the face's ascent).
 
 ## Classic Mac Korean bitmap fonts
 
-No Apple data is in this repository; the tools read your own files.
+No Apple data is in this repository; the tools read your own files. The maker's local mode (`maker/README.md`, "Local
+mode") reads these fonts in place from your disk, through the same tools, and writes the faces only into a folder you
+choose.
 
 **HangulTalk 1.0 'fbit' fonts** (Korean System 4.1: Gotic12/16, Munjo12/16/24). Input: the font's resource fork as a
 file (copied out of a Mac volume, or the fork of an archive; `tools/macsfnt.py list` shows its 'fbit' resource). The

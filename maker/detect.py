@@ -527,6 +527,9 @@ def _detect_file(abs_path, rel, local=False):
         fmt = classify_txt(abs_path, rel)
         return [_entry(rel, 0, fmt, "licence text" if fmt == "licence" else "list file", "other", family=_stem(rel))]
     size = os.path.getsize(abs_path)
+    if local and base.lower().endswith(".pft") and size not in ENG_SIZES:
+        # an HWP Hangul font: no tool here reads it (there is no byte rule, so it is named by its extension)
+        return [_entry(rel, 0, "hwp-pft", HWP_PFT_LABEL, "other", family=_stem(rel))]
     with open(abs_path, "rb") as f:
         head = f.read(_HEAD)
     fmt = sniff(head, size)
@@ -818,6 +821,9 @@ def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw=None
     return _entry(rel, n, "mac-rsrc", label, "mac-fbit1", family=family, sizes=[h], sizes_fixed=True,
                   prep=[{"op": "mac-fork"}] if wrapped else [], gz=zipped, mac={"generation": 1, "id": rid})
 
+
+HWP_PFT_LABEL = ("HWP Hangul .PFT: not read by this repository's tools; convert it to a 1 bpp precomposed SVF or a BDF "
+                 "with an external tool (recipes.md, HWP 1.x and 2.x fonts) and add that file")
 
 NAMED_FORK = "/..namedfork/rsrc"
 
@@ -1587,7 +1593,8 @@ def scan(sources, local=False):
                 reason = hbf_refusal(path)
                 if reason:
                     entry["label"] = "HBF: " + reason
-            if entry["format"] == "eng" and folder_of(path) not in dos_folders:
+            batch_dos = local and dos_folders and (entry.get("eng") or {}).get("cell") == "12x24"
+            if entry["format"] == "eng" and folder_of(path) not in dos_folders and not batch_dos:
                 entry["format"] = "unknown"       # a Latin companion needs a DOS Johab font beside it
                 entry["label"] = "unknown (%s; no DOS Johab font beside it)" % _entry_size(path, entry, data)
             src, face, cannot = data, entry["face_index"], None
@@ -1632,6 +1639,10 @@ def scan(sources, local=False):
             folder = folder_of(abs_of[key_of(entry)])
             entry["companions"] = [o["id"] for o in entries
                                    if o["format"] == "eng" and folder_of(abs_of[key_of(o)]) == folder]
+            px = (entry.get("sizes") or [0])[0]
+            if local and isinstance(px, int) and px >= 24:        # an HWP ASCII.PFT may be picked from another folder
+                entry["companions"] += [o["id"] for o in entries if o["format"] == "eng"
+                                        and (o.get("eng") or {}).get("cell") == "12x24" and o["id"] not in entry["companions"]]
         elif entry["source_kind"] == "bdf-ksc5601":
             entry["companions"] = list(latin_ids)
         elif entry["source_kind"] == "mac-fbit3":

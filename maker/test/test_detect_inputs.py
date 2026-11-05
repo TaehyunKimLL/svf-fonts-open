@@ -340,6 +340,50 @@ class LocalKindsTest(DirCase):
         self.assertEqual(entry["source_kind"], "other")
         self.assertEqual(entry["label"], "HangulTalk 1.0 fbit resource without its fdef: choose the font's resource fork")
 
+    HWP_LABEL = ("HWP Hangul .PFT: not read by this repository's tools; convert it to a 1 bpp precomposed SVF or a BDF "
+                 "with an external tool (recipes.md, HWP 1.x and 2.x fonts) and add that file")
+
+    def test_hwp_pft_label(self):
+        import macfx
+        self.put("hwp/HANGUL24.PFT", macfx.hangul_pft())
+        (entry,) = detect.scan(Sources("local", [self.dir("hwp")]), local=True)
+        self.assertEqual((entry["format"], entry["source_kind"], entry["label"]), ("hwp-pft", "other", self.HWP_LABEL))
+        (up,) = detect.scan(self.dir("hwp"))                                     # an upload keeps today's label
+        self.assertEqual((up["format"], up["label"].startswith("unknown (")), ("unknown", True))
+        self.put("hwp2/hangul24.pft", macfx.hangul_pft())                          # the name rule is case-insensitive
+        (low,) = detect.scan(Sources("local", [self.dir("hwp2")]), local=True)
+        self.assertEqual(low["format"], "hwp-pft")
+
+    def test_ascii_pft_from_another_folder(self):
+        self.put("hwp/ASCII.PFT", inputfx.pft_eng())
+        self.put("dos/HAN24.FNT", inputfx.dos844_24())
+        fonts = detect.scan(Sources("local", [self.dir("hwp"), self.dir("dos")]), local=True)
+        by = {f["path"]: f for f in fonts}
+        self.assertEqual((by["ASCII.PFT"]["format"], by["ASCII.PFT"]["eng"]["cell"]), ("eng", "12x24"))
+        self.assertIn(by["ASCII.PFT"]["id"], by["HAN24.FNT"]["companions"])
+        up = detect.scan(self.root)                                               # upload: demoted, as today
+        pft = next(f for f in up if f["path"].endswith("ASCII.PFT"))
+        self.assertEqual(pft["format"], "unknown")
+        self.assertIn("no DOS Johab font beside it", pft["label"])
+
+    def test_8x16_eng_keeps_the_folder_rule(self):
+        import fixtures
+        fixtures._dos_raw(self.path("dos/HAN.FNT"))
+        fixtures._eng(self.path("elsewhere/ENG.FNT"))
+        fonts = detect.scan(Sources("local", [self.dir("dos"), self.dir("elsewhere")]), local=True)
+        by = {f["path"]: f for f in fonts}
+        self.assertEqual(by["ENG.FNT"]["format"], "unknown")
+        self.assertEqual(by["HAN.FNT"]["companions"], [])
+
+    def test_a_16_px_dos_font_takes_no_12x24_companion_from_elsewhere(self):
+        import fixtures
+        fixtures._dos_raw(self.path("dos/HAN.FNT"))
+        self.put("hwp/ASCII.PFT", inputfx.pft_eng())
+        fonts = detect.scan(Sources("local", [self.dir("hwp"), self.dir("dos")]), local=True)
+        by = {f["path"]: f for f in fonts}
+        self.assertEqual(by["ASCII.PFT"]["format"], "eng")                          # kept: a DOS font is in the batch
+        self.assertEqual(by["HAN.FNT"]["companions"], [])                          # but not offered to a 16 px face
+
     def test_named_fork_off_elsewhere(self):
         """Off macOS a file with an empty data fork is `unknown` and no `..namedfork` path is opened or even asked for."""
         self.put("empty.bin", b"")

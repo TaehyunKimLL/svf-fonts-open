@@ -81,6 +81,16 @@ resource forks and .dfont files, Mac Korean cmaps), and the DOS / X11 raw layout
 bitmap taken from one and no golden data derived from one is distributed here; their tests use synthetic fixtures made
 in the tests, and the checks against real files run only when an environment variable points at the user's own copies.
 
+The maker (`maker/`) has a local mode for such fonts: the desktop app passes it the paths of files or folders the
+user picked and an output folder; the fonts are read in place, converted, and the faces are written only into that
+folder. In that mode nothing is uploaded, nothing is copied into the maker's data directory, no zip is made, and
+the files the conversion needs on the way are kept inside the output folder and removed when the job ends. The
+maker never connects to anything but the local page on 127.0.0.1. No proprietary font, bitmap or table is in this
+repository; the local-mode tests build synthetic inputs in the test and the checks on real files run only where an
+environment variable names the user's own copies. Having the right to convert a font is the user's own responsibility
+(the maker checks no licence in local mode and asks for an acknowledgement); anyone who publishes a result should check
+the font's licence.
+
 ## Left out of this repository
 
 This repository is a curated copy of a private working repository. Left out on purpose: faces whose source licence is
