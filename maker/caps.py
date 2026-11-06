@@ -67,16 +67,18 @@ def recog_python(environ):
                                 stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         return _rejected("could not start")
+    code = None
     try:
         code = proc.wait(RECOG_PROBE_S)
     except subprocess.TimeoutExpired:
-        code = None
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)          # a wrapper that did not exec leaves its python behind
-    except OSError:
         pass
-    if code is None:
+    finally:                                         # also on a KeyboardInterrupt (SIGTERM while the probe runs)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)      # a wrapper that did not exec leaves its python behind
+        except OSError:
+            pass
         proc.wait()
+    if code is None:
         return _rejected("probe timed out")
     return path if code == 0 else _rejected("probe exit %d" % code)
 

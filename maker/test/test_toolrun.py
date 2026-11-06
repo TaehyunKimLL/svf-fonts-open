@@ -209,6 +209,18 @@ class BuildersTest(unittest.TestCase):
                 self.assertIsNone(re.search(r'"[a-z0-9_]+\.py"', text), name)
 
 
+class LifecycleHelpersTest(unittest.TestCase):
+    def test_set_pdeathsig_knob(self):
+        with mock.patch.dict(os.environ, {"SVF_MAKER_NO_PDEATHSIG": "1"}):
+            self.assertIs(toolrun.set_pdeathsig(15), False)
+
+    def test_parent_is_sidecar(self):
+        out = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); import toolrun; "
+                              "print(toolrun.parent_is_sidecar())" % MAKER_DIR], capture_output=True, text=True)
+        # the child's parent is this test process, running the same interpreter file
+        self.assertEqual(out.stdout.strip(), "True")
+
+
 class RecogArgvTest(unittest.TestCase):
     def test_recog_argv(self):
         self.assertIsNone(toolrun.recog_argv({"recog": False}, "/R"))

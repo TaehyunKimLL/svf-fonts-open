@@ -1859,7 +1859,8 @@ class LocalSweepTest(LocalRunBase):
         for dirpath, _d, names in os.walk(self.data):
             rel = os.path.relpath(dirpath, self.data)
             for n in names:
-                self.assertTrue(rel.startswith("jobs") or n == "pending-sweeps.json", (rel, n))
+                self.assertTrue(rel.startswith("jobs") or n in ("pending-sweeps.json", "tools.pids", "tools.pids.lock"),
+                                (rel, n))
 
     def test_final_no_upload_copy(self):
         jid, job = self.done_job()

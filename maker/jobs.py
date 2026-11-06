@@ -39,6 +39,7 @@ import preview
 import quality
 import routes
 import settings
+import toolreg
 import toolrun
 import zipout
 from sources import OutputGone, Sources, stat_id
@@ -336,6 +337,7 @@ def run_command(argv, cwd, timeout, cancel, env=None):
     error = None
     proc = subprocess.Popen(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    toolreg.register(proc)                          # a no-op unless a server activated a registry
     out, err = _Capture(proc.stdout, OUTPUT_CAP), _Capture(proc.stderr, OUTPUT_CAP)
     out.start()
     err.start()
@@ -365,6 +367,7 @@ def run_command(argv, cwd, timeout, cancel, env=None):
             error = "a descendant kept the output open"
         proc.stdout.close()
         proc.stderr.close()
+        toolreg.unregister(proc)
     out.write(stdout_path)
     err.write(stderr_path)
     return {"exit": None if error is not None else proc.returncode, "seconds": round(time.monotonic() - started, 3),
@@ -997,6 +1000,8 @@ class Worker(threading.Thread):
         self._queued = []                       # the ids in the queue, in order (only `position` needs them)
         self._current = None                    # the id `run_job` is running, or None
         self._stopping = False                  # `stop` was called: no job starts any more
+        self._stopped = False                   # a `stop` completed: later calls return its result at once
+        self._stop_result = True
         self._lock = threading.Lock()
 
     def enqueue(self, job_id):
@@ -1066,8 +1071,10 @@ class Worker(threading.Thread):
         """Stop for good: no job starts any more, the running one is cancelled through the usual group kill (every tool
         child runs in its own session and would outlive this process), and the call waits up to @p timeout seconds for it
         to end, then ends the worker thread (a sentinel on the queue, joined). Idempotent; True when nothing was left
-        running."""
+        running. A second call after a completed stop returns the first result without a second sweep."""
         with self._lock:
+            if self._stopped:
+                return self._stop_result
             self._stopping = True
             for event in self.cancels.values():
                 event.set()
@@ -1085,6 +1092,7 @@ class Worker(threading.Thread):
             if idle and threading.current_thread() is not self:
                 self.join(max(0.0, deadline - time.monotonic()) + 1.0)
         self.sweep_local_files()                    # whatever a GET re-made, and the running job's leftovers
+        self._stop_result, self._stopped = idle, True
         return idle
 
     def sweep_local_files(self):

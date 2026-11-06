@@ -1747,6 +1747,29 @@ class ThreadLeakTest(unittest.TestCase):
         self.assertEqual(left, [])
 
 
+class InterruptedStartTest(unittest.TestCase):
+    def test_make_server_cleans_up_on_interrupt(self):
+        import toolreg
+        data = tempfile.mkdtemp(prefix="svf-interrupt-")
+        self.addCleanup(shutil.rmtree, data, True)
+        before = set(threading.enumerate())
+        with mock.patch.object(jobs.Store, "retry_pending_sweeps", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data, token="a" * 32)
+        self.assertTrue(wait_until_true(lambda: not [t for t in set(threading.enumerate()) - before
+                                                     if t.name == "svf-maker-worker"]))
+        self.assertIsNone(toolreg.active())
+
+
+def wait_until_true(cond, timeout=10):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 class LocalBindTest(unittest.TestCase):
     """The token, the loopback rule and the CSP (design 6.1, 10.1); not an `ApiBase`."""
 

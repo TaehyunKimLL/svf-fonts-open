@@ -44,6 +44,8 @@ import preview
 import routes
 import settings
 import sources as sourcesmod
+import toolreg
+import toolrun
 import zipout
 from sources import Sources
 
@@ -441,6 +443,7 @@ class _Server(http.server.ThreadingHTTPServer):
         if stopping is not None:
             stopping.set()                                # the idle sweeper ends with the server
         super().server_close()
+        toolreg.deactivate(getattr(self, "toolreg", None))
 
     @property
     def port(self):
@@ -475,71 +478,84 @@ def make_server(host, port, repo_dir, data_root, token=None):
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
     store.on_sweep = _sweep_locks
-    static_dir = os.path.join(MAKER_DIR, "static")
-    capabilities = caps.compute(static_dir, os.environ, local=token is not None)
-    worker = jobs.Worker(store, repo_dir, os.path.join(repo_dir, "svf"), os.path.join(repo_dir, "tools"),
-                         capabilities)
-    worker.recover()
-    worker.start()
-    server_class = _Server6 if ":" in str(host) else _Server
-    server = server_class((host, port), Handler)
-    server.store = store
-    server.worker = worker
-    server.repo_dir = repo_dir
-    server.svf_dir = os.path.join(repo_dir, "svf")
-    server.tools_dir = os.path.join(repo_dir, "tools")
-    server.static_dir = static_dir
-    server.caps = capabilities
-    server.token = token
-    server.data_root = store.data_root
-    server.create_lock = store.lifecycle                  # THE lifecycle lock (order documented at `Store.__init__`)
-    server.cleanup_pending = set()                        # old local jobs whose start-up cleanup did not finish
-    server.index = naming.RepoIndex(server.svf_dir)
-    server.started = time.monotonic()
-    server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
-    server.sweep_idle = lambda now=None: _sweep_idle(server, now)
-    local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only
-    have_pending = os.path.exists(os.path.join(store.data_root, "pending-sweeps.json"))
+    reg = toolreg.Registry(os.path.join(store.data_root, "tools.pids"))
+    reg.reap()                                           # before any sweep: a tool of a dead run must not race it
+    toolreg.activate(reg)
+    worker = server = None
+    try:
+        static_dir = os.path.join(MAKER_DIR, "static")
+        capabilities = caps.compute(static_dir, os.environ, local=token is not None)
+        worker = jobs.Worker(store, repo_dir, os.path.join(repo_dir, "svf"), os.path.join(repo_dir, "tools"),
+                             capabilities)
+        worker.recover()
+        worker.start()
+        server_class = _Server6 if ":" in str(host) else _Server
+        server = server_class((host, port), Handler)
+        server.toolreg = reg
+        server.store = store
+        server.worker = worker
+        server.repo_dir = repo_dir
+        server.svf_dir = os.path.join(repo_dir, "svf")
+        server.tools_dir = os.path.join(repo_dir, "tools")
+        server.static_dir = static_dir
+        server.caps = capabilities
+        server.token = token
+        server.data_root = store.data_root
+        server.create_lock = store.lifecycle                  # THE lifecycle lock (order documented at `Store.__init__`)
+        server.cleanup_pending = set()                        # old local jobs whose start-up cleanup did not finish
+        server.index = naming.RepoIndex(server.svf_dir)
+        server.started = time.monotonic()
+        server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
+        server.sweep_idle = lambda now=None: _sweep_idle(server, now)
+        local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only
+        have_pending = os.path.exists(os.path.join(store.data_root, "pending-sweeps.json"))
 
-    def startup_cleanup():
-        """Before the first request: the pending retry and the sweep of every local job of an earlier run, within ONE
-        absolute deadline. A job whose cleanup did not finish stays inactive (409 'cleanup pending') until the idle
-        sweeper has finished it; nothing here runs on a background thread, so no request can reopen a job between its
-        state check and its directory's removal."""
-        deadline = jobs.Deadline(STARTUP_CLEANUP_S)
-        store.retry_pending_sweeps(deadline_s=deadline.remaining())
-        for job_id in local_ids:
-            if deadline.expired():
-                server.cleanup_pending.add(job_id)
-                continue
-            try:
-                job = store.load(job_id)
-            except KeyError:
-                continue
-            try:
-                if not store.sweep_files(job, deadline=deadline):
+        def startup_cleanup():
+            """Before the first request: the pending retry and the sweep of every local job of an earlier run, within ONE
+            absolute deadline. A job whose cleanup did not finish stays inactive (409 'cleanup pending') until the idle
+            sweeper has finished it; nothing here runs on a background thread, so no request can reopen a job between its
+            state check and its directory's removal."""
+            deadline = jobs.Deadline(STARTUP_CLEANUP_S)
+            store.retry_pending_sweeps(deadline_s=deadline.remaining())
+            for job_id in local_ids:
+                if deadline.expired():
                     server.cleanup_pending.add(job_id)
-                store.sweep_trash(job)
-            except Exception:
-                jobs.print_exc()
-                server.cleanup_pending.add(job_id)
-        store.sweep_orphans(deadline)
-    server.stopping = threading.Event()
-    server.startup_sweep = None                           # (kept for callers: the cleanup is synchronous now)
-    if token is not None or local_ids or have_pending:    # an upload-only server has nothing to sweep
-        startup_cleanup()
+                    continue
+                try:
+                    job = store.load(job_id)
+                except KeyError:
+                    continue
+                try:
+                    if not store.sweep_files(job, deadline=deadline):
+                        server.cleanup_pending.add(job_id)
+                    store.sweep_trash(job)
+                except Exception:
+                    jobs.print_exc()
+                    server.cleanup_pending.add(job_id)
+            store.sweep_orphans(deadline)
+        server.stopping = threading.Event()
+        server.startup_sweep = None                           # (kept for callers: the cleanup is synchronous now)
+        if token is not None or local_ids or have_pending:    # an upload-only server has nothing to sweep
+            startup_cleanup()
 
-    def idle_sweeper():
-        while not server.stopping.wait(60):
-            try:
-                _sweep_idle(server)
-            except Exception:
-                jobs.print_exc()
-    jobs.SAFE_DIAGNOSTICS = token is not None
-    if token is not None:
-        threading.Thread(target=idle_sweeper, daemon=True, name="svf-maker-idle-sweep").start()
-    server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
-    server.inflight = {}                                  # job id -> the `PUT files` requests not answered yet (Y3)
+        def idle_sweeper():
+            while not server.stopping.wait(60):
+                try:
+                    _sweep_idle(server)
+                except Exception:
+                    jobs.print_exc()
+        jobs.SAFE_DIAGNOSTICS = token is not None
+        if token is not None:
+            threading.Thread(target=idle_sweeper, daemon=True, name="svf-maker-idle-sweep").start()
+        server.reserved = {}                                  # job id -> the upload bytes/files in flight (W4)
+        server.inflight = {}                                  # job id -> the `PUT files` requests not answered yet (Y3)
+    except BaseException:                                # also a KeyboardInterrupt from `terminate`
+        if worker is not None:
+            worker.stop()
+        if server is not None:
+            server.server_close()                        # closes the socket and deactivates the registry
+        toolreg.deactivate(reg)
+        raise
     return server
 
 
@@ -1973,36 +1989,87 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "texts": index.texts, "head": zipout.repo_head(self.server.repo_dir)})
 
 
-def main():
-    repo_dir = os.environ.get("SVF_MAKER_REPO") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    data_root = os.environ.get("SVF_MAKER_DATA") or os.path.expanduser("~/.local/share/svf-maker")
-    bind = os.environ.get("SVF_MAKER_BIND") or "127.0.0.1:8766"
-    host, port = _bind(bind)                              # no host means 127.0.0.1, not every interface (W11)
-    try:
-        token = _parse_token(os.environ.get("SVF_MAKER_TOKEN"))
-        server = make_server(host, port, repo_dir, data_root, token=token)
-    except LocalModeError as exc:                         # a bad token or a non-loopback bind with it; never print the token
-        print(str(exc), file=sys.stderr)
-        sys.exit(2)
-    print("svf-maker listening on %s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
-    atexit.register(server.worker.stop)                   # however the process ends, the tool children are stopped first
+_stdio_detached = []
 
+
+def _detach_stdio():
+    """Point fds 1 and 2 at /dev/null, once: when the shell is gone the pipes lead nowhere, Python ignores SIGPIPE and
+    every `print(..., file=sys.stderr)` of the stop path would raise `BrokenPipeError` and could abort the sweep."""
+    if _stdio_detached:
+        return
+    _stdio_detached.append(True)
+    try:
+        fd = os.open(os.devnull, os.O_RDWR)
+        os.dup2(fd, 1)
+        os.dup2(fd, 2)
+        os.close(fd)
+    except OSError:
+        pass
+
+
+PARENT_POLL_S = 2.0
+
+
+def _watch_parent(pid):
+    """Daemon thread: when the parent is no longer @p pid (the shell died), detach stdio and raise SIGTERM."""
+    while True:
+        time.sleep(PARENT_POLL_S)
+        if os.getppid() != pid:
+            _detach_stdio()
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+
+
+def _parse_args(argv):
+    import argparse
+    parser = argparse.ArgumentParser(prog="server.py", description="The SVF maker server (environment: SVF_MAKER_*).")
+    parser.add_argument("--exit-with-parent", type=int, default=None, metavar="PID",
+                        help="stop when the parent process is no longer PID (the shell passes its own pid)")
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(sys.argv[1:] if argv is None else argv)
+    parent = args.exit_with_parent
     stopping = []
 
     def terminate(signum, frame):
         if stopping:                                      # a second signal while the first is being handled: ignore
             return
         stopping.append(signum)
-        raise KeyboardInterrupt                           
+        if parent is not None and os.getppid() != parent:
+            _detach_stdio()
+        raise KeyboardInterrupt
+    # from the first line: a signal during the start-up probe or cleanup must not take the default action
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)               # also when the parent started us with SIGINT ignored (a background job)
+    if parent is not None:
+        toolrun.set_pdeathsig(signal.SIGTERM)             # Linux: at once; the poll below is the portable layer
+        threading.Thread(target=_watch_parent, args=(parent,), daemon=True, name="svf-maker-parent-watch").start()
+        if os.getppid() != parent:                        # the parent may be gone already
+            _detach_stdio()
+            os.kill(os.getpid(), signal.SIGTERM)
+    server = None
     try:
+        repo_dir = os.environ.get("SVF_MAKER_REPO") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        data_root = os.environ.get("SVF_MAKER_DATA") or os.path.expanduser("~/.local/share/svf-maker")
+        bind = os.environ.get("SVF_MAKER_BIND") or "127.0.0.1:8766"
+        host, port = _bind(bind)                          # no host means 127.0.0.1, not every interface (W11)
+        try:
+            token = _parse_token(os.environ.get("SVF_MAKER_TOKEN"))
+            server = make_server(host, port, repo_dir, data_root, token=token)
+        except LocalModeError as exc:                     # a bad token or a non-loopback bind with it; never print the token
+            print(str(exc), file=sys.stderr)
+            sys.exit(2)
+        print("svf-maker listening on %s:%d" % (server.server_address[0], server.server_address[1]), flush=True)
+        atexit.register(server.worker.stop)               # however the process ends, the tool children are stopped first
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        pass                                              # make_server cleaned up a partly built server itself
     finally:
-        server.worker.stop()
-        server.server_close()
+        if server is not None:
+            server.worker.stop()
+            server.server_close()
 
 
 if __name__ == "__main__":

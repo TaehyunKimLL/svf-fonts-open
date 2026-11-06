@@ -35,6 +35,7 @@ import zlib
 import detect
 import routes
 import svfline
+import toolreg
 import toolrun
 from PIL import Image, ImageDraw, ImageFont
 
@@ -146,6 +147,7 @@ def run_bounded(argv, cwd, timeout, env=None):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
     with _LIVE_LOCK:
         _LIVE[proc.pid] = proc
+    toolreg.register(proc)
     try:
         out, err = proc.communicate(timeout=timeout)
     except BaseException:
@@ -158,6 +160,7 @@ def run_bounded(argv, cwd, timeout, env=None):
     finally:
         with _LIVE_LOCK:
             _LIVE.pop(proc.pid, None)
+        toolreg.unregister(proc)
     return subprocess.CompletedProcess(argv, proc.returncode, out, err)
 
 

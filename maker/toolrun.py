@@ -130,3 +130,45 @@ def recog_argv(caps, repo_dir):
     if caps.get("recog_python"):
         return [caps["recog_python"], "-P", os.path.join(repo_dir, "maker", "recog_score.py")]
     return maker_script("recog_score")
+
+
+def set_pdeathsig(sig):
+    """Linux: ask the kernel to send @p sig to this process when its parent (thread) dies. True on success; False
+    elsewhere, on failure, or (without calling prctl) when the test-only knob SVF_MAKER_NO_PDEATHSIG is "1"."""
+    if os.environ.get("SVF_MAKER_NO_PDEATHSIG") == "1" or not sys.platform.startswith("linux"):
+        return False
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        return libc.prctl(1, int(sig), 0, 0, 0) == 0           # PR_SET_PDEATHSIG = 1
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
+def parent_is_sidecar():
+    """True when this process's parent is the executable we are running as (Linux `/proc/<ppid>/exe`); used by a frozen
+    `run-tool` right after `set_pdeathsig`: a tool whose sidecar died before the prctl has another parent."""
+    try:
+        return os.path.realpath("/proc/%d/exe" % os.getppid()) == os.path.realpath(sys.executable)
+    except OSError:
+        return False
+
+
+def alive(pid):
+    """True when process @p pid exists and is not a zombie. Linux reads the state of `/proc/<pid>/stat`; elsewhere
+    `kill(pid, 0)` (a zombie then counts as alive: the darwin limitation)."""
+    try:
+        with open("/proc/%d/stat" % pid, "rb") as f:
+            state = f.read().rsplit(b")", 1)[1].split()[0]
+        return state not in (b"Z", b"X")
+    except (OSError, IndexError):
+        pass
+    if sys.platform.startswith("linux"):
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True

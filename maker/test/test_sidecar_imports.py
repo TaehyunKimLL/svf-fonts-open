@@ -17,7 +17,8 @@ ROOTS = ["server", "jamoset", "jamovec", "mkfont", "macfbit_svf", "macfbit3", "m
          "svf2to3", "svfdy", "svfline", "srcprep"]
 EXPECTED = {"archive", "bdfface", "caps", "detect", "jamoaa", "jamoadapt", "jamofit", "jamoset", "jamovec", "jobs",
             "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets", "preview", "quality",
-            "routes", "server", "settings", "sources", "srcprep", "svf2to3", "svfdy", "svfline", "toolrun", "zipout"}
+            "routes", "server", "settings", "sources", "srcprep", "svf2to3", "svfdy", "svfline", "toolreg", "toolrun",
+            "zipout"}
 SP = "sys.path entry for the tool's own directory (python -I drops it); frozen the modules are bundled, the entry is harmless"
 FILE_USES = {   # every __file__ use in a reachable module, with why it is right frozen (spec 7.5/7.6)
     ("server", "MAKER_DIR"): "static/ is bundled as <_internal>/static",

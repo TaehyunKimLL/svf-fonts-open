@@ -675,6 +675,16 @@ class WorkerTest(unittest.TestCase):
         self.worker.enqueue(j["id"])
         return self.wait_for(j["id"])
 
+    def test_stop_twice_sweeps_once(self):
+        calls = []
+        with mock.patch.object(self.worker, "sweep_local_files", side_effect=lambda: calls.append(1)):
+            first = self.worker.stop(5)
+            started = time.monotonic()
+            second = self.worker.stop(5)
+        self.assertEqual(len(calls), 1)
+        self.assertLess(time.monotonic() - started, 0.1)
+        self.assertEqual(first, second)
+
     def test_stop_kills_the_previews_bakes_and_marks_the_job_interrupted(self):
         calls = []
         with mock.patch.object(jobs.preview, "kill_all", side_effect=lambda: calls.append(1) or 0):
