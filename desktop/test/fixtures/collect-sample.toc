@@ -1,0 +1,11 @@
+([('PIL/_imaging.cpython-312-x86_64-linux-gnu.so',
+   'PYSITE/PIL/_imaging.cpython-312-x86_64-linux-gnu.so',
+   'EXTENSION'),
+  ('libfreetype-f154df84.so.6.20.1',
+   'PYSITE/pillow.libs/libfreetype-f154df84.so.6.20.1',
+   'BINARY'),
+  ('libz.so.1', 'SYSTEM/libz.so.1', 'BINARY'),
+  ('python3.12/lib-dynload/_json.cpython-312-x86_64-linux-gnu.so',
+   'SYSTEM/lib-dynload/_json.cpython-312-x86_64-linux-gnu.so',
+   'EXTENSION'),
+  ('base_library.zip', 'WORK/base_library.zip', 'DATA')],)

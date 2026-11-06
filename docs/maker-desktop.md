@@ -39,8 +39,12 @@ Chrome's socket path is limited to 107 bytes). Never `/tmp`. Every run that star
 (fails on an unattributed library or a GPL one), builds the AppImage and runs `desktop/build/release-check.sh`, which
 prints one `CHECK <name> ok|FAIL` line each: size, extract, size-sidecar, layout, apprun, desktop-entry, frozen
 (`test_frozen.py` against the extracted sidecar, 0 skipped), wasm (`cmp` with a fresh build), licences (the generator over
-the extraction), smoke (the extracted `AppRun` under xvfb), sources (`--release` only) and contents (a file list record in
-`desktop/build/out/release-<build id>.txt`).
+the extraction), notices and sources (the bundled `THIRD-PARTY.txt` equals the regenerated one; `resources/repo/{maker,tools}/*.py` equal the checkout by sha256: `desktop/build/verify-extraction.sh`), smoke (the extracted `AppRun` under xvfb), sources (`--release` only) and contents (a file list record in
+`desktop/build/out/release-<build id>-<AppImage sha256 prefix>.txt`, one per AppImage).
+
+`build-appimage.sh` and `release-check.sh` take the browser lock themselves for the smoke run (they wait for it as long as it
+takes, then allow 90 s for the Electron run): start them under `~/.local/bin/heavy`, **never under `flock`**, which would
+deadlock them.
 
 ### Measured (this host, Ubuntu 24.04 x86_64, glibc 2.39)
 
@@ -77,7 +81,7 @@ release check proves the pruned AppImage still starts (extracted `AppRun` smoke)
 ## Licences and the release gate
 
 `THIRD-PARTY.txt` is generated from the bundle. Rules: every shared object in the sidecar, in Electron's directory and in
-`usr/lib` must match an entry of `desktop/build/third-party-map.json` (fail closed); a sidecar library must match its
+`usr/lib` must match an entry of `desktop/build/third-party-map.json` (fail closed); the sha256 of every Electron and `usr/lib` library is printed beside it; a sidecar library must match its
 build-time provenance (`sidecar-provenance.py`, from PyInstaller's table of contents); class `gpl` is forbidden; class
 `lgpl` needs a distribution record; `svf/` may hold only OFL-listed faces. The copyleft components today: ffmpeg
 (`libffmpeg.so` of Electron, LGPL-2.1), the AppImage runtime (libfuse linked statically, LGPL-2.1) and the PyInstaller

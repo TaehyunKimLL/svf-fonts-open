@@ -317,3 +317,56 @@ test('supervisor: a data root still locked by a dying sidecar is retried, then g
   assert.equal(err.busy, true);
   assert.ok(Date.now() - t0 >= 1900 && Date.now() - t0 < 8000);
 });
+
+test('supervisor: a command that cannot be spawned (ENOENT, EACCES) fails cleanly, with nothing to stop', async (t) => {
+  const dir = tmpDir(t);
+  const noexec = path.join(dir, 'not-executable');
+  fs.writeFileSync(noexec, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+  for (const [cmd, code] of [[path.join(dir, 'missing'), 'ENOENT'], [noexec, 'EACCES']]) {
+    const { createSupervisor } = lib('supervisor.js');
+    const { createLog } = lib('log.js');
+    const log = createLog({ dir: tmpDir(t), toStderr: false });
+    const sup = createSupervisor({ launch: { mode: 'packaged', cmd, args: [], repo: '/r', data: '/d' }, parentEnv: { PATH: process.env.PATH },
+      log, handshakeS: 30, termWaitS: 0.4, killWaitS: 2, busyRetryS: 0 });
+    let err = null;
+    try { await sup.start(); } catch (e) { err = e; }
+    assert.match(err.message, new RegExp('could not start the maker: ' + code));
+    await sup.cleanupAfterFailure(err);                  // must not throw (it used to: kill(-undefined))
+    await sup.stopAll();
+  }
+});
+
+test('stopSidecar: a child that never spawned resolves at once', async () => {
+  const { stopSidecar } = lib('shutdown.js');
+  const res = await stopSidecar({ pid: undefined, exitCode: null, signalCode: null, once() {} }, { termWaitS: 5, killWaitS: 5 });
+  assert.equal(res.escalated, false);
+});
+
+test('redactLine: drive-like, URL-like and relative paths, and a path after a colon', () => {
+  const { redactLine } = lib('log.js');
+  assert.equal(redactLine('error:/home/u/My Fonts/x'), '<path>');
+  assert.equal(redactLine('open C:\\Users\\me\\My Fonts\\a.ttf failed'), 'open <path>');
+  assert.equal(redactLine('open D:/Fonts Dir/a failed'), 'open <path>');
+  assert.equal(redactLine('GET file:///home/u/My Fonts/x'), 'GET <path>');
+  assert.equal(redactLine('read fonts/My Secret/x.ttf'), 'read <path>');
+  assert.equal(redactLine('rel ../My Secret/x'), 'rel <path>');
+  assert.equal(redactLine('plain message 12'), 'plain message 12');
+});
+
+test('supervisor: the failure path stopping an established child is not offered as a crash restart', async (t) => {
+  const stub = stubSidecar(t, "console.log('svf-maker listening on 127.0.0.1:4321'); setInterval(() => {}, 1000);");
+  const calls = [];
+  const sup = supervisorFor(t, stub, { onUnexpectedExit: (...a) => calls.push(a) });
+  const sc = await sup.start();
+  const pid = sc.pid;
+  await sup.cleanupAfterFailure(new Error('page did not load'));
+  await sleep(300);
+  assert.equal(alive(pid), false);
+  assert.deepEqual(calls, []);
+  // while an unexpected exit of a healthy sidecar still reports
+  const sup2 = supervisorFor(t, stub, { onUnexpectedExit: (...a) => calls.push(a) });
+  const sc2 = await sup2.start();
+  process.kill(sc2.pid, 'SIGKILL');
+  await sleep(500);
+  assert.equal(calls.length, 1);
+});

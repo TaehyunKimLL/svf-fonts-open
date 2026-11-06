@@ -2,7 +2,8 @@
 # release-check.sh APPIMAGE [--release]: checks a built AppImage by extracting it (no FUSE here): one line
 # "CHECK <name> ok|FAIL <why>" per check, exit 1 on any FAIL. --release adds the D8 sources gate; without it that check
 # is reported as skipped (private build).
-# The smoke check takes the host-wide browser lock itself; run this script under ~/.local/bin/heavy, not under the lock.
+# The smoke check takes the host-wide browser lock itself (waiting for it as long as it takes, then 90 s for the run):
+# run this script under ~/.local/bin/heavy, never under the lock (that would deadlock it).
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -73,6 +74,10 @@ SRC_ARGS=()
 if node desktop/build/third-party.mjs --sidecar "$SIDE" --provenance "$OUT/sidecar-provenance.json" --electron "$SQ" --usrlib "$SQ/usr/lib" \
         --pysite "$T/pysite" --repo "$RES/repo" --meta . --toolset-record desktop/build/appimage-toolset.json --out "$LIC_OUT" "${SRC_ARGS[@]}" 2> "$X/licences.err"; then
     ok licences "$(grep -c '^### ' "$LIC_OUT") components"
+    # what the AppImage ships against what it must ship: the notices as regenerated, the tool sources as in the checkout
+    while IFS= read -r line; do
+        case "$line" in *" ok") ok "${line%% *}" ;; *) fail "${line%% *}" "${line#* FAIL }" ;; esac
+    done < <(bash "$ROOT/desktop/build/verify-extraction.sh" "$SQ" "$LIC_OUT" "$ROOT")
 else
     fail licences "$(head -3 "$X/licences.err" | tr '\n' ';')"
 fi
@@ -81,7 +86,8 @@ fi
 SMOKE_LOG="$X/smoke.log"
 UD="$T/release-ud"
 rm -rf "$UD"
-SVF_MAKER_SMOKE=1 SVF_MAKER_SHELL_LOG=stderr timeout 90 flock "$HOME/work/tmp/svf-browser.lock" xvfb-run -a "$SQ/AppRun" --disable-gpu --user-data-dir="$UD" > "$SMOKE_LOG" 2>&1
+# the lock first (it may be held for a long time by another run), then the 90 s budget on the Electron run itself
+SVF_MAKER_SMOKE=1 SVF_MAKER_SHELL_LOG=stderr flock "$HOME/work/tmp/svf-browser.lock" timeout 90 xvfb-run -a "$SQ/AppRun" --disable-gpu --user-data-dir="$UD" > "$SMOKE_LOG" 2>&1
 RC=$?
 SHELL_PID=$(sed -n 's/.*shell pid=\([0-9]*\).*/\1/p' "$SMOKE_LOG" | head -1)
 SIDE_PID=$(sed -n 's/.*sidecar start mode=packaged pid=\([0-9]*\).*/\1/p' "$SMOKE_LOG" | head -1)
@@ -103,7 +109,7 @@ fi
 
 # ---- contents record ------------------------------------------------------------------------------------------------
 BID=$(head -1 "$RES/repo/BUILD_ID" 2>/dev/null | cut -d' ' -f1)
-REC="$OUT/release-${BID:-unknown}.txt"
+REC="$OUT/release-${BID:-unknown}-$(sha256sum "$APP" | cut -c1-8).txt"       # one record per AppImage, never overwriting another's
 {
     echo "AppImage: $APP ($SIZE bytes)"
     echo "BUILD_ID: $(head -1 "$RES/repo/BUILD_ID" 2>/dev/null)"

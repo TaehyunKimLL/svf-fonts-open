@@ -29,9 +29,12 @@ START=$(date +%s)
 bash maker/build-sidecar.sh
 
 POOL="$HOME/.cache/electron-builder/appimage-12.0.1"
-find_tool() { ls -d "$POOL"/appimage-12.0.1-*/ 2>/dev/null | head -1; }
+find_tool() { ls -d "$POOL"/appimage-12.0.1-*/ 2>/dev/null | head -1 || true; }
 TOOL=$(find_tool)
 if [ -z "$TOOL" ]; then            # fetch the legacy toolset once, with a throw-away build
+    # extraResources names THIRD-PARTY.txt: a placeholder keeps electron-builder from failing before it fetches the toolset
+    mkdir -p desktop/build/out
+    [ -f desktop/build/out/THIRD-PARTY.txt ] || echo "placeholder, replaced by third-party.mjs" > desktop/build/out/THIRD-PARTY.txt
     (cd desktop && npx electron-builder --linux AppImage --publish never >/dev/null 2>&1 || true; rm -rf dist)
     TOOL=$(find_tool)
 fi

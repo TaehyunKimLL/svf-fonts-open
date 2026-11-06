@@ -2,6 +2,10 @@
 // SIGTERM the sidecar's group, wait, then SIGKILL it and wait again. Resolves {code, signal, escalated}.
 function stopSidecar(child, { termWaitS, killWaitS, kill = process.kill }) {
   return new Promise((resolve) => {
+    if (!child.pid) {                                      // never spawned (ENOENT, EACCES): nothing to signal
+      resolve({ code: null, signal: null, escalated: false });
+      return;
+    }
     if (child.exitCode !== null || child.signalCode !== null) {
       resolve({ code: child.exitCode, signal: child.signalCode, escalated: false });
       return;

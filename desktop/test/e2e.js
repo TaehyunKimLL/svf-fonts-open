@@ -275,10 +275,32 @@ async function pass(name, opts) {
   }
 }
 
+// A sidecar that prints a port line for a dead port: the first page load fails; the shell must show its failure dialog,
+// run the stop sequence on the child and end the app (here: the injected `fatal`), not die with a stack trace.
+async function loadFailureCase() {
+  const dir = mkdir('loadfail');
+  const ud = mkdir('loadfail', 'ud');
+  const launch = { mode: 'dev', cmd: 'sh', args: ['-c', 'echo "svf-maker listening on 127.0.0.1:1"; exec sleep 300'], repo: REPO, data: path.join(dir, 'data') };
+  let fatal = 0;
+  const boxes = messageBoxes.length;
+  let pid = 0;
+  await step('load failure: dialog, stop sequence, fatal', async () => {
+    const handle = await require('../main.js').start({ userData: ud, quitOnClose: false, env: Object.assign({}, process.env, { SVF_MAKER_DEV: '1' }), launch,
+      fatal: () => { fatal++; } });
+    pid = handle.sidecar.pid;
+    assert.ok(pid > 0, 'the stub never printed its port line');
+    assert.equal(messageBoxes.length, boxes + 1, 'the failure dialog was not shown');
+    assert.equal(fatal, 1, 'the app was not ended');
+    await waitUntil(() => { try { process.kill(pid, 0); return false; } catch (e) { return true; } }, 5000, 'the stub to be stopped');
+    handle.win.destroy();
+  });
+}
+
 app.on('window-all-closed', () => {});            // pass 1 closes its window; the app must live on for pass 2
 app.whenReady().then(async () => {
   const base = Object.assign({}, process.env);
   delete base.SVF_MAKER_DEV;
+  await loadFailureCase();
   await pass('dev', { env: Object.assign({}, base, { SVF_MAKER_DEV: '1' }) });
   if (process.env.SVF_MAKER_SIDECAR && process.env.SVF_MAKER_STAGED_REPO) {
     const res = mkdir('res');

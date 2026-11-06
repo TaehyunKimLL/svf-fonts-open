@@ -217,3 +217,73 @@ test('the toolset modification record is printed', async (t) => {
   withoutProblems(r);
   for (const needle of ['AppImage toolset modification', 'lib/x64/libindicator.so.7  ' + 'cd'.repeat(32), 'ab'.repeat(32)]) assert.ok(r.text.includes(needle), needle);
 });
+
+// ---- the real map and licence texts ---------------------------------------------------------------------------------
+const REAL_MAP = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'build', 'third-party-map.json'), 'utf8'));
+const REAL_LICENCES = path.join(__dirname, '..', 'build', 'licences');
+
+test('libXss and libXtst carry their upstream copyright notices into THIRD-PARTY.txt', async (t) => {
+  for (const name of ['libxss1.txt', 'libxtst6.txt']) {
+    const text = fs.readFileSync(path.join(REAL_LICENCES, name), 'utf8');
+    assert.match(text, /Copyright (\(c\) |\(C\) )?19\d\d/, name + ' has no copyright line');
+  }
+  const f = fixture(t);
+  write(f.usrlib, 'libXss.so.1', 'xss');
+  const r = await generate({ ...f.opts, map: REAL_MAP, licencesDir: REAL_LICENCES });
+  withoutProblems(r);
+  assert.ok(r.text.includes('Copyright (c) 1992  X Consortium'), 'libXss notice missing');
+  assert.ok(r.text.includes('Copyright 1990, 1991 by UniSoft Group Limited'), 'libXtst notice missing');
+  assert.ok(r.text.includes('(sha256 ' + sha('xtst') + ')'), 'the digest of an unattributed-by-provenance file is recorded');
+});
+
+test('every licence_file named by the map exists', () => {
+  for (const e of REAL_MAP) if (e.licence_file) assert.ok(fs.existsSync(path.join(REAL_LICENCES, e.licence_file)), e.licence_file);
+});
+
+test('golden TOC: sidecar-provenance.py keys and the generator agree on the destination form', async (t) => {
+  const { spawnSync } = require('node:child_process');
+  const root = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-toc-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const work = path.join(root, 'work');
+  const pysite = path.join(root, 'pysite');
+  const sys_ = path.join(root, 'system');
+  let toc = fs.readFileSync(path.join(__dirname, 'fixtures', 'collect-sample.toc'), 'utf8');
+  toc = toc.replace(/PYSITE/g, pysite).replace(/SYSTEM/g, sys_).replace(/WORK/g, work);
+  write(work, 'COLLECT-00.toc', toc);
+  write(pysite, 'pillow-10.2.0.dist-info/RECORD', 'PIL/_imaging.cpython-312-x86_64-linux-gnu.so,,\npillow.libs/libfreetype-f154df84.so.6.20.1,,\n');
+  write(pysite, 'pillow-10.2.0.dist-info/LICENSE', 'HPND');
+  for (const rel of ['PIL/_imaging.cpython-312-x86_64-linux-gnu.so', 'pillow.libs/libfreetype-f154df84.so.6.20.1']) write(pysite, rel, 'bytes of ' + rel);
+  write(sys_, 'libz.so.1', 'zlib bytes');
+  write(sys_, 'lib-dynload/_json.cpython-312-x86_64-linux-gnu.so', 'json bytes');
+  const out = path.join(root, 'prov.json');
+  const r = spawnSync('python3', ['-I', path.join(__dirname, '..', 'build', 'sidecar-provenance.py'), work, out, '--pysite', pysite], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const prov = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.deepEqual(Object.keys(prov).sort(), ['PIL/_imaging.cpython-312-x86_64-linux-gnu.so', 'libfreetype-f154df84.so.6.20.1', 'libz.so.1',
+    'python3.12/lib-dynload/_json.cpython-312-x86_64-linux-gnu.so'].sort());
+  assert.equal(prov['libfreetype-f154df84.so.6.20.1'].origin, 'wheel');
+  // the generator looks each one up under _internal/<dest> without a prefix in the key
+  const sidecar = path.join(root, 'sidecar');
+  for (const dest of Object.keys(prov)) fs.mkdirSync(path.dirname(path.join(sidecar, '_internal', dest)), { recursive: true });
+  for (const [dest, p] of Object.entries(prov)) fs.copyFileSync(p.source, path.join(sidecar, '_internal', dest));
+  const map = [{ match: '*.so*', component: 'any', version: '1', licence: 'MIT', source_url: 'x', class: 'none', licence_file: 'mit.txt' }];
+  const lic = path.join(root, 'lic'); write(lic, 'mit.txt', 'mit');
+  const fx = fixture(t);
+  const res = await generate({ ...fx.opts, sidecar, provenance: prov, map, licencesDir: lic });
+  assert.ok(!res.problems.some((p) => p.startsWith('provenance mismatch')), res.problems.join('|'));
+});
+
+// A real built tree against the real map (env-gated like test_frozen: it needs desktop/build/out/sidecar from build-sidecar.sh)
+const BUILT = path.join(__dirname, '..', 'build', 'out');
+const builtOk = fs.existsSync(path.join(BUILT, 'sidecar', 'svf-maker-sidecar', '_internal')) && fs.existsSync(path.join(BUILT, 'sidecar-provenance.json'));
+test('the real built _internal tree is fully attributed by the map', { skip: builtOk ? false : 'no built sidecar (run maker/build-sidecar.sh)' }, async () => {
+  const dist = path.join(__dirname, '..', 'node_modules', 'electron', 'dist');
+  const empty = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-empty-'));
+  try {
+    const r = await generate({ sidecar: path.join(BUILT, 'sidecar', 'svf-maker-sidecar'),
+      provenance: JSON.parse(fs.readFileSync(path.join(BUILT, 'sidecar-provenance.json'), 'utf8')), electron: dist, usrlib: empty,
+      pysite: process.env.SVF_MAKER_REF_SITE || path.join(process.env.HOME, 'work', 'tmp', 'svf-desktop-t4-sidecar', 'pysite'),
+      repo: path.join(BUILT, 'repo'), meta: path.join(__dirname, '..', '..'), map: REAL_MAP });
+    assert.deepEqual(r.problems.filter((p) => p.startsWith('unattributed') || p.startsWith('provenance') || p.startsWith('gpl')), []);
+  } finally { fs.rmSync(empty, { recursive: true, force: true }); }
+});

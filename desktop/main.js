@@ -35,7 +35,7 @@ function installGuards() {
   });
 }
 
-async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, launch: launchOverride } = {}) {
+async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, launch: launchOverride, fatal } = {}) {
   smoke = smoke === undefined ? process.env.SVF_MAKER_SMOKE === '1' : smoke;
   resourcesPath = resourcesPath || process.resourcesPath;
   env = env || process.env;
@@ -85,15 +85,17 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
 
   // ---- the sidecar ---------------------------------------------------------------------------------------------
   // The failure path of the initial start and of a restart: stop whatever is alive, say why, quit.
+  // fatal: what ends the app after a start failure (a test passes its own); the default exits non-zero
+  const endApp = fatal || (() => app.exit(1));
   async function failStart(e, win) {
     log.line('start failure: ' + redactLine(e.message));
-    await sup.cleanupAfterFailure(e);
+    try { await sup.cleanupAfterFailure(e); } catch (err) { log.line('cleanup failed: ' + redactLine(String(err.message))); }
     if (!sup.quitting) {
       const last = e.ring ? e.ring.lines().slice(-20).map(redactLine).join('\n') : '';
       const busy = e.busy ? '\nAnother maker is still shutting down; try again in a moment.' : '';
       await dialog.showMessageBox(win && !win.isDestroyed() ? win : null, { type: 'error', message: String(e.message) + busy, detail: last, buttons: ['Quit'] });
-    }
-    app.quit();
+      endApp();
+    } else app.quit();
   }
 
   async function onSidecarExit(code, signal) {
@@ -264,7 +266,12 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
   }
   clearTimeout(showStarting);
   lastUrl = sidecar.origin + '/';
-  await win.loadURL(lastUrl);
+  try {
+    await win.loadURL(lastUrl);
+  } catch (e) {                                            // the sidecar printed a port line the page cannot be loaded from
+    await failStart(Object.assign(new Error('the maker window could not load its page (' + (e.code || e.message) + ')'), { ring: sup.ring }), win);
+    return handle;
+  }
 
   // the renderer's sandbox state, once, for the log and About
   const userns = (() => { try { const r = spawnSync('unshare', ['-Ur', 'true'], { timeout: 5000 }); return r.error ? 'unknown' : (r.status === 0 ? 'available' : 'unavailable'); } catch (e) { return 'unknown'; } })();

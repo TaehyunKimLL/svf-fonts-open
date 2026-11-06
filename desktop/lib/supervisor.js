@@ -17,7 +17,7 @@ function createSupervisor({ launch, parentEnv, log, handshakeS = budget.HANDSHAK
   killWaitS = budget.KILL_WAIT_S, busyRetryS = BUSY_RETRY_S, spawnFn = spawn, onUnexpectedExit = () => {} }) {
   const sidecar = { child: null, port: 0, origin: '', token: '', pid: 0, mode: launch.mode };
   const children = new Set();                         // every child started and not yet exited, pending ones included
-  const sup = { sidecar, children, quitting: false, ring: null, history: [] };
+  const sup = { sidecar, children, quitting: false, failing: false, ring: null, history: [] };
 
   function logRing(ring) {
     if (!ring) return;
@@ -64,7 +64,7 @@ function createSupervisor({ launch, parentEnv, log, handshakeS = budget.HANDSHAK
         if (!settled) {
           const busy = code === 2 && ring.lines().some((l) => l.includes(BUSY_MESSAGE));
           fail('the maker exited before it was ready (exit ' + code + ')', { busy });
-        } else if (child === sidecar.child && !sup.quitting) {
+        } else if (child === sidecar.child && !sup.quitting && !sup.failing) {
           onUnexpectedExit(code, signal, ring);
         }
       });
@@ -103,9 +103,10 @@ function createSupervisor({ launch, parentEnv, log, handshakeS = budget.HANDSHAK
 
   // The failure path of an initial start and of a restart alike: whatever is still alive is stopped by the one sequence.
   sup.cleanupAfterFailure = async function cleanupAfterFailure(err) {
+    sup.failing = true;                                  // the exits below are ours, not a crash to offer a restart for
     const live = [...children];
     if (err && err.child && !live.includes(err.child) && err.child.exitCode === null && err.child.signalCode === null) live.push(err.child);
-    await Promise.all(live.map((c) => stopSidecar(c, { termWaitS, killWaitS })));
+    await Promise.all(live.filter((c) => c.pid).map((c) => stopSidecar(c, { termWaitS, killWaitS })));
   };
 
   return sup;

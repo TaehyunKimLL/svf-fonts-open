@@ -124,7 +124,7 @@ export async function generate(opts) {
     }
     const key = entry.component + ' ' + (version || '?');
     if (!components.has(key)) components.set(key, { component: entry.component, version: version || 'unknown', entry, pkg, files: [], where });
-    components.get(key).files.push(shown);
+    components.get(key).files.push(prov ? shown : shown + ' (sha256 ' + sha256(file) + ')');   // sidecar files have the provenance digest
     if (entry.class === 'gpl') problems.push('gpl forbidden: ' + shown);
     if (entry.class === 'lgpl' && !entry.record) {
       const msg = 'lgpl without distribution record: ' + entry.component;
