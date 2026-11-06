@@ -72,6 +72,12 @@ Paperlogy state the OFL in their font files. Six faces (`NGOTB17`, `NGO17X1`, `N
 `NGO15X2`, `NGO16BX2`, `NGO21AX2`) were drawn from NHN's hinted NanumGothicBold.ttf (Debian `fonts-nanum`, SIL OFL
 1.1), which is not in this repository.
 
+## Desktop package
+
+The desktop package bundles Electron/Chromium, CPython, Pillow, fontTools and the shared libraries they need; their
+licences are listed in the package's THIRD-PARTY.txt (generated from the bundle by `desktop/build/third-party.mjs`,
+which fails on any unattributed library and on any GPL one). It contains no font that is not in `svf/`.
+
 ## Converters for proprietary formats
 
 Some tools read font formats of commercial systems: `tools/macfbit3.py` and `tools/macfbit_svf.py` (classic Mac

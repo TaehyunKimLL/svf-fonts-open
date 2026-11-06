@@ -64,10 +64,32 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   external piece is the identity check: `SVF_RECOG_DIR` names your own `recog.py`, and the no-network tests do not
   cover that external code.
 
+## Desktop app
+
+`desktop/` is an Electron shell around this server: the packaged app starts the frozen sidecar
+(`svf-maker-sidecar serve --exit-with-parent=<pid>`, a PyInstaller one-dir bundle of the server and every tool), with
+a fresh `SVF_MAKER_TOKEN`, `SVF_MAKER_BIND=127.0.0.1:0` and its own data root `~/.config/svf-maker/maker`; it reads the
+port from the stdout line ("svf-maker listening on 127.0.0.1:<port>"), loads `http://127.0.0.1:<port>/`, adds the token
+header to `/api/` requests, gives the page `window.svfMaker` (four functions) and stops the sidecar on quit. In the
+bundle every tool is the same executable: `svf-maker-sidecar run-tool <name> ...` (`maker/toolrun.py` builds the
+argv; source mode still runs `python3 -P tools/<name>.py`). The app makes no network connection: the page's CSP allows
+its own origin only, the shell cancels every other request, and the maker has no outbound code (above).
+
+Optional pieces stay outside the bundle: the identity check runs under an interpreter you name with
+`SVF_RECOG_PYTHON` (an absolute path; it is probed once at start for numpy, torch, PIL and fontTools) with
+`SVF_RECOG_DIR`, and the mask-fit libraries come from `JAMOSET_PYLIB`; the packaged repo tree carries
+`maker/*.py` and `tools/*.py` as source for that interpreter.
+
+Build on Linux (the whole sequence, versions and numbers: `docs/maker-desktop.md`): `~/.local/bin/heavy bash
+desktop/build/build-appimage.sh` needs emsdk (the WASM module), Python 3.12 with pip, and node 22 with npm. It builds
+the frozen sidecar, generates `THIRD-PARTY.txt` and an AppImage, and runs the release check. Windows and macOS packages
+are not built or verified: the steps are written down in `docs/maker-desktop.md` and the server is not Windows-ready.
+
 ## Optional environment
 
 - `JAMOSET_PYLIB` - the folder holding freetype-py and uharfbuzz, for the `mask fit` route and `binarize mono`
   (without them those are not offered).
+- `SVF_RECOG_PYTHON` - the interpreter that runs the identity check when the maker is frozen (see Desktop app).
 - `SVF_RECOG_DIR` - a folder with `recog.py` and its weights (numpy and torch needed) for the piece identity check of
   a jamo set. Scoring only: no recogniser or weights are in this repository, and without the folder the page says the
   check is unavailable.

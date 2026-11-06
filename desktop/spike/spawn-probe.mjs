@@ -7,7 +7,7 @@ const token = randomBytes(16).toString('hex');
 const t0 = Date.now();
 const child = spawn(sidecar, ['serve'], {
   detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-  env: { PATH: '/tmp/pyi-probe/emptybin', HOME: process.env.HOME, LANG: 'C.UTF-8', SVF_MAKER_TOKEN: token,
+  env: { PATH: (process.env.TMP_DIR || '.') + '/pyi-probe/emptybin', HOME: process.env.HOME, LANG: 'C.UTF-8', SVF_MAKER_TOKEN: token,
          SVF_MAKER_BIND: '127.0.0.1:0', SVF_MAKER_DATA: data, SVF_MAKER_REPO: repo },
 });
 let buf = '';

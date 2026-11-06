@@ -6,11 +6,16 @@ Everything ran on 2026-11-05 on Ubuntu 24.04 x86_64 (glibc 2.39), Python 3.12.3,
 checkout `W=/home/thkim/work/svf-fonts-open-wt/desktop` at `1513dd2` (the code the spike exercises is unchanged by
 the later lifecycle commits). Outputs are quoted as printed; sizes are `du -sh`.
 
+Scratch convention (project rule): every path below under `$TMP_DIR` is scratch, never loose in `/tmp`:
+
+    export TMP_DIR=$HOME/work/tmp/svf-desktop-spike; mkdir -p "$TMP_DIR"
+    echo "made by <agent> for the desktop spike: <purpose>; delete when done" > "$TMP_DIR/README"
+
 ## 1. Tools
 
     python3 -m venv x                       # fails here: "ensurepip is not available" (python3-venv not installed)
-    python3 -m pip install --target /tmp/pyi-probe/site pyinstaller     # PyInstaller 6.22.3
-    mkdir /tmp/el-probe && cd /tmp/el-probe && npm init -y && npm install --no-audit --no-fund electron electron-builder
+    python3 -m pip install --target $TMP_DIR/pyi-probe/site pyinstaller     # PyInstaller 6.22.3
+    mkdir $TMP_DIR/el-probe && cd $TMP_DIR/el-probe && npm init -y && npm install --no-audit --no-fund electron electron-builder
     # "added 283 packages in 3s"; electron 45.2.3, electron-builder 26.18.0; npm 12 blocked electron's postinstall:
     node node_modules/electron/install.js    # fetches the 275 MB dist into ~/.cache/electron (119 MB zip)
     node_modules/.bin/electron --version      # without a display: "exited with signal SIGTRAP"
@@ -22,7 +27,7 @@ First build (every tool as a hidden import, `--collect-submodules fontTools`, no
 start** with `pyi_rth_pkgres ... ImportError: The 'jaraco' package is required` (Debian's setuptools `pkg_resources`,
 pulled in through `fontTools.ui` -> wx). The lean build:
 
-    cd /tmp/pyi-probe && PYTHONPATH=/tmp/pyi-probe/site python3 -m PyInstaller --noconfirm --onedir \
+    cd $TMP_DIR/pyi-probe && PYTHONPATH=$TMP_DIR/pyi-probe/site python3 -m PyInstaller --noconfirm --onedir \
       --name sidecar-lean --paths $W/maker --paths $W/tools \
       --workpath build2 --distpath dist2 --specpath spec2 \
       $(for t in jamoset jamovec mkfont macfbit_svf macfbit3 macsfnt bdfface johab844 svf2to3 svfdy svfline \
@@ -39,15 +44,15 @@ pulled in through `fontTools.ui` -> wx). The lean build:
 
 `maker/static/wasm/` was built first with `bash maker/build-wasm.sh` ("svf.wasm 39808 bytes, svf.js 6937 bytes", 1.3 s).
 
-    S=/tmp/pyi-probe/dist2/sidecar-lean/sidecar-lean; mkdir -p emptybin evil; echo 'raise SystemExit("SHADOWED")' > evil/json.py
-    env -i PATH=/tmp/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 PYTHONPATH=/tmp/pyi-probe/evil $S --probe
+    S=$TMP_DIR/pyi-probe/dist2/sidecar-lean/sidecar-lean; mkdir -p emptybin evil; echo 'raise SystemExit("SHADOWED")' > evil/json.py
+    env -i PATH=$TMP_DIR/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 PYTHONPATH=$TMP_DIR/pyi-probe/evil $S --probe
     # frozen True; path [_internal/base_library.zip, _internal/python3.12/lib-dynload, _internal]
     # flags isolated=1 ignore_environment=1 no_site=1 safe_path=True dont_write_bytecode=1
     # env keys: HOME LANG LD_LIBRARY_PATH PATH PYTHONPATH _PYI_ARCHIVE_FILE _PYI_LINUX_PROCESS_NAME _PYI_PARENT_PROCESS_LEVEL
-    (cd evil && env -i PATH=/tmp/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 $S --probe)   # cwd not on sys.path
-    for i in 1 2 3; do /usr/bin/time -f "%e s" env -i PATH=/tmp/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 $S run-tool svfline --help >/dev/null; done
+    (cd evil && env -i PATH=$TMP_DIR/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 $S --probe)   # cwd not on sys.path
+    for i in 1 2 3; do /usr/bin/time -f "%e s" env -i PATH=$TMP_DIR/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 $S run-tool svfline --help >/dev/null; done
     # 0.03 s x3; run-tool mkfont --help 0.05 s; python3 -P tools/mkfont.py --help 0.05 s
-    env -i PATH=/tmp/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 $S run-tool mkfont $W/ttf/neodgm/neodgm.ttf F16.SVF --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+    env -i PATH=$TMP_DIR/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 $S run-tool mkfont $W/ttf/neodgm/neodgm.ttf F16.SVF --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
     python3 -P $W/tools/mkfont.py $W/ttf/neodgm/neodgm.ttf S16.SVF --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
     cmp F16.SVF S16.SVF && echo identical          # identical, 115,460 bytes; frozen 0.30-0.34 s, source 0.24 s
     $S run-tool srcprep --help; $S run-tool instancer --help; $S run-tool jamoset --help; $S run-tool macfbit_svf --help
@@ -61,7 +66,7 @@ reachable (28), plus `facecheck` and `recog_score` (hidden imports); `jamofill`,
 ## 3. The frozen server end to end
 
     TOK=$(python3 -c "import secrets; print(secrets.token_hex(16))")
-    env -i PATH=/tmp/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 SVF_MAKER_REPO=$W SVF_MAKER_DATA=/tmp/pyi-probe/data \
+    env -i PATH=$TMP_DIR/pyi-probe/emptybin HOME=$HOME LANG=C.UTF-8 SVF_MAKER_REPO=$W SVF_MAKER_DATA=$TMP_DIR/pyi-probe/data \
         SVF_MAKER_BIND=127.0.0.1:0 SVF_MAKER_TOKEN=$TOK $S serve &
     # "svf-maker listening on 127.0.0.1:38253"; one process (ps: no re-exec parent)
     curl -s -o /dev/null -w "%{http_code} %{size_download}\n" http://127.0.0.1:$PORT/           # 200 9222
@@ -69,7 +74,7 @@ reachable (28), plus `facecheck` and `recog_score` (hidden imports); `jamofill`,
     curl -s http://127.0.0.1:$PORT/api/caps                                  # 403 {"error": "missing or wrong token"}
     curl -s -H "X-Maker-Token: $TOK" http://127.0.0.1:$PORT/api/caps         # {"wasm": true, "mask_libs": false, "recog": false, "local": true}
     mkdir srcdir jobout && cp $W/ttf/neodgm/neodgm.ttf srcdir/
-    python3 -I $W/desktop/spike/client.py $PORT $TOK /tmp/pyi-probe/srcdir /tmp/pyi-probe/jobout
+    python3 -I $W/desktop/spike/client.py $PORT $TOK $TMP_DIR/pyi-probe/srcdir $TMP_DIR/pyi-probe/jobout
     # font: TTF; conjoining jamo (GSUB) outline-composite / probe: 200 / state: done None in 0.7 s
     # step s01 precomposed done 0 [[<sidecar>, '-P', '<W>/tools/mkfont.py']]   (the spike's shim; the design uses run-tool)
     # files: svf/dos/NEODU16.SVF svf/dos/NEODU.TXT build-<id>/{BUILD.md,FACES.TSV.lines,LICENCES.tsv.lines,FAMILIES.tsv.lines}
@@ -78,12 +83,12 @@ reachable (28), plus `facecheck` and `recog_score` (hidden imports); `jamofill`,
     # GET preview/<font>/source.png -> 200, 521-byte PNG (Pillow + its FreeType binding work in the bundle)
     kill -TERM $PID                          # exited after ~200 ms; no .svf-maker-<id>/ left in jobout
 
-    node $W/desktop/spike/spawn-probe.mjs $S $W /tmp/pyi-probe/data2
+    node $W/desktop/spike/spawn-probe.mjs $S $W $TMP_DIR/pyi-probe/data2
     # port 42373 after 96 ms; caps 200 {...}; exit 0 null after 16 ms   (SIGTERM to the group of a detached child)
 
 ## 4. Electron probes (xvfb)
 
-    cd /tmp/el-probe && xvfb-run -a node_modules/.bin/electron --no-sandbox $W/desktop/spike/electron-header-probe.js
+    cd $TMP_DIR/el-probe && xvfb-run -a node_modules/.bin/electron --no-sandbox $W/desktop/spike/electron-header-probe.js
     # {"electron":"45.2.3","chrome":"156.0.8078.80","node":"24.22.2","apiStatus":200,
     #  "seen":[{"url":"/","tok":null},{"url":"/probe.js","tok":null},{"url":"/api/caps","tok":"deadbeef"}],
     #  "cancelled":[],"foreign":"rejected:Failed to fetch"}
@@ -99,7 +104,7 @@ reachable (28), plus `facecheck` and `recog_score` (hidden imports); `jamofill`,
 
 ## 5. AppImage (electron-builder)
 
-    cp -r $W/desktop/spike/appimage-probe /tmp/el-probe/app && cd /tmp/el-probe/app   # adjust extraResources "from" paths
+    cp -r $W/desktop/spike/appimage-probe $TMP_DIR/el-probe/app && cd $TMP_DIR/el-probe/app   # adjust extraResources "from" paths
     ../node_modules/.bin/electron-builder --linux AppImage --publish never --config.electronVersion=45.2.3
     # bare app: real 0m6.853s, downloads appimage-12.0.1.7z + 7zip-linux-x64.tar.gz (GitHub) into ~/.cache/electron-builder
     # -> out/svf-maker-probe-0.0.1.AppImage 125,839,701 bytes
@@ -110,12 +115,12 @@ reachable (28), plus `facecheck` and `recog_score` (hidden imports); `jamofill`,
     # AppRun: 'if ! unshare -Ur true; then NO_SANDBOX=(--no-sandbox)'; .desktop: "Exec=AppRun --no-sandbox %U"
     xvfb-run -a ./squashfs-root/svf-maker-probe app2    # the binary without the flag:
     # FATAL ... The SUID sandbox helper binary was found, but is not configured correctly ... chrome-sandbox ... mode 4755
-    node $W/desktop/spike/spawn-probe.mjs squashfs-root/resources/sidecar/sidecar-lean squashfs-root/resources/repo /tmp/d3
+    node $W/desktop/spike/spawn-probe.mjs squashfs-root/resources/sidecar/sidecar-lean squashfs-root/resources/repo $TMP_DIR/d3
     # port 33523 after 145 ms; caps 200; exit 0 after 17 ms
 
 ## 6. Pillow: PyPI wheel against Debian's package
 
-    python3 -m pip install --target /tmp/pyi-probe/wheel-site pillow==10.2.0
+    python3 -m pip install --target $TMP_DIR/pyi-probe/wheel-site pillow==10.2.0
     # pillow.libs: libfreetype-f154df84.so.6.20.1 libharfbuzz-2093a78b.so.0.60830.0 libjpeg libtiff libwebp libopenjp2 liblcms2 libpng16 ...
     # both: freetype 2.13.2, raqm 0.10.1
     # mkfont neodgm.ttf 16 px 1 bpp: 115,460 bytes, cmp identical; NanumGothic-Bold.ttf 17 px 2 bpp: 207,684 bytes, cmp identical

@@ -246,3 +246,16 @@ try-lock (0.5 s) and are recorded as pending when a bake holds them. This was ac
 - The lifecycle lock is held across the raw stat/lstat/mkdir of `ensure_files_dir` and across the pre-queue reads of
   `POST run` (inputs, licence hashing, planning, range-file copy). A hung removable or network volume used by one job
   delays creates, activations and idle cleanup of unrelated jobs until the call returns.
+
+## 9. Desktop app: closing evidence (cards t_f04f1355 shell, t_e64a56a7 packaging)
+
+| Closing measurement | Evidence |
+|---|---|
+| The shell opens the app on Linux, picks files and folders through the bridge, converts a sample into an output folder and quits cleanly with no orphan | `desktop/test/e2e.js` (`bridge`, `flow`, `open-folder`, guards, restart, privacy; dev and packaged passes, 30 checks) and `desktop/test/lifecycle.test.js` (close, SIGTERM, SIGKILL of the shell, second instance); the release check's `smoke` |
+| A frozen sidecar converts the OFL sample set byte-identically to source mode in a clean environment without python on PATH | `maker/test/test_frozen.py` (26 tests, `FrozenByteEqualTest`, `test_frozen_jobs_match_source`, `test_frozen_notes_equal_source` under an empty PATH and `env -i`), again on the extracted AppImage with no skip (`release-check.sh` `frozen`) |
+| An AppImage builds with a local script and runs | `desktop/build/build-appimage.sh`; the extracted `AppRun` smoke (no FUSE on the host) |
+| THIRD-PARTY generation | `desktop/test/third-party.test.js` (12 tests) and the `licences` check over the extraction |
+| Windows and macOS steps documented as UNVERIFIED | `docs/maker-desktop.md` |
+
+Orphan and lifecycle rules (`maker/toolreg.py`, `--exit-with-parent`, `instance.lock`) are tested in `test_toolreg.py`,
+`test_server_signals.py` and `test_frozen.py`. Not verified: see `docs/maker-desktop.md`.

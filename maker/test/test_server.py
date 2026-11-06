@@ -1102,6 +1102,12 @@ class ApiTest(ApiBase):
         self.assertIn("No proprietary font", notice)
         self.assertIn("responsibility", notice)
         self.assertIn("local mode", recipes[recipes.index("## Classic Mac Korean bitmap fonts"):])
+        # the desktop app (card t_f04f1355 / t_e64a56a7)
+        for text in ("## Desktop app", "run-tool", "SVF_RECOG_PYTHON", "JAMOSET_PYLIB", "~/.config/svf-maker/maker",
+                     "makes no network connection", "not built or verified"):
+            self.assertIn(text, readme, text)
+        self.assertIn("THIRD-PARTY.txt", notice)
+        self.assertIn("It contains no font that is not in `svf/`.", notice)
 
     def test_page_advanced_lists_the_new_keys(self):
         with open(os.path.join(MAKER_DIR, "static", "maker.js"), encoding="utf-8") as f:
