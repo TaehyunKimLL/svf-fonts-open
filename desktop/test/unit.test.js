@@ -192,3 +192,9 @@ test('no outbound code (spec 6.9)', () => {
     assert.ok(!/fetch\(\s*['"`]http/.test(text), f + ' fetch of an absolute URL');
   }
 });
+
+test('versions agree', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  const py = /^VERSION = "([^"]+)"/m.exec(fs.readFileSync(path.join(REPO, 'maker', 'sidecar.py'), 'utf8'))[1];
+  assert.equal(pkg.version, py);
+});
