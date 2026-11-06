@@ -1342,6 +1342,18 @@ order states its observed count. Every browser/Electron run takes `$HOME/work/tm
 31. **Upload-job notes keep absolute repo paths** (7.2's "same text in both modes" holds for the prefix only): the
     johab844 base face would carry the checkout or AppImage mount path. The plan relativizes repo-rooted tokens in
     notes, `BUILD.md` and `log.md` (Task 1).
+32. **Both electron-builder AppImage toolsets ship GPL-3.0 `libindicator` (found in Task 7/8).** The legacy
+    `appimage-12.0.1` and the newer `1.0.2`/`1.0.3` toolsets copy `libindicator` (GPL-3.0) beside `libappindicator`,
+    `libgconf-2`, `libnotify`, `libXss`, `libXtst` into the AppImage's `usr/lib`; spec 8.10 forbids GPL in the package
+    and the generator fails on it, so the plan's "try the newer toolset" does not help. **Controller ruling
+    (2026-11-06):** `build-appimage.sh` points electron-builder at a pruned copy of the legacy toolset
+    (`APPIMAGE_TOOLS_PATH`, electron-builder's documented override) built by the checked-in
+    `desktop/build/prune-appimage-toolset.py` from the downloaded archive, driven by `desktop/build/appimage-toolset.json`
+    (archive and removed-file sha256, verified before and recorded in THIRD-PARTY.txt); `libindicator` and
+    `libappindicator` (which cannot load without it; tray icons only) are removed; no binary is kept in the repository;
+    `release-check.sh` proves the pruned AppImage still starts (extracted `AppRun` smoke; FUSE is not available here) and
+    that no GPL library remains anywhere in the tree (generator fail-closed); `docs/maker-desktop.md` says tray-icon
+    support is not shipped and why.
 
 ## Review dispositions
 

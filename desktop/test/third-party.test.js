@@ -209,3 +209,11 @@ test('no --sources -> NO without a problem', async (t) => {
   withoutProblems(r);
   assert.ok(r.text.includes('corresponding sources archived: NO'));
 });
+
+test('the toolset modification record is printed', async (t) => {
+  const f = fixture(t);
+  const record = { toolset: 'appimage-12.0.1', archive: 'a.7z', archive_sha256: 'ab'.repeat(32), why: 'GPL', removed: { 'lib/x64/libindicator.so.7': 'cd'.repeat(32) } };
+  const r = await generate({ ...f.opts, toolsetRecord: record });
+  withoutProblems(r);
+  for (const needle of ['AppImage toolset modification', 'lib/x64/libindicator.so.7  ' + 'cd'.repeat(32), 'ab'.repeat(32)]) assert.ok(r.text.includes(needle), needle);
+});

@@ -92,7 +92,7 @@ function parseLicences(file) {
 }
 
 export async function generate(opts) {
-  const { sidecar, electron, usrlib, pysite, repo, meta, sources } = opts;
+  const { sidecar, electron, usrlib, pysite, repo, meta, sources, toolsetRecord } = opts;
   const map = opts.map;
   const provenance = opts.provenance || {};
   const problems = [];
@@ -238,6 +238,11 @@ export async function generate(opts) {
   section('Electron native libraries', (c) => c.where === 'electron');
   section('AppImage usr/lib libraries', (c) => c.where === 'usrlib');
   section('AppImage runtime', (c) => c.where === 'appimage-runtime');
+  if (toolsetRecord) {
+    hr('AppImage toolset modification');
+    out.push('The AppImage was built with a copy of electron-builder\'s ' + toolsetRecord.toolset + ' toolset (archive ' + toolsetRecord.archive + ', sha256 ' + toolsetRecord.archive_sha256 + ')',
+      'from which these files were removed (sha256 of each):', ...Object.entries(toolsetRecord.removed).map(([k, v]) => '  ' + k + '  ' + v), '', 'Reason: ' + toolsetRecord.why, '');
+  }
   hr('Copyleft check');
   const copyleft = [...components.values()].filter((c) => ['lgpl', 'gpl-exception', 'gcc-rle', 'gpl'].includes(c.entry.class));
   for (const c of copyleft) out.push('- ' + c.component + ' ' + c.version + ' (' + c.entry.class + ', ' + c.entry.licence + ')');
@@ -255,7 +260,8 @@ async function main(argv) {
   const map = JSON.parse(fs.readFileSync(args.map || path.join(HERE, 'third-party-map.json'), 'utf8'));
   const provenance = JSON.parse(fs.readFileSync(args.provenance, 'utf8'));
   const r = await generate({ sidecar: args.sidecar, provenance, electron: args.electron, usrlib: args.usrlib, pysite: args.pysite, repo: args.repo,
-    meta: args.meta, map, sources: args.sources, licencesDir: args.licences });
+    meta: args.meta, map, sources: args.sources, licencesDir: args.licences,
+    toolsetRecord: args['toolset-record'] ? JSON.parse(fs.readFileSync(args['toolset-record'], 'utf8')) : undefined });
   if (r.problems.length) { process.stderr.write(r.problems.join('\n') + '\n'); return 1; }
   fs.writeFileSync(args.out, r.text);
   process.stdout.write('wrote ' + args.out + ' (' + r.components.length + ' components)\n');

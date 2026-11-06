@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+global.SVF_MAKER_EMBEDDED = true;                       // main.js must not auto-start: this script calls start()
 const electron = require('electron');
 const { app, BrowserWindow, session } = electron;
 

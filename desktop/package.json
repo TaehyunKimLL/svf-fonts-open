@@ -14,5 +14,51 @@
   "devDependencies": {
     "electron": "45.2.3",
     "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "org.svf-fonts.maker",
+    "productName": "svf-maker",
+    "electronVersion": "45.2.3",
+    "npmRebuild": false,
+    "publish": null,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "starting.html",
+      "lib/**",
+      "build/icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/out/sidecar/svf-maker-sidecar",
+        "to": "sidecar/svf-maker-sidecar"
+      },
+      {
+        "from": "build/out/repo",
+        "to": "repo"
+      },
+      {
+        "from": "build/out/THIRD-PARTY.txt",
+        "to": "THIRD-PARTY.txt"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icon.png",
+      "desktop": {
+        "entry": {
+          "Name": "SVF maker"
+        }
+      },
+      "syncDesktopName": true,
+      "artifactName": "${productName}-${version}.${ext}"
+    }
   }
 }

@@ -283,9 +283,9 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
   return handle;
 }
 
-// The app entry: Electron's require.main is not this module, and module.parent (deprecated in the docs only) is unset
-// exactly for the main script; e2e.js requires us and so has a parent.
-if (!module.parent) {
+// The app entry. Electron's require.main is not this module, and module.parent is not reliable inside app.asar (the
+// packaged app never started with it); the one embedder, test/e2e.js, sets global.SVF_MAKER_EMBEDDED first.
+if (!global.SVF_MAKER_EMBEDDED) {
   app.whenReady().then(() => start()).catch((e) => { process.stderr.write(String(e && e.stack || e) + '\n'); app.exit(1); });
 }
 module.exports = { start };
