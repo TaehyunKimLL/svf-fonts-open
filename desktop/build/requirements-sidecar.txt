@@ -1,0 +1,5 @@
+# The wheels the frozen sidecar is built from and the byte-equal reference runs on (D6, pinned).
+# maker/build-sidecar.sh installs them with `pip install --target` (python3 -m venv does not work on the build host).
+pyinstaller==6.22.3
+pillow==10.2.0
+fonttools==4.66.1

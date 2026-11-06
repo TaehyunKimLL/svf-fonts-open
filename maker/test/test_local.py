@@ -26,7 +26,7 @@ import fixtures
 import localfx
 import preview
 import server
-from localfx import LocalBase, mode_of, walk_rel
+from localfx import LocalBase, LocalRunBase, mode_of, walk_rel
 
 
 class LocalJobTest(LocalBase):
@@ -248,34 +248,6 @@ class LocalJobTest(LocalBase):
         self.assertEqual(r[0], 404)
         self.assertEqual(json.loads(r[2])["error"], "output folder is gone or changed")
         self.assertEqual(os.listdir(self.out), [])
-
-
-class LocalRunBase(LocalBase):
-    """Select the TTF of `a` (mkfont 16 px 1 bpp, dest `dos`, its OFL.txt) and the DOS raw font of `b` (844, jamo, dest
-    `jamo-extra`, no licence: a local job does not need one), then run."""
-
-    def select(self, jid, edit=None):
-        job = self.job(jid)
-        st = job["settings"]
-        by = {(f["root"], f["path"]): f["id"] for f in job["fonts"]}
-        self.ttf, self.dos, self.eng = by[(0, "Munjo.ttf")], by[(1, "HAN.FNT")], by[(1, "ENG.FNT")]
-        st["fonts"][self.ttf].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
-        st["fonts"][self.dos].update(selected=True, dest="jamo-extra", kinds=["jamo"], dos_layout="844")
-        if edit:
-            edit(st)
-        status, body = self.api("PUT", "/api/jobs/%s/settings" % jid, st)
-        self.assertEqual(status, 200, body)
-
-    def done_job(self, edit=None):
-        jid = self.local_job()
-        self.select(jid, edit)
-        job = self.run_to_done(jid)
-        self.assertEqual(job["state"], "done", job.get("error"))
-        return jid, job
-
-    def read_out(self, rel):
-        with open(os.path.join(self.out, rel), "rb") as f:
-            return f.read()
 
 
 class LocalRunTest(LocalRunBase):

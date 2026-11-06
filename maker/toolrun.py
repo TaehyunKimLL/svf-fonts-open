@@ -145,15 +145,6 @@ def set_pdeathsig(sig):
         return False
 
 
-def parent_is_sidecar():
-    """True when this process's parent is the executable we are running as (Linux `/proc/<ppid>/exe`); used by a frozen
-    `run-tool` right after `set_pdeathsig`: a tool whose sidecar died before the prctl has another parent."""
-    try:
-        return os.path.realpath("/proc/%d/exe" % os.getppid()) == os.path.realpath(sys.executable)
-    except OSError:
-        return False
-
-
 def alive(pid):
     """True when process @p pid exists and is not a zombie. Linux reads the state of `/proc/<pid>/stat`; elsewhere
     `kill(pid, 0)` (a zombie then counts as alive: the darwin limitation)."""

@@ -718,6 +718,12 @@ sidecar itself dies (crash, OOM kill, `kill -9`). The next sidecar start then sw
    handler threads), so source mode relies on layer 1 alone. (The prctl in `run-tool` is not verified yet: 10.2 adds
    the test.)
 
+Implementation note (Group B): `run-tool` guards the fork-to-prctl race by comparing `getppid()` before and after the
+prctl (a changed parent means the sidecar died in that window: exit 1), not `/proc/<ppid>/exe` against the sidecar
+executable - a person or the frozen test may run `run-tool` directly, and that parent is not the sidecar. A kill in the
+first ~0.1 s of the tool's start-up (before the `getppid()` read) is the one window left; the registry reap of the next
+start covers it.
+
 The test (10.2, "SIGKILL the sidecar during a tool"): a frozen local job whose step is `jamovec master` on a large
 synthetic composite TTF (minutes; the design's blocking step, since a FIFO is refused by `sources.py` - a source must
 be a regular file or folder); SIGKILL the sidecar while the tool runs; assert within 3 s that the tool is gone

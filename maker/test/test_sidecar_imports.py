@@ -13,8 +13,11 @@ REPO_DIR = os.path.dirname(MAKER_DIR)
 TOOLS_DIR = os.path.join(REPO_DIR, "tools")
 import unittest
 
-ROOTS = ["server", "jamoset", "jamovec", "mkfont", "macfbit_svf", "macfbit3", "macsfnt", "bdfface", "johab844",
-         "svf2to3", "svfdy", "svfline", "srcprep"]
+for _p in (MAKER_DIR, TOOLS_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+ROOTS = ["sidecar"]
 EXPECTED = {"archive", "bdfface", "caps", "detect", "jamoaa", "jamoadapt", "jamofit", "jamoset", "jamovec", "jobs",
             "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets", "preview", "quality",
             "routes", "server", "settings", "sources", "srcprep", "svf2to3", "svfdy", "svfline", "toolreg", "toolrun",
@@ -23,6 +26,7 @@ SP = "sys.path entry for the tool's own directory (python -I drops it); frozen t
 FILE_USES = {   # every __file__ use in a reachable module, with why it is right frozen (spec 7.5/7.6)
     ("server", "MAKER_DIR"): "static/ is bundled as <_internal>/static",
     ("server", "repo_dir"): "main(): the default repo dir; the shell passes SVF_MAKER_REPO (the shipped repo/)",
+    ("sidecar", "MAKER_DIR"): "source-mode sys.path entry and the default repo dir for --version; frozen: not inserted",
     ("toolrun", "MAKER_DIR"): "maker_script() source mode only; frozen launches use run-tool",
     ("srcprep", "MAKER_DIR"): "sys.path entry for maker/ (srcprep is a run-tool entry frozen)",
     ("jamoset", "DEFAULT_MASK_FONT"): "mask_font_beside(); None frozen (no ScummVM tree); JAMOSET_MASK_FONT is forwarded (base_env)",
@@ -86,7 +90,10 @@ class SidecarImportsTest(unittest.TestCase):
         cls.modules, cls.third = _graph()
 
     def test_reachable_set(self):
-        self.assertEqual(set(self.modules), EXPECTED)
+        import sidecar
+        self.assertEqual(set(self.modules), set(sidecar.GRAPH_MODULES))
+        self.assertTrue(EXPECTED | {"sidecar", "toolreg"} <= set(self.modules))
+        self.assertEqual(set(self.modules), EXPECTED | {"sidecar"})
 
     def test_third_party(self):
         self.assertEqual(self.third, {"PIL", "fontTools", "freetype", "uharfbuzz"})

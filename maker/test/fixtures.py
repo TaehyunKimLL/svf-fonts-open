@@ -165,7 +165,7 @@ def _nanum_licence(path):
 # 16 px (the pieces must survive jamovec render and mkfont), and every coordinate stays inside the em and the hhea
 # ascent 800 / descent -200.
 
-def _composite_ttf(path):
+def _composite_ttf(path, n_syllables=None):
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
     from fontTools.ttLib.tables._g_l_y_f import Glyph, GlyphComponent
@@ -236,6 +236,12 @@ def _composite_ttf(path):
         spec[0xAC00 + j * 28] = ["ini_0", "med_%d" % j]
     for k in range(1, 28):
         spec[0xAC00 + k] = ["ini_0", "med_0", "fin_%d" % k]
+    if n_syllables is not None:                 # a big font: the first n_syllables Hangul syllables, each a composite
+        spec = {}
+        for cp in range(0xAC00, 0xAC00 + n_syllables):
+            i, rest = divmod(cp - 0xAC00, 588)
+            j, k = divmod(rest, 28)
+            spec[cp] = ["ini_%d" % i, "med_%d" % j] + (["fin_%d" % k] if k else [])
     for cp, names in spec.items():
         glyphs[syl_name(cp)] = composite(names)
 
