@@ -19,6 +19,18 @@ electron.dialog.showOpenDialog = async () => dialogQueue.shift() || { canceled: 
 electron.dialog.showMessageBox = async (...a) => { messageBoxes.push(a); return { response: 0 }; };
 electron.shell.showItemInFolder = (p) => { revealed.push(p); };
 
+// A stub in front of the real sidecar command: it prints one stderr line carrying a path with spaces and the per-launch
+// token, then execs the real command (same pid). The shell logs the sidecar's last stderr lines, so shell.log must hold
+// the redacted line (positive pin) and neither the path nor either token.
+const CANARY_DIR = '/home/canary/My Fonts/Secret Project/out';
+const { resolveLaunch } = require('../lib/paths.js');
+function wrappedLaunch(opts, ud) {
+  const base = resolveLaunch({ resourcesPath: opts.resourcesPath || process.resourcesPath, appDir: path.join(__dirname, '..'),
+    env: opts.env, pid: process.pid, userData: ud });
+  const script = 'echo "test-stderr: ' + CANARY_DIR + ' $SVF_MAKER_TOKEN" >&2; exec "$@"';
+  return Object.assign({}, base, { cmd: 'sh', args: ['-c', script, 'sh', base.cmd].concat(base.args) });
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitUntil(fn, ms, what) {
   const end = Date.now() + ms;
@@ -76,7 +88,7 @@ async function pass(name, opts) {
   const { main } = { main: require('../main.js') };
   fs.rmSync(path.join(TMP, name), { recursive: true, force: true });       // every run starts from nothing
   const ud = mkdir(name, 'ud');
-  const handle = await main.start(Object.assign({ userData: ud, quitOnClose: false }, opts));
+  const handle = await main.start(Object.assign({ userData: ud, quitOnClose: false, launch: wrappedLaunch(opts, ud) }, opts));
   const pids = { shell: process.pid, sidecar: handle.sidecar.pid };
   const tmpA = mkdir(name, 'tmpA'), tmpB = mkdir(name, 'tmpB'), outA = mkdir(name, 'outA'), outB = mkdir(name, 'outB');
   const outC = mkdir(name, 'realparent', 'outC'), outD = mkdir(name, 'outD');
@@ -86,9 +98,11 @@ async function pass(name, opts) {
   for (const d of [tmpA, tmpB]) fs.copyFileSync(path.join(REPO, 'ttf', 'neodgm', 'neodgm.ttf'), path.join(d, 'neodgm.ttf'));
   const T = (n) => name + ': ' + n;
   let jobA = null, jobB = null, jobC = null;
+  const tokens = [];                                          // every sidecar token this pass saw
 
   await step(T('handshake'), async () => {
     await waitUntil(() => handle.sidecar.port > 0, 75000, 'port');
+    tokens.push(handle.sidecar.token);
     assert.match(logText(handle), /sidecar port=\d+/);
     assert.match(logText(handle), new RegExp('sidecar start mode=' + (name === 'packaged' ? 'packaged' : 'dev')));
   });
@@ -162,16 +176,60 @@ async function pass(name, opts) {
     assert.match(logText(handle), /open-output: refused/);
   });
   await step(T('ipc-sender'), async () => {
-    const before = dialogQueue.length;
     dialogQueue.push({ canceled: false, filePaths: [tmpA] });
-    const probe = new BrowserWindow({ show: false, webPreferences: { partition: 'maker', contextIsolation: true, sandbox: true,
+    const before = dialogQueue.length;                       // taken after the push: the entry must still be there
+    const probe = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true,
       preload: path.join(__dirname, 'probe-preload.js') } });
     await probe.loadURL('data:text/html,<p>probe</p>');
     const out = await probe.webContents.executeJavaScript(`window.probeInvoke('maker:pick-files').then(() => 'ok', () => 'rejected')`);
     probe.destroy();
     assert.equal(out, 'rejected');
-    assert.equal(dialogQueue.length, before + 1, 'the dialog stub was consumed');
+    assert.equal(dialogQueue.length, before, 'the dialog stub must not have been consumed');
     dialogQueue.length = 0;
+  });
+  await step(T('guards on every web contents'), async () => {
+    // a second web contents (not the main window) must get the navigation and window guards from web-contents-created
+    const probe = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true } });
+    await probe.loadURL('data:text/html,<p>second</p>');
+    const url = probe.webContents.getURL();
+    const opened = await probe.webContents.executeJavaScript(`window.open('http://example.invalid/') === null`);
+    await probe.webContents.executeJavaScript(`location.href = 'http://example.invalid/'; 0`);
+    await sleep(1000);
+    const after = probe.webContents.getURL();
+    probe.destroy();
+    assert.equal(opened, true, 'window.open must be denied');
+    assert.equal(after, url, 'will-navigate must keep the second contents where it is');
+  });
+  await step(T('request filter cancels what no other guard stops'), async () => {
+    // a page with no CSP in the maker session (starting.html) asks a local listener for an image and a fetch
+    const http = require('node:http');
+    const seen = [];
+    const srv = http.createServer((req, res) => { seen.push(req.url); res.end('x'); });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const port = srv.address().port;
+    const probe = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, partition: 'maker' } });
+    try {
+      await probe.loadFile(path.join(__dirname, '..', 'starting.html'));
+      const r = await probe.webContents.executeJavaScript(`new Promise((resolve) => {
+        const img = new Image(); img.onload = img.onerror = () => resolve('img-done');
+        img.src = 'http://127.0.0.1:${port}/img'; document.body.appendChild(img);
+        fetch('http://127.0.0.1:${port}/fetch').catch(() => 0); })`);
+      await sleep(700);
+      assert.equal(r, 'img-done');
+      assert.deepEqual(seen, [], 'the listener saw ' + seen.join(','));
+    } finally { probe.destroy(); srv.close(); }
+  });
+  await step(T('renderer crash keeps the open job'), async () => {
+    const boxes = messageBoxes.length;
+    for (let i = 0; i < 2; i++) {                                // twice: a clean reload resets the "crashed twice" counter
+      await handle.win.loadURL(handle.sidecar.origin + '/?job=' + jobA);
+      await waitUntil(() => handle.win.webContents.getURL().includes('?job=' + jobA), 20000, 'job page');
+      const reloaded = new Promise((resolve) => handle.win.webContents.once('did-finish-load', resolve));
+      handle.win.webContents.forcefullyCrashRenderer();
+      await Promise.race([reloaded, sleep(30000).then(() => { throw new Error('no reload after crash ' + i); })]);
+      assert.ok(handle.win.webContents.getURL().includes('?job=' + jobA), 'url after crash ' + i + ': ' + handle.win.webContents.getURL());
+    }
+    assert.equal(messageBoxes.length, boxes, 'no "crashed twice" box');
   });
   await step(T('restart'), async () => {
     await handle.win.loadURL(handle.sidecar.origin + '/');
@@ -182,20 +240,34 @@ async function pass(name, opts) {
     await waitUntil(() => messageBoxes.length > boxes, 20000, 'message box');
     await waitUntil(() => handle.sidecar.pid !== old.pid && handle.sidecar.port > 0 && handle.sidecar.pid > 0, 80000, 'new sidecar');
     assert.notEqual(handle.sidecar.token, old.token);
+    tokens.push(handle.sidecar.token);
     await waitUntil(async () => (await run(handle, `return (await fetch('/api/caps')).status`).catch(() => 0)) === 200, 30000, 'caps after restart');
     pids.sidecar2 = handle.sidecar.pid;
   });
+  await step(T('quit within the debounce keeps the handed-out folder'), async () => {
+    const outE = mkdir(name, 'outE');
+    dialogQueue.push({ canceled: false, filePaths: [outE] });
+    await run(handle, `await window.svfMaker.pickOutputDir();`);
+    await handle.shutdown();                                      // well inside the 500 ms save debounce
+    const saved = JSON.parse(fs.readFileSync(path.join(ud, 'shell-state.json'), 'utf8'));
+    assert.ok(saved.handedOut.includes(fs.realpathSync(outE)), JSON.stringify(saved.handedOut));
+  });
   await step(T('log privacy'), async () => {
     const text = logText(handle);
-    assert.ok(!text.includes(handle.sidecar.token));
+    assert.equal(tokens.length, 2);
+    for (const tok of tokens) assert.ok(tok && !text.includes(tok), 'a token is in the log');
     for (const d of [tmpA, tmpB, outA, outB, outC, outCLink, fs.realpathSync(tmpA), fs.realpathSync(outA), outD]) assert.ok(!text.includes(d), 'log has ' + d);
     assert.ok(!text.includes('/api/jobs/'));
-    assert.ok(!text.includes('sweep: /'));
-    for (const l of text.split('\n').filter((x) => x.includes('sidecar stderr:'))) assert.ok(!/\/\w/.test(l.split('sidecar stderr:')[1]), 'unredacted sidecar line: ' + l);
+    // the positive pin: the stub's stderr line (a path with spaces, a token) is in the log, redacted, for both sidecars
+    const lines = text.split('\n').filter((l) => l.includes('sidecar stderr:'));
+    assert.ok(lines.length >= 2, 'expected the redacted stderr line of both sidecars, got ' + lines.length);
+    for (const l of lines) assert.match(l, /sidecar stderr: test-stderr: <path>$/);
+    for (const frag of ['Secret', 'My Fonts', 'canary']) assert.ok(!text.includes(frag), 'log has ' + frag);
     assert.match(text, /pick-folder: 1/);
     assert.match(text, /sandbox renderer sandbox: off \(--no-sandbox; user namespaces \w+\)/);
+    assert.match(text, /restart allowed/);
+    assert.match(text, /stopped \d+ sidecar\(s\) in \d+ ms/);
   });
-  await handle.shutdown();
   for (const p of [pids.sidecar, pids.sidecar2]) {
     if (!p) continue;
     try { process.kill(p, 0); console.log('E2E NOTE pid ' + p + ' still exists (zombie or alive)'); } catch (e) { /* gone */ }

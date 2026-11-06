@@ -63,7 +63,7 @@ D10 window size/zoom persisted. D11 `getppid` polling plus `PR_SET_PDEATHSIG` on
     (plan estimates); a different observed N goes into the commit body with the reason. G2 stays green at every task.
   - G3 `python3 -m unittest discover -s maker/test -p test_server.py -k test_page_js_tables_match_python` -> `OK`
     (the python and `maker.js` tables in sync; no task changes either side, the gate proves it).
-  - G4 (tasks touching `desktop/`) `cd desktop && node --test test/unit.test.js` (Task 7 onward: `node --test
+  - G4 (tasks touching `desktop/`) `cd desktop && TMPDIR=$TMP_DIR node --test test/unit.test.js` (Task 7 onward: `node --test
     test/unit.test.js test/third-party.test.js`) -> all pass. **Explicit files only:** node 22 rejects a directory
     argument (`node --test test/` -> `Cannot find module`), and a bare `node --test` would also load the Electron-only
     `test/e2e.js` and `test/lifecycle.test.js`. `package.json` `"test"` is the same explicit list.
@@ -1156,7 +1156,7 @@ sources is the release gate (D8), documented in Task 9.
 **Interfaces:**
 - `package.json` `"build"` (validated against 26.18.0's schema): `appId "org.svf-fonts.maker"`, `productName
   "svf-maker"`, `electronVersion "45.2.3"`, `npmRebuild false`, `publish null`, `directories {"output": "dist"}`,
-  `files ["main.js", "preload.js", "starting.html", "lib/**", "package.json"]`, `extraResources [{"from":
+  `files ["main.js", "preload.js", "starting.html", "lib/**", "build/icon.png", "package.json"]` (`main.js` resolves the window icon at `<appDir>/build/icon.png`, which then exists inside the asar; Group C review), `extraResources [{"from":
   "build/out/sidecar/svf-maker-sidecar", "to": "sidecar/svf-maker-sidecar"}, {"from": "build/out/repo", "to": "repo"},
   {"from": "build/out/THIRD-PARTY.txt", "to": "THIRD-PARTY.txt"}]`, `linux {"target": ["AppImage"], "category":
   "Utility", "icon": "build/icon.png", "desktop": {"entry": {"Name": "SVF maker"}}, "syncDesktopName": true,

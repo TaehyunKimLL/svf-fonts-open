@@ -4,24 +4,38 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require('electron');
 
-const { buildEnv } = require('./lib/env.js');
-const { parsePortLine } = require('./lib/portline.js');
+const { createSupervisor } = require('./lib/supervisor.js');
 const { isOurs, withToken } = require('./lib/guard.js');
 const budget = require('./lib/budget.js');
-const { stopSidecar } = require('./lib/shutdown.js');
 const { restartAllowed } = require('./lib/restart.js');
 const { readSandbox, sandboxText } = require('./lib/sandbox.js');
 const { resolveLaunch } = require('./lib/paths.js');
-const { createLog, pathsLine, redactLine, Ring } = require('./lib/log.js');
+const { createLog, pathsLine, redactLine } = require('./lib/log.js');
 const { loadState, saveState } = require('./lib/state.js');
 
 const APP_VERSION = require('./package.json').version;
 
-async function start({ smoke, resourcesPath, env, userData, quitOnClose = true } = {}) {
+// The guards every web contents gets (spec 6.4): the main window, a devtools window, anything created later. They read
+// the running start()'s state at call time.
+let active = null;
+let guardsInstalled = false;
+function installGuards() {
+  if (guardsInstalled) return;
+  guardsInstalled = true;
+  app.on('web-contents-created', (_e, contents) => {
+    const allowed = (url) => active && isOurs(active.origin(), url, { startingUrl: active.startingUrl, devtools: active.devtools });
+    contents.on('will-navigate', (e, url) => { if (!allowed(url)) e.preventDefault(); });
+    contents.on('will-redirect', (e, url) => { if (!allowed(url)) e.preventDefault(); });
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    contents.on('will-attach-webview', (e) => e.preventDefault());
+  });
+}
+
+async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, launch: launchOverride } = {}) {
   smoke = smoke === undefined ? process.env.SVF_MAKER_SMOKE === '1' : smoke;
   resourcesPath = resourcesPath || process.resourcesPath;
   env = env || process.env;
@@ -34,114 +48,79 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true }
   }
   const log = createLog({ dir: path.join(userData, 'logs'), toStderr: env.SVF_MAKER_SHELL_LOG === 'stderr' });
   log.line('shell pid=' + process.pid + ' version=' + APP_VERSION);
-  const launch = resolveLaunch({ resourcesPath, appDir, env, pid: process.pid, userData });
+  // launchOverride: a test seam (the e2e wraps the real command in a stub that prints a known stderr line)
+  const launch = launchOverride || resolveLaunch({ resourcesPath, appDir, env, pid: process.pid, userData });
   fs.mkdirSync(launch.data, { recursive: true });
   const stateFile = path.join(userData, 'shell-state.json');
   const state = loadState(stateFile);
   const startingUrl = pathToFileURL(path.join(appDir, 'starting.html')).href;
   const devtools = env.SVF_MAKER_DEVTOOLS === '1';
+  const iconPath = [path.join(appDir, 'build', 'icon.png'), path.join(resourcesPath || '', 'icon.png')].find((p) => fs.existsSync(p));
 
-  // the one mutable sidecar object every handler reads at call time
-  const sidecar = { child: null, port: 0, origin: '', token: '', pid: 0, mode: launch.mode };
-  const handle = { win: null, sidecar, log, state, quitting: false };
-  const history = [];
+  const handle = { win: null, log, state, quitting: false };
+  let lastUrl = null;                                   // the maker page the window showed last (its query string included)
   let reloaded = false;
+  const sup = createSupervisor({ launch, parentEnv: env, log, onUnexpectedExit: (code, signal) => onSidecarExit(code, signal) });
+  const sidecar = sup.sidecar;                           // the one mutable object every handler reads at call time
+  handle.sidecar = sidecar;
+  const origin = () => sidecar.origin || 'http://127.0.0.1:0';
+  active = { origin, startingUrl, devtools };
+  installGuards();
 
   const ses = session.fromPartition('maker');              // no persist: prefix, so nothing reaches the disk
-  ses.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1/*'] }, (details, cb) => {
+  ses.webRequest.onBeforeSendHeaders({ urls: ['http://127.0.0.1/*', 'http://[::1]/*'] }, (details, cb) => {
     cb({ requestHeaders: withToken(details.url, details.requestHeaders, sidecar) });
   });
-  const origin = () => sidecar.origin || 'http://127.0.0.1:0';
   ses.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, cb) => {
-    cb({ cancel: !isOurs(origin(), details.url, { startingUrl, devtools }) });
+    cb({ cancel: !isOurs(origin(), details.url, { startingUrl, devtools, subresource: details.resourceType !== 'mainFrame' }) });
   });
   ses.on('will-download', (e) => e.preventDefault());
   ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   ses.setPermissionCheckHandler(() => false);
   ses.setDevicePermissionHandler(() => false);
 
-  const saveSoon = (() => {
-    let t = null;
-    return () => { clearTimeout(t); t = setTimeout(() => { try { saveState(stateFile, state); } catch (e) { /* ignore */ } }, 500); };
-  })();
+  let saveTimer = null;
+  const flush = () => { clearTimeout(saveTimer); saveTimer = null; try { saveState(stateFile, state); } catch (e) { /* ignore */ } };
+  const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(flush, 500); };
 
   // ---- the sidecar ---------------------------------------------------------------------------------------------
-  function spawnSidecar() {
-    return new Promise((resolve, reject) => {
-      const { env: childEnv, token } = buildEnv(env, { repo: launch.repo, data: launch.data });
-      const child = spawn(launch.cmd, launch.args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
-        cwd: os.homedir(), env: childEnv });
-      const ring = new Ring(50);
-      let out = '';
-      let settled = false;
-      const settle = (fn, v) => { if (!settled) { settled = true; clearTimeout(timer); fn(v); } };
-      const timer = setTimeout(() => {
-        const err = new Error('the maker did not start within ' + budget.HANDSHAKE_S + ' s');
-        err.ring = ring; err.child = child;
-        settle(reject, err);
-      }, budget.HANDSHAKE_S * 1000);
-      child.on('error', (e) => { const err = new Error('could not start the maker: ' + e.code); err.ring = ring; settle(reject, err); });
-      child.stdout.on('data', (chunk) => {                    // read for the sidecar's whole life; kept only until the port line
-        if (settled) return;
-        out += chunk.toString('utf8');
-        const parsed = parsePortLine(out);
-        if (parsed) {
-          Object.assign(sidecar, { child, port: parsed.port, origin: 'http://' + (parsed.host === '::1' ? '[::1]' : parsed.host) + ':' + parsed.port,
-            token, pid: child.pid });
-          log.line('sidecar port=' + parsed.port);
-          settle(resolve, sidecar);
-        }
-      });
-      let errBuf = '';
-      child.stderr.on('data', (chunk) => {
-        errBuf += chunk.toString('utf8');
-        let i;
-        while ((i = errBuf.indexOf('\n')) >= 0) { ring.push(errBuf.slice(0, i)); errBuf = errBuf.slice(i + 1); }
-      });
-      log.line('sidecar start mode=' + launch.mode + ' pid=' + child.pid);
-      child.on('exit', (code, signal) => {
-        log.line('sidecar exit code=' + code + ' signal=' + signal);
-        logRing(ring);                                        // the sidecar's last stderr lines, redacted (paths and hex removed)
-        if (!settled) {
-          const err = new Error('the maker exited before it was ready (exit ' + code + ')');
-          err.ring = ring;
-          settle(reject, err);
-        } else if (child === sidecar.child && !handle.quitting) {
-          onSidecarExit(code, signal, ring);
-        }
-      });
-      handle.ring = ring;
-    });
+  // The failure path of the initial start and of a restart: stop whatever is alive, say why, quit.
+  async function failStart(e, win) {
+    log.line('start failure: ' + redactLine(e.message));
+    await sup.cleanupAfterFailure(e);
+    if (!sup.quitting) {
+      const last = e.ring ? e.ring.lines().slice(-20).map(redactLine).join('\n') : '';
+      const busy = e.busy ? '\nAnother maker is still shutting down; try again in a moment.' : '';
+      await dialog.showMessageBox(win && !win.isDestroyed() ? win : null, { type: 'error', message: String(e.message) + busy, detail: last, buttons: ['Quit'] });
+    }
+    app.quit();
   }
 
-  function logRing(ring) {
-    if (!ring) return;
-    for (const line of ring.lines()) log.line('sidecar stderr: ' + redactLine(line));
-  }
-
-  async function onSidecarExit(code, signal, ring) {
-    if (!restartAllowed(history, Date.now())) {
+  async function onSidecarExit(code, signal) {
+    if (!restartAllowed(sup.history, Date.now())) {
+      log.line('restart refused: too many restarts');
       await dialog.showMessageBox(handle.win, { type: 'error', message: 'The maker stopped (exit ' + code + ') too often.', buttons: ['Quit'] });
       app.quit();
       return;
     }
     const r = await dialog.showMessageBox(handle.win, { type: 'error', message: 'The maker stopped (exit ' + (code === null ? signal : code) + '). Restart it?',
       buttons: ['Restart', 'Quit'], defaultId: 0 });
-    if (r.response !== 0) { app.quit(); return; }
-    history.push(Date.now());
+    if (r.response !== 0) { log.line('restart declined'); app.quit(); return; }
+    log.line('restart allowed');
+    sup.history.push(Date.now());
     try {
-      await spawnSidecar();
-      if (handle.win && !handle.win.isDestroyed()) await handle.win.loadURL(sidecar.origin + '/');
+      await sup.start();
+      lastUrl = sidecar.origin + '/';
+      if (handle.win && !handle.win.isDestroyed()) await handle.win.loadURL(lastUrl);
     } catch (e) {
-      await dialog.showMessageBox(handle.win, { type: 'error', message: String(e.message), buttons: ['Quit'] });
-      app.quit();
+      if (e.cancelled) return;
+      await failStart(e, handle.win);
     }
   }
 
   // ---- the window ----------------------------------------------------------------------------------------------
   const win = new BrowserWindow(Object.assign({
-    width: 1200, height: 800, show: false, title: 'SVF maker',
-    icon: path.join(appDir, 'build', 'icon.png'),
+    width: 1200, height: 800, show: false, title: 'SVF maker', icon: iconPath,
     webPreferences: { preload: path.join(appDir, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false,
       nodeIntegrationInWorker: false, webSecurity: true, allowRunningInsecureContent: false, spellcheck: false,
       partition: 'maker', devTools: devtools },
@@ -151,13 +130,17 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true }
   win.on('resize', () => { state.bounds = win.getBounds(); saveSoon(); });
   win.on('move', () => { state.bounds = win.getBounds(); saveSoon(); });
   win.webContents.setZoomFactor(state.zoom || 1);
-  win.webContents.on('will-navigate', (e, url) => { if (!isOurs(origin(), url, { startingUrl, devtools })) e.preventDefault(); });
-  win.webContents.on('will-redirect', (e, url) => { if (!isOurs(origin(), url, { startingUrl, devtools })) e.preventDefault(); });
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-attach-webview', (e) => e.preventDefault());
+  const remember = (url) => { if (sidecar.origin && url.startsWith(sidecar.origin + '/')) lastUrl = url; };
+  win.webContents.on('did-navigate', (_e, url) => remember(url));
+  win.webContents.on('did-navigate-in-page', (_e, url) => remember(url));
+  win.webContents.on('did-finish-load', () => { if (sidecar.origin && win.webContents.getURL().startsWith(sidecar.origin + '/')) reloaded = false; });
   win.webContents.on('render-process-gone', async () => {
     log.line('renderer gone');
-    if (!reloaded && sidecar.origin) { reloaded = true; win.loadURL(sidecar.origin + '/'); return; }
+    if (!reloaded) {                                    // the first crash since the last clean load: the same page again
+      reloaded = true;
+      if (lastUrl) win.loadURL(lastUrl); else win.loadFile(path.join(appDir, 'starting.html'));
+      return;
+    }
     await dialog.showMessageBox(win, { type: 'error', message: 'The window crashed twice.', buttons: ['Quit'] });
     app.quit();
   });
@@ -222,11 +205,15 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true }
 
   // ---- menu, quit ----------------------------------------------------------------------------------------------
   const zoom = (delta) => { state.zoom = Math.min(3, Math.max(0.5, Math.round((win.webContents.getZoomFactor() + delta) * 100) / 100)); win.webContents.setZoomFactor(state.zoom); saveSoon(); };
+  const sidecarVersion = () => {                         // the packaged sidecar reports its own version and Python
+    if (launch.mode !== 'packaged') return '';
+    try { return String(spawnSync(launch.cmd, ['--version'], { timeout: 5000, env: { PATH: '' } }).stdout || '').trim(); } catch (e) { return ''; }
+  };
   const about = async () => {
     const buildId = (() => { try { return fs.readFileSync(path.join(launch.repo, 'BUILD_ID'), 'utf8').split('\n')[0]; } catch (e) { return 'unknown'; } })();
     const r = await dialog.showMessageBox(win, { type: 'info', title: 'About SVF maker', buttons: ['OK', 'Third-party licences'],
       message: 'SVF maker ' + APP_VERSION, detail: ['build ' + buildId, 'Electron ' + process.versions.electron, 'Chromium ' + process.versions.chrome,
-        'Node ' + process.versions.node, handle.sandboxLine || ''].join('\n') });
+        'Node ' + process.versions.node, sidecarVersion(), handle.sandboxLine || ''].filter(Boolean).join('\n') });
     if (r.response === 1) shell.openPath(path.join(resourcesPath, 'THIRD-PARTY.txt'));
   };
   const menu = Menu.buildFromTemplate([
@@ -243,10 +230,13 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true }
     if (stopping) return stopping;
     handle.quitting = true;
     log.line('stopping the maker...');
-    stopping = sidecar.child ? stopSidecar(sidecar.child, { termWaitS: budget.STOP_WAIT_S, killWaitS: budget.KILL_WAIT_S }) : Promise.resolve({});
+    flush();                                              // a pending debounced save must not be lost to app.exit
+    stopping = sup.stopAll();                             // every child, a pending one included
     return stopping;
   };
   handle.stop = stop;
+  handle.flush = flush;
+  handle.sup = sup;
   handle.shutdown = async () => { await stop(); if (handle.win && !handle.win.isDestroyed()) handle.win.destroy(); };
   if (quitOnClose) {
     app.on('window-all-closed', () => app.quit());
@@ -265,22 +255,19 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true }
   // ---- go ------------------------------------------------------------------------------------------------------
   const showStarting = setTimeout(() => { if (!sidecar.origin && handle.win) handle.win.loadFile(path.join(appDir, 'starting.html')); }, budget.STARTING_PAGE_S * 1000);
   try {
-    await spawnSidecar();
+    await sup.start();
   } catch (e) {
     clearTimeout(showStarting);
-    log.line('start failure: ' + redactLine(e.message));
-    handle.quitting = true;
-    if (sidecar.child || e.child) await stopSidecar(e.child || sidecar.child, { termWaitS: budget.STOP_WAIT_S, killWaitS: budget.KILL_WAIT_S });
-    const last = e.ring ? e.ring.lines().slice(-20).map(redactLine).join('\n') : '';
-    await dialog.showMessageBox(win, { type: 'error', message: String(e.message), detail: last, buttons: ['Quit'] });
-    app.quit();
+    if (e.cancelled) return handle;                     // quit during the handshake: stopAll has already dealt with the child
+    await failStart(e, win);
     return handle;
   }
   clearTimeout(showStarting);
-  await win.loadURL(sidecar.origin + '/');
+  lastUrl = sidecar.origin + '/';
+  await win.loadURL(lastUrl);
 
   // the renderer's sandbox state, once, for the log and About
-  const userns = (() => { try { return spawnSync('unshare', ['-Ur', 'true'], { timeout: 5000 }).status === 0 ? 'available' : 'unavailable'; } catch (e) { return 'unknown'; } })();
+  const userns = (() => { try { const r = spawnSync('unshare', ['-Ur', 'true'], { timeout: 5000 }); return r.error ? 'unknown' : (r.status === 0 ? 'available' : 'unavailable'); } catch (e) { return 'unknown'; } })();
   const noSandboxSwitch = process.argv.includes('--no-sandbox');
   handle.sandboxLine = sandboxText(readSandbox(win.webContents.getOSProcessId()), { noSandboxSwitch, userns });
   log.line('sandbox ' + handle.sandboxLine);
@@ -296,7 +283,9 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true }
   return handle;
 }
 
-if (!module.parent) {                                  // the app entry (Electron's require.main is not this module); e2e.js requires us
+// The app entry: Electron's require.main is not this module, and module.parent (deprecated in the docs only) is unset
+// exactly for the main script; e2e.js requires us and so has a parent.
+if (!module.parent) {
   app.whenReady().then(() => start()).catch((e) => { process.stderr.write(String(e && e.stack || e) + '\n'); app.exit(1); });
 }
 module.exports = { start };

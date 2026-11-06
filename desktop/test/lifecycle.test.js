@@ -93,13 +93,11 @@ test('SIGKILL of the shell: the sidecar exits by itself', { skip, timeout: 24000
   const sidecar = run.sidecarPid();
   const token = /SVF_MAKER_TOKEN=([0-9a-f]{32})/.exec(fs.readFileSync('/proc/' + sidecar + '/environ', 'latin1').split('\0').join('\n'))[1];
   const out = path.join(TMP, 'lc-kill9-out');
-  fs.rmSync(out, { recursive: true, force: true });
-  fs.mkdirSync(out, { recursive: true });
+  const src = path.join(TMP, 'lc-kill9-src');
+  for (const d of [out, src]) { fs.rmSync(d, { recursive: true, force: true }); fs.mkdirSync(d, { recursive: true }); t.after(() => fs.rmSync(d, { recursive: true, force: true })); }
   const created = await apiCall(run.port(), token, 'POST', '/api/jobs', JSON.stringify({ source: 'local', output_dir: out }));
   assert.equal(created.status, 200, created.body);
   const jobId = JSON.parse(created.body).id;
-  const src = path.join(TMP, 'lc-kill9-src');
-  fs.mkdirSync(src, { recursive: true });
   fs.copyFileSync(path.join(DESKTOP, '..', 'ttf', 'neodgm', 'neodgm.ttf'), path.join(src, 'neodgm.ttf'));
   const put = await apiCall(run.port(), token, 'PUT', '/api/jobs/' + jobId + '/sources', JSON.stringify({ paths: [src] }));
   assert.equal(put.status, 200, put.body);

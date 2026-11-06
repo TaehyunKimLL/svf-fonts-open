@@ -10,7 +10,11 @@ function loadState(file) {
   try {
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (raw && typeof raw === 'object') {
-      if (raw.bounds && typeof raw.bounds === 'object') state.bounds = raw.bounds;
+      if (raw.bounds && typeof raw.bounds === 'object') {          // only finite numbers of the four window keys (the object goes into BrowserWindow options)
+        const b = {};
+        for (const k of ['x', 'y', 'width', 'height']) if (Number.isFinite(raw.bounds[k])) b[k] = raw.bounds[k];
+        if (Object.keys(b).length) state.bounds = b;
+      }
       if (typeof raw.zoom === 'number' && raw.zoom > 0) state.zoom = raw.zoom;
       if (typeof raw.lastOutputDir === 'string') state.lastOutputDir = raw.lastOutputDir;
       if (Array.isArray(raw.handedOut)) state.handedOut = raw.handedOut.filter((p) => typeof p === 'string').slice(-32);

@@ -25,9 +25,16 @@ function pathsLine(channel, paths) {
   return channel + ': ' + (Array.isArray(paths) ? paths.length : paths ? 1 : 0);
 }
 
-// A sidecar stderr line made safe to log: paths and 32-hex runs (tokens) removed, cut to 300 characters.
+// A sidecar stderr line made safe to log. From the first path start (a "/" or "~/" at the start of the line or after
+// whitespace, a quote, "=", "(", "[" or ",") to the END of the line is one path field (a folder name may hold spaces and
+// colons, so there is no safe place to stop earlier); file-name-like tokens and 32-hex runs (tokens) are replaced too.
+// Cut to 300 characters. A name with spaces and no "/" can still leak its last word: the log is a diagnostic, not a
+// transcript, and the sidecar prints paths, not bare names, on its stderr.
+const FILE_EXT = 'ttf|otf|ttc|woff2?|svf|fnt|bdf|pcf|dfont|rsrc|fon|gz|zip|tsv|txt|json|py';
 function redactLine(text) {
-  return String(text).replace(/\/\S*/g, '<path>').replace(/[0-9a-f]{32}/gi, '<hex>').slice(0, 300);
+  let s = String(text).replace(/(^|[\s"'=(\[,])~?\/[^]*$/, '$1<path>');
+  s = s.replace(new RegExp('[^\\s"\'<>]+\\.(?:' + FILE_EXT + ')\\b', 'gi'), '<file>');
+  return s.replace(/[0-9a-f]{32}/gi, '<hex>').slice(0, 300);
 }
 
 class Ring {

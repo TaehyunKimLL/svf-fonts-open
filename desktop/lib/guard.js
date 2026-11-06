@@ -1,10 +1,17 @@
 'use strict';
+const { fileURLToPath } = require('node:url');
 // URL rules of the shell (spec 6.3): what the window may load, and where the token header goes.
-function isOurs(origin, url, { startingUrl, devtools } = {}) {
+// The starting page is compared as a file path (a checkout path with "%" or "[" encodes differently on the two sides).
+function sameFile(a, b) {
+  try { return fileURLToPath(a) === fileURLToPath(b); } catch (e) { return false; }
+}
+
+// @p subresource: the request is not a top-level navigation (onBeforeRequest knows; the navigation guards do not say so).
+function isOurs(origin, url, { startingUrl, devtools, subresource } = {}) {
   if (typeof url !== 'string') return false;
   if (url === origin + '/' || url.startsWith(origin + '/')) return true;
-  if (startingUrl && url === startingUrl) return true;
-  if (url.startsWith('data:')) return true;                       // the page's <link rel="icon" href="data:,">
+  if (startingUrl && (url === startingUrl || (url.startsWith('file:') && sameFile(url, startingUrl)))) return true;
+  if (subresource && url.startsWith('data:')) return true;        // the page's <link rel="icon" href="data:,">; never a navigation
   if (devtools && url.startsWith('devtools://')) return true;
   return false;
 }

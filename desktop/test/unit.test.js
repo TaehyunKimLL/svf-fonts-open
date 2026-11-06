@@ -9,7 +9,12 @@ const { spawn } = require('node:child_process');
 
 const lib = (name) => require(path.join(__dirname, '..', 'lib', name));
 const REPO = path.join(__dirname, '..', '..');
-const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'svf-unit-'));   // os.tmpdir() is TMP_DIR (TMPDIR)
+// Scratch under TMP_DIR (else os.tmpdir(), which is TMPDIR), removed when the test ends.
+const tmpDir = (t) => {
+  const d = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-unit-'));
+  t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  return d;
+};
 
 test('parsePortLine', () => {
   const { parsePortLine } = lib('portline.js');
@@ -24,7 +29,10 @@ test('isOurs', () => {
   const { isOurs } = lib('guard.js');
   const o = 'http://127.0.0.1:4000', s = 'file:///app/starting.html';
   const opts = { startingUrl: s, devtools: false };
-  for (const url of [o + '/', o + '/api/caps', s, 'data:,']) assert.equal(isOurs(o, url, opts), true, url);
+  for (const url of [o + '/', o + '/api/caps', s]) assert.equal(isOurs(o, url, opts), true, url);
+  assert.equal(isOurs(o, 'data:,', opts), false, 'data: is never a navigation');                   // top-level: refused
+  assert.equal(isOurs(o, 'data:,', { ...opts, subresource: true }), true);                       // the favicon request
+  assert.equal(isOurs(o, 'file:///a%20b/starting.html', { startingUrl: 'file:///a b/starting.html' }), true);
   for (const url of ['http://127.0.0.1:4001/', 'http://localhost:4000/', o, 'http://127.0.0.1:4000.evil/',
     'file:///etc/passwd', 'devtools://devtools/x']) assert.equal(isOurs(o, url, opts), false, url);
   assert.equal(isOurs(o, 'devtools://devtools/x', { startingUrl: s, devtools: true }), true);
@@ -137,9 +145,9 @@ test('resolveLaunch', () => {
   assert.equal(forced.repo, '/other');
 });
 
-test('log rotation, redaction, ring', () => {
+test('log rotation, redaction, ring', (t) => {
   const { createLog, pathsLine, redactLine, Ring } = lib('log.js');
-  const dir = tmpDir();
+  const dir = tmpDir(t);
   const log = createLog({ dir, toStderr: false, maxBytes: 100 });
   for (let i = 0; i < 3; i++) log.line('x'.repeat(60 + i));
   assert.deepEqual(fs.readdirSync(dir).sort(), ['shell.log', 'shell.log.1']);
@@ -153,9 +161,9 @@ test('log rotation, redaction, ring', () => {
   assert.equal(ring.lines()[0], 'l10');
 });
 
-test('state keeps only the four keys', () => {
+test('state keeps only the four keys', (t) => {
   const { loadState, saveState } = lib('state.js');
-  const f = path.join(tmpDir(), 'shell-state.json');
+  const f = path.join(tmpDir(t), 'shell-state.json');
   assert.deepEqual(Object.keys(loadState(f)).sort(), ['bounds', 'handedOut', 'lastOutputDir', 'zoom']);
   const paths = Array.from({ length: 40 }, (_, i) => '/o/' + i);
   saveState(f, { zoom: 1.1, token: 'x', lastInputDir: '/in', handedOut: paths, bounds: { width: 3 }, lastOutputDir: '/o/39' });
@@ -197,4 +205,115 @@ test('versions agree', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   const py = /^VERSION = "([^"]+)"/m.exec(fs.readFileSync(path.join(REPO, 'maker', 'sidecar.py'), 'utf8'))[1];
   assert.equal(pkg.version, py);
+});
+
+test('redactLine hides whole path fields, names and tokens', () => {
+  const { redactLine } = lib('log.js');
+  assert.equal(redactLine('sweep: /home/u/Customer Secret/out/.svf-maker-0123456789ab: PermissionError'), 'sweep: <path>');
+  assert.equal(redactLine('File "/home/u/My Fonts/Secret Project/x.py", line 3'), 'File "<path>');
+  assert.equal(redactLine("open '/a b/c d' failed"), "open '<path>");
+  assert.equal(redactLine('x=/Users/me/Fonts Folder/a.ttf'), 'x=<path>');
+  assert.equal(redactLine('see ~/Private Stuff/out'), 'see <path>');
+  assert.equal(redactLine('mkfont: Korean_Contract_2026.ttf: bad table'), 'mkfont: <file>: bad table');
+  assert.equal(redactLine('token ' + 'ab'.repeat(16) + ' end'), 'token <hex> end');
+  assert.equal(redactLine('plain message 12'), 'plain message 12');
+});
+
+test('state: bounds keep only finite numbers of the four window keys', (t) => {
+  const { loadState } = lib('state.js');
+  const f = path.join(tmpDir(t), 'shell-state.json');
+  fs.writeFileSync(f, JSON.stringify({ bounds: { x: 1, y: 2, width: 300, height: 'big', webPreferences: { sandbox: false },
+    preload: '/evil.js' }, zoom: 1.2 }));
+  assert.deepEqual(loadState(f).bounds, { x: 1, y: 2, width: 300 });
+  fs.writeFileSync(f, JSON.stringify({ bounds: { webPreferences: {} } }));
+  assert.equal(loadState(f).bounds, null);
+});
+
+// ---- the sidecar supervisor with stub sidecars (no Electron) ------------------------------------------------------
+function stubSidecar(t, body) {
+  const f = path.join(tmpDir(t), 'stub.js');
+  fs.writeFileSync(f, body);
+  return f;
+}
+function supervisorFor(t, stubFile, extra = {}) {
+  const { createSupervisor } = lib('supervisor.js');
+  const { createLog } = lib('log.js');
+  const dir = tmpDir(t);
+  const log = createLog({ dir, toStderr: false });
+  const launch = { mode: 'dev', cmd: process.execPath, args: [stubFile], repo: '/r', data: '/d' };
+  const sup = createSupervisor({ launch, parentEnv: { PATH: process.env.PATH, HOME: process.env.HOME }, log, handshakeS: 30,
+    termWaitS: 0.4, killWaitS: 3, busyRetryS: 0, ...extra });
+  sup.logText = () => fs.readFileSync(log.path, 'utf8');
+  t.after(async () => { for (const c of sup.children) { try { process.kill(-c.pid, 'SIGKILL'); } catch (e) { /* gone */ } } });
+  return sup;
+}
+const alive = (pid) => {
+  try {
+    const st = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
+    const state = st.slice(st.lastIndexOf(')') + 2).split(' ')[0];
+    return state !== 'Z' && state !== 'X';
+  } catch (e) { return false; }
+};
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('supervisor: quitting before the handshake stops the pending child (SIGTERM-ignoring included)', async (t) => {
+  for (const ignore of [false, true]) {
+    const stub = stubSidecar(t, (ignore ? "process.on('SIGTERM', () => {});" : '') + 'setInterval(() => {}, 1000);');
+    const sup = supervisorFor(t, stub);
+    const started = sup.start();
+    const outcome = started.then(() => 'started', (e) => e);
+    await sleep(400);
+    assert.equal(sup.children.size, 1, 'the pending child is tracked from the spawn');
+    const pid = [...sup.children][0].pid;
+    assert.ok(alive(pid));
+    await sup.stopAll();
+    const e = await outcome;
+    assert.equal(e.cancelled, true, String(e));
+    assert.equal(alive(pid), false, 'the pending child outlived the quit (ignore SIGTERM: ' + ignore + ')');
+  }
+});
+
+test('supervisor: a replacement that never answers and ignores SIGTERM is stopped by the one failure path', async (t) => {
+  const stub = stubSidecar(t, "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);");
+  const sup = supervisorFor(t, stub, { handshakeS: 0.5 });
+  let err = null;
+  try { await sup.start(); } catch (e) { err = e; }
+  assert.match(err.message, /did not start within/);
+  const pid = err.child.pid;
+  assert.ok(alive(pid));
+  await sup.cleanupAfterFailure(err);
+  assert.equal(alive(pid), false);
+});
+
+test('supervisor: an unterminated last stderr line reaches the ring and the log, redacted', async (t) => {
+  const stub = stubSidecar(t, "process.stderr.write('first\\nlast words /home/u/My Fonts/out', () => process.exit(1));");
+  const sup = supervisorFor(t, stub);
+  let err = null;
+  try { await sup.start(); } catch (e) { err = e; }
+  assert.match(err.message, /exited before it was ready \(exit 1\)/);
+  assert.deepEqual(err.ring.lines(), ['first', 'last words /home/u/My Fonts/out']);
+  const text = sup.logText();
+  assert.match(text, /sidecar stderr: last words <path>/);
+  assert.ok(!text.includes('My Fonts'));
+});
+
+test('supervisor: a data root still locked by a dying sidecar is retried, then given up', async (t) => {
+  const { BUSY_MESSAGE } = lib('supervisor.js');
+  const counter = path.join(tmpDir(t), 'n');
+  const stub = stubSidecar(t, `const fs = require('fs'); let n = 0; try { n = Number(fs.readFileSync(${JSON.stringify(counter)}, 'utf8')); } catch (e) {}
+    fs.writeFileSync(${JSON.stringify(counter)}, String(n + 1));
+    if (n < 2) { process.stderr.write(${JSON.stringify(BUSY_MESSAGE)} + '\\n', () => process.exit(2)); }
+    else { console.log('svf-maker listening on 127.0.0.1:4321'); setInterval(() => {}, 1000); }`);
+  const sup = supervisorFor(t, stub, { busyRetryS: 10 });
+  const sc = await sup.start();
+  assert.equal(sc.port, 4321);
+  assert.match(sup.logText(), /data root is still in use, retrying/);
+  await sup.stopAll();
+  const always = stubSidecar(t, `process.stderr.write(${JSON.stringify(BUSY_MESSAGE)} + '\\n', () => process.exit(2));`);
+  const sup2 = supervisorFor(t, always, { busyRetryS: 2 });
+  const t0 = Date.now();
+  let err = null;
+  try { await sup2.start(); } catch (e) { err = e; }
+  assert.equal(err.busy, true);
+  assert.ok(Date.now() - t0 >= 1900 && Date.now() - t0 < 8000);
 });
