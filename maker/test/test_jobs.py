@@ -27,6 +27,7 @@ from unittest import mock
 import caps
 import jobs
 import quality
+import toolrun
 import test_recog_score
 from sources import Sources
 
@@ -150,6 +151,9 @@ class StoreTest(unittest.TestCase):
 
 
 class RunCommandTest(unittest.TestCase):
+    def test_env_from_base_env(self):
+        self.assertEqual(jobs.ENV, toolrun.base_env(os.environ))
+
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="svf-jobs-run-")
 

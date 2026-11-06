@@ -771,5 +771,69 @@ class ZipFixTest(_ZipBase):
         self.assertIn("identical_to:\n```json\n\"dos/NEODG16.SVF\"\n```", zipout.log_step(step, "out", "err"))
 
 
+class LauncherNotesTest(unittest.TestCase):
+    """Notes, BUILD.md and log.md read the same in source and frozen mode (spec 7.2): `python3 -P tools/<name>.py`,
+    repo-relative repo paths, nothing of the checkout or the AppImage mount."""
+
+    def steps(self, frozen, repo):
+        import toolrun
+        with mock.patch.object(toolrun, "FROZEN", frozen):
+            mk = toolrun.tool("mkfont", repo + "/tools") + ["/u/Neo.ttf", "/w/s01/N.SVF", "--size", "16", "--bpp", "1"]
+            jo = toolrun.tool("johab844", repo + "/tools") + ["/u/HAN.FNT", repo + "/svf/dos/NEODG16.SVF", "/w/s02/J.SVF",
+                                                              "--eng", "/u/ENG.FNT"]
+        return [_step("s01", "f01", "precomposed", 16, 1, "N.SVF", [mk], "work/s01/N.SVF"),
+                _step("s02", "f01", "precomposed", 16, 1, "J.SVF", [jo], "work/s02/J.SVF")]
+
+    def test_note_and_build_md_equal_both_modes(self):
+        font = {"path": "Neo.ttf"}
+        for sources in (None, Sources("local", ["/u"])):
+            texts = []
+            for frozen, repo in ((False, "/R1"), (True, "/mnt/X/resources/repo")):
+                steps = self.steps(frozen, repo)
+                if sources is None:
+                    notes = zipout.note_commands(steps, font, repo_dir=repo)
+                else:
+                    notes = zipout.note_commands(steps, font, sources, "/files", repo + "/tools", repo)
+                lines = [zipout._command_lines(st, repo_dir=repo) for st in steps]
+                logs = [zipout.log_step(st, "", "", repo_dir=repo) for st in steps]
+                texts.append((notes, lines, logs))
+                for line in notes + [l for ls in lines for l in ls]:
+                    for bad in (sys.executable, "run-tool", "/R1", "/mnt/X"):
+                        self.assertNotIn(bad, line)
+                self.assertTrue(any(l.startswith("python3 -P tools/mkfont.py ") for l in notes), notes)
+                self.assertNotIn("/mnt/X", "".join(logs))
+            self.assertEqual(texts[0], texts[1])
+
+    def test_johab844_comment_both_modes(self):
+        want = "# johab844: Hangul redrawn on the base face svf/dos/NEODG16.SVF (OFL); the chosen range is ignored"
+        for frozen, repo in ((False, "/R1"), (True, "/mnt/X/resources/repo")):
+            notes = zipout.note_commands(self.steps(frozen, repo), {"path": "Neo.ttf"}, repo_dir=repo)
+            i = [n for n, l in enumerate(notes) if l.startswith("# johab844")]
+            self.assertEqual(len(i), 1)
+            self.assertTrue(notes[i[0]].startswith(want), notes[i[0]])
+            self.assertTrue(notes[i[0] + 1].startswith("python3 -P tools/johab844.py "), notes)
+
+    def test_repo_head_build_id(self):
+        import toolrun
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "BUILD_ID")
+            with open(path, "w") as f:
+                f.write("abc1234 2026-11-05 sidecar 0.1.0\n")
+            self.assertEqual(zipout.repo_head(tmp), "abc1234 2026-11-05 sidecar 0.1.0")
+            with open(path, "w") as f:
+                f.write("x" * 300 + "\n")
+            self.assertEqual(zipout.repo_head(tmp), "x" * 200)
+            with open(path, "w") as f:
+                f.write("\n")
+            with mock.patch.object(toolrun, "FROZEN", True), \
+                    mock.patch.object(zipout.subprocess, "run", side_effect=AssertionError("git called")):
+                self.assertEqual(zipout.repo_head(tmp), "unknown")
+            os.remove(path)
+            with mock.patch.object(toolrun, "FROZEN", True), \
+                    mock.patch.object(zipout.subprocess, "run", side_effect=AssertionError("git called")):
+                self.assertEqual(zipout.repo_head(tmp), "unknown")
+            self.assertEqual(zipout.repo_head(tmp), "unknown")       # source mode, not a git dir
+
+
 if __name__ == "__main__":
     unittest.main()

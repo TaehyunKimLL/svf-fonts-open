@@ -35,6 +35,7 @@ import zlib
 import detect
 import routes
 import svfline
+import toolrun
 from PIL import Image, ImageDraw, ImageFont
 
 # The repository face a chain falls back to when the produced face has no ASCII of its own (relative to `svf/`).
@@ -46,7 +47,7 @@ LATIN_FALLBACK = "dos/NEODG16.SVF"
 RENDER_LOCK = threading.Lock()
 
 # The Global Constraints subprocess form: an explicit environment, no shell, the tool's own work directory as cwd.
-ENV = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8"}
+ENV = toolrun.base_env(os.environ)
 TIMEOUT_S = 60
 
 # The largest source-preview canvas `source_png` will allocate: no side past MAX_CANVAS px and no more than MAX_PIXELS

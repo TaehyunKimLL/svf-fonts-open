@@ -32,6 +32,7 @@ import localfx
 import mkfont
 import routes
 import settings
+import toolrun
 import zipout
 from inputkinds import fid_of, select
 
@@ -69,8 +70,8 @@ class Case(unittest.TestCase):
 class SourceCommandsTest(unittest.TestCase):
     def test_ops_chain_through_numbered_files(self):
         argvs, out = routes.source_commands([{"op": "rsrc-sfnt", "id": 128}, {"op": "mac-cmap"}], "/u/F.dfont", "/w", "/T")
-        self.assertEqual(argvs, [routes.PY + ["/T/macsfnt.py", "extract", "/u/F.dfont", "/w/source-1.ttf", "--id", "128"],
-                                 routes.PY + ["/T/macsfnt.py", "unicode", "/w/source-1.ttf", "/w/source.ttf"]])
+        self.assertEqual(argvs, [toolrun.tool("macsfnt", "/T") + ["extract", "/u/F.dfont", "/w/source-1.ttf", "--id", "128"],
+                                 toolrun.tool("macsfnt", "/T") + ["unicode", "/w/source-1.ttf", "/w/source.ttf"]])
         self.assertEqual(out, "/w/source.ttf")
 
     def test_instance_pins_every_axis(self):
@@ -80,7 +81,7 @@ class SourceCommandsTest(unittest.TestCase):
 
     def test_ttc_face_uses_srcprep(self):
         argvs, out = routes.source_commands([{"op": "ttc-face", "index": 1}], "/u/t.ttc", "/w", "/T")
-        self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "ttc-face", "/u/t.ttc", "/w/source.ttf", "--index", "1"]])
+        self.assertEqual(argvs, [toolrun.maker_script("srcprep") + ["ttc-face", "/u/t.ttc", "/w/source.ttf", "--index", "1"]])
 
     def test_instance_values_are_not_rounded(self):
         argvs, _ = routes.source_commands([{"op": "instance", "coords": {"XHGT": 123456.7, "wght": 899.99999}}],
@@ -93,7 +94,7 @@ class SourceCommandsTest(unittest.TestCase):
 
     def test_pcf_bdf_writes_a_bdf(self):
         argvs, out = routes.source_commands([{"op": "pcf-bdf"}], "/u/k.pcf.gz", "/w", "/T")
-        self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "pcf-bdf", "/u/k.pcf.gz", "/w/source.bdf"]])
+        self.assertEqual(argvs, [toolrun.maker_script("srcprep") + ["pcf-bdf", "/u/k.pcf.gz", "/w/source.bdf"]])
         self.assertEqual(out, "/w/source.bdf")
 
     def test_no_ops_no_argv(self):
@@ -620,21 +621,21 @@ class FaceArgvTest(Case):
                  "master": None, "range_file": "/w/range-2350.txt", "report": "/w/report.json"}
         got = settings.face_argv(font, eff, routes.route_for(font, "precomposed", False), "precomposed", 16, 1, None,
                                  ("2350", None), paths)
-        self.assertEqual(got, [routes.PY + ["/T/mkfont.py", "/u/a.ttf", "/w/O.SVF", "--size", "16",
+        self.assertEqual(got, [toolrun.tool("mkfont", "/T") + ["/u/a.ttf", "/w/O.SVF", "--size", "16",
                                             "--cell", "16", "--bpp", "1", "--unicode",
                                             "ascii,ksx1001-nohanja,AC37,B2CF,B584,C125,C2BA,D14A,D59D",
                                             "--ascent", "12", "--report", "/w/report.json"]])
 
 
 class ProbeArgvTest(unittest.TestCase):
-    MKFONT = routes.PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF"]
+    MKFONT = toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/OUT.SVF"]
 
     def probe(self, flags, size=16):
         return settings.probe_argv(self.MKFONT + flags, "/u/in.ttf", "/w/p.svf", "/w/p.json", size)
 
     def test_dos_u_2bpp_keeps_the_presets_list_and_drops_the_cell_flags(self):
         import presets
-        merged = routes.apply_flags(routes.PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF", "--size", "17", "--bpp", "2",
+        merged = routes.apply_flags(toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/OUT.SVF", "--size", "17", "--bpp", "2",
                                                  "--unicode", "ascii,ksx1001-hangul"],
                                     presets.argv_for("dos-u-2bpp", "precomposed", 17) + ["--report", "/w/report.json"])
         got = settings.probe_argv(merged, "/u/in.ttf", "/w/p.svf", "/w/p.json", 17)

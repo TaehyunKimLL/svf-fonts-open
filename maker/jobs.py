@@ -40,6 +40,7 @@ import preview
 import quality
 import routes
 import settings
+import toolrun
 import zipout
 from sources import OutputGone, Sources, stat_id
 
@@ -218,7 +219,7 @@ _ID_RE = re.compile(r"\A[0-9a-f]{12}\Z")
 RETAINED_STATES = ("done", "failed", "detected", "uploading")
 
 # The Global Constraints subprocess form: an explicit environment, no shell, the step's work directory as cwd.
-ENV = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8"}
+ENV = toolrun.base_env(os.environ)
 
 # The errors reading a font's source can raise: a missing or unreadable file, and the decompression failures a
 # `.gz` source's `preview.materialize` reports (preview's own list).
@@ -1403,7 +1404,7 @@ class Worker(threading.Thread):
             step["state"] = "done"
         local = sources.kind == "local"
         step["stderr_tail"] = tool_text(stderr, local)[-STDERR_TAIL:]
-        zipout.append_log(job_dir, zipout.log_step(step, tool_text(stdout, local), tool_text(stderr, local)))
+        zipout.append_log(job_dir, zipout.log_step(step, tool_text(stdout, local), tool_text(stderr, local), self.repo_dir))
         self.store.save(job)
 
     def _execute(self, files_dir, sources, gz_upload, plain, step, font, cancel, env=None):
@@ -1511,9 +1512,9 @@ class Worker(threading.Thread):
         except OSError:
             pass
         os.makedirs(work, exist_ok=True)
-        argv = routes.PY + [os.path.join(os.path.dirname(os.path.abspath(__file__)), "recog_score.py"),
-                            os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
-                            "--arrays", RECOG_ARRAYS]
+        argv = toolrun.maker_script("recog_score") + [
+            os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
+            "--arrays", RECOG_ARRAYS]
         result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))
         if result["error"] is not None or result["exit"] != 0:
             tail = (result["stderr"] or "").strip().splitlines()
@@ -1683,7 +1684,7 @@ class Worker(threading.Thread):
         """Fail one step the worker never ran (a cancel, the job timeout, or a failed prepare); log and save it."""
         step["state"] = "failed"
         step["error"] = error
-        zipout.append_log(job_dir, zipout.log_step(step, "", ""))
+        zipout.append_log(job_dir, zipout.log_step(step, "", "", self.repo_dir))
         self.store.save(job)
 
     def _fail_steps(self, job, job_dir, steps, error):

@@ -1548,8 +1548,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 naming.note_text(font.get("family") or "", font.get("style") or "", names,
                                  os.path.basename(font.get("path") or ""), font.get("version") or "",
                                  datetime.date.today().isoformat(),
-                                 zipout.note_commands(materialized, font, sources, files_dir, self.server.tools_dir)
-                                 if local else zipout.note_commands(materialized, font))
+                                 zipout.note_commands(materialized, font, sources, files_dir, self.server.tools_dir,
+                                                      self.server.repo_dir)
+                                 if local else zipout.note_commands(materialized, font, repo_dir=self.server.repo_dir))
             except ValueError as exc:
                 raise _HttpError(400, "note for %s: %s" % (font_id, "the note text was refused (a control character or an "
                                                           "over-long line)" if local else exc))

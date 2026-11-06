@@ -19,8 +19,8 @@ import unittest
 import jamoset
 import presets
 import routes
+import toolrun
 
-PY = [sys.executable, "-P"]
 P = {"tools": "/T", "src": "/u/in.ttf", "out": "/w/OUT.SVF", "work": "/w", "eng": None, "latin": None,
      "master": "/w/master.json", "range_file": "/w/range-2350.txt"}
 
@@ -257,7 +257,7 @@ class DecomposableRoutesTest(unittest.TestCase):
     def test_vector_fit_argv(self):
         r = routes.route_for(self.OUTLINE, "jamo", True, "vector fit")
         self.assertEqual(r.prepare_commands(self.OUTLINE, "844", P),
-                         [PY + ["/T/jamovec.py", "master", "/u/in.ttf", "-o", "/w/master.json"]])
+                         [toolrun.tool("jamovec", "/T") + ["master", "/u/in.ttf", "-o", "/w/master.json"]])
         self.assertEqual(r.prepare_commands(self.OUTLINE, "adaptive", P)[0][-1], "--adaptive")
         self.assertEqual(r.commands(self.OUTLINE, 16, 2, "844", ("2350", None), P, [[]])[0][-5:],
                          ["--binarize", "threshold", "--check", "-o", P["out"]])
@@ -293,7 +293,7 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual([(x.kind, x.label, x.native) for x in r], [("precomposed", "mkfont", True), ("jamo", "experimental fit", False),
                           ("jamo", "vector fit", False)])
         self.assertEqual(r[0].commands(FONT_TTF, 16, 2, None, ("2350", None), P, []),
-                         [PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF", "--size", "16", "--bpp", "2", "--unicode", "ascii,ksx1001-hangul"]])
+                         [toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/OUT.SVF", "--size", "16", "--bpp", "2", "--unicode", "ascii,ksx1001-hangul"]])
         self.assertEqual(r[0].commands(FONT_TTF, 16, 1, None, ("file", "/u/list.txt"), P, [])[0][-1], "ascii,file:/w/range-2350.txt")
 
     def test_a_list_files_name_never_reaches_unicode(self):
@@ -310,11 +310,11 @@ class RoutesTest(unittest.TestCase):
 
     def test_composite_jamo(self):
         r = routes.route_for(FONT_COMPOSITE, "jamo", False)
-        self.assertEqual(r.prepare_commands(FONT_COMPOSITE, "adaptive", P), [PY + ["/T/jamovec.py", "master", "/u/in.ttf", "-o", "/w/master.json", "--components", "--adaptive"]])
+        self.assertEqual(r.prepare_commands(FONT_COMPOSITE, "adaptive", P), [toolrun.tool("jamovec", "/T") + ["master", "/u/in.ttf", "-o", "/w/master.json", "--components", "--adaptive"]])
         self.assertEqual(r.commands(FONT_COMPOSITE, 16, 1, "adaptive", ("2350", None), P, []),
-                         [PY + ["/T/jamovec.py", "render", "/w/master.json", "--size", "16", "--bpp", "1", "--binarize", "threshold", "--check", "-o", "/w/OUT.SVF"]])
+                         [toolrun.tool("jamovec", "/T") + ["render", "/w/master.json", "--size", "16", "--bpp", "1", "--binarize", "threshold", "--check", "-o", "/w/OUT.SVF"]])
         self.assertEqual(r.commands(FONT_COMPOSITE, 16, 2, "844", ("2350", None), P, []),
-                         [PY + ["/T/jamovec.py", "render", "/w/master.json", "--size", "16", "--bpp", "2", "--binarize", "threshold", "--check", "-o", "/w/OUT.SVF"]])
+                         [toolrun.tool("jamovec", "/T") + ["render", "/w/master.json", "--size", "16", "--bpp", "2", "--binarize", "threshold", "--check", "-o", "/w/OUT.SVF"]])
 
     def test_experimental_fit(self):
         r = routes.route_for(FONT_TTF, "jamo", True)
@@ -385,7 +385,7 @@ class RoutesTest(unittest.TestCase):
     def test_v2_svf_routes_convert_through_svf2to3(self):
         """A v2 SVF source is never shipped as it is: the copy route converts it (svf2to3.py --check, so through
         jamoset.pack_svfn) and the from-svf fit converts it into the step's work directory first."""
-        conv = PY + ["/T/svf2to3.py", "/u/in.ttf", "/w/OUT.SVF", "--jset-version", "1", "--check"]
+        conv = toolrun.tool("svf2to3", "/T") + ["/u/in.ttf", "/w/OUT.SVF", "--jset-version", "1", "--check"]
         for f in (FONT_SVF2_PRE, FONT_SVF2_JAMO):
             copy = routes.routes(f)[0]
             self.assertEqual(copy.label, "copy")
@@ -394,7 +394,7 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(routes.svf_commands(FONT_SVF_PRE, P), [])
         fit = routes.routes(FONT_SVF2_PRE)[1]
         cmds = fit.commands(FONT_SVF2_PRE, 16, 1, "844", ("2350", None), dict(P, eng="/u/ENG.FNT"), [])
-        self.assertEqual(cmds[0], PY + ["/T/svf2to3.py", "/u/in.ttf", "/w/source-v3.svf", "--jset-version", "1", "--check"])
+        self.assertEqual(cmds[0], toolrun.tool("svf2to3", "/T") + ["/u/in.ttf", "/w/source-v3.svf", "--jset-version", "1", "--check"])
         self.assertEqual(cmds[1][2:], ["/T/jamoset.py", "--layout", "844", "--from-svf", "/w/source-v3.svf",
                                        "--check", "-o", "/w/OUT.SVF", "--eng", "/u/ENG.FNT"])
         self.assertEqual(routes.routes(dict(FONT_SVF_PRE, svf=dict(FONT_SVF_PRE["svf"], version=1))), [])
@@ -411,7 +411,7 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(routes.svf_commands(f2, P), [])
 
     def test_jset_version_flag_converts(self):
-        conv = lambda v: PY + ["/T/svf2to3.py", "/u/in.ttf", "/w/OUT.SVF", "--jset-version", v, "--check"]
+        conv = lambda v: toolrun.tool("svf2to3", "/T") + ["/u/in.ttf", "/w/OUT.SVF", "--jset-version", v, "--check"]
         f = self._jf(1)
         self.assertEqual(routes.routes(f)[0].commands(f, 16, 1, None, ("2350", None), P, [["--jset-version", "2"]]),
                          [conv("2")])
@@ -474,7 +474,7 @@ class MacRoutesTest(unittest.TestCase):
                                ("jamo", "mac fbit 7.1 derived", False, ["mac-htbl1"], [1], [12]),
                                ("precomposed", "mac fbit 7.1 bdf + mkfont", True, [], [1], [12])])
         direct, derived, bdf = routes.routes(self.MAC)
-        want = PY + ["/T/macfbit_svf.py", "build", "/w/source.fbit", "/w/htbl.htbl1", "-o", "/w/OUT.SVF", "--mode", "direct"]
+        want = toolrun.tool("macfbit_svf", "/T") + ["build", "/w/source.fbit", "/w/htbl.htbl1", "-o", "/w/OUT.SVF", "--mode", "direct"]
         self.assertEqual(direct.commands(self.MAC, 12, 1, "mac-htbl1", ("2350", None), self.paths(), []), [want])
         with_latin = direct.commands(self.MAC, 12, 1, "mac-htbl1", ("2350", None), self.paths(latin="/w/L.rsrc"), [])
         self.assertEqual(with_latin, [want + ["--latin", "/w/L.rsrc"]])
@@ -482,9 +482,9 @@ class MacRoutesTest(unittest.TestCase):
                          ["--mode", "derived"])
         argvs = bdf.commands(self.MAC, 12, 1, None, ("2350", None), self.paths(), [])
         self.assertEqual(len(argvs), 3)
-        self.assertEqual(argvs[0], PY + ["/T/macfbit3.py", "bdf", "/w/source.fbit", "/w/htbl.htbl1", "Seoul12", "/w/mac.bdf"])
-        self.assertEqual(argvs[1], PY + [routes.SRCPREP, "bdf-pixel-size", "/w/mac.bdf", "/w/mac-sized.bdf", "--size", "12"])
-        self.assertEqual(argvs[2][:5], PY + ["/T/mkfont.py", "/w/mac-sized.bdf", "/w/OUT.SVF"])
+        self.assertEqual(argvs[0], toolrun.tool("macfbit3", "/T") + ["bdf", "/w/source.fbit", "/w/htbl.htbl1", "Seoul12", "/w/mac.bdf"])
+        self.assertEqual(argvs[1], toolrun.maker_script("srcprep") + ["bdf-pixel-size", "/w/mac.bdf", "/w/mac-sized.bdf", "--size", "12"])
+        self.assertEqual(argvs[2][:5], toolrun.tool("mkfont", "/T") + ["/w/mac-sized.bdf", "/w/OUT.SVF"])
         self.assertIn("ksx1001-hangul,3131-318e", argvs[2])                          # the 2,350 syllables + the 51 jamo
         self.assertNotIn("ascii", argvs[2][argvs[2].index("--unicode") + 1])
         with self.assertRaisesRegex(ValueError, "HTBL"):
@@ -500,18 +500,22 @@ class MacRoutesTest(unittest.TestCase):
         self.assertEqual((route.kind, route.label, route.native, route.layouts, route.bpps, route.sizes),
                          ("jamo", "mac fbit 1.0", True, ["mac-fbit-45sets"], [1], [16]))
         argv = route.commands(font10, 16, 1, "mac-fbit-45sets", ("2350", None), dict(P, src="/w/Munjo16.rsrc"), [])
-        self.assertEqual(argv, [PY + ["/T/jamoset.py", "--layout", "mac-fbit-45sets", "/w/Munjo16.rsrc", "--check",
+        self.assertEqual(argv, [toolrun.tool("jamoset", "/T") + ["--layout", "mac-fbit-45sets", "/w/Munjo16.rsrc", "--check",
                                        "-o", "/w/OUT.SVF"]])
         self.assertEqual(presets.panel_argv(EVERY, "jamo", "mac fbit 1.0", 1),
                          [["--embolden", "--symbols", "--jset-version", "2", "--ascent", "12"]])
 
     def test_source_commands_mac_ops(self):
         argvs, last = routes.source_commands([{"op": "mac-fork"}, {"op": "mac-fbit3"}], "/s", "/w", "/t")
-        self.assertEqual([a[2:4] for a in argvs], [[routes.SRCPREP, "mac-fork"], ["/t/macfbit3.py", "fbit"]])
+        splits = [toolrun.split_prefix(a) for a in argvs]
+        self.assertEqual([(toolrun.prefix_name(pre), rest[0]) for pre, rest in splits],
+                         [("srcprep", "mac-fork"), ("macfbit3", "fbit")])
+        self.assertEqual(argvs[1][:3], toolrun.tool("macfbit3", "/t"))
         self.assertEqual(last, "/w/source.fbit")
         self.assertEqual(argvs[0][-1], "/w/source-1.rsrc")
         argvs, last = routes.source_commands([{"op": "mac-fork"}, {"op": "mac-htbl"}], "/s", "/w", "/t")
-        self.assertEqual((argvs[1][2:4], last), ([routes.SRCPREP, "mac-htbl"], "/w/source.htbl1"))
+        pre, rest = toolrun.split_prefix(argvs[1])
+        self.assertEqual((toolrun.prefix_name(pre), rest[0], last), ("srcprep", "mac-htbl", "/w/source.htbl1"))
         self.assertEqual(routes.source_commands([{"op": "mac-fork"}], "/s", "/w", "/t", last_name="Munjo16.rsrc")[1],
                          "/w/Munjo16.rsrc")
         self.assertEqual(routes.op_ext("pcf-bdf"), "bdf")

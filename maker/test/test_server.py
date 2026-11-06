@@ -631,9 +631,9 @@ class ApiTest(ApiBase):
         seen = []
         original = zipout.note_commands
 
-        def spy(steps, font):
+        def spy(steps, font, *args, **kw):
             seen.append(steps)
-            return original(steps, font)
+            return original(steps, font, *args, **kw)
 
         zipout.note_commands = spy
         try:

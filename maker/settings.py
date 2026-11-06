@@ -26,6 +26,7 @@ import mkfont
 import naming
 import presets
 import routes
+import toolrun
 from sources import Sources
 
 # `range_root` names the source root a list file is read from (a local job); it is not a batch key (a stored batch
@@ -1405,8 +1406,8 @@ def probe_argv(mkfont_argv, src, out_svf, out_json, size):
     kept with their values, `--width` is the step's `--width`, else its `--cell`, else @p size (the probe's tall cell
     must not widen the width judgement), and `--cell --ascent --clip-cell --fit-cell --report` are replaced by
     `--probe --probe-cell <the step's --cell, else size> --report out_json`."""
-    script = mkfont_argv[2]
-    flags = mkfont_argv[5:]
+    prefix, rest = toolrun.split_prefix(mkfont_argv)
+    flags = rest[2:]
     valued, booleans = {}, set()
     i = 0
     while i < len(flags):
@@ -1418,7 +1419,7 @@ def probe_argv(mkfont_argv, src, out_svf, out_json, size):
             booleans.add(token)
             i += 1
     cell = valued.get("--cell", str(size))
-    out = list(mkfont_argv[:2]) + [script, src, out_svf, "--size", str(size)]
+    out = prefix + [src, out_svf, "--size", str(size)]
     for flag in _PROBE_KEEP_VALUED:
         if flag in valued:
             out += [flag, valued[flag]]
@@ -1443,7 +1444,7 @@ def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"0x%X" % cp: table[cp] for cp in sorted(table)}, f)
         f.write("\n")
-    return routes.PY + [os.path.join(tools_dir, "svfdy.py"), out if commands else src, out, "--json", path]
+    return toolrun.tool("svfdy", tools_dir) + [out if commands else src, out, "--json", path]
 
 
 def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
