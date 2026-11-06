@@ -657,6 +657,12 @@ the review's probe saw them), so `selfcheck`'s path rule is "every entry is unde
     `<resources>/repo/tools/`, 7.5: a frozen bundle's `.pyc` inside the PYZ cannot be run by another interpreter) or
     today's `[sys.executable, "-P", <maker/>/recog_score.py, ...]` when no external interpreter is set and the
     process is not frozen; the step's environment gets `SVF_RECOG_DIR` as today (`:1517`);
+  - Probe and run share one isolation flag, `-P` (Group A review m1): `-I` implies `-s` and would hide a `pip install
+    --user` numpy/torch from the probe although the scorer, run with HOME forwarded, would find it. The probe is
+    `[<python>, "-P", "-c", "import numpy, torch, PIL, fontTools"]`, runs in its own session and its whole process group
+    is killed after it ends or times out (a non-`exec` wrapper must leave nothing behind). `SVF_RECOG_PYTHON` must be an
+    absolute path, `SVF_RECOG_DIR` is stored absolute (the scorer runs from `work/sNN/identity`), and an interpreter
+    that cannot be started at run time makes the identity `available: false`, never a failed job.
   - `recog_score.py` itself is unchanged: its `sys.path.append` lines put the shipped `maker/` and `tools/` sources
     on the path of the external interpreter, and it inserts `SVF_RECOG_DIR` for `recog` (`:241`).
   The test (10.2) runs it twice: with no configuration (`recog: false`, the page says unavailable) and with a stub

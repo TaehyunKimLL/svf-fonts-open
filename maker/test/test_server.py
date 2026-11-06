@@ -39,6 +39,7 @@ import urllib.parse
 import zipfile
 
 import caps as capsmod
+import toolrun
 import fixtures
 import inputfx
 import jamoset
@@ -2067,7 +2068,46 @@ class RecogCapsTest(ApiBase):
         self.assertIs(got["recog"], False)
         self.assertIsNone(got["recog_python"])
 
+    def test_relative_interpreter_is_rejected(self):
+        self.stub("exit 0")
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, cwd)
+        got = self.compute("./py-stub")
+        self.assertIs(got["recog"], False)
+        self.assertIsNone(got["recog_python"])
+
+    def test_relative_recog_dir_is_stored_absolute(self):
+        stub = self.stub("exit 0")
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, cwd)
+        got = self.compute(stub, directory="recog")
+        self.assertEqual(got["recog_dir"], self.recog)
+
+    def test_probe_argv_is_the_scorers_isolation_flag_and_the_four_imports(self):
+        out = os.path.join(self.tmp, "argv.txt")
+        self.compute(self.stub("for a in \"$@\"; do echo \"$a\"; done > %s" % out))
+        with open(out) as f:
+            self.assertEqual(f.read().splitlines(), ["-P", "-c", "import numpy, torch, PIL, fontTools"])
+        self.assertEqual(capsmod.PROBE_ARGS[0], toolrun.recog_argv({"recog": True, "recog_python": "/p"}, "/R")[1])
+
+    def test_probe_timeout_kills_a_grandchild(self):
+        pidfile = os.path.join(self.tmp, "child.pid")
+        stub = self.stub("sleep 60 &\necho $! > %s\nwait" % pidfile)         # no exec: the sleep is a grandchild
+        with mock.patch.object(capsmod, "RECOG_PROBE_S", 0.5):
+            got = self.compute(stub)
+        self.assertIs(got["recog"], False)
+        with open(pidfile) as f:
+            pid = int(f.read())
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and os.path.exists("/proc/%d" % pid) and \
+                open("/proc/%d/stat" % pid).read().split(") ")[1][0] not in "ZX":
+            time.sleep(0.05)
+        self.assertTrue(not os.path.exists("/proc/%d" % pid) or open("/proc/%d/stat" % pid).read().split(") ")[1][0] in "ZX")
+
     def test_external_interpreter_needs_recog_py(self):
+        """A guard on the order of checks (the base ignores SVF_RECOG_PYTHON, so it cannot fail there)."""
         marker = os.path.join(self.tmp, "ran")
         stub = self.stub("touch %s" % marker)
         empty = os.path.join(self.tmp, "empty")

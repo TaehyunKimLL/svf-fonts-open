@@ -395,8 +395,10 @@ class RoutesTest(unittest.TestCase):
         fit = routes.routes(FONT_SVF2_PRE)[1]
         cmds = fit.commands(FONT_SVF2_PRE, 16, 1, "844", ("2350", None), dict(P, eng="/u/ENG.FNT"), [])
         self.assertEqual(cmds[0], toolrun.tool("svf2to3", "/T") + ["/u/in.ttf", "/w/source-v3.svf", "--jset-version", "1", "--check"])
-        self.assertEqual(cmds[1][2:], ["/T/jamoset.py", "--layout", "844", "--from-svf", "/w/source-v3.svf",
-                                       "--check", "-o", "/w/OUT.SVF", "--eng", "/u/ENG.FNT"])
+        prefix, rest = toolrun.split_prefix(cmds[1])
+        self.assertEqual((toolrun.prefix_name(prefix), rest),
+                         ("jamoset", ["--layout", "844", "--from-svf", "/w/source-v3.svf",
+                                      "--check", "-o", "/w/OUT.SVF", "--eng", "/u/ENG.FNT"]))
         self.assertEqual(routes.routes(dict(FONT_SVF_PRE, svf=dict(FONT_SVF_PRE["svf"], version=1))), [])
 
     def _jf(self, v):

@@ -21,7 +21,12 @@ for (let i = 0; i < options.length; i++) {
     preloadFile = options[++i];
   }
 }
-const profile = mkdtempSync(join(tmpdir(), 'pagedrive-'));
+// Chrome's singleton socket lives under TMPDIR and a unix socket path is limited to 107 bytes: when the temp directory
+// is long (a TMP_DIR the project rule puts under $HOME/work/tmp) the profile goes to a short directory instead.
+// It is removed with Chrome, as before.
+let base = tmpdir();
+if (join(base, 'pagedrive-XXXXXX', 'tmp').length > 60) base = existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
+const profile = mkdtempSync(join(base, 'pagedrive-'));
 // Chrome's own temp files (/tmp/com.google.Chrome.*) go under the profile and leave with it
 mkdirSync(join(profile, 'tmp'));
 const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-sandbox', '--remote-debugging-port=0',

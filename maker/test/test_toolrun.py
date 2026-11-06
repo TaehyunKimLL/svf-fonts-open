@@ -14,6 +14,9 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools"), TEST_DIR):
         sys.path.insert(0, _p)
 
 import glob
+import json
+import subprocess
+import tempfile
 import re
 import unittest
 from unittest import mock
@@ -98,6 +101,26 @@ class ShapesTest(unittest.TestCase):
             self.assertEqual([k for k in env if k.startswith("SVF_") and k not in toolrun.TEST_KEYS], [])
             self.assertIn(env.get("SVF_MAKER_NO_PDEATHSIG", "1"), ("1",))
 
+    def test_modules_read_base_env_at_import(self):
+        # a fresh interpreter, so the module-level ENV of jobs and preview is built under these variables
+        env = dict(os.environ, JAMOSET_PYLIB="/l", JAMOSET_MASK_FONT="/f", SVF_MAKER_TOKEN="t" * 32)
+        code = "import json, jobs, preview; print(json.dumps([jobs.ENV, preview.ENV]))"
+        out = subprocess.run([sys.executable, "-c", code], env=dict(env, PYTHONPATH=os.pathsep.join(
+            [MAKER_DIR, os.path.join(REPO_DIR, "tools")])), capture_output=True, text=True, cwd=TEST_DIR)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        for got in json.loads(out.stdout):
+            self.assertEqual(got["JAMOSET_PYLIB"], "/l")
+            self.assertEqual(got["JAMOSET_MASK_FONT"], "/f")
+            self.assertNotIn("SVF_MAKER_TOKEN", got)
+
+    def test_note_text_removes_repo_prefix(self):
+        a = toolrun.note_text("base /R1/svf/dos/N.SVF and /R1/tools/x.py", "/R1")
+        b = toolrun.note_text("base /mnt/X/repo/svf/dos/N.SVF and /mnt/X/repo/tools/x.py", "/mnt/X/repo")
+        self.assertEqual(a.replace("/R1", ""), a)
+        self.assertEqual(a, b)
+        self.assertEqual(a, "base svf/dos/N.SVF and tools/x.py")
+        self.assertEqual(toolrun.note_text("x", None), "x")
+
     def test_new_files_use_no_bare_tmp(self):
         # the TMP_DIR rule: no new file hard-codes /tmp
         pattern = re.compile(r"""['"]/tmp""")
@@ -142,7 +165,7 @@ def _commands_of_all_kinds():  # noqa
     for op in ops:
         got, _ = routes.source_commands([op], "/u/s", "/w", "/T")
         argvs += got
-    argvs.append(settings._dy_argv({"0x41": 1}, "precomposed", True, "/u/s", "/w/o", os.environ.get("TMPDIR") or "/", "/T"))
+    argvs.append(settings._dy_argv({"0x41": 1}, "precomposed", True, "/u/s", "/w/o", tempfile.gettempdir(), "/T"))
     return [a for a in argvs if a]
 
 

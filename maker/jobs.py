@@ -312,6 +312,11 @@ def _stop(proc):
     proc.wait()
 
 
+def _refuse_constant(name):
+    """`json.load`'s hook for NaN / Infinity: the page's JSON.parse rejects them, so a scorer's output may not hold one."""
+    raise ValueError("non-finite number %s" % name)
+
+
 def run_command(argv, cwd, timeout, cancel, env=None):
     """Run @p argv in @p cwd with stdout and stderr captured to files there; return the result dict.
 
@@ -1515,7 +1520,10 @@ class Worker(threading.Thread):
         argv = prefix + [
             os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
             "--arrays", RECOG_ARRAYS]
-        result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))
+        try:
+            result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))
+        except OSError:                                 # the interpreter vanished since start-up: scoring is optional
+            return {"available": False, "error": "the recogniser interpreter could not be started"}
         if result["error"] is not None or result["exit"] != 0:
             tail = (result["stderr"] or "").strip().splitlines()
             reason = "timed out" if result["error"] == "timeout" else (
@@ -1523,7 +1531,9 @@ class Worker(threading.Thread):
             return {"available": False, "error": reason}
         try:
             with open(out_json, encoding="utf-8") as f:
-                data = json.load(f)
+                data = json.load(f, parse_constant=_refuse_constant)
+            if not isinstance(data, dict) or not isinstance(data.get("face") or {}, dict):
+                raise ValueError("not an identity object")
         except (OSError, ValueError) as exc:
             return {"available": False, "error": "unreadable identity.json: %s" % exc_text(exc, local)}
         if not data.get("applicable", True):

@@ -100,6 +100,17 @@ def note_argv(argv, repo_dir=None):
     return prefix + rest
 
 
+def note_text(text, repo_dir):
+    """@p text (a tool's captured stdout/stderr) with every `<repo_dir>/` prefix removed, so a path the tool printed
+    (johab844 prints its base face) reads the same from a checkout and from an AppImage mount."""
+    if not text or not repo_dir:
+        return text
+    for base in sorted({os.path.normpath(repo_dir), os.path.realpath(repo_dir)}, key=len, reverse=True):
+        if base != os.sep:
+            text = text.replace(base.rstrip(os.sep) + os.sep, "")
+    return text
+
+
 def base_env(environ):
     """The scrubbed environment of a tool (spec 7.4)."""
     env = {"PATH": environ.get("PATH", "/usr/bin:/bin"), "HOME": environ.get("HOME", "/"), "LANG": "C.UTF-8"}

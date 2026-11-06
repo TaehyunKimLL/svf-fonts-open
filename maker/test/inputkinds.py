@@ -19,6 +19,8 @@ import subprocess
 import tempfile
 import zipfile
 
+import toolrun
+
 import detect
 import fixtures
 import jamoset
@@ -101,12 +103,14 @@ def step_tools(steps):
     for step in steps:
         names = []
         for argv in step["argv"]:
-            if argv[2] == "-m":
-                names.append("-m " + argv[3])
-            elif os.path.basename(argv[2]) in ("srcprep.py", "macsfnt.py"):
-                names.append("%s %s" % (os.path.basename(argv[2]), argv[3]))
+            prefix, rest = toolrun.split_prefix(argv)         # the launcher prefix is 3 or 4 tokens, per mode
+            name = toolrun.prefix_name(prefix)
+            if prefix[1:3] == ["-P", "-m"] or name == "instancer":
+                names.append("-m " + (prefix[3] if len(prefix) > 3 else "fontTools.varLib.instancer"))
+            elif name in ("srcprep", "macsfnt"):
+                names.append("%s.py %s" % (name, rest[0]))
             else:
-                names.append(os.path.basename(argv[2]))
+                names.append(name + ".py")
         out.append(names)
     return out
 

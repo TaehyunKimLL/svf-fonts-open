@@ -153,6 +153,14 @@ class PageDomTest(unittest.TestCase):
 
     # ---- tests ------------------------------------------------------------------------------------------------
 
+    def test_driver_starts_chrome_with_a_long_tmpdir(self):
+        """Chrome's singleton socket path must stay under 107 bytes whatever TMPDIR is (the TMP_DIR project rule)."""
+        long_tmp = os.path.join(self.tmp, "t" * 70, "u" * 40)
+        os.makedirs(long_tmp)
+        self.assertGreater(len(os.path.join(long_tmp, "pagedrive-XXXXXX", "tmp")), 107)
+        job = self.api("POST", "/api/jobs")["id"]
+        self.assertEqual(self.drive(job, "return 1;", TMPDIR=long_tmp), 1)
+
     def test_source_column_follows_the_sample_text_and_ignores_the_result_scale(self):
         job = self.dos_job(run=True)
         out = self.drive(job, """

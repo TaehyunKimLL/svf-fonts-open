@@ -217,6 +217,7 @@ def log_step(step, stdout, stderr, repo_dir=None):
     for command in _command_lines(step, repo_dir=repo_dir):
         lines += ["```sh", command, "```",
                   "exit: %s" % _shown(step.get("exit")), "seconds: %s" % _shown(step.get("seconds")), ""]
+    stdout, stderr = toolrun.note_text(stdout, repo_dir), toolrun.note_text(stderr, repo_dir)
     lines += ["stdout:", "```", (stdout or "").rstrip("\n"), "```", "",
               "stderr:", "```", (stderr or "").rstrip("\n"), "```", ""]
     if step.get("error"):
@@ -427,7 +428,7 @@ def _note_token(token, sources, files_dir, tools_dir):
     `python3`; any other absolute path is its basename."""
     if not isinstance(token, str):
         return token
-    if token == sys.executable or token == toolrun.PYTHON:
+    if token == sys.executable:
         return "python3"
     if not os.path.isabs(token):
         return token
@@ -465,9 +466,10 @@ def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None, rep
         if sources is not None:
             noted = []
             for argv in step.get("argv") or []:
-                prefix, rest = toolrun.note_prefix(argv)
-                noted.append(prefix + [_note_token(t, sources, files_dir, tools_dir) for t in rest]
-                             if prefix else [_note_token(t, sources, files_dir, tools_dir) for t in rest])
+                # the checkout's own paths first (a source root may contain the checkout), then the user's paths
+                shown = toolrun.note_argv(argv, repo_dir)
+                size = len(toolrun.note_prefix(argv)[0])
+                noted.append(shown[:size] + [_note_token(t, sources, files_dir, tools_dir) for t in shown[size:]])
             step = dict(step, argv=noted)
         commands += _command_lines(step, src=src, repo_dir=repo_dir)
     return commands

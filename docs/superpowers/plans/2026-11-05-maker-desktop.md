@@ -51,6 +51,10 @@ D10 window size/zoom persisted. D11 `getppid` polling plus `PR_SET_PDEATHSIG` on
   files). Build scripts take `SVF_DESKTOP_TMP` (default `$HOME/work/tmp/svf-desktop-build`, created with its README)
   for the pip download (`pysite/`), PyInstaller's work directory, the WASM comparison build and AppImage extractions.
   The deliverables stay in the gitignored `desktop/build/out/` and `desktop/dist/`.
+  **Keep `TMP_DIR` short: under about 40 characters past `$HOME`** (Chrome's singleton socket path lives under
+  `TMPDIR` and a unix socket path is limited to 107 bytes; a long `TMP_DIR` made every `test_page_dom` test fail with
+  `timeout: chrome start`, Opus review of Group A). `maker/test/pagedrive.mjs` also moves Chrome's profile to a short
+  directory when `TMPDIR` is long, so a long path only costs the Electron runs, which have no such fallback.
 - **Gates at the end of every task** (before its commit), in this order:
   - G1 `git diff --exit-code 94011ff -- c/src c/include` -> exit 0, no output.
   - G2 `flock $HOME/work/tmp/svf-browser.lock ~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'`
