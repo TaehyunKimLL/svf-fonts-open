@@ -1770,7 +1770,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._serve_bytes(path, "application/octet-stream")
 
     def _caps(self, query):
-        self.send_json({key: bool(value) for key, value in self.server.caps.items()})
+        self.send_json({key: bool(self.server.caps.get(key)) for key in caps.PUBLIC_KEYS})
 
     def _make_preview(self, job, files_dir, font):
         """`_make_source_preview`, and for a local job the converted copy of the input is removed after the bake."""

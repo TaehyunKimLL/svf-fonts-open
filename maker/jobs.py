@@ -33,7 +33,6 @@ import time
 import traceback
 import zlib
 
-import caps
 import detect
 import naming
 import preview
@@ -1500,8 +1499,9 @@ class Worker(threading.Thread):
         unreadable JSON), or without the capability `{"available": false, "structural": <the `check:` line>}`. The
         scorer's full JSON stays in `work/sNN/identity.json`."""
         local = env is not None                         # only a local job has a tool environment of its own
-        recog = caps.recog_dir(os.environ) if self.caps.get("recog") else None
-        if recog is None:
+        prefix = toolrun.recog_argv(self.caps, self.repo_dir)
+        recog = self.caps.get("recog_dir")
+        if prefix is None or not recog:
             line = next((l for l in (stdout or "").splitlines() if _TOOL_VERDICT.match(l)), "")
             return {"available": False, "structural": line}
         step_dir = os.path.join(files_dir, "work", step.get("id") or "")
@@ -1512,7 +1512,7 @@ class Worker(threading.Thread):
         except OSError:
             pass
         os.makedirs(work, exist_ok=True)
-        argv = toolrun.maker_script("recog_score") + [
+        argv = prefix + [
             os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
             "--arrays", RECOG_ARRAYS]
         result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))

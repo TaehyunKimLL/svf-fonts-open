@@ -524,8 +524,8 @@ class LocalRunTest(LocalRunBase):
         self.select(jid)
         fd = self.files_dir(jid)
         with mock.patch.object(jobs, "run_command", spy), \
-                mock.patch.object(jobs.caps, "recog_dir", return_value="/nonexistent-recog"), \
-                mock.patch.dict(self.srv.worker.caps, {"recog": True}):
+                mock.patch.dict(self.srv.worker.caps, {"recog": True, "recog_dir": "/nonexistent-recog",
+                                                        "recog_python": None}):
             job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertTrue(seen)

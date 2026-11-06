@@ -2023,5 +2023,74 @@ class KeptCompanionTest(unittest.TestCase):
             settings.defaults = orig_defaults
 
 
+class RecogCapsTest(ApiBase):
+    """caps.compute with SVF_RECOG_PYTHON: the external interpreter is probed once, in a scrubbed environment."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp(prefix="svf-recogcaps-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.recog = os.path.join(self.tmp, "recog")
+        os.mkdir(self.recog)
+        open(os.path.join(self.recog, "recog.py"), "w").close()
+
+    def stub(self, body):
+        path = os.path.join(self.tmp, "py-stub")
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\n%s\n" % body)
+        os.chmod(path, 0o755)
+        return path
+
+    def compute(self, python, directory=None, **extra):
+        environ = {"SVF_RECOG_PYTHON": python, "SVF_RECOG_DIR": directory or self.recog,
+                   "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/h"}
+        environ.update(extra)
+        return capsmod.compute(os.path.join(fixtures.REPO_DIR, "maker", "static"), environ)
+
+    def test_external_interpreter_probe_ok(self):
+        stub = self.stub("exit 0")
+        got = self.compute(stub)
+        self.assertIs(got["recog"], True)
+        self.assertEqual((got["recog_python"], got["recog_dir"]), (stub, self.recog))
+
+    def test_external_interpreter_probe_fails(self):
+        got = self.compute(self.stub("exit 1"))
+        self.assertIs(got["recog"], False)
+        self.assertIsNone(got["recog_python"])
+
+    def test_external_interpreter_probe_times_out(self):
+        stub = self.stub("exec sleep 30")
+        started = time.monotonic()
+        with mock.patch.object(capsmod, "RECOG_PROBE_S", 0.5):
+            got = self.compute(stub)
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertIs(got["recog"], False)
+        self.assertIsNone(got["recog_python"])
+
+    def test_external_interpreter_needs_recog_py(self):
+        marker = os.path.join(self.tmp, "ran")
+        stub = self.stub("touch %s" % marker)
+        empty = os.path.join(self.tmp, "empty")
+        os.mkdir(empty)
+        got = self.compute(stub, directory=empty)
+        self.assertIs(got["recog"], False)
+        self.assertFalse(os.path.exists(marker))
+
+    def test_probe_env_is_scrubbed(self):
+        dump = os.path.join(self.tmp, "env.txt")
+        stub = self.stub("env > %s" % dump)
+        self.compute(stub, SVF_MAKER_TOKEN="t" * 32, PYTHONPATH="/p", JAMOSET_PYLIB="/l")
+        with open(dump) as f:
+            keys = {line.split("=", 1)[0] for line in f.read().splitlines() if "=" in line}
+        self.assertTrue({"PATH", "HOME", "LANG"} <= keys)
+        self.assertEqual(keys - {"PATH", "HOME", "LANG", "PWD", "SHLVL", "_", "OLDPWD"}, set())
+
+    def test_api_caps_public_keys_only(self):
+        with mock.patch.dict(self.srv.caps, {"recog_python": "/x", "recog_dir": "/y"}):
+            got = self.get("/api/caps")
+        self.assertEqual(set(got), set(capsmod.PUBLIC_KEYS))
+        self.assertTrue(all(isinstance(v, bool) for v in got.values()))
+
+
 if __name__ == "__main__":
     unittest.main()
