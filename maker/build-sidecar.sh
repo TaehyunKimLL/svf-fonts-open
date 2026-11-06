@@ -40,6 +40,9 @@ mkdir -p "$OUT"
 TMPDIR="$T" PYTHONPATH="$T/pysite" python3 -S -m PyInstaller --noconfirm --clean --workpath "$T/pyi-work" \
     --distpath "$OUT/sidecar" maker/sidecar.spec
 
+# where every collected binary came from (dpkg -S of the bundled copy would find nothing): THIRD-PARTY generation
+python3 desktop/build/sidecar-provenance.py "$T/pyi-work/sidecar" "$OUT/sidecar-provenance.json" --pysite "$T/pysite"
+
 # the tree the frozen server and the external recogniser interpreter read (spec 7.5 / 8.4)
 rm -rf "$OUT/repo"
 mkdir -p "$OUT/repo/web" "$OUT/repo/tools" "$OUT/repo/maker"

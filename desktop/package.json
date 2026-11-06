@@ -8,7 +8,7 @@
   "license": "MIT",
   "desktopName": "svf-maker.desktop",
   "scripts": {
-    "test": "node --test test/unit.test.js",
+    "test": "node --test test/unit.test.js test/third-party.test.js",
     "e2e": "bash test/run-e2e.sh"
   },
   "devDependencies": {
