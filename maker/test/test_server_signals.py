@@ -231,6 +231,44 @@ class ExitWithParentTest(unittest.TestCase):
         self.assertLess(result["seconds"], 5, result)
         self.assertFalse(os.path.exists(files_dir), "the job's files directory outlived the server")
 
+    def test_dead_parent_exits_0(self):
+        gone = subprocess.Popen(["true"])
+        gone.wait()
+        for _ in range(3):
+            proc = subprocess.run([sys.executable, "-P", SERVER, "--exit-with-parent=%d" % gone.pid], env=self.env(),
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertNotIn("listening", proc.stdout)
+
+    def test_parent_dying_during_startup_exits_0(self):
+        open(self.out_json + ".kill", "w").close()               # the harness kills the helper as soon as it knows the server
+        self.harness = subprocess.Popen([sys.executable, "-P", HARNESS, self.out_json, "--", sys.executable, "-P",
+                                         SERVER], env=self.env(), stdin=subprocess.DEVNULL)
+        self.addCleanup(self.harness.kill)
+        self.assertEqual(self.harness.wait(60), 0)
+        result = json.load(open(self.out_json))
+        self.assertEqual(result["status"], 0, result)
+
+    def test_sigkill_during_the_probe_then_restart_reaps_it(self):
+        extra, pidfile = self.stub_probe()
+        proc = subprocess.Popen([sys.executable, "-P", SERVER], env=self.env(**extra), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        self.addCleanup(proc.kill)
+        self.assertTrue(wait_until(lambda: os.path.exists(pidfile) and open(pidfile).read().strip(), 20))
+        stub_pid = int(open(pidfile).read())
+        self.addCleanup(lambda: os.kill(stub_pid, signal.SIGKILL) if alive(stub_pid) else None)
+        self.assertIn(str(stub_pid), open(os.path.join(self.data, "tools.pids")).read())
+        proc.kill()
+        proc.wait()
+        self.assertTrue(alive(stub_pid), "the probe should outlive a SIGKILLed server (that is the case to reap)")
+        again = subprocess.Popen([sys.executable, "-P", SERVER], env=self.env(), stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True)
+        self.addCleanup(again.kill)
+        self.assertIn("listening on", again.stdout.readline())
+        self.assertTrue(wait_until(lambda: not alive(stub_pid), 5), "the restart did not reap the old probe")
+        again.send_signal(signal.SIGTERM)
+        again.wait(30)
+
     def test_exit_with_parent_pdeathsig(self):
         self.exit_with_parent()
 

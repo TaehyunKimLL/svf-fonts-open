@@ -27,6 +27,12 @@ REAP_TOTAL_S = 10.0
 _active = None
 
 
+def squeeze(text):
+    """@p text (`ps -o lstart=`: "Thu Nov  6 10:00:00 2026") as one token without spaces, or None when empty. macOS only;
+    UNVERIFIED there (no macOS host)."""
+    return "_".join(text.split()) or None
+
+
 def start_time(pid):
     """The process start time as text: `/proc/<pid>/stat` field 22 (Linux), `ps -o lstart=` (macOS), else None."""
     try:
@@ -37,8 +43,7 @@ def start_time(pid):
     if sys.platform == "darwin":
         try:
             out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, timeout=5).stdout
-            text = " ".join(out.decode("utf-8", "replace").split())
-            return text or None
+            return squeeze(out.decode("utf-8", "replace"))
         except (OSError, subprocess.SubprocessError):
             return None
     return None
@@ -69,8 +74,14 @@ class Registry:
             return []
 
     def _write(self, rows):
-        with open(self.path, "w", encoding="utf-8") as f:
+        """Replace the file with @p rows, atomically (a temp file beside it, fsynced, then `os.replace`): a SIGKILL
+        between the two steps leaves the old rows, never an empty file that forgets a live tool. Under the lock."""
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             f.write("".join(row + "\n" for row in rows))
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.path)
 
     @staticmethod
     def _report(exc):
@@ -111,6 +122,8 @@ class Registry:
         """Kill every group a previous run left (pid alive and the same start time), bounded, then truncate the file.
         Returns `{"killed": n, "stale": n, "stuck": n}`; `stuck` entries are logged and the start proceeds."""
         result = {"killed": 0, "stale": 0, "stuck": 0}
+        if not os.path.isdir(os.path.dirname(os.path.abspath(self.path))):
+            return result                                  # a fresh data root: nothing was ever registered
         try:
             fd = self._locked()
         except OSError as exc:
@@ -125,7 +138,8 @@ class Registry:
                 except (IndexError, ValueError):
                     result["stale"] += 1
                     continue
-                if not (toolrun.alive(pid) and start_time(pid) == start):
+                # register writes pgid = pid (a new session): a line that says otherwise is damaged, never killed
+                if pgid != pid or not (toolrun.alive(pid) and start_time(pid) == start):
                     result["stale"] += 1
                     continue
                 try:

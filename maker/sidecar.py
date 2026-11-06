@@ -122,10 +122,10 @@ def run_tool(name, args):
     """Run tool @p name with @p args and exit with its code (never returns)."""
     if getattr(sys, "frozen", False) and sys.platform.startswith("linux"):
         # a tool dies with its sidecar (SIGKILL on the parent's death). If the sidecar died between the fork and the
-        # prctl the signal never comes: the parent changed under us, so stop here (the pid is compared, not the
-        # executable: a person or a test may run `run-tool` directly)
-        parent = os.getppid()
-        if toolrun.set_pdeathsig(signal.SIGKILL) and os.getppid() != parent:
+        # prctl the signal never comes: the sidecar names its own pid in the environment (toolrun.base_env) and the
+        # parent is compared with it after the prctl. Run by a person or a test without the variable, nothing is checked.
+        want = os.environ.get(toolrun.SIDECAR_PID_KEY, "")
+        if toolrun.set_pdeathsig(signal.SIGKILL) and want.isdigit() and os.getppid() != int(want):
             os._exit(1)
     if name not in TOOLS:
         print("run-tool: unknown tool '%s'" % name, file=sys.stderr)

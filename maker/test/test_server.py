@@ -39,6 +39,7 @@ import urllib.parse
 import zipfile
 
 import caps as capsmod
+import toolreg
 import toolrun
 import fixtures
 import inputfx
@@ -1747,6 +1748,27 @@ class ThreadLeakTest(unittest.TestCase):
         self.assertEqual(left, [])
 
 
+class TwoServersTest(unittest.TestCase):
+    def test_a_second_server_on_one_data_root_is_refused_and_kills_nothing(self):
+        data = tempfile.mkdtemp(prefix="svf-two-")
+        self.addCleanup(shutil.rmtree, data, True)
+        first = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)
+        self.addCleanup(lambda: (first.worker.stop(), first.server_close()))
+        sleeper = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        self.addCleanup(lambda: (os.killpg(sleeper.pid, 9), sleeper.wait()))
+        with open(os.path.join(data, "tools.pids"), "w") as f:
+            f.write("%d %d %s sleep\n" % (sleeper.pid, sleeper.pid, toolreg.start_time(sleeper.pid)))
+        with self.assertRaises(server.DataRootBusyError):
+            server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)
+        self.assertTrue(toolrun.alive(sleeper.pid), "the refused server killed the first one's tool")
+        self.assertIs(toolreg.active(), first.toolreg)                     # and left the first's registry active
+        first.worker.stop()
+        first.server_close()
+        again = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)    # the lock is released with the server
+        again.worker.stop()
+        again.server_close()
+
+
 class InterruptedStartTest(unittest.TestCase):
     def test_make_server_cleans_up_on_interrupt(self):
         import toolreg
@@ -1790,6 +1812,8 @@ class LocalBindTest(unittest.TestCase):
         shutil.rmtree(self.data, ignore_errors=True)
 
     def start(self, host="127.0.0.1", token=TOKEN):
+        for old in self.servers:                       # a second server on this data root: the first one is "gone"
+            server.release_data_root_lock(old)
         srv = server.make_server(host, 0, fixtures.REPO_DIR, self.data, token=token)
         thread = threading.Thread(target=srv.serve_forever, daemon=True)
         thread.start()
@@ -2090,6 +2114,26 @@ class RecogCapsTest(ApiBase):
         self.assertLess(time.monotonic() - started, 3)
         self.assertIs(got["recog"], False)
         self.assertIsNone(got["recog_python"])
+
+    def test_the_probe_is_registered_while_it_runs(self):
+        reg = toolreg.Registry(os.path.join(self.tmp, "tools.pids"))
+        toolreg.activate(reg)
+        self.addCleanup(toolreg.deactivate, reg)
+        seen = []
+        stub = self.stub("sleep 1")
+        t = threading.Thread(target=lambda: self.compute(stub))
+        t.start()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not os.path.exists(reg.path):
+            time.sleep(0.02)
+        while time.monotonic() < deadline and t.is_alive():
+            if os.path.exists(reg.path) and open(reg.path).read().strip():
+                seen.append(open(reg.path).read())
+                break
+            time.sleep(0.02)
+        t.join(10)
+        self.assertTrue(seen, "the probe was never in tools.pids")
+        self.assertEqual(open(reg.path).read().strip(), "")
 
     def test_relative_interpreter_is_rejected(self):
         self.stub("exit 0")

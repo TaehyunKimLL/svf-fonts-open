@@ -21,6 +21,9 @@ MODULE_NAMES = {"fontTools.varLib.instancer": "instancer"}
 FORWARD_KEYS = ("JAMOSET_PYLIB", "JAMOSET_MASK_FONT")
 # Test-only knob, forwarded only as "1" (design issue 17).
 TEST_KEYS = ("SVF_MAKER_NO_PDEATHSIG",)
+# The frozen sidecar's own pid, for the tools it starts: `run-tool` compares its parent with it after the prctl (a parent
+# that died between the fork and the prctl never signals). Set by `base_env` only when frozen; the one other SVF_ key.
+SIDECAR_PID_KEY = "SVF_MAKER_SIDECAR_PID"
 
 
 def tool(name, tools_dir):
@@ -119,6 +122,8 @@ def base_env(environ):
             env[key] = environ[key]
     if environ.get("SVF_MAKER_NO_PDEATHSIG") == "1":
         env["SVF_MAKER_NO_PDEATHSIG"] = "1"
+    if FROZEN:
+        env[SIDECAR_PID_KEY] = str(os.getpid())
     return env
 
 

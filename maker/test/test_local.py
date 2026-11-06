@@ -837,6 +837,7 @@ class LocalSweepTest(LocalRunBase):
         server2 = None
         try:
             import server as servermod
+            self.release_lock()
             server2 = servermod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
             self.assertIsNone(server2.startup_sweep)                         # the cleanup is synchronous: done by now
             self.assertFalse(os.path.exists(planted))
@@ -1298,6 +1299,7 @@ class LocalSweepTest(LocalRunBase):
             go.wait(20)
             return real(store, *a, **k)
         made = []
+        self.release_lock()
         with mock.patch.object(jobs_mod.Store, "retry_pending_sweeps", paused):
             t = threading.Thread(target=lambda: made.append(
                 server_mod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)), daemon=True)
@@ -1455,6 +1457,7 @@ class LocalSweepTest(LocalRunBase):
         self.assertEqual(sorted(n for n in os.listdir(self.out) if n.startswith(".svf-maker-")), [])
         orphan = os.path.join(self.out, ".svf-maker-0123456789ab")
         os.makedirs(orphan)
+        self.release_lock()
         srv2 = server_mod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)   # a restart
         try:
             self.assertFalse(os.path.exists(orphan))
@@ -1589,6 +1592,7 @@ class LocalSweepTest(LocalRunBase):
             if ".trash-" in str(path):
                 raise PermissionError("denied")
             return real(path, *a, **k)
+        self.release_lock()
         with mock.patch.object(shutil, "rmtree", deny):
             srv2 = server_mod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
         try:
@@ -1831,7 +1835,7 @@ class LocalSweepTest(LocalRunBase):
         for dirpath, _d, names in os.walk(self.data):
             rel = os.path.relpath(dirpath, self.data)
             for n in names:
-                self.assertTrue(rel.startswith("jobs") or n in ("pending-sweeps.json", "tools.pids", "tools.pids.lock"),
+                self.assertTrue(rel.startswith("jobs") or n in ("pending-sweeps.json", "tools.pids", "tools.pids.lock", "instance.lock"),
                                 (rel, n))
 
     def test_final_no_upload_copy(self):

@@ -23,11 +23,12 @@ START=$(date +%s)
 
 bash maker/build-wasm.sh
 
-REQ=desktop/build/requirements-sidecar.txt
+# every wheel, direct and transitive, pinned with its sha256 (requirements-sidecar.txt names the three direct ones)
+REQ=desktop/build/requirements.lock
 SUM=$(sha256sum "$REQ" | cut -d' ' -f1)
 if [ ! -f "$T/pysite/.ok" ] || [ "$(cat "$T/pysite/.ok")" != "$SUM" ]; then
     rm -rf "$T/pysite"
-    python3 -m pip install --target "$T/pysite" -r "$REQ"
+    python3 -m pip install --target "$T/pysite" --require-hashes --only-binary=:all: --no-deps -r "$REQ"
     echo "$SUM" > "$T/pysite/.ok"
 fi
 

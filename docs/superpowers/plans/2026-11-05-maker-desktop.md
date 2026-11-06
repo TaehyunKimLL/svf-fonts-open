@@ -53,8 +53,9 @@ D10 window size/zoom persisted. D11 `getppid` polling plus `PR_SET_PDEATHSIG` on
   The deliverables stay in the gitignored `desktop/build/out/` and `desktop/dist/`.
   **Keep `TMP_DIR` short: under about 40 characters past `$HOME`** (Chrome's singleton socket path lives under
   `TMPDIR` and a unix socket path is limited to 107 bytes; a long `TMP_DIR` made every `test_page_dom` test fail with
-  `timeout: chrome start`, Opus review of Group A). `maker/test/pagedrive.mjs` also moves Chrome's profile to a short
-  directory when `TMPDIR` is long, so a long path only costs the Electron runs, which have no such fallback.
+  `timeout: chrome start`, Opus review of Group A). `maker/test/pagedrive.mjs` also moves Chrome's profile to
+  `$HOME/work/tmp/pd-XXXXXX` (the authorised scratch root, never `/dev/shm` or `/tmp`) when `TMPDIR` is long, so a long
+  path only costs the Electron runs, which have no such fallback.
 - **Gates at the end of every task** (before its commit), in this order:
   - G1 `git diff --exit-code 94011ff -- c/src c/include` -> exit 0, no output.
   - G2 `flock $HOME/work/tmp/svf-browser.lock ~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'`
@@ -86,7 +87,11 @@ D10 window size/zoom persisted. D11 `getppid` polling plus `PR_SET_PDEATHSIG` on
   only (`svf/` copied whole, `web/` index files).
 - **Pinned versions (D6):** `pyinstaller==6.22.3 pillow==10.2.0 fonttools==4.66.1` in
   `desktop/build/requirements-sidecar.txt`; `"electron": "45.2.3"`, `"electron-builder": "26.18.0"` exact in
-  `desktop/package.json` devDependencies with `desktop/package-lock.json` committed; `build.electronVersion "45.2.3"`.
+  `desktop/package.json` devDependencies with `desktop/package-lock.json` committed; **every transitive Python wheel is
+  pinned with its hash in `desktop/build/requirements.lock`** (installed with `--require-hashes --only-binary=:all:
+  --no-deps`; regenerate it when `requirements-sidecar.txt` changes); the bundle is not bit-reproducible
+  (`_internal/base_library.zip` lists its members in a different order on every build, same contents: compare builds by
+  member bytes, not by file hash); `build.electronVersion "45.2.3"`.
   A version moves only with a full release check (Task 8) run.
 - **Build environment as verified here:** `python3 -m venv` does not work on this host; the build installs the pinned
   wheels with `python3 -m pip install --target $SVF_DESKTOP_TMP/pysite -r desktop/build/requirements-sidecar.txt` and

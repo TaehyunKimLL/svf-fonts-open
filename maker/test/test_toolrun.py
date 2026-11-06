@@ -98,8 +98,15 @@ class ShapesTest(unittest.TestCase):
         for env in (jobs.ENV, preview.ENV,
                     toolrun.base_env({**os.environ, "SVF_MAKER_TOKEN": "a" * 32, "PYTHONHOME": "/x"})):
             self.assertEqual([k for k in env if k.startswith("PYTHON")], [])
-            self.assertEqual([k for k in env if k.startswith("SVF_") and k not in toolrun.TEST_KEYS], [])
+            self.assertEqual([k for k in env if k.startswith("SVF_") and k not in toolrun.TEST_KEYS], [])   # unfrozen
             self.assertIn(env.get("SVF_MAKER_NO_PDEATHSIG", "1"), ("1",))
+
+    def test_sidecar_pid_only_when_frozen(self):
+        self.assertNotIn(toolrun.SIDECAR_PID_KEY, toolrun.base_env({}))
+        with mock.patch.object(toolrun, "FROZEN", True):
+            env = toolrun.base_env({"SVF_MAKER_TOKEN": "t" * 32, "SVF_MAKER_SIDECAR_PID": "7"})
+        self.assertEqual(env[toolrun.SIDECAR_PID_KEY], str(os.getpid()))           # its own pid, never the inherited value
+        self.assertEqual([k for k in env if k.startswith("SVF_") and k not in toolrun.TEST_KEYS + (toolrun.SIDECAR_PID_KEY,)], [])
 
     def test_modules_read_base_env_at_import(self):
         # a fresh interpreter, so the module-level ENV of jobs and preview is built under these variables

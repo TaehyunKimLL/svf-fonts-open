@@ -126,6 +126,11 @@ class LocalBase(unittest.TestCase):
         self.thread.start()
         self.addCleanup(self._stop)
 
+    def release_lock(self):
+        """The running server's data-root lock released, as when its process has died: a test that starts a second
+        server on the same data root ("a restart") calls this first."""
+        server.release_data_root_lock(self.srv)
+
     def _stop(self):
         deadline = time.monotonic() + 30
         for item in self.srv.store.list():

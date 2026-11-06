@@ -444,6 +444,7 @@ class _Server(http.server.ThreadingHTTPServer):
             stopping.set()                                # the idle sweeper ends with the server
         super().server_close()
         toolreg.deactivate(getattr(self, "toolreg", None))
+        release_data_root_lock(self)                      # releases the data-root lock
 
     @property
     def port(self):
@@ -455,6 +456,31 @@ class _Server6(_Server):
     """The IPv6 form: a host with a colon (`::1`) needs `AF_INET6` to bind at all (Y4)."""
 
     address_family = socket.AF_INET6
+
+
+class DataRootBusyError(LocalModeError):
+    """Another server holds the data root (a second one would reap its tools and sweep its jobs)."""
+
+
+def _lock_data_root(root):
+    """An exclusive, non-blocking `flock` on `<root>/instance.lock`, held until the server closes; the fd is returned.
+    `DataRootBusyError` when another process (or server object) holds it."""
+    import fcntl
+    os.makedirs(root, mode=0o700, exist_ok=True)
+    fd = os.open(os.path.join(root, "instance.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        raise DataRootBusyError("another svf-maker server is using this data root")
+    return fd
+
+
+def release_data_root_lock(srv):
+    """Drop @p srv's data-root lock without stopping it (tests simulate a dead process this way)."""
+    fd, srv.instance_lock = getattr(srv, "instance_lock", None), None
+    if fd is not None:
+        os.close(fd)
 
 
 def make_server(host, port, repo_dir, data_root, token=None):
@@ -478,11 +504,12 @@ def make_server(host, port, repo_dir, data_root, token=None):
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
     store.on_sweep = _sweep_locks
-    reg = toolreg.Registry(os.path.join(store.data_root, "tools.pids"))
-    reg.reap()                                           # before any sweep: a tool of a dead run must not race it
-    toolreg.activate(reg)
-    worker = server = None
+    lock_fd = _lock_data_root(store.data_root)            # before the reap: a second server must not kill the first's tools
+    worker = server = reg = None
     try:
+        reg = toolreg.Registry(os.path.join(store.data_root, "tools.pids"))
+        reg.reap()                                       # before any sweep: a tool of a dead run must not race it
+        toolreg.activate(reg)
         static_dir = os.path.join(MAKER_DIR, "static")
         capabilities = caps.compute(static_dir, os.environ, local=token is not None)
         worker = jobs.Worker(store, repo_dir, os.path.join(repo_dir, "svf"), os.path.join(repo_dir, "tools"),
@@ -492,6 +519,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
         server_class = _Server6 if ":" in str(host) else _Server
         server = server_class((host, port), Handler)
         server.toolreg = reg
+        server.instance_lock = lock_fd
         server.store = store
         server.worker = worker
         server.repo_dir = repo_dir
@@ -553,8 +581,10 @@ def make_server(host, port, repo_dir, data_root, token=None):
         if worker is not None:
             worker.stop()
         if server is not None:
-            server.server_close()                        # closes the socket and deactivates the registry
+            server.server_close()                        # closes the socket, deactivates the registry, drops the lock
         toolreg.deactivate(reg)
+        if server is None:
+            os.close(lock_fd)
         raise
     return server
 
@@ -2043,14 +2073,14 @@ def main(argv=None):
     # from the first line: a signal during the start-up probe or cleanup must not take the default action
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)               # also when the parent started us with SIGINT ignored (a background job)
-    if parent is not None:
-        toolrun.set_pdeathsig(signal.SIGTERM)             # Linux: at once; the poll below is the portable layer
-        threading.Thread(target=_watch_parent, args=(parent,), daemon=True, name="svf-maker-parent-watch").start()
-        if os.getppid() != parent:                        # the parent may be gone already
-            _detach_stdio()
-            os.kill(os.getpid(), signal.SIGTERM)
     server = None
     try:
+        if parent is not None:                            # inside the try: a parent that is already gone (or dies here)
+            toolrun.set_pdeathsig(signal.SIGTERM)         # Linux: at once; the poll below is the portable layer
+            threading.Thread(target=_watch_parent, args=(parent,), daemon=True, name="svf-maker-parent-watch").start()
+            if os.getppid() != parent:                    # the parent may be gone already: stop through the handler
+                _detach_stdio()
+                os.kill(os.getpid(), signal.SIGTERM)
         repo_dir = os.environ.get("SVF_MAKER_REPO") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         data_root = os.environ.get("SVF_MAKER_DATA") or os.path.expanduser("~/.local/share/svf-maker")
         bind = os.environ.get("SVF_MAKER_BIND") or "127.0.0.1:8766"

@@ -184,14 +184,95 @@ class ReapTest(RegBase):
         self.assertEqual(lines(self.reg), [])
 
     def test_reap_bounded(self):
-        proc = self.sleeper()
-        self.put(self.line_for(proc))
-        started = time.monotonic()
-        with mock.patch.object(toolreg.os, "killpg"), mock.patch.object(toolreg, "REAP_EACH_S", 0.5), \
-                mock.patch.object(toolreg, "REAP_TOTAL_S", 1.0):
+        """Three stuck groups: their per-entry allowances (3 x 1 s) exceed the patched overall bound (1.5 s)."""
+        procs = [self.sleeper() for _ in range(3)]
+        self.put(*[self.line_for(p) for p in procs])
+        with mock.patch.object(toolreg.os, "killpg"), mock.patch.object(toolreg, "REAP_EACH_S", 1.0), \
+                mock.patch.object(toolreg, "REAP_TOTAL_S", 1.5):
+            started = time.monotonic()
             got = self.reg.reap()
-        self.assertLess(time.monotonic() - started, toolreg.REAP_TOTAL_S + 1)
-        self.assertEqual(got["stuck"], 1)
+            elapsed = time.monotonic() - started
+            total = toolreg.REAP_TOTAL_S
+        self.assertLess(elapsed, total + 1.0, elapsed)          # against the patched total: 3 x 1 s would be 3 s
+        self.assertEqual(got["stuck"], 3)
+
+    def test_reap_pgid_must_equal_pid(self):
+        """A damaged row naming an unrelated live group as pgid and a live pid: nothing is killed (L5)."""
+        victim, other = self.sleeper(), self.sleeper()
+        self.put("%d %d %s python3" % (victim.pid, other.pid, toolreg.start_time(other.pid)))
+        got = self.reg.reap()
+        self.assertEqual((got["killed"], got["stale"]), (0, 1))
+        self.assertTrue(toolrun.alive(victim.pid) and toolrun.alive(other.pid))
+
+    def test_reap_silent_without_a_data_dir(self):
+        reg = toolreg.Registry(os.path.join(self.tmp, "nodir", "tools.pids"))
+        with mock.patch("sys.stderr") as err:
+            got = reg.reap()
+        self.assertEqual(got, {"killed": 0, "stale": 0, "stuck": 0})
+        self.assertFalse(err.write.called)
+
+
+class AtomicityTest(RegBase):
+    def test_a_crash_before_the_replace_keeps_both_records(self):
+        """Crash injection: the rewrite dies after the temp file and before os.replace; both live tools stay recorded."""
+        a, b = self.sleeper(), self.sleeper()
+        toolreg.activate(self.reg)
+        toolreg.register(a)
+        toolreg.register(b)
+
+        class Crash(BaseException):
+            pass
+        with mock.patch.object(toolreg.os, "replace", side_effect=Crash):
+            with self.assertRaises(Crash):
+                toolreg.unregister(a)
+        rows = lines(self.reg)
+        self.assertEqual(sorted(int(r.split()[1]) for r in rows), sorted([a.pid, b.pid]))
+
+    def test_sigkill_during_rewrites_never_empties_the_file(self):
+        """A process registers a live victim, then churns register/unregister and is SIGKILLed at random instants."""
+        import random
+        victim = self.sleeper()
+        script = ("import sys, subprocess, itertools\nsys.path.insert(0, %r)\nimport toolreg\n"
+                  "reg = toolreg.Registry(%r)\nv = subprocess.Popen(['sleep', '60'])\n"
+                  "open(%r, 'w').write(str(v.pid))\n"
+                  "reg.register(v)\nclass P:\n    pid = 999999\n    args = ['x']\n"
+                  "for i in itertools.count():\n    reg.register(P)\n    reg.unregister(P)\n"
+                  % (MAKER_DIR, self.reg.path, os.path.join(self.tmp, "v.pid")))
+        rng = random.Random(7)
+        for round_ in range(25):
+            if os.path.exists(self.reg.path):
+                os.remove(self.reg.path)
+            proc = subprocess.Popen([sys.executable, "-c", script])
+            try:
+                self.assertTrue(wait_until(lambda: os.path.exists(os.path.join(self.tmp, "v.pid")), 10))
+                time.sleep(rng.uniform(0.02, 0.15))
+            finally:
+                proc.kill()
+                proc.wait()
+            vpid = int(open(os.path.join(self.tmp, "v.pid")).read())
+            os.remove(os.path.join(self.tmp, "v.pid"))
+            try:
+                self.assertIn(str(vpid), " ".join(r.split()[1] for r in lines(self.reg)), "round %d" % round_)
+            finally:
+                try:
+                    os.kill(vpid, signal.SIGKILL)
+                except OSError:
+                    pass
+
+
+class StartTimeTest(unittest.TestCase):
+    def test_squeeze_has_no_spaces(self):
+        self.assertEqual(toolreg.squeeze("Thu Nov  6 10:00:00 2026\n"), "Thu_Nov_6_10:00:00_2026")
+        self.assertIsNone(toolreg.squeeze("  \n"))
+
+    def test_darwin_start_time_round_trips_through_a_row(self):
+        fake = mock.Mock(stdout=b"Thu Nov  6 10:00:00 2026\n")
+        with mock.patch.object(toolreg.sys, "platform", "darwin"), mock.patch.object(toolreg.subprocess, "run", return_value=fake), \
+                mock.patch("builtins.open", side_effect=OSError):
+            start = toolreg.start_time(os.getpid())
+        self.assertNotIn(" ", start)
+        row = "%d %d %s python3" % (os.getpid(), os.getpid(), start)
+        self.assertEqual(row.split()[2], start)
 
 
 class ServerRegistryTest(unittest.TestCase):

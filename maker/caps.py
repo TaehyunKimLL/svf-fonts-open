@@ -15,6 +15,8 @@ import signal
 import subprocess
 import sys
 
+import toolreg
+
 PUBLIC_KEYS = ("wasm", "mask_libs", "recog", "local")      # what /api/caps serves; the private keys never leave
 PROBE_ARGS = ["-P", "-c", "import numpy, torch, PIL, fontTools"]
 RECOG_PROBE_S = 20                                          # seconds the external interpreter's import probe may take
@@ -67,6 +69,7 @@ def recog_python(environ):
                                 stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
         return _rejected("could not start")
+    toolreg.register(proc)                           # a SIGKILL of the server must leave a line the next start reaps
     code = None
     try:
         code = proc.wait(RECOG_PROBE_S)
@@ -78,6 +81,7 @@ def recog_python(environ):
         except OSError:
             pass
         proc.wait()
+        toolreg.unregister(proc)
     if code is None:
         return _rejected("probe timed out")
     return path if code == 0 else _rejected("probe exit %d" % code)

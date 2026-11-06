@@ -110,6 +110,46 @@ class FrozenSelfcheckTest(Needs):
                                           "recog_probe_s": caps.RECOG_PROBE_S})
 
 
+class FrozenForkRaceTest(Needs):
+    def test_tool_whose_sidecar_died_before_the_prctl_exits(self):
+        """A stand-in sidecar starts `run-tool` with its own pid in the environment and dies at once: the tool must not
+        outlive it (the getppid-after-prctl guard; the plain PDEATHSIG signal never comes in that window)."""
+        tmp = tempfile.mkdtemp(prefix="svf-frz-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        big = os.path.join(tmp, "Big.ttf")
+        with open(big, "wb") as f:
+            f.write(inputfx.big_composite_ttf(11172))
+        script = (
+            "import ctypes, os, subprocess, sys, time\n"
+            "ctypes.CDLL(None).prctl(36, 1, 0, 0, 0)\n"                 # this process is the subreaper
+            "r, w = os.pipe()\n"
+            "pid = os.fork()\n"
+            "if pid == 0:\n"                                             # the stand-in sidecar
+            "    env = dict(os.environ, SVF_MAKER_SIDECAR_PID=str(os.getpid()))\n"
+            "    p = subprocess.Popen([sys.argv[1], 'run-tool', 'jamovec', 'master', sys.argv[2], '-o', sys.argv[3], '--components'],\n"
+            "                         env=env, start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+            "    os.write(w, str(p.pid).encode())\n"
+            "    os._exit(0)\n"
+            "os.waitpid(pid, 0)\n"
+            "tool = int(os.read(r, 32))\n"
+            "time.sleep(2.5)\n"
+            "try:\n"
+            "    st = open('/proc/%d/stat' % tool).read().rsplit(')', 1)[1].split()[0]\n"
+            "except OSError:\n"
+            "    st = 'gone'\n"
+            "print(tool, st)\n"
+            "try:\n"
+            "    os.killpg(tool, 9)\n"
+            "except OSError:\n"
+            "    pass\n")
+        env = {"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8"}
+        for i in range(4):
+            out = subprocess.run([PY3, "-I", "-c", script, SIDECAR, big, os.path.join(tmp, "m%d.json" % i)], env=env,
+                                 capture_output=True, text=True, timeout=60)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertIn(out.stdout.split()[1], ("Z", "X", "gone"), "run %d: the tool outlived its parent: %s" % (i, out.stdout))
+
+
 class FrozenRunToolTest(Needs):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="svf-frz-")

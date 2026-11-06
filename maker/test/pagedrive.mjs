@@ -2,8 +2,8 @@
 // SCRIPT_FILE in the page (helpers: sleep(ms), waitFor(fn, ms)); prints the JSON it returns on stdout. Chrome is driven
 // over the DevTools protocol with node's built-in WebSocket (no playwright). Exit 1 with the page's error on stderr.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
 const [chrome, url, scriptFile, ...options] = process.argv.slice(2);
@@ -25,8 +25,13 @@ for (let i = 0; i < options.length; i++) {
 // is long (a TMP_DIR the project rule puts under $HOME/work/tmp) the profile goes to a short directory instead.
 // It is removed with Chrome, as before.
 let base = tmpdir();
-if (join(base, 'pagedrive-XXXXXX', 'tmp').length > 60) base = existsSync('/dev/shm') ? '/dev/shm' : '/tmp';
-const profile = mkdtempSync(join(base, 'pagedrive-'));
+let prefix = 'pagedrive-';
+if (join(base, 'pagedrive-XXXXXX', 'tmp').length > 60) {   // 60 + Chrome's /.org.chromium.Chromium.XXXXXX/SingletonSocket < 107
+  base = join(homedir(), 'work', 'tmp');                   // the authorised scratch root (project rule), never /dev/shm or /tmp
+  prefix = 'pd-';
+}
+const profile = mkdtempSync(join(base, prefix));
+if (process.env.PAGEDRIVE_PROFILE_FILE) writeFileSync(process.env.PAGEDRIVE_PROFILE_FILE, profile);
 // Chrome's own temp files (/tmp/com.google.Chrome.*) go under the profile and leave with it
 mkdirSync(join(profile, 'tmp'));
 const proc = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-sandbox', '--remote-debugging-port=0',
