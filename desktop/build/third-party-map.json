@@ -1,0 +1,377 @@
+[
+ {
+  "match": "libpython3.12.so*",
+  "component": "CPython",
+  "licence": "PSF-2.0",
+  "source_url": "https://www.python.org/downloads/release/python-3123/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "_imaging*.so",
+  "component": "Pillow",
+  "licence": "HPND",
+  "source_url": "https://github.com/python-pillow/Pillow",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "_webp.cpython*.so",
+  "component": "Pillow",
+  "licence": "HPND",
+  "source_url": "https://github.com/python-pillow/Pillow",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "cu2qu.cpython*.so",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "qu2cu.cpython*.so",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "bezierTools.cpython*.so",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "momentsPen.cpython*.so",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "iup.cpython*.so",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "*.cpython-312-x86_64-linux-gnu.so",
+  "component": "CPython",
+  "licence": "PSF-2.0",
+  "source_url": "https://www.python.org/downloads/release/python-3123/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "libbz2.so*",
+  "component": "bzip2",
+  "licence": "bzip2-1.0.6",
+  "source_url": "https://sourceware.org/bzip2/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "libcrypto.so*",
+  "component": "OpenSSL",
+  "licence": "Apache-2.0",
+  "source_url": "https://www.openssl.org/source/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "libssl.so*",
+  "component": "OpenSSL",
+  "licence": "Apache-2.0",
+  "source_url": "https://www.openssl.org/source/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "libexpat.so*",
+  "component": "expat",
+  "licence": "MIT",
+  "source_url": "https://libexpat.github.io/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "libffi.so*",
+  "component": "libffi",
+  "licence": "MIT",
+  "source_url": "https://sourceware.org/libffi/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "libz.so*",
+  "component": "zlib",
+  "licence": "Zlib",
+  "source_url": "https://zlib.net/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "liblzma.so*",
+  "component": "xz-utils",
+  "licence": "0BSD",
+  "source_url": "https://tukaani.org/xz/",
+  "class": "none",
+  "from": "dpkg"
+ },
+ {
+  "match": "libfreetype-*",
+  "component": "FreeType",
+  "licence": "FTL",
+  "source_url": "https://freetype.org/",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libharfbuzz-*",
+  "component": "HarfBuzz",
+  "licence": "MIT",
+  "source_url": "https://github.com/harfbuzz/harfbuzz",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libjpeg-*",
+  "component": "libjpeg-turbo",
+  "licence": "BSD-3-Clause AND IJG AND Zlib",
+  "source_url": "https://libjpeg-turbo.org/",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "liblcms2-*",
+  "component": "Little CMS 2",
+  "licence": "MIT",
+  "source_url": "https://www.littlecms.com/",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "liblzma-*",
+  "component": "xz (Pillow wheel)",
+  "licence": "0BSD",
+  "source_url": "https://tukaani.org/xz/",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libopenjp2-*",
+  "component": "OpenJPEG",
+  "licence": "BSD-2-Clause",
+  "source_url": "https://www.openjpeg.org/",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libpng16-*",
+  "component": "libpng",
+  "licence": "libpng-2.0",
+  "source_url": "http://www.libpng.org/pub/png/libpng.html",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libsharpyuv-*",
+  "component": "libwebp (sharpyuv)",
+  "licence": "BSD-3-Clause",
+  "source_url": "https://chromium.googlesource.com/webm/libwebp",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libwebp*",
+  "component": "libwebp",
+  "licence": "BSD-3-Clause",
+  "source_url": "https://chromium.googlesource.com/webm/libwebp",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libtiff-*",
+  "component": "libtiff",
+  "licence": "libtiff",
+  "source_url": "http://www.libtiff.org/",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libXau-*",
+  "component": "libXau",
+  "licence": "MIT",
+  "source_url": "https://gitlab.freedesktop.org/xorg/lib/libxau",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libxcb-*",
+  "component": "libxcb",
+  "licence": "MIT",
+  "source_url": "https://xcb.freedesktop.org/",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libbrotli*",
+  "component": "Brotli",
+  "licence": "MIT",
+  "source_url": "https://github.com/google/brotli",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "libffmpeg.so",
+  "component": "ffmpeg (Chromium build, in Electron)",
+  "licence": "LGPL-2.1-or-later",
+  "source_url": "https://ffmpeg.org/",
+  "class": "lgpl",
+  "version": "Electron 45.2.3",
+  "licence_file": "lgpl-2.1.txt",
+  "record": {
+   "source": "https://ffmpeg.org/releases/ (the version Chromium 'third_party/ffmpeg' pins for Electron 45.2.3, see https://github.com/electron/electron/releases/tag/v45.2.3 and https://chromium.googlesource.com/chromium/third_party/ffmpeg)",
+   "replace": "libffmpeg.so is a separate shared object next to the Electron executable; a compatible build (same ABI) may replace it (LGPL-2.1 section 6)"
+  }
+ },
+ {
+  "match": "libvk_swiftshader.so",
+  "component": "SwiftShader",
+  "licence": "Apache-2.0",
+  "source_url": "https://swiftshader.googlesource.com/SwiftShader",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "apache-2.0.txt"
+ },
+ {
+  "match": "libvulkan.so*",
+  "component": "Vulkan loader",
+  "licence": "Apache-2.0",
+  "source_url": "https://github.com/KhronosGroup/Vulkan-Loader",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "apache-2.0.txt"
+ },
+ {
+  "match": "libappindicator.so*",
+  "component": "libappindicator",
+  "licence": "LGPL-2.1-only OR LGPL-3.0-only",
+  "source_url": "https://launchpad.net/libappindicator",
+  "class": "lgpl",
+  "version": "12.10.1",
+  "licence_file": "lgpl-2.1.txt",
+  "record": {
+   "source": "https://launchpad.net/libappindicator/12.10/12.10.0/+download/libappindicator-12.10.0.tar.gz",
+   "replace": "separate shared object in the AppImage usr/lib; replaceable"
+  }
+ },
+ {
+  "match": "libgconf-2.so*",
+  "component": "GConf",
+  "licence": "LGPL-2.0-or-later",
+  "source_url": "https://download.gnome.org/sources/GConf/",
+  "class": "lgpl",
+  "version": "3.2.6",
+  "licence_file": "lgpl-2.0.txt",
+  "record": {
+   "source": "https://download.gnome.org/sources/GConf/3.2/GConf-3.2.6.tar.xz",
+   "replace": "separate shared object in the AppImage usr/lib; replaceable"
+  }
+ },
+ {
+  "match": "libindicator.so*",
+  "component": "libindicator",
+  "licence": "GPL-3.0-only",
+  "source_url": "https://launchpad.net/libindicator",
+  "class": "gpl",
+  "version": "12.10.1",
+  "licence_file": "gpl-3.0.txt"
+ },
+ {
+  "match": "libnotify.so*",
+  "component": "libnotify",
+  "licence": "LGPL-2.1-or-later",
+  "source_url": "https://gitlab.gnome.org/GNOME/libnotify",
+  "class": "lgpl",
+  "version": "0.7",
+  "licence_file": "lgpl-2.1.txt",
+  "record": {
+   "source": "https://download.gnome.org/sources/libnotify/",
+   "replace": "separate shared object in the AppImage usr/lib; replaceable"
+  }
+ },
+ {
+  "match": "libXss.so*",
+  "component": "libXss",
+  "licence": "MIT",
+  "source_url": "https://gitlab.freedesktop.org/xorg/lib/libxscrnsaver",
+  "class": "none",
+  "version": "1.2.3",
+  "licence_file": "libxss1.txt"
+ },
+ {
+  "match": "libXtst.so*",
+  "component": "libXtst",
+  "licence": "MIT",
+  "source_url": "https://gitlab.freedesktop.org/xorg/lib/libxtst",
+  "class": "none",
+  "version": "1.2.3",
+  "licence_file": "libxtst6.txt"
+ },
+ {
+  "match": "(bootloader)",
+  "component": "PyInstaller bootloader",
+  "licence": "GPL-2.0-or-later WITH Bootloader-exception",
+  "source_url": "https://github.com/pyinstaller/pyinstaller",
+  "class": "gpl-exception",
+  "always": true,
+  "version": "6.22.3",
+  "wheel": "pyinstaller",
+  "note": "the executable svf-maker-sidecar is PyInstaller's bootloader plus the application archive; the bootloader exception allows distributing it with non-GPL code"
+ },
+ {
+  "match": "(appimage-runtime)",
+  "component": "appimage-runtime",
+  "licence": "MIT AND BSD-2-Clause AND LGPL-2.1-only",
+  "source_url": "https://github.com/electron-userland/electron-builder-binaries",
+  "class": "lgpl",
+  "runtime": true,
+  "version": "12.0.1",
+  "licence_file": "lgpl-2.1.txt",
+  "note": "electron-builder's appimage-12.0.1 runtime: AppImageKit type-2 runtime (MIT) with squashfuse (BSD-2-Clause) and libfuse (LGPL-2.1) linked statically, plus zlib/liblzma; composition read from file names only",
+  "record": {
+   "source": "https://github.com/electron-userland/electron-builder-binaries (appimage-12.0.1) and https://github.com/AppImage/type2-runtime",
+   "replace": "libfuse is linked statically: replacing it means rebuilding the runtime from that source and recipe"
+  }
+ }
+]

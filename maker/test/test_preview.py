@@ -27,6 +27,7 @@ import detect
 import fixtures
 import preview
 import svfline
+import toolrun
 
 SVF = os.path.join(REPO_DIR, "svf")
 TOOLS = os.path.join(fixtures.REPO_DIR, "tools")
@@ -168,6 +169,9 @@ def rss_kb():
 
 
 class RunBoundedTest(unittest.TestCase):
+    def test_env_from_base_env(self):
+        self.assertEqual(preview.ENV, toolrun.base_env(os.environ))
+
     def test_a_timeout_kills_the_whole_group(self):
         import subprocess as sp
         import tempfile

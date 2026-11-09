@@ -12,18 +12,13 @@ The segmentation project adds one `Route(kind="jamo", label="segmented")` here a
 """
 
 import os
-import sys
 from dataclasses import dataclass
 
 import detect
-
-PY = [sys.executable, "-P"]
+import toolrun
 
 # The 16x16 1 bpp base face johab844.py redraws the Hangul of (relative to the checkout's svf/).
 JOHAB844_BASE = "dos/NEODG16.SVF"
-
-# The maker's own source-conversion CLI (a TTC face, a PCF as BDF): tools/ has no tool for those two.
-SRCPREP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "srcprep.py")
 
 # A flag whose next token is its value: `apply_flags` removes the old value with the old flag.
 VALUED = frozenset({"--cell", "--ascent", "--space-advance", "--unicode", "--width", "--punct-extra", "--eng",
@@ -96,10 +91,6 @@ class Route:
         return self.prepare(font, layout, paths)
 
 
-def _tool(paths, name):
-    return os.path.join(paths["tools"], name)
-
-
 def _with_extra(commands, extras):
     """@p extras (one flag list per command, as `presets.panel_argv` gives them) applied to the last `len(extras)`
     commands of @p commands; `[]` leaves them as they are. The last command is the one that writes the face."""
@@ -132,20 +123,20 @@ def _mkfont_unicode(range_spec, paths):
 
 
 def _mkfont_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = PY + [_tool(paths, "mkfont.py"), paths["src"], paths["out"], "--size", str(size), "--bpp", str(bpp),
+    argv = toolrun.tool("mkfont", paths["tools"]) + [paths["src"], paths["out"], "--size", str(size), "--bpp", str(bpp),
                  "--unicode", _mkfont_unicode(range_spec, paths)]
     return _with_extra([argv], extra)
 
 
 def _composite_prepare(font, layout, paths):
-    argv = PY + [_tool(paths, "jamovec.py"), "master", paths["src"], "-o", paths["master"], "--components"]
+    argv = toolrun.tool("jamovec", paths["tools"]) + ["master", paths["src"], "-o", paths["master"], "--components"]
     if layout == "adaptive":
         argv.append("--adaptive")
     return [argv]
 
 
 def _composite_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = PY + [_tool(paths, "jamovec.py"), "render", paths["master"], "--size", str(size), "--bpp", str(bpp),
+    argv = toolrun.tool("jamovec", paths["tools"]) + ["render", paths["master"], "--size", str(size), "--bpp", str(bpp),
                  "--binarize", "threshold", "--check", "-o", paths["out"]]
     return _with_extra([argv], extra)
 
@@ -153,7 +144,7 @@ def _composite_commands(font, size, bpp, layout, range_spec, paths, extra):
 def _vector_prepare(font, layout, paths):
     """jamovec.py's master from the outlines themselves (no --components): the vector fit for a font whose syllables
     are not composites."""
-    argv = PY + [_tool(paths, "jamovec.py"), "master", paths["src"], "-o", paths["master"]]
+    argv = toolrun.tool("jamovec", paths["tools"]) + ["master", paths["src"], "-o", paths["master"]]
     if layout == "adaptive":
         argv.append("--adaptive")
     return [argv]
@@ -162,7 +153,7 @@ def _vector_prepare(font, layout, paths):
 def _mask_fit_commands(font, size, bpp, layout, range_spec, paths, extra):
     """The free fit with the font's own GSUB-composed jamo as the mask (needs freetype-py and uharfbuzz): 1 bpp only,
     always --no-clean (the mask would be discarded by a cleaned raster), `--pylib` when the libraries are in a folder."""
-    argv = PY + [_tool(paths, "jamoset.py"), "--layout", layout, "--from-ttf", paths["src"], "--size", str(size),
+    argv = toolrun.tool("jamoset", paths["tools"]) + ["--layout", layout, "--from-ttf", paths["src"], "--size", str(size),
                  "--binarize", "threshold", "--mask-font", paths["src"], "--no-clean", "--check", "-o", paths["out"]]
     if paths.get("pylib"):
         argv += ["--pylib", paths["pylib"]]
@@ -170,7 +161,7 @@ def _mask_fit_commands(font, size, bpp, layout, range_spec, paths, extra):
 
 
 def _fit_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = PY + [_tool(paths, "jamoset.py"), "--layout", layout, "--from-ttf", paths["src"], "--size", str(size)]
+    argv = toolrun.tool("jamoset", paths["tools"]) + ["--layout", layout, "--from-ttf", paths["src"], "--size", str(size)]
     if bpp == 1:
         argv += ["--binarize", "threshold"]     # a 1 bpp fit always binarizes; a 2 bpp fit never does
     else:
@@ -184,7 +175,7 @@ def _fit_commands(font, size, bpp, layout, range_spec, paths, extra):
 
 
 def _dos_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = PY + [_tool(paths, "jamoset.py"), paths["src"], "--layout", layout, "--check", "-o", paths["out"]]
+    argv = toolrun.tool("jamoset", paths["tools"]) + [paths["src"], "--layout", layout, "--check", "-o", paths["out"]]
     if paths.get("eng"):
         argv += ["--eng", paths["eng"]]
     if layout in detect.DKB_LAYOUTS:
@@ -193,14 +184,14 @@ def _dos_commands(font, size, bpp, layout, range_spec, paths, extra):
 
 
 def _johab844_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = PY + [_tool(paths, "johab844.py"), paths["src"], paths["base"], paths["out"]]
+    argv = toolrun.tool("johab844", paths["tools"]) + [paths["src"], paths["base"], paths["out"]]
     if paths.get("eng"):
         argv += ["--eng", paths["eng"]]
     return _with_extra([argv], extra)
 
 
 def _hanterm_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = PY + [_tool(paths, "jamoset.py"), paths["src"], "--layout", "hanterm-johab", "--check", "-o",
+    argv = toolrun.tool("jamoset", paths["tools"]) + [paths["src"], "--layout", "hanterm-johab", "--check", "-o",
                  paths["out"]]
     if paths.get("eng"):
         argv += ["--eng", paths["eng"]]
@@ -212,7 +203,7 @@ def _mac71_commands(mode):
     def commands(font, size, bpp, layout, range_spec, paths, extra):
         if not paths.get("htbl"):
             raise ValueError("needs an HTBL 1 table")
-        argv = PY + [_tool(paths, "macfbit_svf.py"), "build", paths["src"], paths["htbl"], "-o", paths["out"],
+        argv = toolrun.tool("macfbit_svf", paths["tools"]) + ["build", paths["src"], paths["htbl"], "-o", paths["out"],
                      "--mode", mode]
         if paths.get("latin"):
             argv += ["--latin", paths["latin"]]
@@ -222,7 +213,7 @@ def _mac71_commands(mode):
 
 def _mac10_commands(font, size, bpp, layout, range_spec, paths, extra):
     """`jamoset.py --layout mac-fbit-45sets SRC --check -o OUT`: a HangulTalk 1.0 font composes from its own fdef rule."""
-    argv = PY + [_tool(paths, "jamoset.py"), "--layout", "mac-fbit-45sets", paths["src"], "--check", "-o", paths["out"]]
+    argv = toolrun.tool("jamoset", paths["tools"]) + ["--layout", "mac-fbit-45sets", paths["src"], "--check", "-o", paths["out"]]
     return _with_extra([argv], extra)
 
 
@@ -232,12 +223,12 @@ def _mac71_bdf_commands(font, size, bpp, layout, range_spec, paths, extra):
         raise ValueError("needs an HTBL 1 table")
     bdf = os.path.join(paths["work"], "mac.bdf")
     sized = os.path.join(paths["work"], "mac-sized.bdf")
-    first = PY + [_tool(paths, "macfbit3.py"), "bdf", paths["src"], paths["htbl"], font.get("family") or "Mac", bdf]
+    first = toolrun.tool("macfbit3", paths["tools"]) + ["bdf", paths["src"], paths["htbl"], font.get("family") or "Mac", bdf]
     # the tool's BDF has no PIXEL_SIZE, so FreeType would read its `SIZE 12 75 75` as 13 px: name the strike's own size
-    second = PY + [SRCPREP, "bdf-pixel-size", bdf, sized, "--size", str(size)]
+    second = toolrun.maker_script("srcprep") + ["bdf-pixel-size", bdf, sized, "--size", str(size)]
     unicode_range = ("ksx1001-hangul,3131-318e" if range_spec[0] == "2350"       # the strike holds no ASCII
                      else _mkfont_unicode(range_spec, paths))
-    third = PY + [_tool(paths, "mkfont.py"), sized, paths["out"], "--size", str(size), "--bpp", "1",
+    third = toolrun.tool("mkfont", paths["tools"]) + [sized, paths["out"], "--size", str(size), "--bpp", "1",
                   "--unicode", unicode_range]
     return _with_extra([first, second, third], extra)    # the panel's flags go on the last command
 
@@ -250,7 +241,7 @@ def _bdfface_commands(font, size, bpp, layout, range_spec, paths, extra):
     if not chars:
         raise ValueError("bdfface needs a range file")
     box = font["bdf"]["box"]
-    argv = PY + [_tool(paths, "bdfface.py"), "--hangul", paths["src"], "--ascii", latin,
+    argv = toolrun.tool("bdfface", paths["tools"]) + ["--hangul", paths["src"], "--ascii", latin,
                  "--cell", "%dx%d" % (box[0], box[1]), "--chars-from", chars, "-o", paths["out"]]
     return _with_extra([argv], extra)
 
@@ -259,7 +250,7 @@ def _bdfface_fit_commands(font, size, bpp, layout, range_spec, paths, extra):
     """The KS X 1001 face from bdfface.py, then a jamo set fitted to it (`jamoset.py --from-svf`)."""
     precomposed = os.path.join(paths["work"], "precomposed.svf")
     first = _bdfface_commands(font, size, bpp, layout, range_spec, dict(paths, out=precomposed), [])[0]
-    argv = PY + [_tool(paths, "jamoset.py"), "--layout", layout, "--from-svf", precomposed, "--check", "-o",
+    argv = toolrun.tool("jamoset", paths["tools"]) + ["--layout", layout, "--from-svf", precomposed, "--check", "-o",
                  paths["out"]]                  # no --eng: the companion is a BDF (bdfface.py took its ASCII already)
     return _with_extra([first, argv], extra)
 
@@ -295,7 +286,7 @@ def _jset_wants_change(font, extra):
 def _svf2to3_argv(paths, src, out, version):
     """`svf2to3.py SRC OUT --jset-version V --check`: a v2 face packed as v3 (jamoset.pack_svfn) or a v3 face's JSET block
     rewritten in version @p version, proved pixel-identical to the source."""
-    return PY + [_tool(paths, "svf2to3.py"), src, out, "--jset-version", str(version), "--check"]
+    return toolrun.tool("svf2to3", paths["tools"]) + [src, out, "--jset-version", str(version), "--check"]
 
 
 def _svf2to3_version(font, extra, strict=True):
@@ -321,7 +312,7 @@ def _from_svf_commands(font, size, bpp, layout, range_spec, paths, extra):
     if version is not None:                     # jamoset.py reads v3: convert the source in the step's work dir
         src = os.path.join(paths["work"], "source-v3.svf")
         commands.append(_svf2to3_argv(paths, paths["src"], src, version))
-    argv = PY + [_tool(paths, "jamoset.py"), "--layout", layout, "--from-svf", src, "--check", "-o", paths["out"]]
+    argv = toolrun.tool("jamoset", paths["tools"]) + ["--layout", layout, "--from-svf", src, "--check", "-o", paths["out"]]
     if paths.get("eng"):                        # the panel shows --eng for --from-svf
         argv += ["--eng", paths["eng"]]
     commands.append(argv)
@@ -376,24 +367,24 @@ def source_commands(ops, src, work, tools_dir, sfnt_ext="ttf", last_name=None):
         ext = op_ext(kind, sfnt_ext)
         out = os.path.join(work, (last_name or "source." + ext) if last else "source-%d.%s" % (i + 1, ext))
         if kind == "rsrc-sfnt":
-            argv = PY + [os.path.join(tools_dir, "macsfnt.py"), "extract", current, out, "--id", str(op["id"])]
+            argv = toolrun.tool("macsfnt", tools_dir) + ["extract", current, out, "--id", str(op["id"])]
         elif kind == "ttc-face":
-            argv = PY + [SRCPREP, "ttc-face", current, out, "--index", str(op["index"])]
+            argv = toolrun.maker_script("srcprep") + ["ttc-face", current, out, "--index", str(op["index"])]
         elif kind == "mac-cmap":
-            argv = PY + [os.path.join(tools_dir, "macsfnt.py"), "unicode", current, out]
+            argv = toolrun.tool("macsfnt", tools_dir) + ["unicode", current, out]
         elif kind == "instance":
             pins = ["%s=%s" % (tag, fmt_num(value)) for tag, value in sorted(op["coords"].items())]
-            argv = PY + ["-m", "fontTools.varLib.instancer", current] + pins + ["-o", out]
+            argv = toolrun.module("fontTools.varLib.instancer") + [current] + pins + ["-o", out]
         elif kind == "pcf-bdf":
-            argv = PY + [SRCPREP, "pcf-bdf", current, out]
+            argv = toolrun.maker_script("srcprep") + ["pcf-bdf", current, out]
         elif kind == "mac-fork":
-            argv = PY + [SRCPREP, "mac-fork", current, out]
+            argv = toolrun.maker_script("srcprep") + ["mac-fork", current, out]
         elif kind == "mac-fbit3":
-            argv = PY + [os.path.join(tools_dir, "macfbit3.py"), "fbit", current, out]
+            argv = toolrun.tool("macfbit3", tools_dir) + ["fbit", current, out]
         elif kind == "mac-htbl":
-            argv = PY + [SRCPREP, "mac-htbl", current, out]
+            argv = toolrun.maker_script("srcprep") + ["mac-htbl", current, out]
         elif kind == "mac-fork-named":
-            argv = PY + [SRCPREP, "mac-fork-named", current, out]
+            argv = toolrun.maker_script("srcprep") + ["mac-fork-named", current, out]
         else:
             raise ValueError("unknown source op %r" % (kind,))
         argvs.append(argv)

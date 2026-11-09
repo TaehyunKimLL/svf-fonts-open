@@ -25,6 +25,7 @@ import fixtures
 import naming
 import routes
 import settings
+import toolrun
 import inputfx
 from sources import Sources
 from test_routes import FONT_COMPOSITE, FONT_DOS, FONT_JOHAB, FONT_KSC, FONT_TTF
@@ -746,7 +747,7 @@ class StepsTest(unittest.TestCase):
             self.assertIn((dos, "jamo", 16, 1), kinds)
             st = [x for x in steps if x["font"] == nan and x["bpp"] == 1][0]
             self.assertEqual(st["output"], "work/%s/NANUM16.SVF" % st["id"])
-            self.assertEqual(st["argv"][0][2], "/T/mkfont.py"); self.assertEqual(st["state"], "pending")
+            self.assertEqual(toolrun.prefix_name(toolrun.split_prefix(st["argv"][0])[0]), "mkfont"); self.assertEqual(st["state"], "pending")
             self.assertTrue(os.path.isfile(os.path.join(jd, "work", "range-2350.txt")))
             d = [x for x in steps if x["font"] == dos][0]
             self.assertIn("--eng", d["argv"][0]); self.assertEqual(d["layout"], "844")

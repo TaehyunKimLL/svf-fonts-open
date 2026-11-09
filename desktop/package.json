@@ -1,0 +1,64 @@
+{
+  "name": "svf-maker",
+  "version": "0.1.0",
+  "description": "SVF maker: make SVF bitmap fonts from your own fonts (desktop shell)",
+  "author": "svf-fonts contributors",
+  "private": true,
+  "main": "main.js",
+  "license": "MIT",
+  "desktopName": "svf-maker.desktop",
+  "scripts": {
+    "test": "node --test test/unit.test.js test/third-party.test.js test/verify-extraction.test.js",
+    "e2e": "bash test/run-e2e.sh"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "org.svf-fonts.maker",
+    "productName": "svf-maker",
+    "electronVersion": "45.2.3",
+    "npmRebuild": false,
+    "publish": null,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "starting.html",
+      "lib/**",
+      "build/icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/out/sidecar/svf-maker-sidecar",
+        "to": "sidecar/svf-maker-sidecar"
+      },
+      {
+        "from": "build/out/repo",
+        "to": "repo"
+      },
+      {
+        "from": "build/out/THIRD-PARTY.txt",
+        "to": "THIRD-PARTY.txt"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icon.png",
+      "desktop": {
+        "entry": {
+          "Name": "SVF maker"
+        }
+      },
+      "syncDesktopName": true,
+      "artifactName": "${productName}-${version}.${ext}"
+    }
+  }
+}

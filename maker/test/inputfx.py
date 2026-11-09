@@ -85,6 +85,16 @@ def gsub_jamo_ttf(features=("ljmo", "vjmo", "tjmo")):
     return _save(font)
 
 
+def big_composite_ttf(n):
+    """The composite fixture with @p n composite Hangul syllables (first @p n of the 11,172), as bytes: a source on which
+    `jamovec master --components` runs long enough to be stopped mid-tool (measured seconds: see the test that uses it)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        path = fixtures._composite_ttf(os.path.join(d, "C.ttf"), n_syllables=n)
+        with open(path, "rb") as f:
+            return f.read()
+
+
 def flat_composite_ttf():
     """fixtures._composite_ttf's font with every composite glyph replaced by its decomposed outline, so detect calls it
     `outline` (not `outline-composite`)."""

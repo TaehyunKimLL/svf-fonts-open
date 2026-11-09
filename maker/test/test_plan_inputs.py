@@ -32,6 +32,7 @@ import localfx
 import mkfont
 import routes
 import settings
+import toolrun
 import zipout
 from inputkinds import fid_of, select
 
@@ -69,18 +70,19 @@ class Case(unittest.TestCase):
 class SourceCommandsTest(unittest.TestCase):
     def test_ops_chain_through_numbered_files(self):
         argvs, out = routes.source_commands([{"op": "rsrc-sfnt", "id": 128}, {"op": "mac-cmap"}], "/u/F.dfont", "/w", "/T")
-        self.assertEqual(argvs, [routes.PY + ["/T/macsfnt.py", "extract", "/u/F.dfont", "/w/source-1.ttf", "--id", "128"],
-                                 routes.PY + ["/T/macsfnt.py", "unicode", "/w/source-1.ttf", "/w/source.ttf"]])
+        self.assertEqual(argvs, [toolrun.tool("macsfnt", "/T") + ["extract", "/u/F.dfont", "/w/source-1.ttf", "--id", "128"],
+                                 toolrun.tool("macsfnt", "/T") + ["unicode", "/w/source-1.ttf", "/w/source.ttf"]])
         self.assertEqual(out, "/w/source.ttf")
 
     def test_instance_pins_every_axis(self):
         argvs, _ = routes.source_commands([{"op": "instance", "coords": {"wght": 700, "wdth": 87.5}}], "/u/V.ttf", "/w", "/T")
-        self.assertEqual(argvs[0][2:], ["-m", "fontTools.varLib.instancer", "/u/V.ttf", "wdth=87.5", "wght=700", "-o",
-                                        "/w/source.ttf"])
+        prefix, rest = toolrun.split_prefix(argvs[0])
+        self.assertEqual((toolrun.prefix_name(prefix), rest), ("instancer", ["/u/V.ttf", "wdth=87.5", "wght=700", "-o",
+                                                                           "/w/source.ttf"]))
 
     def test_ttc_face_uses_srcprep(self):
         argvs, out = routes.source_commands([{"op": "ttc-face", "index": 1}], "/u/t.ttc", "/w", "/T")
-        self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "ttc-face", "/u/t.ttc", "/w/source.ttf", "--index", "1"]])
+        self.assertEqual(argvs, [toolrun.maker_script("srcprep") + ["ttc-face", "/u/t.ttc", "/w/source.ttf", "--index", "1"]])
 
     def test_instance_values_are_not_rounded(self):
         argvs, _ = routes.source_commands([{"op": "instance", "coords": {"XHGT": 123456.7, "wght": 899.99999}}],
@@ -93,7 +95,7 @@ class SourceCommandsTest(unittest.TestCase):
 
     def test_pcf_bdf_writes_a_bdf(self):
         argvs, out = routes.source_commands([{"op": "pcf-bdf"}], "/u/k.pcf.gz", "/w", "/T")
-        self.assertEqual(argvs, [routes.PY + [routes.SRCPREP, "pcf-bdf", "/u/k.pcf.gz", "/w/source.bdf"]])
+        self.assertEqual(argvs, [toolrun.maker_script("srcprep") + ["pcf-bdf", "/u/k.pcf.gz", "/w/source.bdf"]])
         self.assertEqual(out, "/w/source.bdf")
 
     def test_no_ops_no_argv(self):
@@ -328,7 +330,8 @@ class KscJamoTest(Case):
         self.assertEqual([r.label for r in routes.routes(FONT_KSC)], ["bdfface", "bdfface + from-svf fit"])
         argvs = routes.route_for(FONT_KSC, "jamo", True).commands(FONT_KSC, 24, 1, "844", ("file", "/u/c.txt"),
                                                                   PATHS, [])
-        self.assertEqual([a[2].rsplit("/", 1)[1] for a in argvs], ["bdfface.py", "jamoset.py"])
+        self.assertEqual([toolrun.prefix_name(toolrun.split_prefix(a)[0]) for a in argvs],
+                         ["bdfface", "jamoset"])
         self.assertEqual(argvs[1][argvs[1].index("--from-svf") + 1], "/w/precomposed.svf")
         self.assertEqual(argvs[0][argvs[0].index("-o") + 1], "/w/precomposed.svf")
         self.assertEqual(argvs[1][-2:], ["-o", "/w/OUT.SVF"])
@@ -406,7 +409,7 @@ class Johab844Test(Case):
                                                            dos_layout="844"))
         self.assertEqual(inputkinds.step_tools(job["steps"]), [["johab844.py"]])
         argv = job["steps"][0]["argv"][0]
-        self.assertTrue(argv[4].endswith("svf/dos/NEODG16.SVF"))
+        self.assertTrue(toolrun.split_prefix(argv)[1][1].endswith("svf/dos/NEODG16.SVF"))
         self.assertIn("--eng", argv)
         self.assertEqual([st["state"] for st in job["steps"]], ["done"])
         inputkinds.assert_facecheck(self, z)
@@ -494,7 +497,7 @@ class VariableCollectionTest(Case):
 
 
 def tool_names(step):
-    return [os.path.basename(argv[2]) for argv in step["argv"]]
+    return [toolrun.prefix_name(toolrun.split_prefix(argv)[0]) + ".py" for argv in step["argv"]]
 
 
 def read_json(path):
@@ -508,7 +511,7 @@ class DyStepTest(Case):
         self.assertEqual(tool_names(step), ["mkfont.py", "svfdy.py"])
         out = os.path.join(self.job_dir, step["output"])
         dy_json = os.path.join(self.job_dir, "work", step["id"], "dy.json")
-        self.assertEqual(step["argv"][-1][3:], [out, out, "--json", dy_json])
+        self.assertEqual(toolrun.split_prefix(step["argv"][-1])[1], [out, out, "--json", dy_json])
         self.assertEqual(read_json(dy_json), {"0x41": 1})
 
     def test_dy_json_is_sorted_hex_whatever_the_keys_were(self):
@@ -529,8 +532,9 @@ class DyStepTest(Case):
         step = self.plan({"s/NEODG16.SVF": data}, dy={"0x41": 1})[0]
         self.assertEqual(len(step["argv"]), 1)
         argv = step["argv"][0]
-        self.assertEqual(os.path.basename(argv[2]), "svfdy.py")
-        self.assertEqual(argv[3:], [os.path.join(self.job_dir, "upload", "s", "NEODG16.SVF"),
+        prefix, rest = toolrun.split_prefix(argv)
+        self.assertEqual(toolrun.prefix_name(prefix), "svfdy")
+        self.assertEqual(rest, [os.path.join(self.job_dir, "upload", "s", "NEODG16.SVF"),
                                     os.path.join(self.job_dir, step["output"]), "--json",
                                     os.path.join(self.job_dir, "work", step["id"], "dy.json")])
 
@@ -620,25 +624,26 @@ class FaceArgvTest(Case):
                  "master": None, "range_file": "/w/range-2350.txt", "report": "/w/report.json"}
         got = settings.face_argv(font, eff, routes.route_for(font, "precomposed", False), "precomposed", 16, 1, None,
                                  ("2350", None), paths)
-        self.assertEqual(got, [routes.PY + ["/T/mkfont.py", "/u/a.ttf", "/w/O.SVF", "--size", "16",
+        self.assertEqual(got, [toolrun.tool("mkfont", "/T") + ["/u/a.ttf", "/w/O.SVF", "--size", "16",
                                             "--cell", "16", "--bpp", "1", "--unicode",
                                             "ascii,ksx1001-nohanja,AC37,B2CF,B584,C125,C2BA,D14A,D59D",
                                             "--ascent", "12", "--report", "/w/report.json"]])
 
 
 class ProbeArgvTest(unittest.TestCase):
-    MKFONT = routes.PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF"]
+    MKFONT = toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/OUT.SVF"]
 
     def probe(self, flags, size=16):
         return settings.probe_argv(self.MKFONT + flags, "/u/in.ttf", "/w/p.svf", "/w/p.json", size)
 
     def test_dos_u_2bpp_keeps_the_presets_list_and_drops_the_cell_flags(self):
         import presets
-        merged = routes.apply_flags(routes.PY + ["/T/mkfont.py", "/u/in.ttf", "/w/OUT.SVF", "--size", "17", "--bpp", "2",
+        merged = routes.apply_flags(toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/OUT.SVF", "--size", "17", "--bpp", "2",
                                                  "--unicode", "ascii,ksx1001-hangul"],
                                     presets.argv_for("dos-u-2bpp", "precomposed", 17) + ["--report", "/w/report.json"])
         got = settings.probe_argv(merged, "/u/in.ttf", "/w/p.svf", "/w/p.json", 17)
-        self.assertEqual(got[2:5], ["/T/mkfont.py", "/u/in.ttf", "/w/p.svf"])
+        prefix, rest = toolrun.split_prefix(got)
+        self.assertEqual((toolrun.prefix_name(prefix), rest[:2]), ("mkfont", ["/u/in.ttf", "/w/p.svf"]))
         for gone in ("--clip-cell", "--ascent", "--cell", "--fit-cell"):
             self.assertNotIn(gone, got)
         self.assertEqual(got[got.index("--report") + 1], "/w/p.json")

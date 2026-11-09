@@ -17,6 +17,8 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
         sys.path.insert(0, _p)
 
 import gzip
+import json
+import shlex
 import shutil
 import tempfile
 import threading
@@ -27,6 +29,7 @@ from unittest import mock
 import caps
 import jobs
 import quality
+import toolrun
 import test_recog_score
 from sources import Sources
 
@@ -150,6 +153,9 @@ class StoreTest(unittest.TestCase):
 
 
 class RunCommandTest(unittest.TestCase):
+    def test_env_from_base_env(self):
+        self.assertEqual(jobs.ENV, toolrun.base_env(os.environ))
+
     def setUp(self):
         self.d = tempfile.mkdtemp(prefix="svf-jobs-run-")
 
@@ -655,8 +661,9 @@ class WorkerTest(unittest.TestCase):
         for flag in flags:
             open(os.path.join(stub, flag), "w").close()
         patches = [mock.patch.dict(os.environ, {"SVF_RECOG_DIR": stub}),
-                   mock.patch.object(caps, "recog_dir", return_value=stub),
                    mock.patch.object(jobs, "RECOG_ARRAYS", arrays)]
+        if caps_value.get("recog"):
+            caps_value = dict({"recog_dir": stub, "recog_python": None}, **caps_value)
         if recog_timeout is not None:
             patches.append(mock.patch.object(jobs, "RECOG_TIMEOUT", recog_timeout))
         for p in patches:
@@ -667,6 +674,16 @@ class WorkerTest(unittest.TestCase):
                                 **(steps or {}))
         self.worker.enqueue(j["id"])
         return self.wait_for(j["id"])
+
+    def test_stop_twice_sweeps_once(self):
+        calls = []
+        with mock.patch.object(self.worker, "sweep_local_files", side_effect=lambda: calls.append(1)):
+            first = self.worker.stop(5)
+            started = time.monotonic()
+            second = self.worker.stop(5)
+        self.assertEqual(len(calls), 1)
+        self.assertLess(time.monotonic() - started, 0.1)
+        self.assertEqual(first, second)
 
     def test_stop_kills_the_previews_bakes_and_marks_the_job_interrupted(self):
         calls = []
@@ -686,11 +703,10 @@ class WorkerTest(unittest.TestCase):
         stub = tempfile.mkdtemp(prefix="svf-recog-stub-")
         self.addCleanup(shutil.rmtree, stub, True)
         test_recog_score.write_stub(stub)
-        for p in (mock.patch.dict(os.environ, {"SVF_RECOG_DIR": stub}), mock.patch.object(caps, "recog_dir", return_value=stub),
-                  mock.patch.object(jobs, "RECOG_ARRAYS", "lists")):
+        for p in (mock.patch.dict(os.environ, {"SVF_RECOG_DIR": stub}), mock.patch.object(jobs, "RECOG_ARRAYS", "lists")):
             p.start()
             self.addCleanup(p.stop)
-        self.worker.caps = {"recog": True}
+        self.worker.caps = {"recog": True, "recog_dir": stub, "recog_python": None}
         j = self.job_with_steps([None], kinds=["jamo"], src_bytes=read(HGKEY))
         self.worker.enqueue(j["id"])
         j = self.wait_for(j["id"])
@@ -704,6 +720,59 @@ class WorkerTest(unittest.TestCase):
         j = self.wait_for(j["id"])
         self.assertFalse(j["steps"][0]["identity"]["available"])
         self.assertFalse(os.path.exists(path))
+
+    def test_identity_no_per_step_probe(self):
+        with mock.patch.object(caps, "recog_dir", side_effect=AssertionError("probed per step")):
+            j = self.run_identity({"recog": True})
+        step = j["steps"][0]
+        self.assertEqual(step["state"], "done", step)
+        self.assertTrue(step["identity"]["available"], step["identity"])
+
+    def scorer_stub(self, body):
+        """An executable /bin/sh interpreter stand-in: `body` runs with $out = the scorer's `-o` file."""
+        d = tempfile.mkdtemp(prefix="svf-recog-py-")
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "py")
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=\"$2\"; shift; done\n%s\n" % body)
+        os.chmod(path, 0o755)
+        return path
+
+    def test_identity_survives_a_vanished_interpreter(self):
+        """The interpreter probed at start-up may be gone at run time: scoring is optional, the job stays done."""
+        gone = os.path.join(tempfile.mkdtemp(prefix="svf-recog-py-"), "py")
+        self.addCleanup(shutil.rmtree, os.path.dirname(gone), True)
+        j = self.run_identity({"recog": True, "recog_python": gone})
+        self.assertEqual(j["state"], "done", j.get("error"))
+        step = j["steps"][0]
+        self.assertEqual(step["state"], "done")
+        self.assertFalse(step["identity"]["available"])
+        self.assertNotIn(os.path.dirname(gone), json.dumps(step["identity"]))
+
+    def test_identity_json_with_nan_or_a_non_object_is_unreadable(self):
+        for body in ('echo \'{"face": {"score": NaN}}\' > "$out"', 'echo \'[1, 2]\' > "$out"',
+                     'echo \'{"face": [1]}\' > "$out"', 'echo \'{"face": {"x": Infinity}}\' > "$out"'):
+            j = self.run_identity({"recog": True, "recog_python": self.scorer_stub(body)})
+            self.assertEqual(j["state"], "done", (body, j.get("error")))
+            ident = j["steps"][0]["identity"]
+            self.assertFalse(ident["available"], body)
+            self.assertIn("unreadable identity.json", ident["error"])
+            json.dumps(ident, allow_nan=False)                      # what /api/jobs serves must be valid JSON
+
+    def test_identity_runs_the_external_interpreter(self):
+        """With recog_python set the scorer runs under that interpreter (a wrapper recording its argv0)."""
+        wrapper = os.path.join(tempfile.mkdtemp(prefix="svf-recog-py-"), "py")
+        self.addCleanup(shutil.rmtree, os.path.dirname(wrapper), True)
+        mark = wrapper + ".used"
+        with open(wrapper, "w") as f:
+            f.write("#!/bin/sh\ntouch %s\nexec %s \"$@\"\n" % (shlex.quote(mark), shlex.quote(sys.executable)))
+        os.chmod(wrapper, 0o755)
+        real = jobs.toolrun.recog_argv
+        with mock.patch.object(jobs.toolrun, "recog_argv",
+                               side_effect=lambda c, r: real(dict(c, recog_python=wrapper), r)):
+            j = self.run_identity({"recog": True})
+        self.assertTrue(os.path.exists(mark))
+        self.assertTrue(j["steps"][0]["identity"]["available"], j["steps"][0]["identity"])
 
     def test_identity_written_for_jamo_steps(self):
         j = self.run_identity({"wasm": False, "mask_libs": False, "recog": True})

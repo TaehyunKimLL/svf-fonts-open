@@ -1,0 +1,18 @@
+# Every wheel (direct and transitive) the sidecar build installs, with hashes (Group B review L8).
+# Regenerate after changing requirements-sidecar.txt: pip download -r desktop/build/requirements-sidecar.txt -d DIR
+# --only-binary=:all: and hash each wheel (sha256). maker/build-sidecar.sh installs it with --require-hashes --no-deps
+# --only-binary=:all:, so a new release of any dependency cannot change the bundle unseen.
+altgraph==0.17.5 \
+    --hash=sha256:f3a22400bce1b0c701683820ac4f3b159cd301acab067c51c653e06961600597  # altgraph-0.17.5-py2.py3-none-any.whl
+fonttools==4.66.1 \
+    --hash=sha256:7b8ff9e0edbcee2fbf7dff0c41b9041c1901c26acf64e23adb67495012df11de  # fonttools-4.66.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c  # packaging-26.3-py3-none-any.whl
+pillow==10.2.0 \
+    --hash=sha256:127cee571038f252a552760076407f9cff79761c3d436a12af6000cd182a9d04  # pillow-10.2.0-cp312-cp312-manylinux_2_28_x86_64.whl
+pyinstaller==6.22.3 \
+    --hash=sha256:451a4ae14b719365bf1a2f0a99dae7b3463060061c3a394c70d5264cfb439528  # pyinstaller-6.22.3-py3-none-manylinux2014_x86_64.whl
+pyinstaller-hooks-contrib==2026.9 \
+    --hash=sha256:fb3e67dd64122561724c48ad0366ac9e8c16e638b63bf7d85de03bf3fdbf06c3  # pyinstaller_hooks_contrib-2026.9-py3-none-any.whl
+setuptools==84.2.1 \
+    --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2  # setuptools-84.2.1-py3-none-any.whl

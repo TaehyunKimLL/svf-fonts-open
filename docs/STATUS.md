@@ -27,6 +27,7 @@ face마다 만드는 법은 [recipes.md](recipes.md)와 `tools/build/faces.tsv`.
 | 포트 예제 | done; CH582 실기 첫 실행 보류 | `c/ports/{pico,esp32,arduino,ch582,dos,web,sdl}` | f880976 (Mega·ESP32 원본 size row 포함) |
 | Python 도구 | done (유지보수) | `tools/`, [docs/tools.md](tools.md) | `jamoexc.py` 47cc044, LIST 소비자 ee5db51 (10-28) |
 | SVF maker | 대부분 done, systemd unit·문서·end-to-end 시험과 web UI v1 남음 | `maker/` | 병합 837f525 (10-23); LIST 대응 0d73568 (10-28) |
+| SVF maker 데스크톱 앱 | Electron 셸 + 동결 sidecar + AppImage 빌드·릴리스 점검 구현 (Linux만 검증; Windows·macOS 미검증, LGPL 소스 보관은 릴리스 게이트) | `desktop/`, `maker/sidecar.py`, `docs/maker-desktop.md` | t_f04f1355, t_e64a56a7 |
 | WASM picker | done, parked minors 보류 | `web/`, `c/ports/web` | 병합 ed0e2d9 (10-21); JMAP 대응 c5f4efa (10-27) |
 | 연구 도구·실험 | running / paused (아래 4장) | 별도 연구 저장소 (분리 11-01, 비공개) | 124baec (Malgun·Noto 실험, 11-01) |
 | ScummVM 연동 | todo | ScummVM `graphics/hires_text` | spec `2026-10-26-jset-limits-design.md` follow-up (a) |

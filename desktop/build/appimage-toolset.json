@@ -1,0 +1,13 @@
+{
+  "toolset": "appimage-12.0.1",
+  "source": "electron-builder's legacy AppImage toolset (electron-userland/electron-builder-binaries), downloaded by electron-builder 26.18.0",
+  "archive": "appimage-12.0.1.7z",
+  "archive_sha256": "d12ff7eb8f1d1ec4652ca5237a7fbdca33acc0c758045636feca62dc6ecb8ec4",
+  "why": "libindicator (GPL-3.0) is in usr/lib of both the legacy and the 1.0.2/1.0.3 toolsets; the licence rule (spec 8.10) forbids GPL in the package. libappindicator cannot load without it and serves only a tray icon, which this app does not have.",
+  "removed": {
+    "lib/ia32/libindicator.so.7": "59fc6d56dba79cba68065f69bf17353dd1cbc9cd472d99edf2fbf0384a0ef07e",
+    "lib/x64/libindicator.so.7": "3b61ae3424c4800975c1806245a2d286f6e1fc49cd9350913075c27a95f3c7a0",
+    "lib/ia32/libappindicator.so.1": "2842177d7c2f3beb753b7d046d693b59144bf3458afb949b63dbb906e11a546b",
+    "lib/x64/libappindicator.so.1": "033b8803f20b98e8cd56fc8e75e3a71a552f75c0cff9bd0937f3ddd6ee5d2145"
+  }
+}

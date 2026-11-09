@@ -33,13 +33,14 @@ import time
 import traceback
 import zlib
 
-import caps
 import detect
 import naming
 import preview
 import quality
 import routes
 import settings
+import toolreg
+import toolrun
 import zipout
 from sources import OutputGone, Sources, stat_id
 
@@ -218,7 +219,7 @@ _ID_RE = re.compile(r"\A[0-9a-f]{12}\Z")
 RETAINED_STATES = ("done", "failed", "detected", "uploading")
 
 # The Global Constraints subprocess form: an explicit environment, no shell, the step's work directory as cwd.
-ENV = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8"}
+ENV = toolrun.base_env(os.environ)
 
 # The errors reading a font's source can raise: a missing or unreadable file, and the decompression failures a
 # `.gz` source's `preview.materialize` reports (preview's own list).
@@ -312,6 +313,11 @@ def _stop(proc):
     proc.wait()
 
 
+def _refuse_constant(name):
+    """`json.load`'s hook for NaN / Infinity: the page's JSON.parse rejects them, so a scorer's output may not hold one."""
+    raise ValueError("non-finite number %s" % name)
+
+
 def run_command(argv, cwd, timeout, cancel, env=None):
     """Run @p argv in @p cwd with stdout and stderr captured to files there; return the result dict.
 
@@ -331,6 +337,7 @@ def run_command(argv, cwd, timeout, cancel, env=None):
     error = None
     proc = subprocess.Popen(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    toolreg.register(proc)                          # a no-op unless a server activated a registry
     out, err = _Capture(proc.stdout, OUTPUT_CAP), _Capture(proc.stderr, OUTPUT_CAP)
     out.start()
     err.start()
@@ -360,6 +367,7 @@ def run_command(argv, cwd, timeout, cancel, env=None):
             error = "a descendant kept the output open"
         proc.stdout.close()
         proc.stderr.close()
+        toolreg.unregister(proc)
     out.write(stdout_path)
     err.write(stderr_path)
     return {"exit": None if error is not None else proc.returncode, "seconds": round(time.monotonic() - started, 3),
@@ -992,6 +1000,8 @@ class Worker(threading.Thread):
         self._queued = []                       # the ids in the queue, in order (only `position` needs them)
         self._current = None                    # the id `run_job` is running, or None
         self._stopping = False                  # `stop` was called: no job starts any more
+        self._stopped = False                   # a `stop` completed: later calls return its result at once
+        self._stop_result = True
         self._lock = threading.Lock()
 
     def enqueue(self, job_id):
@@ -1061,8 +1071,10 @@ class Worker(threading.Thread):
         """Stop for good: no job starts any more, the running one is cancelled through the usual group kill (every tool
         child runs in its own session and would outlive this process), and the call waits up to @p timeout seconds for it
         to end, then ends the worker thread (a sentinel on the queue, joined). Idempotent; True when nothing was left
-        running."""
+        running. A second call after a completed stop returns the first result without a second sweep."""
         with self._lock:
+            if self._stopped:
+                return self._stop_result
             self._stopping = True
             for event in self.cancels.values():
                 event.set()
@@ -1080,6 +1092,7 @@ class Worker(threading.Thread):
             if idle and threading.current_thread() is not self:
                 self.join(max(0.0, deadline - time.monotonic()) + 1.0)
         self.sweep_local_files()                    # whatever a GET re-made, and the running job's leftovers
+        self._stop_result, self._stopped = idle, True
         return idle
 
     def sweep_local_files(self):
@@ -1403,7 +1416,7 @@ class Worker(threading.Thread):
             step["state"] = "done"
         local = sources.kind == "local"
         step["stderr_tail"] = tool_text(stderr, local)[-STDERR_TAIL:]
-        zipout.append_log(job_dir, zipout.log_step(step, tool_text(stdout, local), tool_text(stderr, local)))
+        zipout.append_log(job_dir, zipout.log_step(step, tool_text(stdout, local), tool_text(stderr, local), self.repo_dir))
         self.store.save(job)
 
     def _execute(self, files_dir, sources, gz_upload, plain, step, font, cancel, env=None):
@@ -1499,8 +1512,9 @@ class Worker(threading.Thread):
         unreadable JSON), or without the capability `{"available": false, "structural": <the `check:` line>}`. The
         scorer's full JSON stays in `work/sNN/identity.json`."""
         local = env is not None                         # only a local job has a tool environment of its own
-        recog = caps.recog_dir(os.environ) if self.caps.get("recog") else None
-        if recog is None:
+        prefix = toolrun.recog_argv(self.caps, self.repo_dir)
+        recog = self.caps.get("recog_dir")
+        if prefix is None or not recog:
             line = next((l for l in (stdout or "").splitlines() if _TOOL_VERDICT.match(l)), "")
             return {"available": False, "structural": line}
         step_dir = os.path.join(files_dir, "work", step.get("id") or "")
@@ -1511,10 +1525,13 @@ class Worker(threading.Thread):
         except OSError:
             pass
         os.makedirs(work, exist_ok=True)
-        argv = routes.PY + [os.path.join(os.path.dirname(os.path.abspath(__file__)), "recog_score.py"),
-                            os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
-                            "--arrays", RECOG_ARRAYS]
-        result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))
+        argv = prefix + [
+            os.path.join(files_dir, step.get("output") or ""), "-o", out_json, "--threads", "2",
+            "--arrays", RECOG_ARRAYS]
+        try:
+            result = run_command(argv, work, RECOG_TIMEOUT, cancel, dict(env or ENV, SVF_RECOG_DIR=recog))
+        except OSError:                                 # the interpreter vanished since start-up: scoring is optional
+            return {"available": False, "error": "the recogniser interpreter could not be started"}
         if result["error"] is not None or result["exit"] != 0:
             tail = (result["stderr"] or "").strip().splitlines()
             reason = "timed out" if result["error"] == "timeout" else (
@@ -1522,7 +1539,9 @@ class Worker(threading.Thread):
             return {"available": False, "error": reason}
         try:
             with open(out_json, encoding="utf-8") as f:
-                data = json.load(f)
+                data = json.load(f, parse_constant=_refuse_constant)
+            if not isinstance(data, dict) or not isinstance(data.get("face") or {}, dict):
+                raise ValueError("not an identity object")
         except (OSError, ValueError) as exc:
             return {"available": False, "error": "unreadable identity.json: %s" % exc_text(exc, local)}
         if not data.get("applicable", True):
@@ -1683,7 +1702,7 @@ class Worker(threading.Thread):
         """Fail one step the worker never ran (a cancel, the job timeout, or a failed prepare); log and save it."""
         step["state"] = "failed"
         step["error"] = error
-        zipout.append_log(job_dir, zipout.log_step(step, "", ""))
+        zipout.append_log(job_dir, zipout.log_step(step, "", "", self.repo_dir))
         self.store.save(job)
 
     def _fail_steps(self, job, job_dir, steps, error):

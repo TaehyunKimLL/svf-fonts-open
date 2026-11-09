@@ -4,3 +4,6 @@ web/dist/
 web/test/node_modules/
 web/test/out/
 maker/static/wasm/
+desktop/build/out/
+desktop/node_modules/
+desktop/dist/

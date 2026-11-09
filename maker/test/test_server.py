@@ -39,6 +39,8 @@ import urllib.parse
 import zipfile
 
 import caps as capsmod
+import toolreg
+import toolrun
 import fixtures
 import inputfx
 import jamoset
@@ -631,9 +633,9 @@ class ApiTest(ApiBase):
         seen = []
         original = zipout.note_commands
 
-        def spy(steps, font):
+        def spy(steps, font, *args, **kw):
             seen.append(steps)
-            return original(steps, font)
+            return original(steps, font, *args, **kw)
 
         zipout.note_commands = spy
         try:
@@ -1100,6 +1102,12 @@ class ApiTest(ApiBase):
         self.assertIn("No proprietary font", notice)
         self.assertIn("responsibility", notice)
         self.assertIn("local mode", recipes[recipes.index("## Classic Mac Korean bitmap fonts"):])
+        # the desktop app (card t_f04f1355 / t_e64a56a7)
+        for text in ("## Desktop app", "run-tool", "SVF_RECOG_PYTHON", "JAMOSET_PYLIB", "~/.config/svf-maker/maker",
+                     "makes no network connection", "not built or verified"):
+            self.assertIn(text, readme, text)
+        self.assertIn("THIRD-PARTY.txt", notice)
+        self.assertIn("It contains no font that is not in `svf/`.", notice)
 
     def test_page_advanced_lists_the_new_keys(self):
         with open(os.path.join(MAKER_DIR, "static", "maker.js"), encoding="utf-8") as f:
@@ -1746,6 +1754,50 @@ class ThreadLeakTest(unittest.TestCase):
         self.assertEqual(left, [])
 
 
+class TwoServersTest(unittest.TestCase):
+    def test_a_second_server_on_one_data_root_is_refused_and_kills_nothing(self):
+        data = tempfile.mkdtemp(prefix="svf-two-")
+        self.addCleanup(shutil.rmtree, data, True)
+        first = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)
+        self.addCleanup(lambda: (first.worker.stop(), first.server_close()))
+        sleeper = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        self.addCleanup(lambda: (os.killpg(sleeper.pid, 9), sleeper.wait()))
+        with open(os.path.join(data, "tools.pids"), "w") as f:
+            f.write("%d %d %s sleep\n" % (sleeper.pid, sleeper.pid, toolreg.start_time(sleeper.pid)))
+        with self.assertRaises(server.DataRootBusyError):
+            server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)
+        self.assertTrue(toolrun.alive(sleeper.pid), "the refused server killed the first one's tool")
+        self.assertIs(toolreg.active(), first.toolreg)                     # and left the first's registry active
+        first.worker.stop()
+        first.server_close()
+        again = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)    # the lock is released with the server
+        again.worker.stop()
+        again.server_close()
+
+
+class InterruptedStartTest(unittest.TestCase):
+    def test_make_server_cleans_up_on_interrupt(self):
+        import toolreg
+        data = tempfile.mkdtemp(prefix="svf-interrupt-")
+        self.addCleanup(shutil.rmtree, data, True)
+        before = set(threading.enumerate())
+        with mock.patch.object(jobs.Store, "retry_pending_sweeps", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data, token="a" * 32)
+        self.assertTrue(wait_until_true(lambda: not [t for t in set(threading.enumerate()) - before
+                                                     if t.name == "svf-maker-worker"]))
+        self.assertIsNone(toolreg.active())
+
+
+def wait_until_true(cond, timeout=10):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if cond():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 class LocalBindTest(unittest.TestCase):
     """The token, the loopback rule and the CSP (design 6.1, 10.1); not an `ApiBase`."""
 
@@ -1766,6 +1818,8 @@ class LocalBindTest(unittest.TestCase):
         shutil.rmtree(self.data, ignore_errors=True)
 
     def start(self, host="127.0.0.1", token=TOKEN):
+        for old in self.servers:                       # a second server on this data root: the first one is "gone"
+            server.release_data_root_lock(old)
         srv = server.make_server(host, 0, fixtures.REPO_DIR, self.data, token=token)
         thread = threading.Thread(target=srv.serve_forever, daemon=True)
         thread.start()
@@ -2021,6 +2075,134 @@ class KeptCompanionTest(unittest.TestCase):
             self.assertEqual(kept2["fonts"][ksc2["id"]]["latin_companion"], ksc2["companions"][0])
         finally:
             settings.defaults = orig_defaults
+
+
+class RecogCapsTest(ApiBase):
+    """caps.compute with SVF_RECOG_PYTHON: the external interpreter is probed once, in a scrubbed environment."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp(prefix="svf-recogcaps-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.recog = os.path.join(self.tmp, "recog")
+        os.mkdir(self.recog)
+        open(os.path.join(self.recog, "recog.py"), "w").close()
+
+    def stub(self, body):
+        path = os.path.join(self.tmp, "py-stub")
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\n%s\n" % body)
+        os.chmod(path, 0o755)
+        return path
+
+    def compute(self, python, directory=None, **extra):
+        environ = {"SVF_RECOG_PYTHON": python, "SVF_RECOG_DIR": directory or self.recog,
+                   "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/h"}
+        environ.update(extra)
+        return capsmod.compute(os.path.join(fixtures.REPO_DIR, "maker", "static"), environ)
+
+    def test_external_interpreter_probe_ok(self):
+        stub = self.stub("exit 0")
+        got = self.compute(stub)
+        self.assertIs(got["recog"], True)
+        self.assertEqual((got["recog_python"], got["recog_dir"]), (stub, self.recog))
+
+    def test_external_interpreter_probe_fails(self):
+        got = self.compute(self.stub("exit 1"))
+        self.assertIs(got["recog"], False)
+        self.assertIsNone(got["recog_python"])
+
+    def test_external_interpreter_probe_times_out(self):
+        stub = self.stub("exec sleep 30")
+        started = time.monotonic()
+        with mock.patch.object(capsmod, "RECOG_PROBE_S", 0.5):
+            got = self.compute(stub)
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertIs(got["recog"], False)
+        self.assertIsNone(got["recog_python"])
+
+    def test_the_probe_is_registered_while_it_runs(self):
+        reg = toolreg.Registry(os.path.join(self.tmp, "tools.pids"))
+        toolreg.activate(reg)
+        self.addCleanup(toolreg.deactivate, reg)
+        seen = []
+        stub = self.stub("sleep 1")
+        t = threading.Thread(target=lambda: self.compute(stub))
+        t.start()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not os.path.exists(reg.path):
+            time.sleep(0.02)
+        while time.monotonic() < deadline and t.is_alive():
+            if os.path.exists(reg.path) and open(reg.path).read().strip():
+                seen.append(open(reg.path).read())
+                break
+            time.sleep(0.02)
+        t.join(10)
+        self.assertTrue(seen, "the probe was never in tools.pids")
+        self.assertEqual(open(reg.path).read().strip(), "")
+
+    def test_relative_interpreter_is_rejected(self):
+        self.stub("exit 0")
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, cwd)
+        got = self.compute("./py-stub")
+        self.assertIs(got["recog"], False)
+        self.assertIsNone(got["recog_python"])
+
+    def test_relative_recog_dir_is_stored_absolute(self):
+        stub = self.stub("exit 0")
+        cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, cwd)
+        got = self.compute(stub, directory="recog")
+        self.assertEqual(got["recog_dir"], self.recog)
+
+    def test_probe_argv_is_the_scorers_isolation_flag_and_the_four_imports(self):
+        out = os.path.join(self.tmp, "argv.txt")
+        self.compute(self.stub("for a in \"$@\"; do echo \"$a\"; done > %s" % out))
+        with open(out) as f:
+            self.assertEqual(f.read().splitlines(), ["-P", "-c", "import numpy, torch, PIL, fontTools"])
+        self.assertEqual(capsmod.PROBE_ARGS[0], toolrun.recog_argv({"recog": True, "recog_python": "/p"}, "/R")[1])
+
+    def test_probe_timeout_kills_a_grandchild(self):
+        pidfile = os.path.join(self.tmp, "child.pid")
+        stub = self.stub("sleep 60 &\necho $! > %s\nwait" % pidfile)         # no exec: the sleep is a grandchild
+        with mock.patch.object(capsmod, "RECOG_PROBE_S", 0.5):
+            got = self.compute(stub)
+        self.assertIs(got["recog"], False)
+        with open(pidfile) as f:
+            pid = int(f.read())
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and os.path.exists("/proc/%d" % pid) and \
+                open("/proc/%d/stat" % pid).read().split(") ")[1][0] not in "ZX":
+            time.sleep(0.05)
+        self.assertTrue(not os.path.exists("/proc/%d" % pid) or open("/proc/%d/stat" % pid).read().split(") ")[1][0] in "ZX")
+
+    def test_external_interpreter_needs_recog_py(self):
+        """A guard on the order of checks (the base ignores SVF_RECOG_PYTHON, so it cannot fail there)."""
+        marker = os.path.join(self.tmp, "ran")
+        stub = self.stub("touch %s" % marker)
+        empty = os.path.join(self.tmp, "empty")
+        os.mkdir(empty)
+        got = self.compute(stub, directory=empty)
+        self.assertIs(got["recog"], False)
+        self.assertFalse(os.path.exists(marker))
+
+    def test_probe_env_is_scrubbed(self):
+        dump = os.path.join(self.tmp, "env.txt")
+        stub = self.stub("env > %s" % dump)
+        self.compute(stub, SVF_MAKER_TOKEN="t" * 32, PYTHONPATH="/p", JAMOSET_PYLIB="/l")
+        with open(dump) as f:
+            keys = {line.split("=", 1)[0] for line in f.read().splitlines() if "=" in line}
+        self.assertTrue({"PATH", "HOME", "LANG"} <= keys)
+        self.assertEqual(keys - {"PATH", "HOME", "LANG", "PWD", "SHLVL", "_", "OLDPWD"}, set())
+
+    def test_api_caps_public_keys_only(self):
+        with mock.patch.dict(self.srv.caps, {"recog_python": "/x", "recog_dir": "/y"}):
+            got = self.get("/api/caps")
+        self.assertEqual(set(got), set(capsmod.PUBLIC_KEYS))
+        self.assertTrue(all(isinstance(v, bool) for v in got.values()))
 
 
 if __name__ == "__main__":

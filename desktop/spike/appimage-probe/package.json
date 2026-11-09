@@ -1,0 +1,43 @@
+{
+ "name": "svf-maker-probe",
+ "version": "0.0.1",
+ "main": "main.js",
+ "description": "probe",
+ "author": "probe",
+ "license": "MIT",
+ "build": {
+  "appId": "org.example.svfmakerprobe",
+  "productName": "svf-maker-full",
+  "linux": {
+   "target": [
+    "AppImage"
+   ],
+   "category": "Utility"
+  },
+  "directories": {
+   "output": "out"
+  },
+  "files": [
+   "main.js"
+  ],
+  "extraResources": [
+   {
+    "from": "../out/sidecar/sidecar-lean",
+    "to": "sidecar"
+   },
+   {
+    "from": "../../../svf",
+    "to": "repo/svf"
+   },
+   {
+    "from": "../../../web",
+    "to": "repo/web",
+    "filter": [
+     "mkindex.py",
+     "LICENCES.tsv",
+     "FAMILIES.tsv"
+    ]
+   }
+  ]
+ }
+}

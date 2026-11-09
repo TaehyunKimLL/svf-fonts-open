@@ -19,6 +19,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
 import copy
 import importlib.util
 import json
+import shlex
 import shutil
 import tempfile
 import time
@@ -30,6 +31,7 @@ from unittest import mock
 import fixtures
 import naming
 import quality
+import toolrun
 import sources
 import zipout
 from sources import Sources
@@ -112,23 +114,23 @@ class _ZipBase(unittest.TestCase):
 
         steps = [
             _step("s00", "f02", "prepare", None, None, None,
-                  [[sys.executable, "-P", _tool("jamovec.py"), "master", "/tmp/x/Composite.ttf",
+                  [toolrun.tool("jamovec", os.path.join(REPO_DIR, "tools")) + ["master", "/tmp/x/Composite.ttf",
                     "-o", os.path.join(JD, "work", "s00", "master.json"), "--components"]],
                   "work/s00/master.json"),
             _step("s01", "f01", "precomposed", 16, 1, "NEWONE.SVF",
-                  [[sys.executable, "-P", _tool("mkfont.py"), "/tmp/x/Neo.ttf",
+                  [toolrun.tool("mkfont", os.path.join(REPO_DIR, "tools")) + ["/tmp/x/Neo.ttf",
                     os.path.join(JD, "work", "s01", "NEWONE.SVF"), "--size", "16", "--bpp", "1",
                     "--unicode", "ascii,ksx1001-hangul"]], "work/s01/NEWONE.SVF"),
             _step("s02", "f01", "precomposed", 16, 1, "COPY.SVF",
-                  [[sys.executable, "-P", _tool("mkfont.py"), "/tmp/x/Neo.ttf",
+                  [toolrun.tool("mkfont", os.path.join(REPO_DIR, "tools")) + ["/tmp/x/Neo.ttf",
                     os.path.join(JD, "work", "s02", "COPY.SVF"), "--size", "16", "--bpp", "1",
                     "--unicode", "ascii,ksx1001-hangul"]], "work/s02/COPY.SVF"),
             _step("s03", "f02", "jamo", 6, 1, "NEODG16G.SVF",
-                  [[sys.executable, "-P", _tool("jamoset.py"), "/tmp/x/HGKEY.FNT", "--layout", "844",
+                  [toolrun.tool("jamoset", os.path.join(REPO_DIR, "tools")) + ["/tmp/x/HGKEY.FNT", "--layout", "844",
                     "--check", "-o", os.path.join(JD, "work", "s03", "NEODG16G.SVF")]],
                   "work/s03/NEODG16G.SVF"),
             _step("s04", "f02", "jamo", 6, 1, "FAKE6J.SVF",
-                  [[sys.executable, "-P", _tool("jamoset.py"), "/tmp/x/HGKEY.FNT", "--layout", "844",
+                  [toolrun.tool("jamoset", os.path.join(REPO_DIR, "tools")) + ["/tmp/x/HGKEY.FNT", "--layout", "844",
                     "--check", "-o", os.path.join(JD, "work", "s04", "FAKE6J.SVF")]],
                   "work/s04/FAKE6J.SVF"),
         ]
@@ -547,7 +549,7 @@ class ZipEdgeTest(_ZipBase):
 
     def test_a_note_that_note_text_refuses_raises_noterefused(self):
         job = copy.deepcopy(JOB)
-        job["steps"][1]["argv"] = [[sys.executable, "-P", _tool("mkfont.py"), "x" * 600]]
+        job["steps"][1]["argv"] = [toolrun.tool("mkfont", os.path.join(REPO_DIR, "tools")) + ["x" * 600]]
         with self.assertRaises(zipout.NoteRefused) as caught:
             zipout.write_zip(job, JD, IDX, FONTS, EFF, REPO)
         self.assertTrue(job["error"].startswith("note for f01:"), job["error"])
@@ -769,6 +771,92 @@ class ZipFixTest(_ZipBase):
         step = copy.deepcopy(JOB["steps"][2])
         step["identical_to"] = "dos/NEODG16.SVF"
         self.assertIn("identical_to:\n```json\n\"dos/NEODG16.SVF\"\n```", zipout.log_step(step, "out", "err"))
+
+
+class LauncherNotesTest(unittest.TestCase):
+    """Notes, BUILD.md and log.md read the same in source and frozen mode (spec 7.2): `python3 -P tools/<name>.py`,
+    repo-relative repo paths, nothing of the checkout or the AppImage mount."""
+
+    def steps(self, frozen, repo):
+        import toolrun
+        with mock.patch.object(toolrun, "FROZEN", frozen):
+            mk = toolrun.tool("mkfont", repo + "/tools") + ["/u/Neo.ttf", "/w/s01/N.SVF", "--size", "16", "--bpp", "1"]
+            jo = toolrun.tool("johab844", repo + "/tools") + ["/u/HAN.FNT", repo + "/svf/dos/NEODG16.SVF", "/w/s02/J.SVF",
+                                                              "--eng", "/u/ENG.FNT"]
+        return [_step("s01", "f01", "precomposed", 16, 1, "N.SVF", [mk], "work/s01/N.SVF"),
+                _step("s02", "f01", "precomposed", 16, 1, "J.SVF", [jo], "work/s02/J.SVF")]
+
+    def test_note_and_build_md_equal_both_modes(self):
+        font = {"path": "Neo.ttf"}
+        for sources in (None, Sources("local", ["/u"])):
+            texts = []
+            for frozen, repo in ((False, "/R1"), (True, "/mnt/X/resources/repo")):
+                steps = self.steps(frozen, repo)
+                if sources is None:
+                    notes = zipout.note_commands(steps, font, repo_dir=repo)
+                else:
+                    notes = zipout.note_commands(steps, font, sources, "/files", repo + "/tools", repo)
+                lines = [zipout._command_lines(st, repo_dir=repo) for st in steps]
+                logs = [zipout.log_step(st, "", "", repo_dir=repo) for st in steps]
+                texts.append((notes, lines, logs))
+                for line in notes + [l for ls in lines for l in ls]:
+                    for bad in (sys.executable, "run-tool", "/R1", "/mnt/X"):
+                        self.assertNotIn(bad, line)
+                self.assertTrue(any(l.startswith("python3 -P tools/mkfont.py ") for l in notes), notes)
+                self.assertNotIn("/mnt/X", "".join(logs))
+            self.assertEqual(texts[0], texts[1])
+
+    def test_captured_tool_output_equal_both_modes(self):
+        """johab844 prints its base face: the log (and BUILD.md, a copy of it) must not carry the repo root."""
+        for sources in (None, Sources("local", ["/u"])):
+            logs = []
+            for frozen, repo in ((False, "/R1"), (True, "/mnt/X/resources/repo")):
+                step = self.steps(frozen, repo)[1]
+                out = "base %s/svf/dos/NEODG16.SVF -> /w/s02/J.SVF\n" % repo
+                logs.append(zipout.log_step(step, out, "warn: %s/tools/johab844.py\n" % repo, repo_dir=repo))
+            self.assertEqual(logs[0], logs[1])
+            self.assertNotIn("/R1", logs[0])
+            self.assertIn("base svf/dos/NEODG16.SVF", logs[0])
+
+    def test_local_note_keeps_repo_paths_when_the_source_root_holds_the_checkout(self):
+        """A source root that contains the checkout must not turn the repo's base face into a bare basename."""
+        font = {"path": "Neo.ttf"}
+        for frozen, repo in ((False, "/R1"), (True, "/mnt/X/resources/repo")):
+            steps = self.steps(frozen, repo)
+            roots = Sources("local", ["/R1" if not frozen else "/mnt/X"])
+            notes = zipout.note_commands(steps, font, roots, "/files", repo + "/tools", repo)
+            self.assertTrue(any("svf/dos/NEODG16.SVF" in shlex.split(n) for n in notes if not n.startswith("#")), notes)
+            self.assertTrue(any("# johab844: Hangul redrawn on the base face svf/dos/NEODG16.SVF" in n for n in notes))
+
+    def test_johab844_comment_both_modes(self):
+        want = "# johab844: Hangul redrawn on the base face svf/dos/NEODG16.SVF (OFL); the chosen range is ignored"
+        for frozen, repo in ((False, "/R1"), (True, "/mnt/X/resources/repo")):
+            notes = zipout.note_commands(self.steps(frozen, repo), {"path": "Neo.ttf"}, repo_dir=repo)
+            i = [n for n, l in enumerate(notes) if l.startswith("# johab844")]
+            self.assertEqual(len(i), 1)
+            self.assertTrue(notes[i[0]].startswith(want), notes[i[0]])
+            self.assertTrue(notes[i[0] + 1].startswith("python3 -P tools/johab844.py "), notes)
+
+    def test_repo_head_build_id(self):
+        import toolrun
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "BUILD_ID")
+            with open(path, "w") as f:
+                f.write("abc1234 2026-11-05 sidecar 0.1.0\n")
+            self.assertEqual(zipout.repo_head(tmp), "abc1234 2026-11-05 sidecar 0.1.0")
+            with open(path, "w") as f:
+                f.write("x" * 300 + "\n")
+            self.assertEqual(zipout.repo_head(tmp), "x" * 200)
+            with open(path, "w") as f:
+                f.write("\n")
+            with mock.patch.object(toolrun, "FROZEN", True), \
+                    mock.patch.object(zipout.subprocess, "run", side_effect=AssertionError("git called")):
+                self.assertEqual(zipout.repo_head(tmp), "unknown")
+            os.remove(path)
+            with mock.patch.object(toolrun, "FROZEN", True), \
+                    mock.patch.object(zipout.subprocess, "run", side_effect=AssertionError("git called")):
+                self.assertEqual(zipout.repo_head(tmp), "unknown")
+            self.assertEqual(zipout.repo_head(tmp), "unknown")       # source mode, not a git dir
 
 
 if __name__ == "__main__":

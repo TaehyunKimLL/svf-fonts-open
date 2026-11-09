@@ -35,6 +35,7 @@ import zipfile
 import naming
 import presets
 import settings
+import toolrun
 from sources import OutputGone, Sources, stat_id
 
 # Every zip entry is stamped with this mtime so the archive's bytes are reproducible (Global Constraints).
@@ -87,7 +88,17 @@ def append_log(job_dir, text):
 
 
 def repo_head(repo_dir):
-    """`git -C REPO rev-parse HEAD` stripped, `"unknown"` when git is missing, fails or prints nothing."""
+    """`<repo_dir>/BUILD_ID`'s first line (stripped, at most 200 characters) when it names one; else `"unknown"` when
+    frozen; else `git -C REPO rev-parse HEAD` stripped, `"unknown"` when git is missing, fails or prints nothing."""
+    try:
+        with open(os.path.join(str(repo_dir), "BUILD_ID"), encoding="utf-8", errors="replace") as f:
+            first = f.readline().strip()[:200]
+        if first:
+            return first
+    except OSError:
+        pass
+    if toolrun.FROZEN:
+        return "unknown"
     try:
         proc = subprocess.run(["git", "-C", str(repo_dir), "rev-parse", "HEAD"],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
@@ -165,7 +176,7 @@ def _step_title(step):
                                           step.get("size"), step.get("bpp"), step.get("name"))
 
 
-def _command_lines(step, src=None):
+def _command_lines(step, src=None, repo_dir=None):
     """The step's command lines: `shlex.join(argv)` per argv, or the copy a step with no argv performs.
 
     A copy step (`argv == []`, an SVF source) is not a subprocess: the worker copies the upload's file to the step's
@@ -176,7 +187,7 @@ def _command_lines(step, src=None):
     if not argvs:
         source = src if src is not None else (step.get("src") or "<src>")
         return ["copy %s -> %s" % (source, step.get("output") or "<out>")]
-    return [_one_line(shlex.join(argv)) for argv in argvs]
+    return [_one_line(shlex.join(toolrun.note_argv(argv, repo_dir))) for argv in argvs]
 
 
 def _identity_line(identity):
@@ -196,16 +207,17 @@ def _identity_line(identity):
         "%.2f" % ks if isinstance(ks, (int, float)) else "n/a")
 
 
-def log_step(step, stdout, stderr):
+def log_step(step, stdout, stderr, repo_dir=None):
     """The log's block for one step: its heading, every command with its exit and seconds, then its result.
 
     `facts`, `quality` and `identical_to` are the values read back from the produced file, each as fenced JSON; a
     step that failed logs its error instead of facts.
     """
     lines = [_step_title(step), ""]
-    for command in _command_lines(step):
+    for command in _command_lines(step, repo_dir=repo_dir):
         lines += ["```sh", command, "```",
                   "exit: %s" % _shown(step.get("exit")), "seconds: %s" % _shown(step.get("seconds")), ""]
+    stdout, stderr = toolrun.note_text(stdout, repo_dir), toolrun.note_text(stderr, repo_dir)
     lines += ["stdout:", "```", (stdout or "").rstrip("\n"), "```", "",
               "stderr:", "```", (stderr or "").rstrip("\n"), "```", ""]
     if step.get("error"):
@@ -431,7 +443,7 @@ def _note_token(token, sources, files_dir, tools_dir):
     return os.path.basename(token)
 
 
-def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None):
+def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None, repo_dir=None):
     """Every command line of @p steps, in run order, each exactly one line (the note's provenance block).
 
     A copy step's line names the font's upload path, never `step["src"]` (J6): the shipped note must be reproducible.
@@ -444,24 +456,33 @@ def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None):
         src = os.path.basename(path) if path else "<src>"
     commands = []
     for step in steps:
-        if sources is not None:
-            step = dict(step, argv=[[_note_token(t, sources, files_dir, tools_dir) for t in argv]
-                                    for argv in step.get("argv") or []])
         for argv in step.get("argv") or []:
-            if any(os.path.basename(token) == "johab844.py" for token in argv[:4] if isinstance(token, str)):
-                commands.append(_johab844_comment(argv))
-        commands += _command_lines(step, src=src)
+            try:
+                prefix, rest = toolrun.split_prefix(argv)
+            except ValueError:
+                continue
+            if toolrun.prefix_name(prefix) == "johab844":
+                commands.append(_johab844_comment(rest))
+        if sources is not None:
+            noted = []
+            for argv in step.get("argv") or []:
+                # the checkout's own paths first (a source root may contain the checkout), then the user's paths
+                shown = toolrun.note_argv(argv, repo_dir)
+                size = len(toolrun.note_prefix(argv)[0])
+                noted.append(shown[:size] + [_note_token(t, sources, files_dir, tools_dir) for t in shown[size:]])
+            step = dict(step, argv=noted)
+        commands += _command_lines(step, src=src, repo_dir=repo_dir)
     return commands
 
 
-def _johab844_comment(argv):
+def _johab844_comment(rest):
     """The note line before a johab844 command: its Hangul are redrawn on the repository's base face, the Latin and
     symbols stay the base's unless an English font is named, and the batch's chosen range does not apply."""
-    base = argv[4] if len(argv) > 4 else "svf/dos/NEODG16.SVF"
+    base = rest[1] if len(rest) > 1 else "svf/dos/NEODG16.SVF"
     base = base[base.rfind("svf/"):] if "svf/" in base else os.path.basename(base)
     text = "# johab844: Hangul redrawn on the base face %s (OFL); the chosen range is ignored" % base
-    if "--eng" in argv and argv.index("--eng") + 1 < len(argv):
-        text += "; ASCII from %s" % os.path.basename(argv[argv.index("--eng") + 1])
+    if "--eng" in rest and rest.index("--eng") + 1 < len(rest):
+        text += "; ASCII from %s" % os.path.basename(rest[rest.index("--eng") + 1])
     return text
 
 
@@ -635,8 +656,8 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
         if no_licence:
             unchecked.append(os.path.basename(font.get("path") or font_id))
         try:
-            commands = (note_commands(font_steps, font, sources, files_dir, tools_dir) if local
-                        else note_commands(font_steps, font))
+            commands = (note_commands(font_steps, font, sources, files_dir, tools_dir, repo_dir) if local
+                        else note_commands(font_steps, font, repo_dir=repo_dir))
             note_text = naming.note_text(font.get("family") or "", font.get("style") or "", note_names(mine),
                                          os.path.basename(font.get("path") or ""), font.get("version") or "",
                                          _utc_now().date().isoformat(), commands,
