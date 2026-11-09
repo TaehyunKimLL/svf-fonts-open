@@ -1236,3 +1236,6 @@ What the SVF maker would need that no tool does today. Each line names what is m
   faces come only from an outline font (`mkfont.py --bpp 2`, `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`).
 - **A page-facing bake API.** The bakes are command-line programs that write a path; nothing exposes them as a library
   call with a return value, which a server-side SVF maker needs.
+- **The SVF maker exists.** `maker/` (documented in `maker/README.md`, the desktop app in `docs/maker-desktop.md`) fills
+  the gaps above as a page over these tools, run locally (loopback, per-launch token) by the desktop app or by hand; it is
+  outside this document's census.
