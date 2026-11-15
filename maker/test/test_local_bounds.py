@@ -768,6 +768,36 @@ class SweepBoundsTest(localfx.LocalRunBase):
         self.assertEqual(calls, [])
         self.assertTrue(os.path.isdir(fd))
 
+    def test_a_rename_that_never_started_for_want_of_time_records_no_tombstone(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+
+        class Fake:
+            over = False
+
+            def remaining(self):
+                return 0.0 if self.over else 1.0
+
+            def expired(self):
+                return self.over
+
+            def capped(self, seconds):
+                return self
+        fake = Fake()
+        real = jobs.stat_id
+
+        def stat(path):
+            result = real(path)
+            if path == fd:
+                fake.over = True                              # the stats used up the deadline, just before the rename
+            return result
+        job = self.store.load(jid)
+        with mock.patch.object(jobs, "stat_id", stat):
+            step = self.store._rename_away(job, fake, check_active=False)
+        self.assertEqual(step[0], "failed")
+        self.assertEqual([e["path"] for e in self.store._step_entries(job, step)], [fd])
+        self.assertTrue(os.path.isdir(fd))
+
     def test_a_tombstone_of_a_live_job_is_removed_by_the_orphan_sweep_alone(self):
         jid = self.local_job()
         live = self.make_orphan(".svf-maker-%s.trash-0badf00e" % jid)

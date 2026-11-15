@@ -957,6 +957,8 @@ class Store:
                     trash = tombstone_of(files)
                 except Exception as exc:
                     return ("failed", None, exc_text(exc, True) if type(exc) is not OutputGone else str(exc), None, files)
+                if left() <= 0:
+                    return ("failed", None, "out of time", None, files)     # nothing is started, so nothing is in flight
                 try:
                     rename_bounded(files, trash, left())          # under the locks: the name is free for a later generation
                 except CallPending:
@@ -1103,6 +1105,8 @@ class Store:
                             trash.append((path, job_id))
                             continue
                         tomb = tombstone_of(path)
+                        if left() <= 0:
+                            continue                              # out of time: nothing started, nothing to record
                         try:
                             rename_bounded(path, tomb, left())
                             trash.append((tomb, job_id))
