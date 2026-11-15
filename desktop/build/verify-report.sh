@@ -11,18 +11,26 @@ if [ "$STATUS" -ne 0 ]; then
     echo "CHECK verify-extraction FAIL the verifier exited $STATUS"
     FAILED=1
 fi
+# Only "notices" and "repo-sources" lines are accepted, each exactly once; any other line (a duplicate, another name, garbage) is a FAIL
+# that names the line. The verifier's stderr is merged into OUTPUT on purpose (2>&1): a stray warning therefore fails the check
+# (fail closed) and is printed in the FAIL message.
+SEEN=" "
 while IFS= read -r line; do
     [ -n "$line" ] || continue
+    name=${line%% *}
+    case "$name" in
+        notices|repo-sources)
+            case "$SEEN" in *" $name "*) echo "CHECK verify-extraction FAIL unexpected output: $line (duplicate $name)"; FAILED=1; continue ;; esac
+            SEEN="$SEEN$name " ;;
+        *) echo "CHECK verify-extraction FAIL unexpected output: $line"; FAILED=1; continue ;;
+    esac
     case "$line" in
-        *" ok") echo "CHECK ${line%% *} ok" ;;
-        *" FAIL "*) echo "CHECK ${line%% *} FAIL ${line#* FAIL }"; FAILED=1 ;;
+        *" ok") echo "CHECK $name ok" ;;
+        *" FAIL "*) echo "CHECK $name FAIL ${line#* FAIL }"; FAILED=1 ;;
         *) echo "CHECK verify-extraction FAIL unexpected output: $line"; FAILED=1 ;;
     esac
 done <<< "$OUTPUT"
 for name in notices repo-sources; do
-    case $'\n'"$OUTPUT" in
-        *$'\n'"$name ok"*|*$'\n'"$name FAIL "*) ;;
-        *) echo "CHECK $name FAIL the verifier printed no result for it"; FAILED=1 ;;
-    esac
+    case "$SEEN" in *" $name "*) ;; *) echo "CHECK $name FAIL the verifier printed no result for it"; FAILED=1 ;; esac
 done
 exit $FAILED
