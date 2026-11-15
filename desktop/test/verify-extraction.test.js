@@ -97,3 +97,15 @@ test('report: both names ok passes; a FAIL line fails', (t) => {
   assert.equal(r.status, 1);
   assert.match(r.stdout, /CHECK repo-sources FAIL repo\/tools\/b.py/);
 });
+
+test('prune-appimage-toolset: a missing 7z is one stderr line and exit 1, not a traceback', (t) => {
+  const root = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-pr-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const py = spawnSync('bash', ['-c', 'command -v python3'], { encoding: 'utf8' }).stdout.trim();
+  const r = spawnSync(py, [path.join(__dirname, '..', 'build', 'prune-appimage-toolset.py'), root, path.join(root, 'a.7z'), path.join(root, 'out')],
+    { encoding: 'utf8', env: { PATH: root, HOME: process.env.HOME } });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /7z/);
+  assert.ok(!/Traceback/.test(r.stderr), r.stderr);
+  assert.equal(r.stderr.trim().split('\n').length, 1, r.stderr);
+});

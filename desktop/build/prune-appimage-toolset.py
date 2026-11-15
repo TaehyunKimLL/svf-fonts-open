@@ -41,6 +41,9 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     src, archive, out = argv
+    if shutil.which("7z") is None:
+        print("prune-appimage-toolset: 7z is not on PATH (install p7zip-full)", file=sys.stderr)
+        return 1
     here = os.path.dirname(os.path.abspath(__file__))
     with open(os.path.join(here, "appimage-toolset.json"), encoding="utf-8") as f:
         record = json.load(f)
