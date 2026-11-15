@@ -122,10 +122,22 @@ def _mkfont_unicode(range_spec, paths):
     return {"11172": "ascii,hangul", "2350": "ascii,ksx1001-hangul"}.get(kind, "ascii," + kind)
 
 
+def _mkfont_tmp(paths):
+    """Where mkfont.py writes before `_canonical` re-lays the face out: inside the step's own work area."""
+    return os.path.join(paths["work"], "mkfont.svf")
+
+
+def _canonical(paths):
+    """`svf2to3.py TMP OUT --profile default`, the command `tools/build/build_faces.py` runs after every mkfont: it
+    turns mkfont's file into the canonical one, so a face equal to a shipped one is byte-equal to it (the step's
+    `identical_to`). It writes `paths["out"]`; the pixels do not change."""
+    return toolrun.tool("svf2to3", paths["tools"]) + [_mkfont_tmp(paths), paths["out"], "--profile", "default"]
+
+
 def _mkfont_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = toolrun.tool("mkfont", paths["tools"]) + [paths["src"], paths["out"], "--size", str(size), "--bpp", str(bpp),
-                 "--unicode", _mkfont_unicode(range_spec, paths)]
-    return _with_extra([argv], extra)
+    argv = toolrun.tool("mkfont", paths["tools"]) + [paths["src"], _mkfont_tmp(paths), "--size", str(size),
+                 "--bpp", str(bpp), "--unicode", _mkfont_unicode(range_spec, paths)]
+    return _with_extra([argv], extra) + [_canonical(paths)]
 
 
 def _composite_prepare(font, layout, paths):
@@ -228,9 +240,9 @@ def _mac71_bdf_commands(font, size, bpp, layout, range_spec, paths, extra):
     second = toolrun.maker_script("srcprep") + ["bdf-pixel-size", bdf, sized, "--size", str(size)]
     unicode_range = ("ksx1001-hangul,3131-318e" if range_spec[0] == "2350"       # the strike holds no ASCII
                      else _mkfont_unicode(range_spec, paths))
-    third = toolrun.tool("mkfont", paths["tools"]) + [sized, paths["out"], "--size", str(size), "--bpp", "1",
+    third = toolrun.tool("mkfont", paths["tools"]) + [sized, _mkfont_tmp(paths), "--size", str(size), "--bpp", "1",
                   "--unicode", unicode_range]
-    return _with_extra([first, second, third], extra)    # the panel's flags go on the last command
+    return _with_extra([first, second, third], extra) + [_canonical(paths)]   # the panel's flags go on the mkfont command
 
 
 def _bdfface_commands(font, size, bpp, layout, range_spec, paths, extra):

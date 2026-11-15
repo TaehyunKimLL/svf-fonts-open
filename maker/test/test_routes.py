@@ -293,7 +293,8 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual([(x.kind, x.label, x.native) for x in r], [("precomposed", "mkfont", True), ("jamo", "experimental fit", False),
                           ("jamo", "vector fit", False)])
         self.assertEqual(r[0].commands(FONT_TTF, 16, 2, None, ("2350", None), P, []),
-                         [toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/OUT.SVF", "--size", "16", "--bpp", "2", "--unicode", "ascii,ksx1001-hangul"]])
+                         [toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/mkfont.svf", "--size", "16", "--bpp", "2", "--unicode", "ascii,ksx1001-hangul"],
+                          toolrun.tool("svf2to3", "/T") + ["/w/mkfont.svf", "/w/OUT.SVF", "--profile", "default"]])
         self.assertEqual(r[0].commands(FONT_TTF, 16, 1, None, ("file", "/u/list.txt"), P, [])[0][-1], "ascii,file:/w/range-2350.txt")
 
     def test_a_list_files_name_never_reaches_unicode(self):
@@ -483,10 +484,11 @@ class MacRoutesTest(unittest.TestCase):
         self.assertEqual(derived.commands(self.MAC, 12, 1, "mac-htbl1", ("2350", None), self.paths(), [])[0][-2:],
                          ["--mode", "derived"])
         argvs = bdf.commands(self.MAC, 12, 1, None, ("2350", None), self.paths(), [])
-        self.assertEqual(len(argvs), 3)
+        self.assertEqual(len(argvs), 4)
         self.assertEqual(argvs[0], toolrun.tool("macfbit3", "/T") + ["bdf", "/w/source.fbit", "/w/htbl.htbl1", "Seoul12", "/w/mac.bdf"])
         self.assertEqual(argvs[1], toolrun.maker_script("srcprep") + ["bdf-pixel-size", "/w/mac.bdf", "/w/mac-sized.bdf", "--size", "12"])
-        self.assertEqual(argvs[2][:5], toolrun.tool("mkfont", "/T") + ["/w/mac-sized.bdf", "/w/OUT.SVF"])
+        self.assertEqual(argvs[2][:5], toolrun.tool("mkfont", "/T") + ["/w/mac-sized.bdf", "/w/mkfont.svf"])
+        self.assertEqual(argvs[3], toolrun.tool("svf2to3", "/T") + ["/w/mkfont.svf", "/w/OUT.SVF", "--profile", "default"])
         self.assertIn("ksx1001-hangul,3131-318e", argvs[2])                          # the 2,350 syllables + the 51 jamo
         self.assertNotIn("ascii", argvs[2][argvs[2].index("--unicode") + 1])
         with self.assertRaisesRegex(ValueError, "HTBL"):
@@ -543,8 +545,8 @@ class IsoBdfBakeTest(unittest.TestCase):
             route = routes.routes(entry)[0]
             out = os.path.join(d, "ISO16.SVF")
             paths = dict(P, tools=os.path.join(fixtures.REPO_DIR, "tools"), src=got["bdf_iso"], out=out, work=d)
-            argv = route.commands(entry, 16, 1, None, ("2350", None), paths, [])[0]
-            subprocess.run(argv, check=True, capture_output=True, cwd=d)
+            for argv in route.commands(entry, 16, 1, None, ("2350", None), paths, []):
+                subprocess.run(argv, check=True, capture_output=True, cwd=d)
             with open(out, "rb") as f:
                 data = f.read()
             self.assertEqual(data[:5], b"SVFN\x03")
