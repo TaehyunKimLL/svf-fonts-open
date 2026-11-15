@@ -340,8 +340,10 @@ class BoundedPrimitivesTest(unittest.TestCase):
             self.store._pending_lock.acquire()
             self.assertFalse(self.store._pending_op(lambda e: 1 / 0, jobs.Deadline(0.1))[0])
             self.store._pending_lock.release()
-            self.wait_idle()
-        text = err.getvalue()
+            end = time.monotonic() + 2
+            while "ZeroDivisionError" not in err.getvalue() and time.monotonic() < end:
+                time.sleep(0.02)
+            text = err.getvalue()
         self.assertIn("ZeroDivisionError", text)
         self.assertNotIn("NoneType: None", text)
 

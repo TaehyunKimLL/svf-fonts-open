@@ -769,7 +769,7 @@ class Store:
             if after is not None and box[0][0] == "ok":
                 try:
                     after(box[0][1])                      # e.g. the log.md lines: written even if nobody waits any more
-                except Exception:
+                except BaseException:
                     print_exc()                           # never turns a written record into an error for the caller
             with self._pending_thread_lock:
                 self._pending_unfinished -= 1
