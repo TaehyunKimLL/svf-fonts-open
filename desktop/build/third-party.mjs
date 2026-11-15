@@ -18,7 +18,7 @@ const SO = /\.so(\.|$)/;
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 function* walk(dir, base = dir) {
-  if (!dir || !fs.existsSync(dir)) return;
+  if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;   // generate() reports a missing root
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) { if (e.name !== 'node_modules') yield* walk(p, base); } else if (e.isFile() || e.isSymbolicLink()) yield [p, path.relative(base, p)];
@@ -131,12 +131,18 @@ export async function generate(opts) {
       if (!problems.includes(msg)) problems.push(msg);
     }
   };
+  // a missing input must not read as "no libraries": every walked root has to be a directory
+  const isDir = (d) => { try { return fs.statSync(d).isDirectory(); } catch (e) { return false; } };
+  const roots = [['sidecar', path.join(sidecar || '', '_internal')], ['electron', electron], ['usrlib', usrlib]];
+  const lib64 = usrlib && path.basename(usrlib) === 'lib' ? path.join(path.dirname(usrlib), 'lib64') : null;   // the extraction's usr/lib64
+  for (const [name, dir] of roots) if (!dir || !isDir(dir)) problems.push('missing input directory (--' + name + '): ' + dir);
   for (const [file, rel] of walk(path.join(sidecar, '_internal'))) if (SO.test(path.basename(file))) attribute(file, '_internal/' + rel, 'sidecar', true);
   for (const [file, rel] of walk(electron)) {
     if (rel.startsWith('resources/') || rel.startsWith('usr/') || rel.startsWith('node_modules/')) continue;
     if (SO.test(path.basename(file))) attribute(file, rel, 'electron', false);
   }
   for (const [file, rel] of walk(usrlib)) if (SO.test(path.basename(file))) attribute(file, 'usr/lib/' + rel, 'usrlib', false);
+  if (lib64) for (const [file, rel] of walk(lib64)) if (SO.test(path.basename(file))) attribute(file, 'usr/lib64/' + rel, 'usrlib', false);
 
   // ---- runtime components (no file to match: the AppImage runtime) --------------------------------------------
   for (const entry of map.filter((m) => m.runtime || m.always)) {

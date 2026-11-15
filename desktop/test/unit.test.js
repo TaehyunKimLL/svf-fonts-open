@@ -273,6 +273,17 @@ test('supervisor: quitting before the handshake stops the pending child (SIGTERM
   }
 });
 
+test('supervisor: start refuses once the failure path has run (a Restart click behind the failure dialog spawns nothing)', async (t) => {
+  const stub = stubSidecar(t, "console.log('svf-maker listening on 127.0.0.1:' + 4000); setInterval(() => {}, 1000);");
+  const sup = supervisorFor(t, stub);
+  await sup.cleanupAfterFailure(new Error('the first page load failed'));
+  assert.equal(sup.failing, true);
+  let err = null;
+  try { await sup.start(); } catch (e) { err = e; }
+  assert.ok(err && err.cancelled === true, 'start() must be cancelled while failing, got ' + err);
+  assert.equal(sup.children.size, 0, 'no child may be spawned while failing');
+});
+
 test('supervisor: a replacement that never answers and ignores SIGTERM is stopped by the one failure path', async (t) => {
   const stub = stubSidecar(t, "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);");
   const sup = supervisorFor(t, stub, { handshakeS: 0.5 });

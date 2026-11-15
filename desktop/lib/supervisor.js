@@ -75,16 +75,16 @@ function createSupervisor({ launch, parentEnv, log, handshakeS = budget.HANDSHAK
   sup.start = async function start() {
     const until = Date.now() + busyRetryS * 1000;
     for (;;) {
-      if (sup.quitting) throw Object.assign(new Error('quitting'), { cancelled: true });
+      if (sup.quitting || sup.failing) throw Object.assign(new Error(sup.quitting ? 'quitting' : 'failing'), { cancelled: true });
       try {
         return await attempt();
       } catch (e) {
-        if (e.busy && !sup.quitting && Date.now() < until) {
+        if (e.busy && !sup.quitting && !sup.failing && Date.now() < until) {
           log.line('sidecar start: the data root is still in use, retrying');
           await new Promise((r) => setTimeout(r, 1000));
           continue;
         }
-        if (sup.quitting) e.cancelled = true;
+        if (sup.quitting || sup.failing) e.cancelled = true;
         throw e;
       }
     }

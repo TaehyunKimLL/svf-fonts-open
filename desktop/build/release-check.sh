@@ -30,8 +30,7 @@ SIZE=$(stat -c %s "$APP")
 if [ "$SIZE" -le $((170 * 1024 * 1024)) ]; then ok size "AppImage $((SIZE / 1048576)) MB"; else fail size "AppImage $((SIZE / 1048576)) MB > 170 MB"; fi
 
 # ---- extract --------------------------------------------------------------------------------------------------------
-X="$T/release-$(date +%s)"
-mkdir -p "$X"
+X=$(mktemp -d "$T/release-XXXXXX") || { fail extract "mktemp under $T failed"; exit 1; }
 if (cd "$X" && "$APP" --appimage-extract >/dev/null 2>&1) && [ -d "$X/squashfs-root" ]; then ok extract "$X/squashfs-root"; else fail extract "--appimage-extract failed"; exit 1; fi
 SQ="$X/squashfs-root"
 RES="$SQ/resources"
@@ -75,9 +74,8 @@ if node desktop/build/third-party.mjs --sidecar "$SIDE" --provenance "$OUT/sidec
         --pysite "$T/pysite" --repo "$RES/repo" --meta . --toolset-record desktop/build/appimage-toolset.json --out "$LIC_OUT" "${SRC_ARGS[@]}" 2> "$X/licences.err"; then
     ok licences "$(grep -c '^### ' "$LIC_OUT") components"
     # what the AppImage ships against what it must ship: the notices as regenerated, the tool sources as in the checkout
-    while IFS= read -r line; do
-        case "$line" in *" ok") ok "${line%% *}" ;; *) fail "${line%% *}" "${line#* FAIL }" ;; esac
-    done < <(bash "$ROOT/desktop/build/verify-extraction.sh" "$SQ" "$LIC_OUT" "$ROOT")
+    # run-verify.sh (over verify-report.sh) fails closed and always prints a CHECK FAIL line when it fails
+    if ! bash "$ROOT/desktop/build/run-verify.sh" "$SQ" "$LIC_OUT" "$ROOT"; then FAILED=1; fi
 else
     fail licences "$(head -3 "$X/licences.err" | tr '\n' ';')"
 fi

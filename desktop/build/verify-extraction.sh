@@ -1,14 +1,16 @@
 #!/bin/bash
 # verify-extraction.sh SQUASHFS_ROOT REGENERATED_THIRD_PARTY CHECKOUT: what the AppImage ships against what it must ship.
 #   notices: resources/THIRD-PARTY.txt is byte-equal to the file the generator writes over the extraction;
-#   sources: resources/repo/{maker,tools}/*.py are exactly the checkout's non-test *.py files, equal by sha256.
+#   sources: resources/repo/{maker,tools}/*.py are exactly the checkout's non-test *.py files, equal by sha256;
+#     resources/repo/web/*.py are exactly the web Python files maker/build-sidecar.sh stages (WEB_SHIPPED), equal by sha256.
 # Prints one "<name> ok" or "<name> FAIL <why>" line per check and exits 1 on any FAIL (used by release-check.sh).
 SQ=${1:?extraction root}; REGEN=${2:?regenerated THIRD-PARTY.txt}; CO=${3:?checkout}
 FAILED=0
 if cmp -s "$SQ/resources/THIRD-PARTY.txt" "$REGEN"; then echo "notices ok"; else echo "notices FAIL bundled THIRD-PARTY.txt differs from the regenerated one"; FAILED=1; fi
 BAD=""
-for d in maker tools; do
-    exp=$(cd "$CO/$d" && ls *.py 2>/dev/null | grep -v '^test_' | sort)
+WEB_SHIPPED="mkindex.py"          # the web/*.py files maker/build-sidecar.sh copies into the bundle
+for d in maker tools web; do
+    if [ "$d" = web ]; then exp=$(printf '%s\n' $WEB_SHIPPED | sort); else exp=$(cd "$CO/$d" && ls *.py 2>/dev/null | grep -v '^test_' | sort); fi
     got=$(cd "$SQ/resources/repo/$d" 2>/dev/null && ls *.py 2>/dev/null | sort)
     [ "$exp" = "$got" ] || BAD="$BAD $d(file set differs)"
     for f in $got; do

@@ -39,7 +39,7 @@ Chrome's socket path is limited to 107 bytes). Never `/tmp`. Every run that star
 (fails on an unattributed library or a GPL one), builds the AppImage and runs `desktop/build/release-check.sh`, which
 prints one `CHECK <name> ok|FAIL` line each: size, extract, size-sidecar, layout, apprun, desktop-entry, frozen
 (`test_frozen.py` against the extracted sidecar, 0 skipped), wasm (`cmp` with a fresh build), licences (the generator over
-the extraction), notices and sources (the bundled `THIRD-PARTY.txt` equals the regenerated one; `resources/repo/{maker,tools}/*.py` equal the checkout by sha256: `desktop/build/verify-extraction.sh`), smoke (the extracted `AppRun` under xvfb), sources (`--release` only) and contents (a file list record in
+the extraction), notices and sources (the bundled `THIRD-PARTY.txt` equals the regenerated one; `resources/repo/{maker,tools}/*.py` and `resources/repo/web/mkindex.py` equal the checkout by sha256: `desktop/build/verify-extraction.sh`, run through `verify-report.sh`/`run-verify.sh`, which fail closed on a non-zero exit, a missing or duplicate result line or any other output, stderr included), smoke (the extracted `AppRun` under xvfb), sources (`--release` only) and contents (a file list record in
 `desktop/build/out/release-<build id>-<AppImage sha256 prefix>.txt`, one per AppImage).
 
 `build-appimage.sh` and `release-check.sh` take the browser lock themselves for the smoke run (they wait for it as long as it
