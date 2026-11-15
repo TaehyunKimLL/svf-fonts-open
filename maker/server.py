@@ -101,21 +101,30 @@ def _sweep_locks(job, timeout=None):
 def _sweep_idle(server, now=None):
     """Sweep the files directory of every `detected` local job nobody touched for `LOCAL_IDLE_SWEEP_S`."""
     now = time.monotonic() if now is None else now
+    deadline = jobs.Deadline(jobs.RETRY_DEADLINE_S)       # one deadline for the whole pass, read now (not at import)
     for item in server.store.list():
+        if deadline.expired():
+            break
         if item.get("source") != "local" or item["state"] not in ("detected", "uploading"):
+            continue
+        if item["id"] in server.preparing:                # a run is being prepared: its directory is not swept
             continue
         if now - server.touched.get(item["id"], server.started) > LOCAL_IDLE_SWEEP_S:
             try:
-                server.store.sweep_files(server.store.load(item["id"]))
+                server.store.sweep_files(server.store.load(item["id"]), deadline=deadline)
             except KeyError:
                 continue
     for job_id in list(server.cleanup_pending):           # the start-up cleanup that did not finish
+        if deadline.expired():
+            break
+        if job_id in server.preparing:
+            continue
         try:
-            if server.store.sweep_files(server.store.load(job_id)):
+            if server.store.sweep_files(server.store.load(job_id), deadline=deadline):
                 server.cleanup_pending.discard(job_id)
         except KeyError:
             server.cleanup_pending.discard(job_id)
-    server.store.retry_pending_sweeps()
+    server.store.retry_pending_sweeps(deadline=deadline)
 
 
 def _drop_preview_locks(job_id):
@@ -533,6 +542,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
         server.cleanup_pending = set()                        # old local jobs whose start-up cleanup did not finish
         server.index = naming.RepoIndex(server.svf_dir)
         server.started = time.monotonic()
+        server.preparing = {}                                 # local job id -> Event: a run is being prepared (Task 5)
         server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
         server.sweep_idle = lambda now=None: _sweep_idle(server, now)
         local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only
@@ -544,7 +554,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
             sweeper has finished it; nothing here runs on a background thread, so no request can reopen a job between its
             state check and its directory's removal."""
             deadline = jobs.Deadline(STARTUP_CLEANUP_S)
-            store.retry_pending_sweeps(deadline_s=deadline.remaining())
+            store.retry_pending_sweeps(deadline=deadline, capped=False)
             for job_id in local_ids:
                 if deadline.expired():
                     server.cleanup_pending.add(job_id)
@@ -554,13 +564,20 @@ def make_server(host, port, repo_dir, data_root, token=None):
                 except KeyError:
                     continue
                 try:
-                    if not store.sweep_files(job, deadline=deadline):
+                    if not store.sweep_files(job, deadline=deadline, capped=False):
                         server.cleanup_pending.add(job_id)
                     store.sweep_trash(job)
                 except Exception:
                     jobs.print_exc()
                     server.cleanup_pending.add(job_id)
-            store.sweep_orphans(deadline)
+            try:
+                store.sweep_orphans(deadline)
+            except Exception:
+                jobs.print_exc()
+            try:
+                store.flush_pending(deadline)                 # a process that exits right after start-up keeps its records
+            except Exception:
+                jobs.print_exc()
         server.stopping = threading.Event()
         server.startup_sweep = None                           # (kept for callers: the cleanup is synchronous now)
         if token is not None or local_ids or have_pending:    # an upload-only server has nothing to sweep
@@ -898,7 +915,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     try:
                         store.ensure_files_dir(job, locked=True)
                     except (jobs.OutputGone, OSError) as exc:
-                        after.append(store.delete(job["id"], locked=True))
+                        try:
+                            after.append(store.delete(job["id"], locked=True))
+                        except jobs.Busy:                     # its cleanup record was not saved: the job stays, swept when idle
+                            raise _HttpError(409, "job %s is busy; try again" % job["id"])
                         raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
                     answer = {"id": job["id"]}
         finally:
@@ -1113,6 +1133,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.server.store.delete(job)
         except KeyError:
             raise _HttpError(404, "no job %s" % job)
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % job)
         except (ValueError, OSError):
             raise _HttpError(409, "job %s cannot be deleted" % job)
         self.send_json({"deleted": job})

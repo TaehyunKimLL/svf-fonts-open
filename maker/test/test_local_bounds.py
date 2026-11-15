@@ -382,5 +382,370 @@ class BoundedPrimitivesTest(unittest.TestCase):
         self.assertIn("late", open(log).read())
 
 
+def entries_have(path_pred):
+    return lambda entries: any(path_pred(e) for e in entries)
+
+
+class SweepBoundsTest(localfx.LocalRunBase):
+    """Task 2: one deadline through rename, pending records, orphans and retries (H3b)."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = self.srv.store
+
+    def hang(self, target, name, real, when):
+        hang = Hang(real, when)
+        self.addCleanup(hang.release.set)
+        patcher = mock.patch(target, hang) if name is None else mock.patch.object(target, name, hang)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return hang
+
+    def hang_rename(self, path):
+        return self.hang(os, "rename", os.rename, lambda s, d: s == path)
+
+    def hang_tomb_rmtree(self, fd):
+        return self.hang(shutil, "rmtree", shutil.rmtree, lambda p, *a, **k: str(p).startswith(fd + ".trash-"))
+
+    def hold_pending_lock(self):
+        self.store._pending_lock.acquire()
+        released = []
+
+        def release():
+            if not released:
+                released.append(1)
+                self.store._pending_lock.release()
+        self.addCleanup(release)
+        return release
+
+    def entry_for(self, jid, files_id=None):
+        job = self.store.load(jid)
+        return {"path": self.files_dir(jid), "output_dir": job["output_dir"], "output_id": job["output_id"],
+                "job": jid, "files_id": files_id, "reason": "test"}
+
+    def write_pending(self, entries):
+        with open(os.path.join(self.data, "pending-sweeps.json"), "w", encoding="utf-8") as f:
+            json.dump(entries, f)
+
+    def wait_writer_idle(self):
+        end = time.monotonic() + 3
+        while time.monotonic() < end and self.store._pending_unfinished:
+            time.sleep(0.02)
+        self.assertEqual(self.store._pending_unfinished, 0)
+
+    def make_orphan(self, name, out=None):
+        path = os.path.join(out or self.out, name)
+        os.makedirs(path)
+        with open(os.path.join(path, "x"), "w") as f:
+            f.write("x")
+        return path
+
+    def test_stop_returns_by_the_deadline_although_a_rename_hangs(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        self.hang_rename(fd)
+        with mock.patch.object(jobs, "STOP_SWEEP_TOTAL_S", 1.0):
+            t0 = time.monotonic()
+            t, box = on_thread(self.srv.worker.sweep_local_files)
+            t.join(3)
+            self.assertFalse(t.is_alive())
+            self.assertLess(time.monotonic() - t0, 2.5)
+        poll_pending(self, self.data, lambda es: any(e["path"] == fd for e in es)
+                     and any(e["path"].startswith(fd + ".trash-") and e.get("from") == fd for e in es))
+
+    def test_startup_returns_by_the_deadline_although_a_rename_hangs(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        self.hang_rename(fd)
+        self.release_lock()
+        with mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0):
+            t0 = time.monotonic()
+            t, box = on_thread(lambda: server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data,
+                                                          token=localfx.TOKEN))
+            t.join(4)
+            self.assertFalse(t.is_alive())
+        self.assertEqual(len(box), 1)
+        srv2 = box[0]
+        self.assertNotIsInstance(srv2, BaseException)
+        try:
+            self.assertLess(time.monotonic() - t0, 3.0)
+            self.assertIn(jid, srv2.cleanup_pending)
+        finally:
+            srv2.worker.stop()
+            srv2.server_close()
+
+    def test_an_abandoned_rename_never_moves_a_later_generation(self):
+        jid = self.local_job()
+        self.select(jid)
+        fd = self.files_dir(jid)
+        ino = os.stat(fd).st_ino
+        hang = self.hang_rename(fd)
+        t, box = on_thread(lambda: self.store.sweep_files(self.store.load(jid), bound=0.5))
+        t.join(2)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(box, [False])
+        with self.assertRaises(jobs.OutputGone) as cm:
+            self.store.ensure_files_dir(self.store.load(jid))
+        self.assertIn("still being moved or made", str(cm.exception))
+        status = self.raw("GET", "/api/jobs/%s/probe/%s/16/1.json" % (jid, self.ttf))[0]
+        self.assertEqual(status, 404)
+        self.assertEqual(os.stat(fd).st_ino, ino)
+        hang.release.set()
+        end = time.monotonic() + 2
+        while time.monotonic() < end and jobs.mutation_pending(fd):
+            time.sleep(0.02)
+        self.assertFalse(jobs.mutation_pending(fd))
+        self.store.retry_pending_sweeps()
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-%s.trash-" % jid)], [])
+        job = self.store.load(jid)
+        self.store.ensure_files_dir(job)
+        self.assertEqual(self.store.load(jid)["files_id"], list(jobs.stat_id(fd)))
+        self.store.retry_pending_sweeps()
+        self.assertTrue(os.path.isdir(fd))
+
+    def test_retry_keeps_a_tombstone_entry_whose_rename_is_in_flight(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        self.hang_rename(fd)
+        t, box = on_thread(lambda: self.store.sweep_files(self.store.load(jid), bound=0.5))
+        t.join(2)
+        self.assertFalse(t.is_alive())
+        poll_pending(self, self.data, lambda es: len(es) == 2)
+        t2, box2 = on_thread(lambda: self.store.retry_pending_sweeps(deadline_s=1))
+        t2.join(3)
+        self.assertFalse(t2.is_alive())
+        entries = poll_pending(self, self.data, lambda es: len(es) == 2)
+        self.assertTrue(any(e["path"].startswith(fd + ".trash-") for e in entries), entries)
+        self.assertTrue(any(e["path"] == fd for e in entries), entries)
+
+    def test_a_retry_whose_own_rename_is_abandoned_keeps_the_tombstone(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        self.store.update(jid, lambda j: j.update(state="failed"))
+        job = self.store.load(jid)
+        self.write_pending([self.entry_for(jid, files_id=job["files_id"])])
+        self.hang_rename(fd)
+        t, box = on_thread(lambda: self.store.retry_pending_sweeps(deadline_s=1.5))
+        t.join(3)
+        self.assertFalse(t.is_alive())
+        poll_pending(self, self.data, lambda es: any(e["path"] == fd for e in es)
+                     and any(e["path"].startswith(fd + ".trash-") and e.get("from") == fd for e in es))
+
+    def test_stop_returns_by_the_deadline_while_the_pending_lock_is_held(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        hang = self.hang_tomb_rmtree(fd)
+        release = self.hold_pending_lock()
+        with mock.patch.object(jobs, "STOP_SWEEP_TOTAL_S", 1.0), mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1):
+            t0 = time.monotonic()
+            t, box = on_thread(self.srv.worker.sweep_local_files)
+            t.join(3)
+            self.assertFalse(t.is_alive())
+            self.assertLess(time.monotonic() - t0, 2.5)
+        release()
+        hang.release.set()
+        poll_pending(self, self.data, entries_have(lambda e: e["path"].startswith(fd + ".trash-")))
+
+    def test_stop_returns_by_the_deadline_while_fsync_hangs(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        hang = self.hang_tomb_rmtree(fd)
+        fsync = self.hang(os, "fsync", os.fsync, lambda fd_: True)
+        with mock.patch.object(jobs, "STOP_SWEEP_TOTAL_S", 1.0), mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1):
+            t0 = time.monotonic()
+            t, box = on_thread(self.srv.worker.sweep_local_files)
+            t.join(3)
+            self.assertFalse(t.is_alive())
+            self.assertLess(time.monotonic() - t0, 2.5)
+        fsync.release.set()
+        hang.release.set()
+        poll_pending(self, self.data, entries_have(lambda e: e["path"].startswith(fd + ".trash-")))
+
+    def test_stop_lands_its_pending_records_before_returning(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        self.hang_tomb_rmtree(fd)
+        with mock.patch.object(jobs, "STOP_SWEEP_TOTAL_S", 1.0):
+            self.srv.worker.sweep_local_files()
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:      # one read, no poll
+            entries = json.load(f)
+        self.assertTrue(any(e["path"].startswith(fd + ".trash-") for e in entries), entries)
+
+    def test_orphan_sweep_returns_by_the_deadline_although_a_rename_hangs(self):
+        self.local_job()                                       # makes self.out a known folder
+        orphan = self.make_orphan(".svf-maker-0123456789ab")
+        self.hang_rename(orphan)
+        t, box = on_thread(lambda: self.store.sweep_orphans(jobs.Deadline(1.0)))
+        t.join(3)
+        self.assertFalse(t.is_alive())
+
+    def test_an_orphan_tombstone_is_swept_at_start_up(self):
+        jid = self.local_job()
+        dead = self.make_orphan(".svf-maker-0123456789ab.trash-0badf00d")
+        live = self.make_orphan(".svf-maker-%s.trash-0badf00e" % jid)
+        self.release_lock()
+        srv2 = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
+        try:
+            self.assertFalse(os.path.exists(dead))
+            self.assertFalse(os.path.exists(live))
+        finally:
+            srv2.worker.stop()
+            srv2.server_close()
+
+    def test_an_orphan_removal_error_does_not_stop_the_sweep(self):
+        self.local_job()
+        first = self.make_orphan(".svf-maker-0123456789ab.trash-0badf00d")
+        second = self.make_orphan(".svf-maker-0123456789ac.trash-0badf00e")
+        real = shutil.rmtree
+
+        def rmtree(path, *a, **k):
+            if str(path) == first:
+                raise PermissionError("denied")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", rmtree):
+            self.store.sweep_orphans(jobs.Deadline(2))
+        self.assertFalse(os.path.exists(second))
+        poll_pending(self, self.data, entries_have(lambda e: e["path"] == first))
+
+    def test_a_delete_whose_cleanup_record_cannot_be_saved_keeps_the_job(self):
+        out2 = os.path.join(self.tmp, "out2")
+        os.mkdir(out2)
+        jid = self.local_job(out=out2)
+        fsync = self.hang(os, "fsync", os.fsync, lambda fd_: True)
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.3), mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1):
+            t0 = time.monotonic()
+            t, box = on_thread(lambda: self.api("DELETE", "/api/jobs/%s" % jid))
+            t.join(3)
+            self.assertFalse(t.is_alive())
+            self.assertLess(time.monotonic() - t0, 1.5)
+        status, body = box[0]
+        self.assertEqual(status, 409, body)
+        self.assertIn("busy", json.dumps(body))
+        self.assertTrue(os.path.exists(os.path.join(self.data, "jobs", jid, "job.json")))
+        fsync.release.set()
+        self.wait_writer_idle()
+        self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
+
+    def test_the_only_job_of_a_folder_leaves_a_findable_tombstone_when_deleted(self):
+        out2 = os.path.join(self.tmp, "out2")
+        os.mkdir(out2)
+        jid = self.local_job(out=out2)
+        self.select(jid)
+        self.assertEqual(self.run_to_done(jid)["state"], "done")
+        fd2 = os.path.join(out2, ".svf-maker-" + jid)
+        self.assertEqual(self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, self.dos))[0], 200)
+        self.assertTrue(os.path.isdir(fd2))
+        hang = self.hang_tomb_rmtree(fd2)
+        with mock.patch.object(jobs, "REMOVE_BOUND_S", 0.3):
+            self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
+        entries = poll_pending(self, self.data, entries_have(lambda e: e["path"].startswith(fd2 + ".trash-")))
+        self.assertEqual([e["output_dir"] for e in entries if e["path"].startswith(fd2 + ".trash-")], [out2])
+        self.release_lock()
+        hang.release.set()
+        srv2 = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
+        try:
+            self.assertEqual([n for n in os.listdir(out2) if n.startswith(".svf-maker-" + jid)], [])
+        finally:
+            srv2.worker.stop()
+            srv2.server_close()
+
+    def test_an_idle_sweep_does_not_wait_beyond_its_deadline_for_the_lifecycle_lock(self):
+        self.local_job()
+        self.store.lifecycle.acquire()
+        held = [True]
+
+        def unlock():
+            if held:
+                held.clear()
+                self.store.lifecycle.release()
+        self.addCleanup(unlock)
+        with mock.patch.object(jobs, "RETRY_DEADLINE_S", 0.5):
+            t, box = on_thread(lambda: server._sweep_idle(self.srv, now=time.monotonic()
+                                                          + server.LOCAL_IDLE_SWEEP_S + 5))
+            t.join(2)
+            self.assertFalse(t.is_alive())
+        unlock()
+
+    def test_a_retry_starts_no_filesystem_call_after_its_deadline(self):
+        jid = self.local_job()
+        self.store.update(jid, lambda j: j.update(state="failed"))
+        job = self.store.load(jid)
+        self.write_pending([self.entry_for(jid, files_id=job["files_id"])])
+
+        class Fake:
+            over = False
+
+            def remaining(self):
+                return 0.0 if self.over else 1.0
+
+            def expired(self):
+                return self.over
+        fake = Fake()
+        real_stat, real_call = jobs.stat_id, jobs.bounded_call
+        starts = []
+
+        def stat(path):
+            result = real_stat(path)
+            if path == job["output_dir"]:
+                fake.over = True
+            return result
+
+        def call(key, fn, timeout):
+            starts.append(fake.over)
+            return real_call(key, fn, timeout)
+        with mock.patch.object(jobs, "stat_id", stat), mock.patch.object(jobs, "bounded_call", call):
+            self.store.retry_pending_sweeps(deadline=fake)
+        self.assertTrue(starts)
+        self.assertNotIn(True, starts)
+
+    def test_a_failed_takeover_that_cannot_record_answers_409_busy_and_keeps_the_job(self):
+        real = os.mkdir
+
+        def mkdir(path, *a, **k):
+            if os.path.basename(str(path)) == "work" and ".svf-maker-" in str(path):
+                raise OSError(5, "I/O error")
+            return real(path, *a, **k)
+        fsync = self.hang(os, "fsync", os.fsync, lambda fd_: True)
+        with mock.patch.object(os, "mkdir", mkdir), mock.patch.object(jobs, "LOCKED_IO_S", 0.3), \
+                mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1):
+            t, box = on_thread(lambda: self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out}))
+            t.join(3)
+            self.assertFalse(t.is_alive())
+        status, body = box[0]
+        self.assertEqual(status, 409, body)
+        self.assertIn("busy", json.dumps(body))
+        left = [i for i in self.store.list()]
+        self.assertEqual([i["state"] for i in left], ["uploading"])
+        fsync.release.set()
+        self.wait_writer_idle()
+
+    def test_a_tombstone_removal_error_after_a_delete_never_reaches_the_answer(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        real = shutil.rmtree
+
+        def rmtree(path, *a, **k):
+            if str(path).startswith(fd + ".trash-"):
+                raise PermissionError("denied")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", rmtree):
+            self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
+        poll_pending(self, self.data, entries_have(lambda e: e["path"].startswith(fd + ".trash-")))
+
+    def test_a_tombstone_already_gone_after_a_delete_drops_its_entry(self):
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        real = shutil.rmtree
+
+        def rmtree(path, *a, **k):
+            if str(path).startswith(fd + ".trash-"):
+                real(path, *a, **k)
+                raise FileNotFoundError(2, "gone")
+            return real(path, *a, **k)
+        with mock.patch.object(shutil, "rmtree", rmtree):
+            self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
+        poll_pending(self, self.data, lambda es: not any(e["path"].startswith(fd + ".trash-") for e in es))
+
+
 if __name__ == "__main__":
     unittest.main()
