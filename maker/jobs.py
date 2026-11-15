@@ -18,6 +18,7 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 """
 
 import contextlib
+import copy
 import json
 import os
 import queue
@@ -51,6 +52,8 @@ RETRY_DEADLINE_S = 30.0       # one pending-sweep pass ends after this long; unf
 IN_USE_STATES = ("queued", "running", "uploading", "detected")   # a job in these states uses its files directory
 STOP_SWEEP_TOTAL_S = 8.0      # shutdown: all the sweeps together
 STOP_STAT_TIMEOUT_S = 1.0     # the same at stop, so shutdown is not held by a mount
+PENDING_FLOOR_S = 0.5         # a pending record is waited for at least this long (a healthy disk lands it in ms)
+PENDING_IDLE_S = 2.0          # the pending writer thread exits after this long without work
 
 
 class Deadline:
@@ -65,6 +68,12 @@ class Deadline:
 
     def expired(self):
         return time.monotonic() >= self.end
+
+    def capped(self, seconds):
+        """A new `Deadline` ending at the earlier of this one and @p seconds from now."""
+        other = Deadline(seconds)
+        other.end = min(self.end, other.end)
+        return other
 
 
 def tombstone_of(files):
@@ -99,41 +108,80 @@ def remove_tree_bounded(path, timeout):
     return _run_bounded(lambda: shutil.rmtree(path), timeout)
 
 
-_CALLS_IN_FLIGHT = set()      # keys with a filesystem call still running: one daemon thread per key, however often asked
+class CallPending(OSError):
+    """A bounded filesystem call did not return in time, or one with the same key is still running (an `OSError`, so
+    every existing `except OSError` keeps working)."""
+
+
+MUTATING_OPS = ("rename", "mkdir", "chmod")    # calls that change the volume: never run twice, and they fence their path
+_CALLS_IN_FLIGHT = {}         # key -> (threading.Event done, list box): one daemon thread per key, however often asked
 _CALLS_LOCK = threading.Lock()
 
 
 def bounded_call(key, fn, timeout):
-    """`fn()`, but `OSError` when it does not return within @p timeout seconds (it runs in a daemon thread that is left
-    behind). While a call with the same @p key is still running (a hung mount) a further one does not start another
-    thread: it raises at once, so the threads stay bounded by the number of distinct keys."""
-    box = []
+    """`fn()`, but `CallPending` (an `OSError`) when it does not return within @p timeout seconds (it runs in a daemon
+    thread that is left behind). @p key is `(op, path)`. While a call with the same key is still running (a hung mount)
+    no second thread starts: a read-only call (@p op not in `MUTATING_OPS`) waits for the first one within its own
+    timeout and returns or raises the first call's result; a mutating call raises at once (it never runs twice)."""
     with _CALLS_LOCK:
-        if key in _CALLS_IN_FLIGHT:
-            raise OSError("call still pending: %s" % (key,))
-        _CALLS_IN_FLIGHT.add(key)
-
-    def run():
-        try:
-            box.append(("ok", fn()))
-        except BaseException as exc:
-            box.append(("err", exc))
-        finally:
-            with _CALLS_LOCK:
-                _CALLS_IN_FLIGHT.discard(key)
-    thread = threading.Thread(target=run, daemon=True, name="svf-maker-stat")
-    thread.start()
-    thread.join(timeout)
-    if not box:
-        raise OSError("call timed out: %s" % (key,))
+        running = _CALLS_IN_FLIGHT.get(key)
+        if running is None:
+            done, box = threading.Event(), []
+            _CALLS_IN_FLIGHT[key] = (done, box)
+        elif key[0] in MUTATING_OPS:
+            raise CallPending("call still pending: %s" % (key,))
+    if running is not None:
+        done, box = running
+        if not done.wait(timeout):
+            raise CallPending("call still pending: %s" % (key,))
+    else:
+        def run():
+            try:
+                box.append(("ok", fn()))
+            except BaseException as exc:
+                box.append(("err", exc))
+            finally:
+                with _CALLS_LOCK:
+                    _CALLS_IN_FLIGHT.pop(key, None)
+                done.set()
+        threading.Thread(target=run, daemon=True, name="svf-maker-stat").start()
+        if not done.wait(timeout):
+            raise CallPending("call timed out: %s" % (key,))
     kind, value = box[0]
     if kind == "err":
         raise value
     return value
 
 
+def _mutations_under(path):
+    """The ops of the mutating calls in flight whose key path is @p path or below it."""
+    prefix = path.rstrip(os.sep) + os.sep
+    with _CALLS_LOCK:
+        return [key[0] for key in _CALLS_IN_FLIGHT
+                if key[0] in MUTATING_OPS and (key[1] == path or key[1].startswith(prefix))]
+
+
+def mutation_pending(path):
+    """True while a mutating call (`MUTATING_OPS`) on @p path or below it is still in flight."""
+    return bool(_mutations_under(path))
+
+
+def mutation_kind(path):
+    """The op of such a call (`"rename"` wins over the others), or None."""
+    ops = _mutations_under(path)
+    if not ops:
+        return None
+    return "rename" if "rename" in ops else ops[0]
+
+
+def rename_bounded(src, dst, timeout):
+    """`os.rename(src, dst)` within @p timeout seconds. `CallPending` when it did not return: the rename is then still
+    in flight and fences @p src (`mutation_pending`)."""
+    bounded_call(("rename", src), lambda: os.rename(src, dst), timeout)
+
+
 def stat_id_bounded(path, timeout=STAT_TIMEOUT_S):
-    """`stat_id(path)` within @p timeout seconds (`OSError` otherwise)."""
+    """`stat_id(path)` within @p timeout seconds (`CallPending`, an `OSError`, otherwise)."""
     return bounded_call(("stat", path), lambda: stat_id(path), timeout)
 
 
@@ -444,6 +492,12 @@ class Store:
         self.lifecycle = threading.Lock()
         self._pending_lock = threading.Lock()
         self._retry_lock = threading.Lock()
+        # The pending writer: every operation on pending-sweeps.json runs on one daemon thread (see `_pending_op`).
+        self._pending_q = queue.Queue()
+        self._pending_thread = None
+        self._pending_thread_lock = threading.Lock()
+        self._pending_unfinished = 0
+        self._pending_stalled = False
 
     def lock(self, job_id):
         """The `threading.Lock` of @p job_id, made once: two handlers never write one job's file together."""
@@ -679,29 +733,123 @@ class Store:
         except OSError:
             pass
 
-    def _add_pending(self, job, files, reason, trash=None, generation=None):
+    def _pending_run(self):
+        """The pending writer thread: serves `_pending_q` in order, exits when idle (see `_pending_op`)."""
+        while True:
+            try:
+                req = self._pending_q.get(timeout=PENDING_IDLE_S)
+            except queue.Empty:
+                with self._pending_thread_lock:
+                    if self._pending_q.empty():
+                        self._pending_thread = None
+                        return
+                continue
+            fn, event, box, state = req
+            try:
+                with self._pending_lock:
+                    entries = self._read_pending()
+                    before = copy.deepcopy(entries)
+                    new, result = fn(entries)
+                    if new is not None and new != before:
+                        self._write_pending(new)
+                box.append(("ok", result))
+            except BaseException as exc:
+                box.append(("err", exc))
+            with self._pending_thread_lock:
+                self._pending_unfinished -= 1
+                self._pending_stalled = False
+                abandoned = state["abandoned"]
+                event.set()
+            if abandoned and box[0][0] == "err":
+                print_exc()
+
+    def _pending_op(self, fn, deadline=None, always_floor=False):
+        """Run @p fn(entries) -> (new entries or None, result) on the one pending writer thread, as a read-modify-write
+        of pending-sweeps.json under `_pending_lock`. Waits until @p deadline (default `Deadline(STAT_TIMEOUT_S)`) but at
+        least `PENDING_FLOOR_S`, and returns `(True, result)`, or `(False, None)` when it is not done by then; an
+        operation not waited for still runs later, in order. The floor is not waited while the writer is stalled (a
+        caller already gave up on an unfinished operation; cleared when the writer completes one) unless @p always_floor.
+        An exception of @p fn is re-raised to a caller that waited."""
+        dl = deadline if deadline is not None else Deadline(STAT_TIMEOUT_S)
+        event, box, state = threading.Event(), [], {"abandoned": False}
+        with self._pending_thread_lock:
+            floor = always_floor or not self._pending_stalled
+            self._pending_unfinished += 1
+            self._pending_q.put((fn, event, box, state))
+            if self._pending_thread is None:
+                self._pending_thread = threading.Thread(target=self._pending_run, daemon=True,
+                                                        name="svf-maker-pending")
+                self._pending_thread.start()
+        wait = max(dl.remaining(), PENDING_FLOOR_S) if floor else dl.remaining()
+        if not event.wait(wait):
+            with self._pending_thread_lock:
+                if not event.is_set():
+                    state["abandoned"] = True
+                    self._pending_stalled = True
+                    return False, None
+        kind, value = box[0]
+        if kind == "err":
+            raise value
+        return True, value
+
+    def flush_pending(self, deadline=None):
+        """True when every pending operation submitted so far has run (waits at least `PENDING_FLOOR_S`, always)."""
+        return self._pending_op(lambda entries: (None, None), deadline, always_floor=True)[0]
+
+    @staticmethod
+    def _merge_pending(entries, entry):
+        """Add @p entry to @p entries, or merge it into the entry with the same path; True when it was new. A `making`
+        entry (a generation of unknown identity is being made there) sets the recorded `files_id` to None; otherwise a
+        None `files_id` never overwrites a recorded one, and a different non-None one replaces it (a newer generation)."""
+        same = [e for e in entries if e.get("path") == entry["path"]]
+        if not same:
+            entries.append(entry)
+            return True
+        old = same[0]
+        if entry.get("making"):
+            old.update(entry)
+        elif entry["files_id"] is not None and entry["files_id"] != old.get("files_id"):
+            old.update(entry)
+            old.pop("making", None)
+        if entry.get("from") and not old.get("from"):
+            old["from"] = entry["from"]
+        return False
+
+    def _add_pending_many(self, entries, deadline=None):
+        """Record @p entries (dicts with `path`, `output_dir`, `output_id`, `job`, `files_id`, `reason`, optionally `from`
+        and `making`) in ONE pending operation; True when it was written in time. The `log.md` line of each new one is
+        written by the caller's thread when the operation is done."""
+        entries = [dict(e) for e in entries]
+        reasons = [(e["job"], e["path"], e.pop("reason", "")) for e in entries]
+
+        def merge(current):
+            fresh = [self._merge_pending(current, dict(e)) for e in entries]
+            return current, fresh
+        done, fresh = self._pending_op(merge, deadline)
+        if not done:
+            return False
+        for new, (job_id, path, reason) in zip(fresh, reasons):
+            if not new:
+                continue                                  # logged when first recorded: once per directory, not per sweep
+            try:
+                zipout.append_log(self.path(job_id), "\nsweep: %s: %s; intermediate files may remain there\n"
+                                  % (path, reason))
+            except (OSError, KeyError):
+                pass                                      # the metadata directory is already gone
+        return True
+
+    def _add_pending(self, job, files, reason, trash=None, generation=None, deadline=None, origin=None, making=False):
         """Record @p files (or, when its removal was started and not finished, the tombstone @p trash it was renamed to)
-        as still to be removed."""
+        as still to be removed; True when written in time. @p origin is stored as `from` (the directory a tombstone was
+        renamed from); @p making: a generation of unknown identity is being made at @p files (its `files_id` is cleared)."""
         entry = {"path": trash or files, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"),
-                 "job": job["id"], "files_id": None if trash else (generation or job.get("files_id"))}
-        files = trash or files
-        with self._pending_lock:
-            entries = self._read_pending()
-            same = [e for e in entries if e.get("path") == files]
-            fresh = not same
-            if fresh:
-                entries.append(entry)
-                self._write_pending(entries)
-            elif same[0].get("files_id") != entry["files_id"]:
-                same[0].update(entry)                     # a newer generation of the directory: the entry follows it
-                self._write_pending(entries)
-        if not fresh:
-            return                                        # logged when first recorded: once per directory, not per sweep
-        try:
-            zipout.append_log(self.path(job["id"]), "\nsweep: %s: %s; intermediate files may remain there\n"
-                              % (files, reason))
-        except OSError:
-            pass                                          # the metadata directory is already gone
+                 "job": job["id"], "files_id": None if trash or making else (generation or job.get("files_id")),
+                 "reason": reason}
+        if origin:
+            entry["from"] = origin
+        if making:
+            entry["making"] = True
+        return self._add_pending_many([entry], deadline)
 
     def _rename_away(self, job, deadline, check_active=True, own_run=False, stat_timeout=None):
         """The step of a sweep that needs the lifecycle lock (the caller holds it): look at the job's state as it is now,
