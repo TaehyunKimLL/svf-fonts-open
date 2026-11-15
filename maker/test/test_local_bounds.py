@@ -277,16 +277,62 @@ class BoundedPrimitivesTest(unittest.TestCase):
             self.assertTrue(done)
         poll_pending(self, self.data, lambda e: e == [{"path": "a"}, {"path": "b"}])
 
-    def test_a_read_only_waiter_on_a_call_known_to_be_hung_fails_at_once(self):
+    def test_a_read_only_waiter_on_a_call_in_flight_too_long_fails_at_once(self):
         d = os.path.join(self.tmp, "d")
         os.mkdir(d)
         self.hang(jobs, "stat_id", jobs.stat_id, lambda p: p == d)
-        with self.assertRaises(jobs.CallPending):
-            jobs.stat_id_bounded(d, 0.2)                    # this waiter gives up: the call is known to be hung
-        t0 = time.monotonic()
-        with self.assertRaises(jobs.CallPending):
-            jobs.stat_id_bounded(d, 5)
-        self.assertLess(time.monotonic() - t0, 0.5)
+        with mock.patch.object(jobs, "STAT_TIMEOUT_S", 0.3):
+            with self.assertRaises(jobs.CallPending):
+                jobs.stat_id_bounded(d, 0.35)               # in flight for 0.35 s: a hung mount by STAT_TIMEOUT_S
+            t0 = time.monotonic()
+            with self.assertRaises(jobs.CallPending):
+                jobs.stat_id_bounded(d, 5)
+            self.assertLess(time.monotonic() - t0, 0.2)
+
+    def test_callers_on_a_hung_path_cost_one_stat_timeout_in_all(self):
+        d = os.path.join(self.tmp, "d")
+        os.mkdir(d)
+        hang = self.hang(jobs, "stat_id", jobs.stat_id, lambda p: p == d)
+        with mock.patch.object(jobs, "STAT_TIMEOUT_S", 0.3):
+            t0 = time.monotonic()
+            threads = [on_thread(lambda: jobs.stat_id_bounded(d, 0.3))]       # the one that starts the call
+            self.assertTrue(hang.entered.wait(2))
+            threads += [on_thread(lambda: jobs.stat_id_bounded(d, 5)) for _ in range(3)]
+            for thread, box in threads:
+                thread.join(3)
+            self.assertLess(time.monotonic() - t0, 1.0)
+            self.assertTrue(all(isinstance(box[0], jobs.CallPending) for _, box in threads))
+
+    def test_a_caller_with_a_tiny_budget_does_not_make_a_healthy_call_look_hung(self):
+        d = os.path.join(self.tmp, "d")
+        os.mkdir(d)
+        real = jobs.stat_id
+        started = threading.Event()
+
+        def slow(p):
+            if p == d:
+                started.set()
+                time.sleep(0.8)
+            return real(p)
+        with mock.patch.object(jobs, "stat_id", slow):
+            a, box_a = on_thread(lambda: jobs.stat_id_bounded(d, 5))
+            self.assertTrue(started.wait(2))
+            with self.assertRaises(jobs.CallPending):
+                jobs.stat_id_bounded(d, 0.05)               # B gives up early
+            self.assertEqual(jobs.stat_id_bounded(d, 5), real(d))     # C still shares the healthy call
+            a.join(3)
+        self.assertEqual(box_a, [real(d)])
+
+    def test_a_failing_after_callback_does_not_fail_a_written_record(self):
+        err = io.StringIO()
+
+        def after(result):
+            raise ValueError("boom")
+        with mock.patch.object(sys, "stderr", err):
+            done, _ = self.store._pending_op(append("x"), jobs.Deadline(1), after=after)
+        self.assertTrue(done)
+        self.assertIn("ValueError", err.getvalue())
+        poll_pending(self, self.data, lambda e: e == [{"path": "x"}])
 
     def test_an_abandoned_pending_op_that_fails_prints_its_exception(self):
         err = io.StringIO()

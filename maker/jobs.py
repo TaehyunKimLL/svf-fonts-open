@@ -114,7 +114,7 @@ class CallPending(OSError):
 
 
 MUTATING_OPS = ("rename", "mkdir", "chmod")    # calls that change the volume: never run twice, and they fence their path
-_CALLS_IN_FLIGHT = {}         # key -> (Event done, list box, {'abandoned'}): one daemon thread per key, however often asked
+_CALLS_IN_FLIGHT = {}         # key -> (Event done, list box, start time): one daemon thread per key, however often asked
 _CALLS_LOCK = threading.Lock()
 
 
@@ -122,20 +122,21 @@ def bounded_call(key, fn, timeout):
     """`fn()`, but `CallPending` (an `OSError`) when it does not return within @p timeout seconds (it runs in a daemon
     thread that is left behind). @p key is `(op, path)`. While a call with the same key is still running (a hung mount)
     no second thread starts: a read-only call (@p op not in `MUTATING_OPS`) waits for the first one within its own
-    timeout and returns or raises the first call's result, unless a waiter already gave up on that call (then it raises
-    at once, so N callers on one hung path do not cost N timeouts); a mutating call raises at once (never runs twice)."""
+    timeout and returns or raises the first call's result, but never past `STAT_TIMEOUT_S` after the first call began
+    (a call in flight that long is a hung mount: it raises at once); a mutating call raises at once (never runs twice)."""
     with _CALLS_LOCK:
         running = _CALLS_IN_FLIGHT.get(key)
         if running is None:
-            done, box, state = threading.Event(), [], {"abandoned": False}
-            _CALLS_IN_FLIGHT[key] = (done, box, state)
-        elif key[0] in MUTATING_OPS or running[2]["abandoned"]:
-            raise CallPending("call still pending: %s" % (key,))      # never twice / a waiter already gave up on it
+            done, box, start = threading.Event(), [], time.monotonic()
+            _CALLS_IN_FLIGHT[key] = (done, box, start)
+        elif key[0] in MUTATING_OPS:
+            raise CallPending("call still pending: %s" % (key,))      # never run twice
     if running is not None:
-        done, box, state = running
-        if not done.wait(timeout):
-            with _CALLS_LOCK:
-                state["abandoned"] = True
+        # A read-only call shares it, but only while it can still be healthy: one in flight for STAT_TIMEOUT_S counts as
+        # a hung mount (N callers on it cost one STAT_TIMEOUT_S in all, however small their own budgets are).
+        done, box, start = running
+        left = min(timeout, start + STAT_TIMEOUT_S - time.monotonic())
+        if left <= 0 or not done.wait(left):
             raise CallPending("call still pending: %s" % (key,))
     else:
         def run():
@@ -156,8 +157,6 @@ def bounded_call(key, fn, timeout):
             done.set()
             raise
         if not done.wait(timeout):
-            with _CALLS_LOCK:
-                state["abandoned"] = True
             raise CallPending("call timed out: %s" % (key,))
     kind, value = box[0]
     if kind == "err":
@@ -764,11 +763,14 @@ class Store:
                     new, result = fn(entries)
                     if new is not None and new != before:
                         self._write_pending(new)
-                if after is not None:
-                    after(result)                         # e.g. the log.md lines: written even if nobody waits any more
                 box.append(("ok", result))
             except BaseException as exc:
                 box.append(("err", exc))
+            if after is not None and box[0][0] == "ok":
+                try:
+                    after(box[0][1])                      # e.g. the log.md lines: written even if nobody waits any more
+                except Exception:
+                    print_exc()                           # never turns a written record into an error for the caller
             with self._pending_thread_lock:
                 self._pending_unfinished -= 1
                 self._pending_stalled = False
