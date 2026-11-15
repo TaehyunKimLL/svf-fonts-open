@@ -108,6 +108,7 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
     const r = await dialog.showMessageBox(handle.win, { type: 'error', message: 'The maker stopped (exit ' + (code === null ? signal : code) + '). Restart it?',
       buttons: ['Restart', 'Quit'], defaultId: 0 });
     if (r.response !== 0) { log.line('restart declined'); app.quit(); return; }
+    if (sup.failing || sup.quitting) { log.line('restart refused: the shell is already failing or quitting'); return; }
     log.line('restart allowed');
     sup.history.push(Date.now());
     try {
