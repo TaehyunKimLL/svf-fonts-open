@@ -854,6 +854,139 @@ class SweepBoundsTest(localfx.LocalRunBase):
         poll_pending(self, self.data, lambda es: not any(e["path"].startswith(fd + ".trash-") for e in es))
 
 
+class StartupBoundsTest(localfx.LocalRunBase):
+    """Task 3: the start-up tombstone sweep within the shared deadline (H3a)."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = self.srv.store
+
+    def hang(self, target, name, real, when):
+        hang = Hang(real, when)
+        self.addCleanup(hang.release.set)
+        patcher = mock.patch(target, hang) if name is None else mock.patch.object(target, name, hang)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return hang
+
+    def tombstones(self, jid, count):
+        fd = self.files_dir(jid)
+        paths = []
+        for n in range(count):
+            path = "%s.trash-%08x" % (fd, 0x0badf00d + n)
+            os.makedirs(path)
+            with open(os.path.join(path, "x"), "w") as f:
+                f.write("x")
+            paths.append(path)
+        return paths
+
+    def hang_tomb_rmtree(self, jid):
+        prefix = self.files_dir(jid) + ".trash-"
+        return self.hang(shutil, "rmtree", shutil.rmtree, lambda p, *a, **k: str(p).startswith(prefix))
+
+    def start_server(self):
+        """A second server on the same data root, made on a thread: `(thread, box, t0)`."""
+        t0 = time.monotonic()
+        t, box = on_thread(lambda: server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data,
+                                                      token=localfx.TOKEN))
+
+        def close():
+            t.join(25)
+            if box and not isinstance(box[0], BaseException):
+                box[0].worker.stop()
+                box[0].server_close()
+        self.addCleanup(close)
+        return t, box, t0
+
+    def test_startup_with_several_hung_tombstones_returns_by_the_single_deadline(self):
+        jid, _ = self.done_job()
+        self.tombstones(jid, 3)
+        self.hang_tomb_rmtree(jid)
+        self.release_lock()
+        with mock.patch.object(jobs, "REMOVE_BOUND_S", 0.8), mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0):
+            t, box, t0 = self.start_server()
+            t.join(5)
+            self.assertFalse(t.is_alive())
+            elapsed = time.monotonic() - t0
+        self.assertNotIsInstance(box[0], BaseException)
+        self.assertLess(elapsed, 2.0)
+        self.assertNotIn(jid, box[0].cleanup_pending)
+
+    def test_startup_returns_by_the_deadline_although_listdir_hangs(self):
+        jid, _ = self.done_job()
+        self.hang(os, "listdir", os.listdir, lambda p: p == self.out)
+        self.release_lock()
+        with mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0):
+            t, box, t0 = self.start_server()
+            t.join(4)
+            self.assertFalse(t.is_alive())
+        self.assertLess(time.monotonic() - t0, 3.0)
+
+    def test_unfinished_tombstone_removals_at_start_up_are_all_recorded_pending(self):
+        jid, _ = self.done_job()
+        tombs = self.tombstones(jid, 3)
+        hang = self.hang_tomb_rmtree(jid)
+        self.release_lock()
+        with mock.patch.object(jobs, "REMOVE_BOUND_S", 0.8), mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0):
+            t, box, t0 = self.start_server()
+            t.join(5)
+            self.assertFalse(t.is_alive())
+        poll_pending(self, self.data, lambda es: all(any(e["path"] == p and e["files_id"] is None for e in es)
+                                                     for p in tombs))
+        self.assertNotIn(jid, box[0].cleanup_pending)
+        hang.release.set()
+        end = time.monotonic() + 3
+        while time.monotonic() < end and any(os.path.exists(p) for p in tombs):
+            box[0].store.retry_pending_sweeps(deadline_s=2)
+            time.sleep(0.05)
+        self.assertFalse(any(os.path.exists(p) for p in tombs))
+        self.assertTrue(box[0].store.flush_pending())
+        poll_pending(self, self.data, lambda es: not any(e["path"] in tombs for e in es))
+
+    def test_a_tombstone_check_that_times_out_does_not_stop_the_others(self):
+        jid, _ = self.done_job()
+        first, second = self.tombstones(jid, 2)
+        self.hang(os.path, "islink", os.path.islink, lambda p: p == first)
+        job = self.store.load(jid)
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.2), mock.patch.object(jobs, "STAT_TIMEOUT_S", 0.2):
+            t, box = on_thread(lambda: self.store.sweep_trash(job, jobs.Deadline(2)))
+            t.join(3)
+            self.assertFalse(t.is_alive())
+        self.assertFalse(os.path.exists(second))
+        self.assertIs(box[0], False)
+        poll_pending(self, self.data, lambda es: any(e["path"] == first for e in es))
+
+    def test_startup_returns_by_the_deadline_while_the_pending_file_hangs(self):
+        jid, _ = self.done_job()
+        with open(os.path.join(self.data, "pending-sweeps.json"), "w", encoding="utf-8") as f:
+            json.dump([{"path": self.files_dir(jid) + ".trash-0badf00d", "output_dir": self.out,
+                        "output_id": self.store.load(jid)["output_id"], "job": jid, "files_id": None,
+                        "reason": "test"}], f)
+        self.hang(jobs.Store, "_read_pending", jobs.Store._read_pending, lambda self_: True)
+        self.release_lock()
+        with mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0), mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1):
+            t, box, t0 = self.start_server()
+            t.join(4)
+            self.assertFalse(t.is_alive())
+        self.assertLess(time.monotonic() - t0, 3.0)
+
+    def test_startup_with_hung_tombstones_and_a_stalled_writer_returns_by_the_deadline(self):
+        jid, _ = self.done_job()
+        tombs = self.tombstones(jid, 4)      # 4 x 0.3 s is more than the deadline: the orphan sweep never gets a turn
+        self.hang_tomb_rmtree(jid)
+        fsync = self.hang(os, "fsync", os.fsync,       # only the pending writer's: the tool registry's own writes go on
+                          lambda fd_: threading.current_thread().name == "svf-maker-pending")
+        self.release_lock()
+        with mock.patch.object(jobs, "REMOVE_BOUND_S", 0.3), mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0):
+            t, box, t0 = self.start_server()
+            t.join(4)
+            self.assertFalse(t.is_alive())
+            elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 2.6)     # deadline 1.0 + one floor + the flush floor + load slack; a floor per record would be 3.0+
+        fsync.release.set()
+        poll_pending(self, self.data, lambda es: all(any(e["path"] == p for e in es) for p in tombs), timeout=5)
+
+
 class RetryRaceTest(unittest.TestCase):
     def test_a_rename_that_lands_between_the_look_and_the_fence_check_keeps_the_entry(self):
         tmp = tempfile.mkdtemp(prefix="svf-bounds-", dir=os.environ.get("TMPDIR") or tempfile.gettempdir())

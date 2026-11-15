@@ -566,10 +566,13 @@ def make_server(host, port, repo_dir, data_root, token=None):
                 try:
                     if not store.sweep_files(job, deadline=deadline, capped=False):
                         server.cleanup_pending.add(job_id)
-                    store.sweep_trash(job)
                 except Exception:
                     jobs.print_exc()
                     server.cleanup_pending.add(job_id)
+                try:
+                    store.sweep_trash(job, deadline)          # tombstones are inert: a left one never marks the job
+                except Exception:
+                    jobs.print_exc()
             try:
                 store.sweep_orphans(deadline)
             except Exception:

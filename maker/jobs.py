@@ -1139,23 +1139,56 @@ class Store:
             except Exception:
                 print_exc()
 
-    def sweep_trash(self, job):
-        """Remove the leftover tombstones (`.svf-maker-<id>.trash-*`) of a local job beside its output folder's
-        identity (start-up only). Each removal is bounded; nothing else in the folder is touched."""
+    _TOMB_RE = re.compile(r"^\.svf-maker-[0-9a-f]{12}\.trash-[0-9a-f]{8}$")
+
+    def sweep_trash(self, job, deadline=None):
+        """Remove the leftover tombstones (`.svf-maker-<id>.trash-*`) of a local job beside its output folder's identity
+        (start-up). Everything is bounded by ONE absolute @p deadline (a `Deadline`; one `REMOVE_BOUND_S` for the call
+        without one): the stat, the listing, each check and each removal, which gets at most `REMOVE_BOUND_S` of what is
+        left. Each tombstone is handled on its own: one whose check or removal fails, times out or is not reached before
+        the deadline is collected and the loop goes on; the collected ones are recorded as pending in ONE operation at the
+        end. Returns True when no tombstone of the job is left; never raises. Nothing else in the folder is touched."""
         if job.get("source") != "local":
-            return
+            return True
+        dl = deadline or Deadline(REMOVE_BOUND_S)
+        left = lambda: min(STAT_TIMEOUT_S, dl.remaining())
         out, prefix = job.get("output_dir"), FILES_DIR_PREFIX + job["id"] + ".trash-"
         try:
-            if stat_id_bounded(out) != tuple(job.get("output_id") or ()):
-                return
-            names = os.listdir(out)
-        except (OSError, TypeError):
-            return
+            if stat_id_bounded(out, left()) != tuple(job.get("output_id") or ()):
+                return True                                   # another folder: nothing of ours is there
+            names = bounded_call(("listdir", out), lambda: os.listdir(out), left())
+        except TypeError:
+            return True
+        except OSError:
+            return False                                      # could not look: unknown, nothing to record
+        collected, untouched = [], False
         for name in names:
+            if not (self._TOMB_RE.match(name) and name.startswith(prefix)):
+                continue
             path = os.path.join(out, name)
-            if (re.match(r"^\.svf-maker-[0-9a-f]{12}\.trash-[0-9a-f]{8}$", name) and name.startswith(prefix)
-                    and not os.path.islink(path) and os.path.isdir(path)):
-                remove_tree_bounded(path, REMOVE_BOUND_S)
+            reason = "removal did not finish in time"
+            try:
+                if mutation_pending(path):
+                    untouched = True                          # a call on it is in flight: never started twice
+                    continue
+                if left() <= 0:
+                    collected.append(self._entry(job, path, reason))        # not reached before the deadline
+                    continue
+                if fs_bounded("islink", path, left()) or not fs_bounded("isdir", path, left()):
+                    continue
+                if left() <= 0 or not remove_tree_bounded(path, min(REMOVE_BOUND_S, dl.remaining())):
+                    collected.append(self._entry(job, path, reason))
+            except FileNotFoundError:
+                continue                                      # already removed
+            except Exception as exc:                          # a timeout (`CallPending`) included
+                print("sweep: %s: %s" % (path, type(exc).__name__), file=sys.stderr)       # type only
+                collected.append(self._entry(job, path, exc_text(exc, True)))
+        if collected:
+            try:
+                self._add_pending_many(collected, dl)
+            except Exception:
+                print_exc()
+        return not collected and not untouched
 
     def retry_pending_sweeps(self, stat_timeout=None, deadline_s=None, deadline=None, capped=True):
         """Retry each pending sweep; it removes only a real `.svf-maker-<job id>` directory directly inside the output
