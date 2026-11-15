@@ -287,3 +287,30 @@ test('the real built _internal tree is fully attributed by the map', { skip: bui
     assert.deepEqual(r.problems.filter((p) => p.startsWith('unattributed') || p.startsWith('provenance') || p.startsWith('gpl')), []);
   } finally { fs.rmSync(empty, { recursive: true, force: true }); }
 });
+
+test('a missing or non-directory input directory is a problem, not an empty walk', async (t) => {
+  for (const [key, mutate] of [
+    ['sidecar', (f) => { f.opts.sidecar = path.join(f.root, 'no-such-sidecar'); }],
+    ['sidecar', (f) => fs.rmSync(path.join(f.sidecar, '_internal'), { recursive: true })],
+    ['usrlib', (f) => { f.opts.usrlib = path.join(f.root, 'no-such-usrlib'); }],
+    ['usrlib', (f) => { f.opts.usrlib = write(f.root, 'a-file', 'x'); }],
+    ['electron', (f) => { f.opts.electron = path.join(f.root, 'no-such-electron'); }],
+  ]) {
+    const f = fixture(t);
+    mutate(f);
+    const r = await generate(f.opts);
+    assert.ok(r.problems.some((p) => p.startsWith('missing input directory') && p.includes(key)), key + ': ' + JSON.stringify(r.problems));
+  }
+});
+
+test('usr/lib64 next to usr/lib is attributed like usr/lib', async (t) => {
+  const f = fixture(t);
+  write(path.join(f.sq, 'usr/lib64'), 'libmystery64.so.1', 'x');
+  const r = await generate(f.opts);
+  assert.ok(r.problems.includes('unattributed: usr/lib64/libmystery64.so.1'), JSON.stringify(r.problems));
+  write(path.join(f.sq, 'usr/lib64'), 'libXtst.so.6', 'xtst64');
+  fs.rmSync(path.join(f.sq, 'usr/lib64/libmystery64.so.1'));
+  const ok = await generate(f.opts);
+  assert.deepEqual(ok.problems, []);
+  assert.ok(ok.text.includes('usr/lib64/libXtst.so.6'));
+});
