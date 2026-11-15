@@ -13,6 +13,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
         sys.path.insert(0, _p)
 
 import functools
+import io
 import json
 import shutil
 import tempfile
@@ -212,7 +213,7 @@ class BoundedPrimitivesTest(unittest.TestCase):
             self.assertTrue(self.store._pending_op(append("a"))[0])
             first = self.store._pending_thread
             self.assertEqual(first.name, "svf-maker-pending")
-            time.sleep(0.6)
+            first.join(3)
             self.assertFalse(first.is_alive())             # this store's writer (earlier tests' may still be winding down)
             self.assertIsNone(self.store._pending_thread)
             self.assertTrue(self.store._pending_op(append("b"))[0])
@@ -243,12 +244,15 @@ class BoundedPrimitivesTest(unittest.TestCase):
         poll_pending(self, self.data, lambda e: e == [{"path": "a"}, {"path": "b"}, {"path": "c"}])
 
     def test_a_busy_but_healthy_writer_still_gives_later_records_the_floor(self):
+        started = threading.Event()
+
         def slow(entries):
+            started.set()
             time.sleep(0.3)
             return entries + [{"path": "a"}], None
         with mock.patch.object(jobs, "PENDING_FLOOR_S", 0.5):
             first, box = on_thread(lambda: self.store._pending_op(slow, jobs.Deadline(2)))
-            time.sleep(0.05)
+            self.assertTrue(started.wait(2))
             t0 = time.monotonic()
             done, _ = self.store._pending_op(append("b"), jobs.Deadline(0))
             elapsed = time.monotonic() - t0
@@ -272,6 +276,62 @@ class BoundedPrimitivesTest(unittest.TestCase):
             done, _ = self.store._pending_op(append("b"), jobs.Deadline(0))                # stall cleared
             self.assertTrue(done)
         poll_pending(self, self.data, lambda e: e == [{"path": "a"}, {"path": "b"}])
+
+    def test_a_read_only_waiter_on_a_call_known_to_be_hung_fails_at_once(self):
+        d = os.path.join(self.tmp, "d")
+        os.mkdir(d)
+        self.hang(jobs, "stat_id", jobs.stat_id, lambda p: p == d)
+        with self.assertRaises(jobs.CallPending):
+            jobs.stat_id_bounded(d, 0.2)                    # this waiter gives up: the call is known to be hung
+        t0 = time.monotonic()
+        with self.assertRaises(jobs.CallPending):
+            jobs.stat_id_bounded(d, 5)
+        self.assertLess(time.monotonic() - t0, 0.5)
+
+    def test_an_abandoned_pending_op_that_fails_prints_its_exception(self):
+        err = io.StringIO()
+        with mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1), mock.patch.object(sys, "stderr", err):
+            self.store._pending_lock.acquire()
+            self.assertFalse(self.store._pending_op(lambda e: 1 / 0, jobs.Deadline(0.1))[0])
+            self.store._pending_lock.release()
+            self.wait_idle()
+        text = err.getvalue()
+        self.assertIn("ZeroDivisionError", text)
+        self.assertNotIn("NoneType: None", text)
+
+    def test_a_thread_that_fails_to_start_leaves_nothing_fenced_or_queued(self):
+        real = threading.Thread.start
+        fail = [True]
+
+        def start(thread):
+            if fail[0]:
+                fail[0] = False
+                raise RuntimeError("can't start new thread")
+            return real(thread)
+        key = os.path.join(self.tmp, "x")
+        with mock.patch.object(threading.Thread, "start", start):
+            with self.assertRaises(RuntimeError):
+                jobs.rename_bounded(key, key + "2", 1)
+        self.assertFalse(jobs.mutation_pending(key))
+        fail[0] = True
+        with mock.patch.object(threading.Thread, "start", start):
+            with self.assertRaises(RuntimeError):
+                self.store._pending_op(append("x"))
+        self.assertIsNone(self.store._pending_thread)
+        self.assertTrue(self.store._pending_op(append("y"))[0])
+
+    def test_a_record_that_lands_late_still_gets_its_log_line(self):
+        job = self.store.create(source="local", output_dir=self.tmp, output_id=[1, 1])
+        hang = self.hang(os, "fsync", os.fsync, lambda fd: True)
+        with mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1):
+            self.assertFalse(self.store._add_pending(job, os.path.join(self.tmp, ".svf-maker-x"), "late",
+                                                     deadline=jobs.Deadline(0)))
+        hang.release.set()
+        log = self.store.path(job["id"], "log.md")
+        end = time.monotonic() + 2
+        while time.monotonic() < end and not (os.path.exists(log) and "late" in open(log).read()):
+            time.sleep(0.05)
+        self.assertIn("late", open(log).read())
 
 
 if __name__ == "__main__":

@@ -114,7 +114,7 @@ class CallPending(OSError):
 
 
 MUTATING_OPS = ("rename", "mkdir", "chmod")    # calls that change the volume: never run twice, and they fence their path
-_CALLS_IN_FLIGHT = {}         # key -> (threading.Event done, list box): one daemon thread per key, however often asked
+_CALLS_IN_FLIGHT = {}         # key -> (Event done, list box, {'abandoned'}): one daemon thread per key, however often asked
 _CALLS_LOCK = threading.Lock()
 
 
@@ -122,17 +122,20 @@ def bounded_call(key, fn, timeout):
     """`fn()`, but `CallPending` (an `OSError`) when it does not return within @p timeout seconds (it runs in a daemon
     thread that is left behind). @p key is `(op, path)`. While a call with the same key is still running (a hung mount)
     no second thread starts: a read-only call (@p op not in `MUTATING_OPS`) waits for the first one within its own
-    timeout and returns or raises the first call's result; a mutating call raises at once (it never runs twice)."""
+    timeout and returns or raises the first call's result, unless a waiter already gave up on that call (then it raises
+    at once, so N callers on one hung path do not cost N timeouts); a mutating call raises at once (never runs twice)."""
     with _CALLS_LOCK:
         running = _CALLS_IN_FLIGHT.get(key)
         if running is None:
-            done, box = threading.Event(), []
-            _CALLS_IN_FLIGHT[key] = (done, box)
-        elif key[0] in MUTATING_OPS:
-            raise CallPending("call still pending: %s" % (key,))
+            done, box, state = threading.Event(), [], {"abandoned": False}
+            _CALLS_IN_FLIGHT[key] = (done, box, state)
+        elif key[0] in MUTATING_OPS or running[2]["abandoned"]:
+            raise CallPending("call still pending: %s" % (key,))      # never twice / a waiter already gave up on it
     if running is not None:
-        done, box = running
+        done, box, state = running
         if not done.wait(timeout):
+            with _CALLS_LOCK:
+                state["abandoned"] = True
             raise CallPending("call still pending: %s" % (key,))
     else:
         def run():
@@ -144,8 +147,17 @@ def bounded_call(key, fn, timeout):
                 with _CALLS_LOCK:
                     _CALLS_IN_FLIGHT.pop(key, None)
                 done.set()
-        threading.Thread(target=run, daemon=True, name="svf-maker-stat").start()
+        try:
+            threading.Thread(target=run, daemon=True, name="svf-maker-stat").start()
+        except BaseException:
+            with _CALLS_LOCK:
+                _CALLS_IN_FLIGHT.pop(key, None)
+            box.append(("err", CallPending("call could not start: %s" % (key,))))
+            done.set()
+            raise
         if not done.wait(timeout):
+            with _CALLS_LOCK:
+                state["abandoned"] = True
             raise CallPending("call timed out: %s" % (key,))
     kind, value = box[0]
     if kind == "err":
@@ -496,7 +508,7 @@ class Store:
         self._pending_q = queue.Queue()
         self._pending_thread = None
         self._pending_thread_lock = threading.Lock()
-        self._pending_unfinished = 0
+        self._pending_unfinished = 0                  # test support: lets a test wait until the writer is idle
         self._pending_stalled = False
 
     def lock(self, job_id):
@@ -744,7 +756,7 @@ class Store:
                         self._pending_thread = None
                         return
                 continue
-            fn, event, box, state = req
+            fn, event, box, state, after = req
             try:
                 with self._pending_lock:
                     entries = self._read_pending()
@@ -752,6 +764,8 @@ class Store:
                     new, result = fn(entries)
                     if new is not None and new != before:
                         self._write_pending(new)
+                if after is not None:
+                    after(result)                         # e.g. the log.md lines: written even if nobody waits any more
                 box.append(("ok", result))
             except BaseException as exc:
                 box.append(("err", exc))
@@ -761,25 +775,29 @@ class Store:
                 abandoned = state["abandoned"]
                 event.set()
             if abandoned and box[0][0] == "err":
-                print_exc()
+                try:
+                    raise box[0][1]
+                except BaseException:
+                    print_exc()
 
-    def _pending_op(self, fn, deadline=None, always_floor=False):
+    def _pending_op(self, fn, deadline=None, always_floor=False, after=None):
         """Run @p fn(entries) -> (new entries or None, result) on the one pending writer thread, as a read-modify-write
         of pending-sweeps.json under `_pending_lock`. Waits until @p deadline (default `Deadline(STAT_TIMEOUT_S)`) but at
         least `PENDING_FLOOR_S`, and returns `(True, result)`, or `(False, None)` when it is not done by then; an
         operation not waited for still runs later, in order. The floor is not waited while the writer is stalled (a
         caller already gave up on an unfinished operation; cleared when the writer completes one) unless @p always_floor.
-        An exception of @p fn is re-raised to a caller that waited."""
+        An exception of @p fn is re-raised to a caller that waited (printed otherwise). @p after(result), when given,
+        runs on the writer thread once the write is done, whether or not the caller still waits."""
         dl = deadline if deadline is not None else Deadline(STAT_TIMEOUT_S)
         event, box, state = threading.Event(), [], {"abandoned": False}
         with self._pending_thread_lock:
             floor = always_floor or not self._pending_stalled
-            self._pending_unfinished += 1
-            self._pending_q.put((fn, event, box, state))
             if self._pending_thread is None:
-                self._pending_thread = threading.Thread(target=self._pending_run, daemon=True,
-                                                        name="svf-maker-pending")
-                self._pending_thread.start()
+                thread = threading.Thread(target=self._pending_run, daemon=True, name="svf-maker-pending")
+                thread.start()                            # a failed start leaves nothing queued and no thread recorded
+                self._pending_thread = thread
+            self._pending_unfinished += 1
+            self._pending_q.put((fn, event, box, state, after))
         wait = max(dl.remaining(), PENDING_FLOOR_S) if floor else dl.remaining()
         if not event.wait(wait):
             with self._pending_thread_lock:
@@ -818,25 +836,23 @@ class Store:
     def _add_pending_many(self, entries, deadline=None):
         """Record @p entries (dicts with `path`, `output_dir`, `output_id`, `job`, `files_id`, `reason`, optionally `from`
         and `making`) in ONE pending operation; True when it was written in time. The `log.md` line of each new one is
-        written by the caller's thread when the operation is done."""
+        written by the writer thread when the operation is done (also when the caller stopped waiting)."""
         entries = [dict(e) for e in entries]
         reasons = [(e["job"], e["path"], e.pop("reason", "")) for e in entries]
 
         def merge(current):
-            fresh = [self._merge_pending(current, dict(e)) for e in entries]
-            return current, fresh
-        done, fresh = self._pending_op(merge, deadline)
-        if not done:
-            return False
-        for new, (job_id, path, reason) in zip(fresh, reasons):
-            if not new:
-                continue                                  # logged when first recorded: once per directory, not per sweep
-            try:
-                zipout.append_log(self.path(job_id), "\nsweep: %s: %s; intermediate files may remain there\n"
-                                  % (path, reason))
-            except (OSError, KeyError):
-                pass                                      # the metadata directory is already gone
-        return True
+            return current, [self._merge_pending(current, dict(e)) for e in entries]
+
+        def log(fresh):
+            for new, (job_id, path, reason) in zip(fresh, reasons):
+                if not new:
+                    continue                              # logged when first recorded: once per directory, not per sweep
+                try:
+                    zipout.append_log(self.path(job_id), "\nsweep: %s: %s; intermediate files may remain there\n"
+                                      % (path, reason))
+                except (OSError, KeyError):
+                    pass                                  # the metadata directory is already gone
+        return self._pending_op(merge, deadline, after=log)[0]
 
     def _add_pending(self, job, files, reason, trash=None, generation=None, deadline=None, origin=None, making=False):
         """Record @p files (or, when its removal was started and not finished, the tombstone @p trash it was renamed to)
