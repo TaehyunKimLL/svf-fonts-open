@@ -122,9 +122,15 @@ def _mkfont_unicode(range_spec, paths):
     return {"11172": "ascii,hangul", "2350": "ascii,ksx1001-hangul"}.get(kind, "ascii," + kind)
 
 
+# Files a multi-command route leaves in the step's work area; the job runner clears them before a run (a re-run must
+# not convert the last run's) and removes MKFONT_TMP once the face is written.
+MKFONT_TMP = "mkfont.svf"
+MAC_BDFS = ("mac.bdf", "mac-sized.bdf")
+
+
 def _mkfont_tmp(paths):
     """Where mkfont.py writes before `_canonical` re-lays the face out: inside the step's own work area."""
-    return os.path.join(paths["work"], "mkfont.svf")
+    return os.path.join(paths["work"], MKFONT_TMP)
 
 
 def _canonical(paths):
@@ -233,8 +239,8 @@ def _mac71_bdf_commands(font, size, bpp, layout, range_spec, paths, extra):
     """The fbit's planes composed into a BDF strike (`macfbit3.py bdf`), then `mkfont.py` on that BDF at its own size."""
     if not paths.get("htbl"):
         raise ValueError("needs an HTBL 1 table")
-    bdf = os.path.join(paths["work"], "mac.bdf")
-    sized = os.path.join(paths["work"], "mac-sized.bdf")
+    bdf = os.path.join(paths["work"], MAC_BDFS[0])
+    sized = os.path.join(paths["work"], MAC_BDFS[1])
     first = toolrun.tool("macfbit3", paths["tools"]) + ["bdf", paths["src"], paths["htbl"], font.get("family") or "Mac", bdf]
     # the tool's BDF has no PIXEL_SIZE, so FreeType would read its `SIZE 12 75 75` as 13 px: name the strike's own size
     second = toolrun.maker_script("srcprep") + ["bdf-pixel-size", bdf, sized, "--size", str(size)]

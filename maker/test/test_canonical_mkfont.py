@@ -18,6 +18,7 @@ for _p in (TEST_DIR, MAKER_DIR, os.path.join(REPO_DIR, "tools")):
 
 import glob
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -64,7 +65,6 @@ class CanonicalMkfontTest(unittest.TestCase):
 
     def test_a_face_that_is_not_shipped_keeps_its_pixels(self):
         """Another size (no shipped face): the output differs from mkfont's own file in encoding only."""
-        import jamoset
         import svf2to3
         with open(TTF, "rb") as f:
             data = f.read()
@@ -75,12 +75,27 @@ class CanonicalMkfontTest(unittest.TestCase):
         step = job["steps"][0]
         self.assertIsNone(step["identical_to"])
         out = glob.glob(os.path.join(self.tmp, "k", "**", step["output"]), recursive=True)[0]
-        raw = os.path.join(os.path.dirname(out), "mkfont.svf")
-        self.assertTrue(os.path.exists(raw))                  # the step's own work area, never /tmp
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(out), "mkfont.svf")))   # the temp is removed
+        raw = os.path.join(self.tmp, "raw.svf")
+        argv = list(step["argv"][0])
+        argv[argv.index(next(t for t in argv if t.endswith("mkfont.svf")))] = raw
+        subprocess.run(argv, check=True, capture_output=True, cwd=self.tmp)
         with open(raw, "rb") as f, open(out, "rb") as g:
             raw_data, out_data = f.read(), g.read()
         self.assertNotEqual(raw_data, out_data)               # re-laid out (the default profile)
         svf2to3.check(raw_data, out_data)                     # same glyphs, metrics and cells
+
+    def test_a_rerun_never_converts_the_last_runs_temp(self):
+        """A mkfont that exits 0 without writing must fail "no output", not canonicalise an old mkfont.svf."""
+        import jobs
+        step_dir = os.path.join(self.tmp, "stale")
+        os.makedirs(step_dir)
+        names = ("mkfont.svf", "mac.bdf", "mac-sized.bdf", "OUT.SVF")
+        for name in names:
+            with open(os.path.join(step_dir, name), "wb") as f:
+                f.write(b"old")
+        jobs.Worker._clear_outputs(step_dir, os.path.join(step_dir, "OUT.SVF"), {"kind": "precomposed"})
+        self.assertEqual([n for n in names if os.path.exists(os.path.join(step_dir, n))], [])
 
     def test_the_final_command_writes_the_step_output(self):
         last = self.job["steps"][0]["argv"][-1]
