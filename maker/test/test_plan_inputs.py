@@ -112,7 +112,7 @@ class SourceStepE2ETest(Case):
 
     def test_ttc_face_1_converts(self):
         job, z = self.run_batch({"t/two.ttc": _two()}, self.face_1)
-        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py", "svf2to3.py"]])
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
         inputkinds.assert_facecheck(self, z)
         _, alone = self.run_batch({"a/two.ttf": inputfx.ttf("Two", BOX2)}, lambda f, s: select(s, inputkinds.only_font(f)))
@@ -124,27 +124,27 @@ class SourceStepE2ETest(Case):
         job, z = self.run_batch({"t/m.ttc": inputfx.ttc([inputfx.mac_cmap_ttf(), inputfx.ttf("Two", BOX2)])},
                                 lambda f, s: select(s, fid_of(f, face=0, path="t/m.ttc")))
         self.assertEqual(inputkinds.step_tools(job["steps"]),
-                         [["srcprep.py ttc-face", "macsfnt.py unicode"], ["mkfont.py"]])
+                         [["srcprep.py ttc-face", "macsfnt.py unicode"], ["mkfont.py", "svf2to3.py"]])
         inputkinds.assert_facecheck(self, z)
         self.assertTrue(any(ga(z)))
 
     def test_a_gz_ttc_face_1_converts(self):
         job, z = self.run_batch({"t/two.ttc.gz": gzip.compress(_two())}, self.face_1)
-        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py", "svf2to3.py"]])
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
         inputkinds.assert_facecheck(self, z)
 
     def test_otc_cff_face_1_converts(self):
         job, z = self.run_batch({"t/c.otc": inputfx.ttc([inputfx.ttf("One", BOX1), inputfx.otf("Cff", BOX2)])},
                                 self.face_1)
-        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py", "svf2to3.py"]])
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
         self.assertTrue(job["steps"][0]["output"].endswith("/source.otf"))
         inputkinds.assert_facecheck(self, z)
 
     def test_mac_cmap_ttf_converts(self):
         job, z = self.run_batch({"m/Mac.ttf": inputfx.mac_cmap_ttf()}, lambda f, s: select(s, inputkinds.only_font(f)))
-        self.assertEqual(inputkinds.step_tools(job["steps"]), [["macsfnt.py unicode"], ["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["macsfnt.py unicode"], ["mkfont.py", "svf2to3.py"]])
         inputkinds.assert_facecheck(self, z)
         self.assertTrue(any(ga(z)))
 
@@ -154,7 +154,7 @@ class SourceStepE2ETest(Case):
             with self.subTest(wrapper=name):
                 job, z = self.run_batch({"m/" + name: blob}, lambda f, s: select(s, inputkinds.only_font(f)))
                 self.assertEqual(inputkinds.step_tools(job["steps"]),
-                                 [["macsfnt.py extract", "macsfnt.py unicode"], ["mkfont.py"]])
+                                 [["macsfnt.py extract", "macsfnt.py unicode"], ["mkfont.py", "svf2to3.py"]])
                 self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
                 inputkinds.assert_facecheck(self, z)
                 self.assertTrue(any(ga(z)))
@@ -219,7 +219,7 @@ class StrikeRouteTest(Case):
         choose(fonts, st)
         job.update(fonts=fonts, settings=st)
         steps = settings.plan_steps(job, store.path(job["id"]), inputkinds.TOOLS, upload)
-        self.assertEqual(inputkinds.step_tools(steps), [["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(steps), [["mkfont.py", "svf2to3.py"]])
         argv = steps[0]["argv"][0]
         self.assertEqual((argv[argv.index("--size") + 1], argv[argv.index("--bpp") + 1]), ("12", "1"))
 
@@ -274,8 +274,8 @@ class InstanceE2ETest(Case):
         reg, z1 = self.run_batch(files, lambda f, s: select(s, inputkinds.only_font(f), sizes=[24], bpp=[1]))
         bold, z2 = self.run_batch(files, lambda f, s: select(s, inputkinds.only_font(f), sizes=[24], bpp=[1],
                                                              instance={"wght": 700}))
-        self.assertEqual(inputkinds.step_tools(reg["steps"]), [["mkfont.py"]])
-        self.assertEqual(inputkinds.step_tools(bold["steps"]), [["-m fontTools.varLib.instancer"], ["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(reg["steps"]), [["mkfont.py", "svf2to3.py"]])
+        self.assertEqual(inputkinds.step_tools(bold["steps"]), [["-m fontTools.varLib.instancer"], ["mkfont.py", "svf2to3.py"]])
         self.assertEqual([st["state"] for st in bold["steps"]], ["done", "done"])
         inputkinds.assert_facecheck(self, z2)
         self.assertNotEqual(ga(z1), ga(z2))
@@ -483,7 +483,7 @@ class VariableCollectionTest(Case):
         job, z = self.run_batch({"v/V.ttc": self.vtc()}, lambda f, s: select(
             s, fid_of(f, face=0, path="v/V.ttc"), sizes=[24], instance={"wght": 700}))
         self.assertEqual(inputkinds.step_tools(job["steps"]),
-                         [["srcprep.py ttc-face", "-m fontTools.varLib.instancer"], ["mkfont.py"]])
+                         [["srcprep.py ttc-face", "-m fontTools.varLib.instancer"], ["mkfont.py", "svf2to3.py"]])
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
         inputkinds.assert_facecheck(self, z)
         _, reg = self.run_batch({"v/V.ttc": self.vtc()}, lambda f, s: select(
@@ -493,7 +493,7 @@ class VariableCollectionTest(Case):
     def test_the_default_instance_of_face_0_stays_free_of_a_source_step(self):
         job, _z = self.run_batch({"v/V.ttc": self.vtc()}, lambda f, s: select(
             s, fid_of(f, face=0, path="v/V.ttc"), sizes=[24]))
-        self.assertEqual(inputkinds.step_tools(job["steps"]), [["mkfont.py"]])
+        self.assertEqual(inputkinds.step_tools(job["steps"]), [["mkfont.py", "svf2to3.py"]])
 
 
 def tool_names(step):
@@ -508,7 +508,7 @@ def read_json(path):
 class DyStepTest(Case):
     def test_mkfont_step_ends_with_svfdy(self):
         step = self.plan(inputfx.ttf("D", BOX1), dy={"0x41": 1})[0]
-        self.assertEqual(tool_names(step), ["mkfont.py", "svfdy.py"])
+        self.assertEqual(tool_names(step), ["mkfont.py", "svf2to3.py", "svfdy.py"])
         out = os.path.join(self.job_dir, step["output"])
         dy_json = os.path.join(self.job_dir, "work", step["id"], "dy.json")
         self.assertEqual(toolrun.split_prefix(step["argv"][-1])[1], [out, out, "--json", dy_json])
@@ -523,8 +523,8 @@ class DyStepTest(Case):
         self.assertEqual(list(json.loads(text)), ["0x20", "0x41", "0x67"])
 
     def test_no_dy_no_svfdy_and_jamo_steps_never_get_one(self):
-        self.assertEqual(tool_names(self.plan(inputfx.ttf("D", BOX1))[0]), ["mkfont.py"])
-        self.assertEqual(tool_names(self.plan(inputfx.ttf("D", BOX1), dy={})[0]), ["mkfont.py"])
+        self.assertEqual(tool_names(self.plan(inputfx.ttf("D", BOX1))[0]), ["mkfont.py", "svf2to3.py"])
+        self.assertEqual(tool_names(self.plan(inputfx.ttf("D", BOX1), dy={})[0]), ["mkfont.py", "svf2to3.py"])
 
     def test_copy_step_reads_the_upload(self):
         with open(os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF"), "rb") as fh:
@@ -624,10 +624,11 @@ class FaceArgvTest(Case):
                  "master": None, "range_file": "/w/range-2350.txt", "report": "/w/report.json"}
         got = settings.face_argv(font, eff, routes.route_for(font, "precomposed", False), "precomposed", 16, 1, None,
                                  ("2350", None), paths)
-        self.assertEqual(got, [toolrun.tool("mkfont", "/T") + ["/u/a.ttf", "/w/O.SVF", "--size", "16",
+        self.assertEqual(got, [toolrun.tool("mkfont", "/T") + ["/u/a.ttf", "/w/mkfont.tmp", "--size", "16",
                                             "--cell", "16", "--bpp", "1", "--unicode",
                                             "ascii,ksx1001-nohanja,AC37,B2CF,B584,C125,C2BA,D14A,D59D",
-                                            "--ascent", "12", "--report", "/w/report.json"]])
+                                            "--ascent", "12", "--report", "/w/report.json"],
+                          toolrun.tool("svf2to3", "/T") + ["/w/mkfont.tmp", "/w/O.SVF", "--profile", "default"]])
 
 
 class ProbeArgvTest(unittest.TestCase):

@@ -122,10 +122,28 @@ def _mkfont_unicode(range_spec, paths):
     return {"11172": "ascii,hangul", "2350": "ascii,ksx1001-hangul"}.get(kind, "ascii," + kind)
 
 
+# Files a multi-command route leaves in the step's work area; the job runner clears them before a run (a re-run must
+# not convert the last run's) and removes MKFONT_TMP once the face is written.
+MKFONT_TMP = "mkfont.tmp"
+MAC_BDFS = ("mac.bdf", "mac-sized.bdf")
+
+
+def _mkfont_tmp(paths):
+    """Where mkfont.py writes before `_canonical` re-lays the face out: inside the step's own work area."""
+    return os.path.join(paths["work"], MKFONT_TMP)
+
+
+def _canonical(paths):
+    """`svf2to3.py TMP OUT --profile default`, the command `tools/build/build_faces.py` runs after every mkfont: it
+    turns mkfont's file into the canonical one, so a face equal to a shipped one is byte-equal to it (the step's
+    `identical_to`). It writes `paths["out"]`; the pixels do not change."""
+    return toolrun.tool("svf2to3", paths["tools"]) + [_mkfont_tmp(paths), paths["out"], "--profile", "default"]
+
+
 def _mkfont_commands(font, size, bpp, layout, range_spec, paths, extra):
-    argv = toolrun.tool("mkfont", paths["tools"]) + [paths["src"], paths["out"], "--size", str(size), "--bpp", str(bpp),
-                 "--unicode", _mkfont_unicode(range_spec, paths)]
-    return _with_extra([argv], extra)
+    argv = toolrun.tool("mkfont", paths["tools"]) + [paths["src"], _mkfont_tmp(paths), "--size", str(size),
+                 "--bpp", str(bpp), "--unicode", _mkfont_unicode(range_spec, paths)]
+    return _with_extra([argv], extra) + [_canonical(paths)]
 
 
 def _composite_prepare(font, layout, paths):
@@ -221,16 +239,16 @@ def _mac71_bdf_commands(font, size, bpp, layout, range_spec, paths, extra):
     """The fbit's planes composed into a BDF strike (`macfbit3.py bdf`), then `mkfont.py` on that BDF at its own size."""
     if not paths.get("htbl"):
         raise ValueError("needs an HTBL 1 table")
-    bdf = os.path.join(paths["work"], "mac.bdf")
-    sized = os.path.join(paths["work"], "mac-sized.bdf")
+    bdf = os.path.join(paths["work"], MAC_BDFS[0])
+    sized = os.path.join(paths["work"], MAC_BDFS[1])
     first = toolrun.tool("macfbit3", paths["tools"]) + ["bdf", paths["src"], paths["htbl"], font.get("family") or "Mac", bdf]
     # the tool's BDF has no PIXEL_SIZE, so FreeType would read its `SIZE 12 75 75` as 13 px: name the strike's own size
     second = toolrun.maker_script("srcprep") + ["bdf-pixel-size", bdf, sized, "--size", str(size)]
     unicode_range = ("ksx1001-hangul,3131-318e" if range_spec[0] == "2350"       # the strike holds no ASCII
                      else _mkfont_unicode(range_spec, paths))
-    third = toolrun.tool("mkfont", paths["tools"]) + [sized, paths["out"], "--size", str(size), "--bpp", "1",
+    third = toolrun.tool("mkfont", paths["tools"]) + [sized, _mkfont_tmp(paths), "--size", str(size), "--bpp", "1",
                   "--unicode", unicode_range]
-    return _with_extra([first, second, third], extra)    # the panel's flags go on the last command
+    return _with_extra([first, second, third], extra) + [_canonical(paths)]   # the panel's flags go on the mkfont command
 
 
 def _bdfface_commands(font, size, bpp, layout, range_spec, paths, extra):

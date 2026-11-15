@@ -1458,6 +1458,10 @@ class Worker(threading.Thread):
                 return "".join(stdout), "".join(stderr), result["error"]
             if result["exit"] != 0:
                 return "".join(stdout), "".join(stderr), "exit %s" % result["exit"]
+        try:
+            os.remove(os.path.join(cwd, routes.MKFONT_TMP))      # build_faces.py removes it too: no second copy of the face
+        except OSError:
+            pass
         if not os.path.exists(out_abs):
             return "".join(stdout), "".join(stderr), "no output"
         return "".join(stdout), "".join(stderr), None
@@ -1468,6 +1472,7 @@ class Worker(threading.Thread):
         output", not pass on the old file (a re-detected job reuses `work/sNN/`)."""
         stale = [out_abs, os.path.join(cwd, "report.json"),      # a failed re-run must not show the last run's report
                  os.path.join(cwd, "identity.json")]            # nor serve the last build's piece scores
+        stale += [os.path.join(cwd, name) for name in (routes.MKFONT_TMP,) + routes.MAC_BDFS]   # a route's temp files
         if step.get("kind") == "source":
             stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith("source-")] \
                 if os.path.isdir(cwd) else []
