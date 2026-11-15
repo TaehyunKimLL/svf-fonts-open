@@ -137,6 +137,8 @@ def bounded_call(key, fn, timeout):
     with _CALLS_LOCK:
         running = _CALLS_IN_FLIGHT.get(key)
         if running is None:
+            if timeout <= 0:
+                raise CallPending("no time left: %s" % (key,))       # nothing is started after the deadline
             done, box, start = threading.Event(), [], time.monotonic()
             _CALLS_IN_FLIGHT[key] = (done, box, start)
         elif key[0] in MUTATING_OPS:
@@ -926,6 +928,8 @@ class Store:
             fresh = job
         if check_active and not own_run and fresh.get("state") in ("queued", "running"):
             return ("skipped", None, None, None, files)
+        if dl.expired():
+            return ("failed", None, "out of time", None, files)       # nothing is started after the deadline
         kind = mutation_kind(files)
         if kind is not None:                                  # an abandoned call of this very name is still in flight
             return ("failed", None, "busy (a filesystem call is still pending)",
@@ -1195,8 +1199,9 @@ class Store:
                         continue                                  # the folder cannot be reached (unmounted): keep it
                     if not mounted:
                         continue                                  # another folder is mounted there: wait for the original
+                    in_flight = mutation_pending(entry.get("from") or path)    # BEFORE the look: a landing rename is seen by one
                     if not step(fs_bounded, "lexists", path):
-                        if mutation_pending(entry.get("from") or path):
+                        if in_flight:
                             continue                              # a rename of it is in flight: it may still land
                         dropped.append((path, entry.get("files_id")))             # confirmed gone
                         continue
@@ -1213,6 +1218,8 @@ class Store:
                     if not self.lifecycle.acquire(timeout=dl.remaining()):
                         break                                     # the lifecycle lock is busy: the rest waits
                     try:
+                        if dl.expired():
+                            raise _OutOfTime()                    # the lock wait used the deadline: nothing starts now
                         if recorded is not None and list(step(stat_id_bounded, path)) != list(recorded):
                             dropped.append((path, recorded))      # a newer generation of the directory: not this entry's
                             continue

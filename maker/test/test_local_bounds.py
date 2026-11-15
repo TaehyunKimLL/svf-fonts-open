@@ -525,11 +525,14 @@ class SweepBoundsTest(localfx.LocalRunBase):
         job = self.store.load(jid)
         self.write_pending([self.entry_for(jid, files_id=job["files_id"])])
         self.hang_rename(fd)
-        t, box = on_thread(lambda: self.store.retry_pending_sweeps(deadline_s=1.5))
-        t.join(3)
+        t, box = on_thread(lambda: self.store.retry_pending_sweeps(stat_timeout=0.3, deadline_s=2.5))
+        t.join(4)
         self.assertFalse(t.is_alive())
-        poll_pending(self, self.data, lambda es: any(e["path"] == fd for e in es)
-                     and any(e["path"].startswith(fd + ".trash-") and e.get("from") == fd for e in es))
+        self.assertTrue(self.store.flush_pending())
+        with open(os.path.join(self.data, "pending-sweeps.json"), encoding="utf-8") as f:      # one read, after the pass
+            entries = json.load(f)
+        self.assertTrue(any(e["path"] == fd for e in entries), entries)
+        self.assertTrue(any(e["path"].startswith(fd + ".trash-") and e.get("from") == fd for e in entries), entries)
 
     def test_stop_returns_by_the_deadline_while_the_pending_lock_is_held(self):
         jid = self.local_job()
@@ -680,6 +683,9 @@ class SweepBoundsTest(localfx.LocalRunBase):
 
             def expired(self):
                 return self.over
+
+            def capped(self, seconds):
+                return self
         fake = Fake()
         real_stat, real_call = jobs.stat_id, jobs.bounded_call
         starts = []
@@ -697,6 +703,77 @@ class SweepBoundsTest(localfx.LocalRunBase):
             self.store.retry_pending_sweeps(deadline=fake)
         self.assertTrue(starts)
         self.assertNotIn(True, starts)
+
+    def test_a_retry_whose_lock_wait_used_the_deadline_starts_no_stat_or_rename(self):
+        jid = self.local_job()
+        self.store.update(jid, lambda j: j.update(state="failed"))
+        job = self.store.load(jid)
+        self.write_pending([self.entry_for(jid, files_id=None)])
+        fd = self.files_dir(jid)
+
+        class Fake:
+            over = False
+
+            def remaining(self):
+                return 0.0 if self.over else 1.0
+
+            def expired(self):
+                return self.over
+
+            def capped(self, seconds):
+                return self
+        fake = Fake()
+
+        class Lifecycle:                                    # taking it uses up the deadline
+            def __init__(self, real):
+                self.real = real
+
+            def acquire(self, *a, **k):
+                got = self.real.acquire(*a, **k)
+                fake.over = True
+                return got
+
+            def release(self):
+                self.real.release()
+        real_call, starts = jobs.bounded_call, []
+
+        def call(key, fn, timeout):
+            starts.append((key[0], fake.over))
+            return real_call(key, fn, timeout)
+        with mock.patch.object(jobs, "bounded_call", call), \
+                mock.patch.object(self.store, "lifecycle", Lifecycle(self.store.lifecycle)):
+            self.store.retry_pending_sweeps(deadline=fake)
+        self.assertTrue(starts)
+        self.assertNotIn(True, [over for _op, over in starts], starts)
+        self.assertTrue(os.path.isdir(fd))
+
+    def test_nothing_is_started_with_no_time_left(self):
+        ran = []
+        for op in ("rename", "stat"):
+            with self.assertRaises(jobs.CallPending):
+                jobs.bounded_call((op, "/x"), lambda: ran.append(op), 0)
+        self.assertEqual(ran, [])
+        self.assertFalse(jobs.mutation_pending("/x"))
+        jid = self.local_job()
+        fd = self.files_dir(jid)
+        calls = []
+        real_call = jobs.bounded_call
+
+        def call(key, fn, timeout):
+            calls.append(key[0])
+            return real_call(key, fn, timeout)
+        with mock.patch.object(jobs, "bounded_call", call):
+            step = self.store._rename_away(self.store.load(jid), jobs.Deadline(0))
+        self.assertEqual(step[0], "failed")
+        self.assertEqual(calls, [])
+        self.assertTrue(os.path.isdir(fd))
+
+    def test_a_tombstone_of_a_live_job_is_removed_by_the_orphan_sweep_alone(self):
+        jid = self.local_job()
+        live = self.make_orphan(".svf-maker-%s.trash-0badf00e" % jid)
+        self.store.sweep_orphans(jobs.Deadline(2))
+        self.assertFalse(os.path.exists(live))
+        self.assertTrue(os.path.isdir(self.files_dir(jid)))      # its live directory is untouched
 
     def test_a_failed_takeover_that_cannot_record_answers_409_busy_and_keeps_the_job(self):
         real = os.mkdir
@@ -745,6 +822,44 @@ class SweepBoundsTest(localfx.LocalRunBase):
         with mock.patch.object(shutil, "rmtree", rmtree):
             self.assertEqual(self.api("DELETE", "/api/jobs/%s" % jid)[0], 200)
         poll_pending(self, self.data, lambda es: not any(e["path"].startswith(fd + ".trash-") for e in es))
+
+
+class RetryRaceTest(unittest.TestCase):
+    def test_a_rename_that_lands_between_the_look_and_the_fence_check_keeps_the_entry(self):
+        tmp = tempfile.mkdtemp(prefix="svf-bounds-", dir=os.environ.get("TMPDIR") or tempfile.gettempdir())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        store = jobs.Store(os.path.join(tmp, "data"))
+        out = os.path.join(tmp, "out")
+        os.mkdir(out)
+        jid = "0123456789ab"
+        fd = os.path.join(out, ".svf-maker-" + jid)
+        tomb = fd + ".trash-0badf00d"
+        os.mkdir(fd)
+        hang = Hang(os.rename, lambda src, dst: src == fd)
+        self.addCleanup(hang.release.set)
+        with mock.patch.object(os, "rename", hang):
+            with self.assertRaises(jobs.CallPending):
+                jobs.rename_bounded(fd, tomb, 0.2)
+            self.assertTrue(store._add_pending_many([{
+                "path": tomb, "output_dir": out, "output_id": list(jobs.stat_id(out)), "job": jid, "files_id": None,
+                "reason": "x", "from": fd}]))
+            real = jobs.fs_bounded
+
+            def look(op, path, timeout):
+                answer = real(op, path, timeout)
+                if op == "lexists" and path == tomb:         # the rename lands right after the look
+                    hang.release.set()
+                    end = time.monotonic() + 2
+                    while time.monotonic() < end and jobs.mutation_pending(fd):
+                        time.sleep(0.01)
+                return answer
+            with mock.patch.object(jobs, "fs_bounded", look):
+                store.retry_pending_sweeps(deadline_s=3)
+        self.assertTrue(os.path.isdir(tomb))
+        self.assertTrue(store.flush_pending())
+        with open(os.path.join(tmp, "data", "pending-sweeps.json"), encoding="utf-8") as f:
+            entries = json.load(f)
+        self.assertTrue(any(e["path"] == tomb for e in entries), entries)
 
 
 if __name__ == "__main__":
