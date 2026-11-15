@@ -24,9 +24,11 @@ while IFS= read -r line; do
             SEEN="$SEEN$name " ;;
         *) echo "CHECK verify-extraction FAIL unexpected output: $line"; FAILED=1; continue ;;
     esac
+    # exactly "<name> ok", or "<name> FAIL" at the end of the line or followed by a space (the why / the list); nothing else
     case "$line" in
-        *" ok") echo "CHECK $name ok" ;;
-        *" FAIL "*) echo "CHECK $name FAIL ${line#* FAIL }"; FAILED=1 ;;
+        "$name ok") echo "CHECK $name ok" ;;
+        "$name FAIL") echo "CHECK $name FAIL"; FAILED=1 ;;
+        "$name FAIL "*) echo "CHECK $name FAIL ${line#"$name FAIL "}"; FAILED=1 ;;
         *) echo "CHECK verify-extraction FAIL unexpected output: $line"; FAILED=1 ;;
     esac
 done <<< "$OUTPUT"

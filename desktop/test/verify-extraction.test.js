@@ -116,6 +116,9 @@ test('report: only notices and repo-sources, each once; anything else is unexpec
     'echo "notices ok"\necho "repo-sources ok"\necho "bogus ok"\n',
     'echo "notices ok"\necho "notices ok"\necho "repo-sources ok"\n',
     'echo "notices ok"\necho "repo-sources ok"\necho "extra FAIL x"\n',
+    'echo "notices unexpected ok"\necho "repo-sources ok"\n',
+    'echo "notices ok"\necho "repo-sources garbage FAIL x"\n',
+    'echo "notices ok"\necho "repo-sources FAILED x"\n',
   ]) {
     const r = report(t, body);
     assert.equal(r.status, 1, body + r.stdout);
