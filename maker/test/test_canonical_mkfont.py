@@ -75,10 +75,10 @@ class CanonicalMkfontTest(unittest.TestCase):
         step = job["steps"][0]
         self.assertIsNone(step["identical_to"])
         out = glob.glob(os.path.join(self.tmp, "k", "**", step["output"]), recursive=True)[0]
-        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(out), "mkfont.svf")))   # the temp is removed
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(out), "mkfont.tmp")))   # the temp is removed
         raw = os.path.join(self.tmp, "raw.svf")
         argv = list(step["argv"][0])
-        argv[argv.index(next(t for t in argv if t.endswith("mkfont.svf")))] = raw
+        argv[argv.index(next(t for t in argv if t.endswith("mkfont.tmp")))] = raw
         subprocess.run(argv, check=True, capture_output=True, cwd=self.tmp)
         with open(raw, "rb") as f, open(out, "rb") as g:
             raw_data, out_data = f.read(), g.read()
@@ -86,20 +86,29 @@ class CanonicalMkfontTest(unittest.TestCase):
         svf2to3.check(raw_data, out_data)                     # same glyphs, metrics and cells
 
     def test_a_rerun_never_converts_the_last_runs_temp(self):
-        """A mkfont that exits 0 without writing must fail "no output", not canonicalise an old mkfont.svf."""
+        """A mkfont that exits 0 without writing must fail "no output", not canonicalise an old mkfont.tmp."""
         import jobs
         step_dir = os.path.join(self.tmp, "stale")
         os.makedirs(step_dir)
-        names = ("mkfont.svf", "mac.bdf", "mac-sized.bdf", "OUT.SVF")
+        names = ("mkfont.tmp", "mac.bdf", "mac-sized.bdf", "OUT.SVF")
         for name in names:
             with open(os.path.join(step_dir, name), "wb") as f:
                 f.write(b"old")
         jobs.Worker._clear_outputs(step_dir, os.path.join(step_dir, "OUT.SVF"), {"kind": "precomposed"})
         self.assertEqual([n for n in names if os.path.exists(os.path.join(step_dir, n))], [])
 
+    def test_the_temp_name_can_never_be_a_face_name(self):
+        """On a case-insensitive filesystem a face named MKFONT.SVF would be the temp file itself (and be removed)."""
+        import naming
+        import routes
+        self.assertIsNone(naming.NAME_RE.match(routes.MKFONT_TMP))
+        self.assertIsNone(naming.NAME_RE.match(routes.MKFONT_TMP.upper()))
+        for name in routes.MAC_BDFS:
+            self.assertIsNone(naming.NAME_RE.match(name.upper()))
+
     def test_the_final_command_writes_the_step_output(self):
         last = self.job["steps"][0]["argv"][-1]
-        self.assertEqual(os.path.basename(last[-4]), "mkfont.svf")
+        self.assertEqual(os.path.basename(last[-4]), "mkfont.tmp")
         self.assertEqual(os.path.basename(last[-3]), os.path.basename(self.out))
         self.assertEqual(last[-2:], ["--profile", "default"])
 

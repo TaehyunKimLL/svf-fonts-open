@@ -124,7 +124,7 @@ def _mkfont_unicode(range_spec, paths):
 
 # Files a multi-command route leaves in the step's work area; the job runner clears them before a run (a re-run must
 # not convert the last run's) and removes MKFONT_TMP once the face is written.
-MKFONT_TMP = "mkfont.svf"
+MKFONT_TMP = "mkfont.tmp"
 MAC_BDFS = ("mac.bdf", "mac-sized.bdf")
 
 

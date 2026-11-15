@@ -624,11 +624,11 @@ class FaceArgvTest(Case):
                  "master": None, "range_file": "/w/range-2350.txt", "report": "/w/report.json"}
         got = settings.face_argv(font, eff, routes.route_for(font, "precomposed", False), "precomposed", 16, 1, None,
                                  ("2350", None), paths)
-        self.assertEqual(got, [toolrun.tool("mkfont", "/T") + ["/u/a.ttf", "/w/mkfont.svf", "--size", "16",
+        self.assertEqual(got, [toolrun.tool("mkfont", "/T") + ["/u/a.ttf", "/w/mkfont.tmp", "--size", "16",
                                             "--cell", "16", "--bpp", "1", "--unicode",
                                             "ascii,ksx1001-nohanja,AC37,B2CF,B584,C125,C2BA,D14A,D59D",
                                             "--ascent", "12", "--report", "/w/report.json"],
-                          toolrun.tool("svf2to3", "/T") + ["/w/mkfont.svf", "/w/O.SVF", "--profile", "default"]])
+                          toolrun.tool("svf2to3", "/T") + ["/w/mkfont.tmp", "/w/O.SVF", "--profile", "default"]])
 
 
 class ProbeArgvTest(unittest.TestCase):
