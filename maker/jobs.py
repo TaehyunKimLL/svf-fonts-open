@@ -1147,7 +1147,10 @@ class Store:
         without one): the stat, the listing, each check and each removal, which gets at most `REMOVE_BOUND_S` of what is
         left. Each tombstone is handled on its own: one whose check or removal fails, times out or is not reached before
         the deadline is collected and the loop goes on; the collected ones are recorded as pending in ONE operation at the
-        end. Returns True when no tombstone of the job is left; never raises. Nothing else in the folder is touched."""
+        end ("not reached before the deadline" for the ones never tried). Returns True when no tombstone of the job
+        was left (every one removed, or none seen), and also when there is nothing of this job to look at (the output folder is another
+        one now, or the job has none); False when one was collected or is being renamed, or when the folder could not be
+        listed in time. Never raises. Nothing else in the folder is touched."""
         if job.get("source") != "local":
             return True
         dl = deadline or Deadline(REMOVE_BOUND_S)
@@ -1172,9 +1175,12 @@ class Store:
                     untouched = True                          # a call on it is in flight: never started twice
                     continue
                 if left() <= 0:
-                    collected.append(self._entry(job, path, reason))        # not reached before the deadline
+                    collected.append(self._entry(job, path, "not reached before the deadline"))
                     continue
-                if fs_bounded("islink", path, left()) or not fs_bounded("isdir", path, left()):
+                # a bounded lstat, not `os.path.islink/isdir` (they turn every OSError into False, and a tombstone whose
+                # lookup fails would then be skipped and forgotten): FileNotFoundError = gone, any other error collects it
+                mode = bounded_call(("lstat", path), lambda: os.lstat(path).st_mode, left())
+                if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
                     continue
                 if left() <= 0 or not remove_tree_bounded(path, min(REMOVE_BOUND_S, dl.remaining())):
                     collected.append(self._entry(job, path, reason))

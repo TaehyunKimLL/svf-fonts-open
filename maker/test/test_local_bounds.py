@@ -860,9 +860,11 @@ class StartupBoundsTest(localfx.LocalRunBase):
     def setUp(self):
         super().setUp()
         self.store = self.srv.store
+        self.hangs = []
 
     def hang(self, target, name, real, when):
         hang = Hang(real, when)
+        self.hangs.append(hang)
         self.addCleanup(hang.release.set)
         patcher = mock.patch(target, hang) if name is None else mock.patch.object(target, name, hang)
         patcher.start()
@@ -891,6 +893,8 @@ class StartupBoundsTest(localfx.LocalRunBase):
                                                       token=localfx.TOKEN))
 
         def close():
+            for hang in self.hangs:                       # cleanups run last-in first-out: free every hung call BEFORE the
+                hang.release.set()                        # second server stops, or its stop sweep meets them with its budget
             t.join(25)
             if box and not isinstance(box[0], BaseException):
                 box[0].worker.stop()
@@ -909,18 +913,21 @@ class StartupBoundsTest(localfx.LocalRunBase):
             self.assertFalse(t.is_alive())
             elapsed = time.monotonic() - t0
         self.assertNotIsInstance(box[0], BaseException)
-        self.assertLess(elapsed, 2.0)
+        self.assertLess(elapsed, 1.5)                     # one deadline (about 1.04 s); a REMOVE_BOUND_S each would be 1.6+
         self.assertNotIn(jid, box[0].cleanup_pending)
 
     def test_startup_returns_by_the_deadline_although_listdir_hangs(self):
         jid, _ = self.done_job()
-        self.hang(os, "listdir", os.listdir, lambda p: p == self.out)
+        hang = self.hang(os, "listdir", os.listdir, lambda p: p == self.out)
         self.release_lock()
         with mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0):
             t, box, t0 = self.start_server()
             t.join(4)
             self.assertFalse(t.is_alive())
         self.assertLess(time.monotonic() - t0, 3.0)
+        self.assertTrue(hang.entered.is_set())
+        self.assertEqual(len(box), 1)
+        self.assertNotIsInstance(box[0], BaseException)   # a server was made, not an exception raised at once
 
     def test_unfinished_tombstone_removals_at_start_up_are_all_recorded_pending(self):
         jid, _ = self.done_job()
@@ -946,7 +953,7 @@ class StartupBoundsTest(localfx.LocalRunBase):
     def test_a_tombstone_check_that_times_out_does_not_stop_the_others(self):
         jid, _ = self.done_job()
         first, second = self.tombstones(jid, 2)
-        self.hang(os.path, "islink", os.path.islink, lambda p: p == first)
+        self.hang(os, "lstat", os.lstat, lambda p, *a, **k: str(p) == first)
         job = self.store.load(jid)
         with mock.patch.object(jobs, "LOCKED_IO_S", 0.2), mock.patch.object(jobs, "STAT_TIMEOUT_S", 0.2):
             t, box = on_thread(lambda: self.store.sweep_trash(job, jobs.Deadline(2)))
@@ -962,13 +969,51 @@ class StartupBoundsTest(localfx.LocalRunBase):
             json.dump([{"path": self.files_dir(jid) + ".trash-0badf00d", "output_dir": self.out,
                         "output_id": self.store.load(jid)["output_id"], "job": jid, "files_id": None,
                         "reason": "test"}], f)
-        self.hang(jobs.Store, "_read_pending", jobs.Store._read_pending, lambda self_: True)
+        hang = self.hang(jobs.Store, "_read_pending", jobs.Store._read_pending, lambda self_: True)
         self.release_lock()
         with mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0), mock.patch.object(jobs, "PENDING_FLOOR_S", 0.1):
             t, box, t0 = self.start_server()
             t.join(4)
             self.assertFalse(t.is_alive())
         self.assertLess(time.monotonic() - t0, 3.0)
+        self.assertTrue(hang.entered.is_set())
+        self.assertEqual(len(box), 1)
+        self.assertNotIsInstance(box[0], BaseException)
+
+    def test_a_tombstone_whose_lookup_fails_is_recorded_and_the_others_are_removed(self):
+        jid, _ = self.done_job()
+        first, second = self.tombstones(jid, 2)
+        real, seen = os.lstat, []
+
+        def lstat(path, *a, **k):
+            if str(path) == first and not seen:           # the sweep's own look only; the removal would see it work
+                seen.append(1)
+                raise PermissionError(13, "denied")
+            return real(path, *a, **k)
+        job = self.store.load(jid)
+        with mock.patch.object(os, "lstat", lstat):
+            t, box = on_thread(lambda: self.store.sweep_trash(job, jobs.Deadline(3)))
+            t.join(4)
+        self.assertFalse(t.is_alive())
+        self.assertIs(box[0], False)
+        self.assertFalse(os.path.exists(second))
+        self.assertTrue(os.path.isdir(first))
+        poll_pending(self, self.data, lambda es: any(e["path"] == first for e in es))
+
+    def test_one_batched_record_per_sweep_trash_call(self):
+        jid, _ = self.done_job()
+        tombs = self.tombstones(jid, 3)
+        self.hang_tomb_rmtree(jid)
+        job = self.store.load(jid)
+        with mock.patch.object(jobs, "REMOVE_BOUND_S", 0.2), \
+                mock.patch.object(jobs.Store, "_add_pending_many", autospec=True,
+                                  side_effect=jobs.Store._add_pending_many) as spy:
+            t, box = on_thread(lambda: self.store.sweep_trash(job, jobs.Deadline(3)))
+            t.join(5)
+            self.assertFalse(t.is_alive())
+        self.assertIs(box[0], False)
+        self.assertEqual(spy.call_count, 1)
+        self.assertEqual(sorted(e["path"] for e in spy.call_args[0][1]), sorted(tombs))
 
     def test_startup_with_hung_tombstones_and_a_stalled_writer_returns_by_the_deadline(self):
         jid, _ = self.done_job()
@@ -982,7 +1027,7 @@ class StartupBoundsTest(localfx.LocalRunBase):
             t.join(4)
             self.assertFalse(t.is_alive())
             elapsed = time.monotonic() - t0
-        self.assertLess(elapsed, 2.6)     # deadline 1.0 + one floor + the flush floor + load slack; a floor per record would be 3.0+
+        self.assertLess(elapsed, 2.6)     # a budget guard: deadline 1.0 + one floor + the flush floor + load slack (the batching itself is pinned by test_one_batched_record_per_sweep_trash_call)
         fsync.release.set()
         poll_pending(self, self.data, lambda es: all(any(e["path"] == p for e in es) for p in tombs), timeout=5)
 

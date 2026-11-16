@@ -1583,8 +1583,9 @@ class LocalSweepTest(LocalRunBase):
         self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, ttf))[0], 503)
 
     def test_a_failed_tombstone_removal_at_start_up_is_recorded_and_does_not_make_the_job_inactive(self):
-        # t_d1aba4b8: a tombstone is inert (the live name is what `cleanup_pending` guards), so a removal that fails only
-        # leaves it recorded as pending; before, the error escaping `sweep_trash` marked the job.
+        # t_d1aba4b8: a tombstone is inert (the live name is what `cleanup_pending` guards): a removal that fails leaves
+        # it pending and never marks the job (before, the error escaping `sweep_trash` did). The entry checked below comes
+        # from `retry_pending_sweeps`' own failed removal; this test pins only the "not made inactive" rule.
         import threading
         server_mod = sys.modules["server"]
         jid, fd, pend = self._done_job_with_a_directory()
