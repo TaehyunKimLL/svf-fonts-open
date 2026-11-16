@@ -1227,11 +1227,19 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         st["fonts"][self.ttf]["sizes"] = [16, 24]
         put, pbox = on_thread(lambda: self.api("PUT", "/api/jobs/%s/settings" % jid, st))
         self.assertTrue(gate.entered.wait(3))
-        get, gbox = on_thread(lambda: self.api("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, self.ttf)))
-        time.sleep(0.3)
-        gate.release.set()
-        for th in (put, get):
-            th.join(3)
+        reached = threading.Event()
+        real_lock = jobs.Store.lock
+
+        def lock(store, job_id):                              # the GET asks for the job's lock: about to wait for it
+            if job_id == jid:
+                reached.set()
+            return real_lock(store, job_id)
+        with mock.patch.object(jobs.Store, "lock", lock):
+            get, gbox = on_thread(lambda: self.api("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, self.ttf)))
+            self.assertTrue(reached.wait(3))
+            gate.release.set()
+            for th in (put, get):
+                th.join(3)
         self.assertFalse(put.is_alive(), "the PUT is deadlocked")
         self.assertFalse(get.is_alive(), "the GET is deadlocked")
         self.assertEqual(pbox[0][0], 200, pbox)
@@ -1242,7 +1250,8 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         jid = self.local_job()
         self.select(jid)
         url = "/api/jobs/%s/preview/%s/source.png" % (jid, self.ttf)
-        self.assertEqual(self.raw("GET", url)[0], 200)
+        status, _h, old_bytes = self.raw("GET", url)
+        self.assertEqual(status, 200)
         cached = os.path.join(self.files_dir(jid), "work", "preview", "%s.png" % self.ttf)
         old = os.stat(cached)
         stop = threading.Event()
@@ -1266,8 +1275,113 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
             stop.set()
             h.join(5)
         self.assertFalse(h.is_alive())
-        self.assertEqual(self.raw("GET", url)[0], 200)
+        status, _h, new_bytes = self.raw("GET", url)             # issued after the PUT returned
+        self.assertEqual(status, 200)
+        self.assertNotEqual(new_bytes, old_bytes)
         self.assertNotIn(500, statuses)
+
+    def test_a_settings_put_never_waits_for_a_preview_lock_under_the_job_lock(self):
+        jid = self.local_job()
+        self.select(jid)
+        plock = server._preview_lock(jid, self.ttf)
+        plock.acquire()
+        released = []
+
+        def release():
+            if not released:
+                released.append(1)
+                plock.release()
+        self.addCleanup(release)
+        st = self.job(jid)["settings"]
+        st["fonts"][self.ttf]["sizes"] = [16, 24]
+        put, pbox = on_thread(lambda: self.api("PUT", "/api/jobs/%s/settings" % jid, st))
+        end = time.monotonic() + 3
+        while time.monotonic() < end and self.store.load(jid)["settings"]["fonts"][self.ttf]["sizes"] != [16, 24]:
+            time.sleep(0.02)
+        self.assertEqual(self.store.load(jid)["settings"]["fonts"][self.ttf]["sizes"], [16, 24],
+                         "the PUT did not save: it waits for the preview lock under the job lock")
+        self.assertTrue(put.is_alive())                         # it now waits for the preview lock, with no store lock
+        self.store.update(jid, lambda j: None, timeout=0.1)     # the job lock is free
+        release()
+        put.join(3)
+        self.assertFalse(put.is_alive())
+        self.assertEqual(pbox[0][0], 200, pbox)
+
+    def test_a_preview_asks_for_the_directory_before_the_preview_lock(self):
+        jid = self.swept_job()
+        plock = server._preview_lock(jid, self.dos)
+        plock.acquire()
+        released = []
+
+        def release():
+            if not released:
+                released.append(1)
+                plock.release()
+        self.addCleanup(release)
+        self.hold_job_lock(jid)
+        t, box = on_thread(lambda: self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, self.dos))[0])
+        t.join(2)
+        self.assertFalse(t.is_alive(), "the GET waits for the preview lock before it has ensured the directory")
+        self.assertEqual(box, [409])                            # busy, from the ensure, which comes first
+        release()
+
+    def test_ensure_never_reports_a_healthy_folder_gone_after_a_long_lock_wait(self):
+        jid = self.swept_job()
+        job = self.store.load(jid)
+
+        def hold(lock, seconds):
+            started = threading.Event()
+
+            def run():
+                with lock:
+                    started.set()
+                    time.sleep(seconds)
+            th, _ = on_thread(run)
+            self.assertTrue(started.wait(3))
+            return th
+        th = hold(self.store.lifecycle, 0.5)                     # longer than LOCKED_IO_S (0.3)
+        files = self.store.ensure_files_dir(job)                 # waits for the lifecycle lock, then has its own budget
+        th.join(2)
+        self.assertTrue(os.path.isdir(files))
+        self.store.sweep_files(self.store.load(jid), bound=2)
+        job = self.store.load(jid)
+        th = hold(self.store.lock(jid), 0.15)                    # shorter than the job-lock budget: waited for
+        self.assertTrue(os.path.isdir(self.store.ensure_files_dir(job)))
+        th.join(2)
+        self.store.sweep_files(self.store.load(jid), bound=2)
+        th = hold(self.store.lock(jid), 0.6)                     # longer: Busy, never OutputGone, nothing made
+        with self.assertRaises(jobs.Busy):
+            self.store.ensure_files_dir(self.store.load(jid))
+        th.join(2)
+        self.assertFalse(os.path.exists(self.files_dir(jid)))
+
+    def test_ensure_saves_the_generation_when_the_stored_one_differs_from_the_callers(self):
+        jid = self.swept_job()
+        files = self.store.ensure_files_dir(self.store.load(jid))
+        gen = list(jobs.stat_id(files))
+        self.store.update(jid, lambda j: j.update(files_id=[0, 1]))
+        self.store.ensure_files_dir(dict(self.store.load(jid), files_id=gen))   # the caller's copy is stale
+        self.assertEqual(self.store.load(jid)["files_id"], gen)
+
+    def test_a_takeover_with_a_busy_holder_answers_busy_naming_it(self):
+        holder = self.local_job()
+        self.hold_job_lock(holder)
+        with mock.patch.object(server, "LOCAL_IDLE_SWEEP_S", -1):         # every job is idle: taken over
+            t, box = on_thread(lambda: self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.out}))
+            t.join(2)
+        self.assertFalse(t.is_alive())
+        status, body = box[0]
+        self.assertEqual(status, 409, body)
+        self.assertIn("busy", body["error"])
+        self.assertEqual(body.get("job"), holder)
+
+    def test_a_create_whose_ensure_is_busy_answers_busy_not_400(self):
+        before = [item["id"] for item in self.store.list()]
+        with mock.patch.object(jobs.Store, "ensure_files_dir", side_effect=jobs.Busy("job x is busy")):
+            status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.healthy})
+        self.assertEqual(status, 409, body)
+        self.assertIn("busy", body["error"])
+        self.assertEqual([item["id"] for item in self.store.list()], before)
 
 
 class RetryRaceTest(unittest.TestCase):

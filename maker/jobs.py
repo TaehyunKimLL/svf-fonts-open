@@ -59,7 +59,8 @@ _MAKING = "making"            # `_rename_away`'s generation slot when a mkdir/ch
 
 
 class Busy(TimeoutError):
-    """A job's cleanup record could not be saved in time (a stalled pending file): nothing was forgotten."""
+    """A job's lock was not free in time, or its cleanup record could not be saved in time (a stalled pending file):
+    nothing was made and nothing was forgotten."""
 
 
 class Deadline:
@@ -555,14 +556,18 @@ class Store:
 
         The directory is made under the lifecycle lock (@p locked: the caller holds it), so a sweep's rename and this
         creation never interleave, and the new generation's identity is saved to `job.json` (@p persist; False where the
-        caller saves the job itself and holds the job's lock) so a pending entry always names the generation it sweeps.
-        With @p persist the job's lock is taken FIRST, bounded by @p deadline (`LOCKED_IO_S` without one) and held while
-        the directory is made and `files_id` saved: `Busy` therefore always means that nothing was made. Every
-        filesystem call is bounded (`CallPending`, an `OSError`, when one does not return; a mkdir or chmod left behind
-        fences the name and is tracked as pending by the sweeps)."""
+        caller saves the job itself) so a pending entry always names the generation it sweeps. @p persist False is for
+        callers that own the save: `_check_local_run` holds the job's lock (taking it again would deadlock); `Worker.run_job`
+        holds none, which is safe because the job is `running` and every sweep skips a running job.
+        With @p persist the job's lock is taken FIRST and held while the directory is made and `files_id` saved: `Busy`
+        therefore always means that nothing was made. The lock wait has its own `LOCKED_IO_S` budget (capped by
+        @p deadline), and the budget of the filesystem calls starts only once every lock is held (also `LOCKED_IO_S`,
+        capped by @p deadline): a long wait for a lock never makes a healthy folder look gone. Every filesystem call is
+        bounded (`CallPending`, an `OSError`, when one does not return; a mkdir or chmod left behind fences the name and
+        is tracked as pending by the sweeps)."""
         if job.get("source") != "local":
             return self.files_dir(job)
-        dl = Deadline(LOCKED_IO_S) if deadline is None else deadline.capped(LOCKED_IO_S)
+        budget = lambda: Deadline(LOCKED_IO_S) if deadline is None else deadline.capped(LOCKED_IO_S)
         with (contextlib.nullcontext() if locked else self.lifecycle):
             try:
                 self.load(job["id"])                          # a deleted job (or one being deleted: delete holds this
@@ -572,18 +577,17 @@ class Store:
                 raise OutputGone("the files directory is still being moved or made on a slow or hung volume; "
                                  "try again later")
             if not persist:
-                return self._make_files_dir(job, dl)
+                return self._make_files_dir(job, budget())
             lock = self.lock(job["id"])
-            if not lock.acquire(timeout=dl.remaining()):
+            if not lock.acquire(timeout=budget().remaining()):
                 raise Busy("job %s is busy" % job["id"])
             try:
                 try:
                     fresh = self.load(job["id"])
                 except KeyError:
                     raise OutputGone("job %s no longer exists" % job["id"])
-                before = job.get("files_id")
-                files = self._make_files_dir(job, dl)
-                if job.get("files_id") != before:
+                files = self._make_files_dir(job, budget())          # the I/O budget starts with the locks held
+                if job.get("files_id") != fresh.get("files_id"):    # against the job as it is now, not the caller's copy
                     fresh["files_id"] = job["files_id"]
                     self._write(fresh)
                 return files

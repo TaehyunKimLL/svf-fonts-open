@@ -926,6 +926,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             after.append(store.delete(job["id"], locked=True, timeout=jobs.LOCKED_IO_S))
                         except jobs.Busy:                     # its cleanup record was not saved: the job stays, swept when idle
                             raise _HttpError(409, "job %s is busy; try again" % job["id"])
+                        if isinstance(exc, jobs.Busy):        # the job lock was not free: nothing was made, say busy
+                            raise _HttpError(409, "job %s is busy; try again" % job["id"])
                         raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
                     answer = {"id": job["id"]}
         finally:
@@ -976,6 +978,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         else:
                             finish()
                         continue
+                    except jobs.Busy:                          # the holder's lock is not free: say so, name the job
+                        raise _HttpError(409, "job %s is busy; try again" % item["id"], {"job": item["id"]})
                     except (ValueError, KeyError, OSError):
                         pass
                 raise _HttpError(409, "output folder is in use by job %s (delete it, or wait until it has been "
