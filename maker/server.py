@@ -98,6 +98,15 @@ def _sweep_locks(job, timeout=None):
         yield
 
 
+def _run_fingerprint(j):
+    """What a run is planned from: Prepare's copy of the job and the one Commit reads under the job lock must agree.
+    `mask_ok` (set on read, never stored) is left out."""
+    keep = {key: j.get(key) for key in ("state", "roots", "scan_roots", "settings", "output_dir", "output_id", "files_id")}
+    keep["fonts"] = [{k: v for k, v in font.items() if k != "mask_ok"} if isinstance(font, dict) else font
+                     for font in j.get("fonts") or []]
+    return json.dumps(keep, sort_keys=True)
+
+
 def _sweep_idle(server, now=None):
     """Sweep the files directory of every `detected` local job nobody touched for `LOCAL_IDLE_SWEEP_S`."""
     now = time.monotonic() if now is None else now
@@ -1026,7 +1035,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if lock.acquire(blocking=False):
                         break
             if waiting is not None:
-                waiting.wait()                                   # outside every lock
+                if not waiting.wait(jobs.LOCKED_IO_S):           # outside every lock, bounded
+                    raise _HttpError(409, "a run of job %s is being prepared; try again" % job)
             else:
                 lock.acquire()                                   # a bake holds it: wait with no other lock held
                 lock.release()
@@ -1499,57 +1509,149 @@ class Handler(http.server.BaseHTTPRequestHandler):
         index = naming.RepoIndex(os.path.join(first["output_dir"], "svf") if local else self.server.svf_dir)
         repo_index = naming.RepoIndex(self.server.svf_dir) if local else None      # the repository's licence files, not the output folder's
 
-        def transition(j):
-            if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
-                raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
-            fonts = self._stamped(j.get("fonts") or [])
-            files_dir, sources = store.files_dir(j), store.sources(j)
-            if local:
-                self._check_local_run(j, fonts, sources)
-            errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources,
-                                        own_earlier=jobs.own_earlier(j) if local else (), repo_index=repo_index)
-            if errors:
-                raise _HttpError(400, errors[0], {"errors": errors})
-            try:
-                steps = settings.plan_steps(dict(j, fonts=fonts), files_dir, self.server.tools_dir, sources,
-                                            pylib=os.environ.get("JAMOSET_PYLIB") or None)
-            except ValueError as exc:
-                raise _HttpError(400, str(exc))
-            self._check_steps(files_dir, sources, fonts, steps)
-            self._check_notes(fonts, steps, sources, files_dir)
-            if local:                                      # reports and scores kept from an earlier run are not this run's
-                shutil.rmtree(os.path.join(store.meta_dir(job), "steps"), ignore_errors=True)
-            j.update(state="queued", error=None, steps=steps, result=None)
         if local:
-            self._activate(job, transition)                  # under the lifecycle lock, from the state as it is now
+            # Prepare (short, locked) -> read and plan (no store lock, under the job's preview locks) -> Commit (short,
+            # locked; the job's state and fingerprint are checked inside the job lock)
+            with self._run_prepare(job) as (current, files_dir):
+                fingerprint = _run_fingerprint(current)
+                fonts, sources = self._stamped(current.get("fonts") or []), store.sources(current)
+                self._check_local_inputs(current, fonts, sources)
+                errors = settings.run_ready(fonts, current.get("settings") or {}, index, sources,
+                                            own_earlier=jobs.own_earlier(current), repo_index=repo_index)
+                if errors:
+                    raise _HttpError(400, errors[0], {"errors": errors})
+                try:
+                    steps = settings.plan_steps(dict(current, fonts=fonts), files_dir, self.server.tools_dir, sources,
+                                                pylib=os.environ.get("JAMOSET_PYLIB") or None)
+                except ValueError as exc:
+                    raise _HttpError(400, str(exc))
+                self._check_steps(files_dir, sources, fonts, steps)
+                self._check_notes(fonts, steps, sources, files_dir)
+            self._commit_run(job, fingerprint, steps)
         else:
+            def transition(j):
+                if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
+                    raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
+                fonts = self._stamped(j.get("fonts") or [])
+                files_dir, sources = store.files_dir(j), store.sources(j)
+                errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources,
+                                            own_earlier=(), repo_index=repo_index)
+                if errors:
+                    raise _HttpError(400, errors[0], {"errors": errors})
+                try:
+                    steps = settings.plan_steps(dict(j, fonts=fonts), files_dir, self.server.tools_dir, sources,
+                                                pylib=os.environ.get("JAMOSET_PYLIB") or None)
+                except ValueError as exc:
+                    raise _HttpError(400, str(exc))
+                self._check_steps(files_dir, sources, fonts, steps)
+                self._check_notes(fonts, steps, sources, files_dir)
+                j.update(state="queued", error=None, steps=steps, result=None)
             self._update(job, transition)
         position = self.server.worker.enqueue(job)          # the position it really got (W13)
         current = self._load(job)
         current["queue_position"] = position
         self.send_json(current)
 
-    def _check_local_run(self, j, fonts, sources):
-        """The checks a local `POST run` adds, under the job lock: the output folder is still the one picked, every
-        root still passes the path rules, no other job is active on the folder, every input a step reads is the file
-        that was detected, and the folder has room for the output."""
+    def _end_prepare(self, job, marker):
+        """Forget the "run being prepared" marker @p marker of @p job (when it is still the one set) and wake the waiters."""
+        if marker is not None:
+            if self.server.preparing.get(job) is marker:
+                self.server.preparing.pop(job, None)
+            marker.set()
+
+    @contextlib.contextmanager
+    def _run_prepare(self, job):
+        """Prepare of a local `POST run`: under the lifecycle lock (short) check that the job may run, make its files
+        directory, take every preview lock of the job by try-lock and set the job's `server.preparing` marker; then
+        release the lifecycle lock and yield `(current, files_dir)` with the preview locks held (a sweep needs them to
+        rename the directory away, so none can move it while the run is planned). The preview locks are released when
+        the block ends. The marker stays on a normal exit (`_commit_run` clears it); it is cleared here only when the
+        block raises. Errors as `_check_local_run` answered them: a gone or changed output folder is a 409."""
         store = self.server.store
+        while True:
+            stack = contextlib.ExitStack()
+            wait_font = None
+            marker = None
+            try:
+                with self.server.create_lock:
+                    if self.server.worker._stopping:
+                        raise _HttpError(503, "the server is stopping")
+                    self._refuse_cleanup_pending(job)
+                    if job in self.server.preparing:
+                        raise _HttpError(409, "a run of job %s is being prepared" % job)
+                    current = self._load(job)
+                    if current.get("state") != "detected":
+                        raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
+                    try:
+                        files = store.ensure_files_dir(current, locked=True)
+                    except jobs.OutputGone as exc:
+                        raise _HttpError(409, str(exc))
+                    except jobs.Busy:
+                        raise _HttpError(409, "job %s is busy; try again" % job)
+                    except OSError as exc:
+                        raise _HttpError(409, "output folder: %s" % _os_reason(exc))
+                    current = self._load(job)                    # with the generation `ensure_files_dir` saved
+                    try:
+                        stack.enter_context(_sweep_locks(current, 0.0))
+                    except TimeoutError as exc:                  # a bake holds a preview lock: wait for it outside
+                        wait_font = exc.args[0]
+                    else:
+                        marker = self.server.preparing[job] = threading.Event()
+                        self.server.touched[job] = time.monotonic()
+            except BaseException:
+                stack.close()
+                raise
+            if wait_font is None:
+                break
+            lock = _preview_lock(job, wait_font)
+            lock.acquire()                                       # no other lock held
+            lock.release()
         try:
-            store.ensure_files_dir(j, locked=True, persist=False)     # the run holds the lifecycle lock and saves j
-        except jobs.OutputGone as exc:
-            raise _HttpError(409, str(exc))
-        except OSError as exc:
-            raise _HttpError(409, "output folder: %s" % _os_reason(exc))
+            yield current, files
+        except BaseException:
+            self._end_prepare(job, marker)
+            raise
+        finally:
+            stack.close()
+
+    def _commit_run(self, job, fingerprint, steps):
+        """Commit of a local `POST run`: queue the planned @p steps when the job and its files directory are still what
+        Prepare saw. The marker is cleared whatever happens (the `try` starts before the lifecycle-lock wait)."""
+        store = self.server.store
+        marker = self.server.preparing.get(job)
+        try:
+            with self.server.create_lock:
+                if self.server.worker._stopping:
+                    raise _HttpError(503, "the server is stopping")
+                self._refuse_cleanup_pending(job)
+                current = self._load(job)
+                if not store.files_current(current, jobs.Deadline(jobs.LOCKED_IO_S)):
+                    raise _HttpError(409, "output folder is gone or changed")
+                for item in store.list():
+                    if (item.get("source") == "local" and item["id"] != job
+                            and item.get("output_id") == current.get("output_id") and item["state"] in self.ACTIVE_STATES):
+                        raise _HttpError(409, "output folder is in use by job %s" % item["id"])
+
+                def commit(j):                                   # under the job's lock: a PUT settings lands before or after
+                    if j.get("state") != "detected":
+                        raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
+                    if _run_fingerprint(j) != fingerprint:
+                        raise _HttpError(409, "the job changed while the run was being prepared: run again")
+                    shutil.rmtree(os.path.join(store.meta_dir(job), "steps"), ignore_errors=True)
+                    j.update(state="queued", error=None, steps=steps, result=None)
+                self._update(job, commit, timeout=jobs.LOCKED_IO_S)
+        finally:
+            self._end_prepare(job, marker)
+
+    def _check_local_inputs(self, j, fonts, sources):
+        """The checks of a local `POST run` that read volumes (no store lock held): every root still passes the path
+        rules, every input a step reads is the file that was detected, and the folder has room for the output."""
         allowed = sourcesmod.allowed_roots(os.environ)
         for item in j.get("roots") or []:
             try:
                 sourcesmod.check_path(item["path"], want="source", data_root=self.server.data_root, allowed=allowed)
             except sourcesmod.PathRefused as exc:
                 raise _HttpError(409, "%s: %s" % (item["path"], exc.reason))
-        for item in store.list():
-            if (item.get("source") == "local" and item["id"] != j["id"] and item.get("output_id") == j.get("output_id")
-                    and item["state"] in self.ACTIVE_STATES):
-                raise _HttpError(409, "output folder is in use by job %s" % item["id"])
         total = 0
         for entry in self._inputs_of_selected(j, fonts):
             total += self._check_unchanged(entry, sources)

@@ -594,6 +594,22 @@ class Store:
             finally:
                 lock.release()
 
+    def files_current(self, job, deadline):
+        """True when @p job's output folder is still the one picked and its files directory is still the generation the
+        job saved (`files_id`): a real directory, not being renamed or made, every look bounded by @p deadline. False on
+        any `OSError`."""
+        left = lambda: min(STAT_TIMEOUT_S, deadline.remaining())
+        files = self.files_dir(job)
+        try:
+            if mutation_pending(files):
+                return False
+            if stat_id_bounded(job["output_dir"], left()) != tuple(job.get("output_id") or ()):
+                return False
+            st = bounded_call(("lstat", files), lambda: os.lstat(files), left())
+            return stat.S_ISDIR(st.st_mode) and [st.st_dev, st.st_ino] == list(job.get("files_id") or ())
+        except OSError:
+            return False
+
     def _make_files_dir(self, job, dl):
         """The body of `ensure_files_dir`: every call bounded by @p dl (a `Deadline`) and keyed, so a hung volume costs
         a request its section's allowance, never the lifecycle lock."""

@@ -1384,6 +1384,206 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         self.assertEqual([item["id"] for item in self.store.list()], before)
 
 
+class RunPrepareTest(localfx.LocalRunBase):
+    """Task 5: a local `POST run` reads and plans outside the lifecycle lock, between Prepare and Commit (M5, part 2)."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = self.srv.store
+        self.healthy = os.path.join(self.tmp, "healthy")
+        os.mkdir(self.healthy)
+        self.A = self.local_job()
+        self.select(self.A)
+        self.fd = self.files_dir(self.A)
+
+    def hang(self, target, name, real, when):
+        hang = Hang(real, when)
+        self.addCleanup(hang.release.set)                      # released before the server is stopped
+        patcher = mock.patch.object(target, name, hang)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return hang
+
+    def assert_create_is_quick(self):
+        t0 = time.monotonic()
+        t, box = on_thread(lambda: self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.healthy}))
+        t.join(2)
+        self.assertFalse(t.is_alive(), "the create is still waiting")
+        self.assertEqual(box[0][0], 200, box)
+        self.assertLess(time.monotonic() - t0, 1.0)
+
+    def run_on_thread(self):
+        return on_thread(lambda: self.api("POST", "/api/jobs/%s/run" % self.A))
+
+    def planning_hang(self):
+        return self.hang(settings, "plan_steps", settings.plan_steps, lambda *a, **k: True)
+
+    def finish(self, hang, thread, box, status=200):
+        hang.release.set()
+        thread.join(10)
+        self.assertFalse(thread.is_alive(), "the run did not answer")
+        self.assertEqual(box[0][0], status, box)
+        return box[0][1]
+
+    def assert_quick_create_then_run_done(self, hang, thread, box):
+        self.assertTrue(hang.entered.wait(5), "the call was never reached")
+        self.assert_create_is_quick()
+        self.finish(hang, thread, box)
+        self.assertEqual(self.wait_done(self.A)["state"], "done")
+
+    def test_a_create_is_not_held_by_a_run_reading_a_hung_input(self):
+        ttf = os.path.join(self.roots[0], "Munjo.ttf")
+        hang = self.hang(os, "lstat", os.lstat, lambda p, *a: p == ttf)
+        thread, box = self.run_on_thread()
+        self.assert_quick_create_then_run_done(hang, thread, box)
+
+    def test_a_create_is_not_held_by_a_run_hashing_a_hung_licence(self):
+        job = self.job(self.A)
+        name = settings.effective(job["fonts"], job["settings"], self.ttf)["licence_name"]
+        os.makedirs(os.path.join(self.out, "svf", "dos"), exist_ok=True)
+        shutil.copyfile(os.path.join(self.roots[0], "OFL.txt"), os.path.join(self.out, "svf", "dos", name))
+        hang = self.hang(settings, "_licence_sha", settings._licence_sha, lambda *a, **k: True)
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5), "_licence_sha was never reached")
+        self.assert_create_is_quick()
+        self.finish(hang, thread, box)
+        self.wait_done(self.A)
+
+    def test_a_create_is_not_held_by_a_run_planning_on_a_hung_volume(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assert_quick_create_then_run_done(hang, thread, box)
+
+    def test_run_preparation_holds_no_lifecycle_lock(self):
+        before = time.monotonic()
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        self.assertFalse(self.store.lifecycle.locked())
+        for fid in {f["id"] for f in self.job(self.A)["fonts"]}:
+            self.assertTrue(server._preview_lock(self.A, fid).locked(), fid)
+        self.assertIn(self.A, self.srv.preparing)
+        self.assertGreaterEqual(self.srv.touched[self.A], before)
+        self.finish(hang, thread, box)
+        self.wait_done(self.A)
+        self.assertNotIn(self.A, self.srv.preparing)
+
+    def test_an_idle_sweep_skips_a_job_being_prepared(self):
+        ino = os.stat(self.fd).st_ino
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        sweep, _sbox = on_thread(lambda: server._sweep_idle(self.srv, now=time.monotonic() + server.LOCAL_IDLE_SWEEP_S + 5))
+        sweep.join(3)
+        self.assertFalse(sweep.is_alive())
+        self.assertEqual(os.stat(self.fd).st_ino, ino)
+        pending = os.path.join(self.data, "pending-sweeps.json")
+        if os.path.exists(pending):
+            with open(pending, encoding="utf-8") as f:
+                self.assertFalse([e for e in json.load(f) if self.A in e.get("path", "")])
+        self.finish(hang, thread, box)
+        self.wait_done(self.A)
+
+    def test_a_run_whose_job_changed_while_preparing_is_refused(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        st = self.job(self.A)["settings"]
+        st["fonts"][self.ttf]["sizes"] = [16, 24]
+        put, pbox = on_thread(lambda: self.api("PUT", "/api/jobs/%s/settings" % self.A, st))
+        end = time.monotonic() + 3
+        while time.monotonic() < end and self.job(self.A)["settings"]["fonts"][self.ttf]["sizes"] != [16, 24]:
+            time.sleep(0.05)
+        self.assertEqual(self.job(self.A)["settings"]["fonts"][self.ttf]["sizes"], [16, 24], "the PUT never saved")
+        body = self.finish(hang, thread, box, 409)
+        self.assertIn("changed while the run was being prepared", body["error"])
+        put.join(10)
+        self.assertFalse(put.is_alive())
+        self.assertEqual(pbox[0][0], 200, pbox)
+        self.assertEqual(self.job(self.A)["state"], "detected")
+        status, body = self.api("POST", "/api/jobs/%s/run" % self.A)
+        self.assertEqual(status, 200, body)
+        self.wait_done(self.A)
+
+    def test_a_second_run_during_preparation_is_refused(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        t0 = time.monotonic()
+        status, body = self.api("POST", "/api/jobs/%s/run" % self.A)
+        self.assertEqual(status, 409, body)
+        self.assertIn("being prepared", body["error"])
+        self.assertLess(time.monotonic() - t0, 1.0)
+        self.finish(hang, thread, box)
+        self.wait_done(self.A)
+
+    def test_a_run_whose_files_directory_was_replaced_while_preparing_is_refused(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        os.rename(self.fd, self.fd + "-moved")
+        os.mkdir(self.fd)
+        body = self.finish(hang, thread, box, 409)
+        self.assertEqual(body["error"], "output folder is gone or changed")
+        self.assertEqual(self.job(self.A)["state"], "detected")
+        self.assertNotIn(self.A, self.srv.preparing)
+
+    def test_a_delete_during_run_preparation_leaves_no_files_directory(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        status, body = self.api("DELETE", "/api/jobs/%s" % self.A)
+        self.assertEqual(status, 200, body)
+        hang.release.set()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertIn(box[0][0], (404, 409), box)
+        self.assertNotIn(self.A, self.srv.preparing)
+        end = time.monotonic() + 3
+        left = None
+        while time.monotonic() < end:
+            self.store.retry_pending_sweeps()
+            left = [n for n in os.listdir(self.out) if n.startswith(".svf-maker-" + self.A)]
+            if not left:
+                break
+            time.sleep(0.1)
+        self.assertEqual(left, [])
+
+    def test_a_stop_during_run_preparation_is_refused_at_commit(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        worker = self.srv.worker
+        worker._stopping = True
+        self.addCleanup(setattr, worker, "_stopping", False)
+        body = self.finish(hang, thread, box, 503)
+        self.assertNotIn(self.A, self.srv.preparing)
+        self.assertEqual(self.job(self.A)["state"], "detected")
+
+    def test_a_preview_waits_a_bounded_time_for_a_run_being_prepared(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
+            t0 = time.monotonic()
+            get, gbox = on_thread(lambda: self.api("GET", "/api/jobs/%s/preview/%s/source.png" % (self.A, self.ttf)))
+            get.join(3)
+        self.assertFalse(get.is_alive(), "the preview waits for ever")
+        status, body = gbox[0]
+        self.assertEqual(status, 409, gbox)
+        self.assertIn("being prepared", body["error"])
+        self.assertLess(time.monotonic() - t0, 2.0)
+        self.finish(hang, thread, box)
+        self.wait_done(self.A)
+
+    def test_a_run_on_a_gone_output_folder_still_answers_409(self):
+        os.rename(self.out, self.out + ".moved")
+        os.mkdir(self.out)
+        status, body = self.api("POST", "/api/jobs/%s/run" % self.A)
+        self.assertEqual((status, body["error"]), (409, "output folder is gone or changed"))
+        self.assertNotIn(self.A, self.srv.preparing)
+
+
 class RetryRaceTest(unittest.TestCase):
     def test_a_rename_that_lands_between_the_look_and_the_fence_check_keeps_the_entry(self):
         tmp = tempfile.mkdtemp(prefix="svf-bounds-", dir=os.environ.get("TMPDIR") or tempfile.gettempdir())
