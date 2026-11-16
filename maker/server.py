@@ -816,12 +816,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             out.append(font)
         return out
 
-    def _update(self, job_id, fn):
-        """`store.update` with a job deleted under us reported as a 409 conflict, never a 500 (W1)."""
+    def _update(self, job_id, fn, timeout=None):
+        """`store.update` with a job deleted under us reported as a 409 conflict, never a 500 (W1). With @p timeout a job
+        lock not free in time is a 409 busy (`jobs.Busy`)."""
         try:
-            return self.server.store.update(job_id, fn)
+            store = self.server.store
+            return store.update(job_id, fn) if timeout is None else store.update(job_id, fn, timeout=timeout)
         except KeyError:
             raise _HttpError(409, "job %s is gone" % job_id)
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % job_id)
 
     def _content_length(self):
         raw = self.headers.get("Content-Length")
@@ -919,7 +923,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         store.ensure_files_dir(job, locked=True)
                     except (jobs.OutputGone, OSError) as exc:
                         try:
-                            after.append(store.delete(job["id"], locked=True))
+                            after.append(store.delete(job["id"], locked=True, timeout=jobs.LOCKED_IO_S))
                         except jobs.Busy:                     # its cleanup record was not saved: the job stays, swept when idle
                             raise _HttpError(409, "job %s is busy; try again" % job["id"])
                         raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
@@ -943,7 +947,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if self.server.worker.owns(job):               # its run has published the end but is still cleaning up
                         raise _HttpError(409, "job %s: the previous run is finishing; try again in a moment" % job)
                     self._claim_folder(fresh.get("output_id"), exclude=job, after=after)
-                return self._update(job, transition)
+                return self._update(job, transition, timeout=jobs.LOCKED_IO_S)
         finally:
             for finish in after:
                 finish()
@@ -965,7 +969,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     and item["state"] in self.ACTIVE_STATES):
                 if item["state"] in ("uploading", "detected") and self._job_idle(item):
                     try:
-                        finish = store.delete(item["id"], locked=True)     # abandoned for the idle window: taken over
+                        finish = store.delete(item["id"], locked=True,     # abandoned for the idle window: taken over
+                                              timeout=jobs.LOCKED_IO_S)
                         if after is not None:
                             after.append(finish)
                         else:
@@ -990,9 +995,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _preview_dir(self, job, font):
         """Hold font @p font's preview lock with the job's files directory made and its generation saved, for a bake.
 
-        Order: the lifecycle lock, then the preview lock (never waiting for a held preview lock while holding the
-        lifecycle lock: a try-lock, and on failure wait for it outside and try again). The directory is made and its
-        `files_id` persisted while both are held; then the lifecycle lock goes and the preview lock stays for the bake,
+        Order: the lifecycle lock; the directory made and its `files_id` persisted (bounded: it takes and releases the
+        job lock); then the preview lock (never waiting for a held preview lock while holding the lifecycle lock: a
+        try-lock, and on failure wait for it outside and try again). Then the lifecycle lock goes and the preview lock
+        stays for the bake,
         so a sweep (which needs both to rename the directory away) cannot slip in between making and using it. Refused
         (404/409/503) for a job that is gone, whose cleanup is pending, or while the store is stopping. An upload job
         only takes the preview lock."""
@@ -1008,16 +1014,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if self.server.worker._stopping:
                     raise _HttpError(503, "the server is stopping")
                 self._refuse_cleanup_pending(job)
-                if lock.acquire(blocking=False):
-                    try:
-                        current = self._load(job)
-                        files = self._ensure_dir(current)
-                    except BaseException:
-                        lock.release()
-                        raise
-                    break
-            lock.acquire()                                       # a bake holds it: wait with no other lock held
-            lock.release()
+                waiting = self.server.preparing.get(job)         # a run is being prepared: like a held preview lock
+                if waiting is None:
+                    # the lock order: the directory first (it takes and releases the job lock, bounded), then the preview
+                    # try-lock; no sweep can rename the directory in between (both happen under the lifecycle lock)
+                    files = self._ensure_dir(self._load(job))
+                    if lock.acquire(blocking=False):
+                        break
+            if waiting is not None:
+                waiting.wait()                                   # outside every lock
+            else:
+                lock.acquire()                                   # a bake holds it: wait with no other lock held
+                lock.release()
         try:
             yield files
         finally:
@@ -1038,6 +1046,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return files
         except jobs.OutputGone as exc:
             raise _HttpError(404, str(exc))
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % current["id"])
         except OSError as exc:
             raise _HttpError(404, "output folder: %s" % _os_reason(exc))
 
@@ -1051,6 +1061,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return files
         except jobs.OutputGone as exc:
             raise _HttpError(404, str(exc))
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % current["id"])
         except OSError as exc:
             raise _HttpError(404, "output folder: %s" % _os_reason(exc))
 
@@ -1133,7 +1145,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _job_delete(self, query, job):
         """Delete the job's directory; the store's own locked check refuses a `queued`/`running` job (W1)."""
         try:
-            self.server.store.delete(job)
+            self.server.store.delete(job, timeout=jobs.LOCKED_IO_S)
         except KeyError:
             raise _HttpError(404, "no job %s" % job)
         except jobs.Busy:
@@ -1450,6 +1462,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
         body = self._json_body()
         store = self.server.store
+        changed = []
 
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
@@ -1458,11 +1471,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             errors = settings.validate(fonts, body, store.sources(j))
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
-            for font_id in _changed_preview_fonts(fonts, j.get("settings") or {}, body):
-                with _preview_lock(job, font_id):            # W2: a new input invalidates the drawn preview
-                    _remove_preview(store, j, font_id)
+            changed[:] = _changed_preview_fonts(fonts, j.get("settings") or {}, body)
             j["settings"] = body
         current = self._update(job, transition)
+        # W2: a new input invalidates the drawn preview. Removed here, each under its preview lock, outside every store
+        # lock (a preview lock is never waited for under the job lock: lifecycle -> job -> preview). A bake that starts
+        # between the save and the removal draws from the new settings (it reloads the job); the removal then only drops
+        # that fresh PNG, which the next GET draws again.
+        try:
+            for font_id in changed:
+                with _preview_lock(job, font_id):
+                    _remove_preview(store, self._load(job), font_id)
+        except _HttpError as exc:
+            if exc.status != 404:                            # the job was deleted meanwhile: nothing to clear
+                raise
         self.send_json(current)
 
     def _job_run(self, query, job):

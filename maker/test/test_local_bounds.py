@@ -1046,6 +1046,230 @@ class StartupBoundsTest(localfx.LocalRunBase):
         poll_pending(self, self.data, lambda es: all(any(e["path"] == p for e in es) for p in tombs), timeout=5)
 
 
+class LockedIoBoundsTest(localfx.LocalRunBase):
+    """Task 4: bounded `ensure_files_dir` and job-lock waits under the lifecycle lock; the lock order restored (M5, part 1)."""
+
+    def setUp(self):
+        super().setUp()
+        self.store = self.srv.store
+        self.healthy = os.path.join(self.tmp, "healthy")
+        os.mkdir(self.healthy)
+        patcher = mock.patch.object(jobs, "LOCKED_IO_S", 0.3)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def hang(self, target, name, real, when):
+        hang = Hang(real, when)
+        self.addCleanup(hang.release.set)
+        patcher = mock.patch(target, hang) if name is None else mock.patch.object(target, name, hang)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return hang
+
+    def assert_create_is_quick(self):
+        t0 = time.monotonic()
+        t, box = on_thread(lambda: self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.healthy}))
+        t.join(2)
+        self.assertFalse(t.is_alive(), "the create is still waiting")
+        self.assertEqual(box[0][0], 200, box)
+        self.assertLess(time.monotonic() - t0, 1.0)
+
+    def swept_job(self):
+        """A done job whose files directory has been swept."""
+        jid, _job = self.done_job()
+        self.assertFalse(os.path.exists(self.files_dir(jid)))
+        return jid
+
+    def get_source(self, jid):
+        return on_thread(lambda: self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, self.dos))[0])
+
+    def hold_job_lock(self, jid):
+        lock = self.store.lock(jid)
+        lock.acquire()
+        released = []
+
+        def release():
+            if not released:
+                released.append(1)
+                lock.release()
+        self.addCleanup(release)
+        return release
+
+    def test_a_create_is_not_held_by_a_hung_output_stat_in_ensure(self):
+        jid = self.swept_job()
+        out = self.out
+        hang = self.hang(jobs, "stat_id", jobs.stat_id, lambda p: p == out)
+        t, box = self.get_source(jid)
+        self.assertTrue(hang.entered.wait(3))
+        self.assert_create_is_quick()
+        t.join(1.0)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(box, [404])
+
+    def test_a_create_is_not_held_by_a_hung_mkdir(self):
+        jid = self.swept_job()
+        fd = self.files_dir(jid)
+        hang = self.hang(os, "mkdir", os.mkdir, lambda p, *a: p == fd)
+        t, box = self.get_source(jid)
+        self.assertTrue(hang.entered.wait(3))
+        self.assert_create_is_quick()
+        t.join(1.0)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(box, [404])
+        job = self.store.load(jid)
+        self.assertTrue(job.get("files_id"))                   # the swept run's generation is still on the job
+        st, sbox = on_thread(lambda: self.store.sweep_files(job, bound=0.5))
+        st.join(2)
+        self.assertFalse(st.is_alive())
+        self.assertEqual(sbox, [False])
+        entries = poll_pending(self, self.data, lambda es: any(e["path"] == fd for e in es))
+        entry = [e for e in entries if e["path"] == fd][0]
+        self.assertIsNone(entry["files_id"])
+        self.assertTrue(entry.get("making"))
+        log = os.path.join(self.data, "jobs", jid, "log.md")      # the reason goes to the job's log
+        end = time.monotonic() + 2
+        text = ""
+        while time.monotonic() < end and "busy" not in text:
+            time.sleep(0.05)
+            with open(log, encoding="utf-8") as f:
+                text = f.read()
+        self.assertIn("sweep: %s: busy" % fd, text)
+        t, box = on_thread(lambda: self.api("DELETE", "/api/jobs/%s" % jid))
+        t.join(3)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(box[0][0], 200, box)
+        hang.release.set()
+        end = time.monotonic() + 3
+        while time.monotonic() < end and (jobs.mutation_pending(fd) or not os.path.isdir(fd)):
+            time.sleep(0.02)
+        self.assertTrue(os.path.isdir(fd))                     # the late mkdir landed
+        self.assertFalse(jobs.mutation_pending(fd))
+        self.store.retry_pending_sweeps()
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-" + jid)], [])
+
+    def test_a_second_request_on_a_hung_output_folder_shares_the_call(self):
+        jid = self.swept_job()
+        out = self.out
+        hang = self.hang(jobs, "stat_id", jobs.stat_id, lambda p: p == out)
+        base = thread_count("svf-maker-stat")
+        t1, box1 = self.get_source(jid)
+        self.assertTrue(hang.entered.wait(3))
+        t2, box2 = self.get_source(jid)
+        for t in (t1, t2):
+            t.join(1.5)
+            self.assertFalse(t.is_alive())
+        self.assertEqual((box1, box2), ([404], [404]))
+        self.assertLessEqual(thread_count("svf-maker-stat") - base, 1)
+
+    def test_a_lifecycle_holder_does_not_wait_for_a_held_job_lock(self):
+        jid = self.local_job()
+        self.hold_job_lock(jid)
+        t0 = time.monotonic()
+        t, box = on_thread(lambda: self.api("DELETE", "/api/jobs/%s" % jid))
+        self.assert_create_is_quick()
+        t.join(1.0)
+        self.assertFalse(t.is_alive(), "the delete is still waiting for the job lock")
+        self.assertLess(time.monotonic() - t0, 1.5)
+        status, body = box[0]
+        self.assertEqual(status, 409, body)
+        self.assertIn("busy", json.dumps(body))
+
+    def test_an_activation_does_not_wait_for_a_held_job_lock(self):
+        jid = self.local_job()
+        self.select(jid)
+        self.hold_job_lock(jid)
+        t, box = on_thread(lambda: self.api("POST", "/api/jobs/%s/run" % jid))
+        self.assert_create_is_quick()
+        t.join(1.0)
+        self.assertFalse(t.is_alive(), "the run is still waiting for the job lock")
+        status, body = box[0]
+        self.assertEqual(status, 409, body)
+        self.assertIn("busy", json.dumps(body))
+
+    def test_ensure_with_a_held_job_lock_is_busy_and_makes_nothing(self):
+        jid = self.swept_job()
+        fd = self.files_dir(jid)
+        self.hold_job_lock(jid)
+        t, box = self.get_source(jid)
+        t2, box2 = on_thread(lambda: self.api("POST", "/api/jobs/%s/detect" % jid))
+        for th in (t, t2):
+            th.join(2)
+            self.assertFalse(th.is_alive(), "waiting for the job lock")
+        self.assertEqual(box, [409])
+        status, body = box2[0]
+        self.assertEqual(status, 409, body)
+        self.assertIn("busy", json.dumps(body))
+        self.assertNotIn("output folder", json.dumps(body))
+        self.assertFalse(os.path.exists(fd))
+        self.assertFalse(jobs.mutation_pending(fd))
+
+    def test_store_update_and_delete_with_a_timeout_raise_busy(self):
+        jid = self.local_job()
+        self.hold_job_lock(jid)
+        for call in (lambda: self.store.update(jid, lambda j: None, timeout=0.1),
+                     lambda: self.store.delete(jid, timeout=0.1)):
+            t0 = time.monotonic()
+            with self.assertRaises(jobs.Busy):
+                call()
+            self.assertLess(time.monotonic() - t0, 1.0)
+        self.assertTrue(os.path.exists(os.path.join(self.data, "jobs", jid, "job.json")))
+
+    def test_a_preview_and_a_settings_change_of_one_font_do_not_deadlock(self):
+        jid = self.local_job()
+        self.select(jid)
+        self.assertTrue(self.store.sweep_files(self.store.load(jid), bound=2))
+        self.assertFalse(os.path.exists(self.files_dir(jid)))
+        # the made directory may get the freed inode back (then nothing is saved and nothing waits for the job lock):
+        # name a generation no directory can have, so the make always persists, as it does for a new inode
+        self.store.update(jid, lambda j: j.update(files_id=[0, 1]))
+        gate = self.hang(server, "_changed_preview_fonts", server._changed_preview_fonts, lambda *a: True)
+        st = self.job(jid)["settings"]
+        st["fonts"][self.ttf]["sizes"] = [16, 24]
+        put, pbox = on_thread(lambda: self.api("PUT", "/api/jobs/%s/settings" % jid, st))
+        self.assertTrue(gate.entered.wait(3))
+        get, gbox = on_thread(lambda: self.api("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, self.ttf)))
+        time.sleep(0.3)
+        gate.release.set()
+        for th in (put, get):
+            th.join(3)
+        self.assertFalse(put.is_alive(), "the PUT is deadlocked")
+        self.assertFalse(get.is_alive(), "the GET is deadlocked")
+        self.assertEqual(pbox[0][0], 200, pbox)
+        status, body = gbox[0]
+        self.assertTrue(status == 200 or (status == 409 and "busy" in json.dumps(body)), gbox)
+
+    def test_after_a_settings_put_returns_the_old_preview_is_never_served(self):
+        jid = self.local_job()
+        self.select(jid)
+        url = "/api/jobs/%s/preview/%s/source.png" % (jid, self.ttf)
+        self.assertEqual(self.raw("GET", url)[0], 200)
+        cached = os.path.join(self.files_dir(jid), "work", "preview", "%s.png" % self.ttf)
+        old = os.stat(cached)
+        stop = threading.Event()
+        statuses = []
+
+        def hammer():
+            while not stop.is_set():
+                statuses.append(self.raw("GET", url)[0])
+        h, _ = on_thread(hammer)
+        st = self.job(jid)["settings"]
+        st["fonts"][self.ttf]["sizes"] = [20]
+        try:
+            self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+            # the PUT has returned: no file the old settings drew is there any more
+            try:
+                now = os.stat(cached)
+                self.assertNotEqual((now.st_ino, now.st_mtime_ns), (old.st_ino, old.st_mtime_ns))
+            except FileNotFoundError:
+                pass
+        finally:
+            stop.set()
+            h.join(5)
+        self.assertFalse(h.is_alive())
+        self.assertEqual(self.raw("GET", url)[0], 200)
+        self.assertNotIn(500, statuses)
+
+
 class RetryRaceTest(unittest.TestCase):
     def test_a_rename_that_lands_between_the_look_and_the_fence_check_keeps_the_entry(self):
         tmp = tempfile.mkdtemp(prefix="svf-bounds-", dir=os.environ.get("TMPDIR") or tempfile.gettempdir())

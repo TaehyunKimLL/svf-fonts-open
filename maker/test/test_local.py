@@ -1664,10 +1664,10 @@ class LocalSweepTest(LocalRunBase):
         fd = self.files_dir(jid)
         real = jobs.Store.update
 
-        def update(store, job_id, fn):
+        def update(store, job_id, fn, timeout=None):                            # Task 4: a lifecycle holder passes a timeout
             if getattr(fn, "__name__", "") == "move":                           # _finish_local's report preservation
                 raise OSError(5, "Input/output error")
-            return real(store, job_id, fn)
+            return real(store, job_id, fn, timeout=timeout)
         with mock.patch.object(jobs.Store, "update", update):
             job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done", job.get("error"))

@@ -547,7 +547,7 @@ class Store:
             return os.path.join(job["output_dir"], FILES_DIR_PREFIX + job["id"])
         return self.path(job["id"])
 
-    def ensure_files_dir(self, job, locked=False, persist=True):
+    def ensure_files_dir(self, job, locked=False, persist=True, deadline=None):
         """Make a local job's files directory (`work/tmp` inside, all 0700) and return it.
 
         The output folder must still be the folder picked at create time (`output_id`), else `OutputGone`: nothing is
@@ -555,10 +555,14 @@ class Store:
 
         The directory is made under the lifecycle lock (@p locked: the caller holds it), so a sweep's rename and this
         creation never interleave, and the new generation's identity is saved to `job.json` (@p persist; False where the
-        caller saves the job itself) so a pending entry always names the generation it sweeps.
-        """
+        caller saves the job itself and holds the job's lock) so a pending entry always names the generation it sweeps.
+        With @p persist the job's lock is taken FIRST, bounded by @p deadline (`LOCKED_IO_S` without one) and held while
+        the directory is made and `files_id` saved: `Busy` therefore always means that nothing was made. Every
+        filesystem call is bounded (`CallPending`, an `OSError`, when one does not return; a mkdir or chmod left behind
+        fences the name and is tracked as pending by the sweeps)."""
         if job.get("source") != "local":
             return self.files_dir(job)
+        dl = Deadline(LOCKED_IO_S) if deadline is None else deadline.capped(LOCKED_IO_S)
         with (contextlib.nullcontext() if locked else self.lifecycle):
             try:
                 self.load(job["id"])                          # a deleted job (or one being deleted: delete holds this
@@ -567,19 +571,31 @@ class Store:
             if mutation_pending(self.files_dir(job)):         # an abandoned rename/mkdir of this very name is in flight
                 raise OutputGone("the files directory is still being moved or made on a slow or hung volume; "
                                  "try again later")
-            before = job.get("files_id")
-            files = self._make_files_dir(job)
-            if persist and job.get("files_id") != before:
-                gen = job["files_id"]
+            if not persist:
+                return self._make_files_dir(job, dl)
+            lock = self.lock(job["id"])
+            if not lock.acquire(timeout=dl.remaining()):
+                raise Busy("job %s is busy" % job["id"])
+            try:
                 try:
-                    self.update(job["id"], lambda j: j.update(files_id=gen))
+                    fresh = self.load(job["id"])
                 except KeyError:
-                    pass
-            return files
+                    raise OutputGone("job %s no longer exists" % job["id"])
+                before = job.get("files_id")
+                files = self._make_files_dir(job, dl)
+                if job.get("files_id") != before:
+                    fresh["files_id"] = job["files_id"]
+                    self._write(fresh)
+                return files
+            finally:
+                lock.release()
 
-    def _make_files_dir(self, job):
+    def _make_files_dir(self, job, dl):
+        """The body of `ensure_files_dir`: every call bounded by @p dl (a `Deadline`) and keyed, so a hung volume costs
+        a request its section's allowance, never the lifecycle lock."""
+        left = lambda: min(STAT_TIMEOUT_S, dl.remaining())
         try:
-            same = stat_id(job["output_dir"]) == tuple(job.get("output_id") or ())
+            same = stat_id_bounded(job["output_dir"], left()) == tuple(job.get("output_id") or ())
         except OSError:
             same = False
         if not same:
@@ -587,14 +603,14 @@ class Store:
         files = self.files_dir(job)
         for path in (files, os.path.join(files, "work"), os.path.join(files, "work", "tmp")):
             try:
-                mode = os.lstat(path).st_mode
+                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p).st_mode, left())
             except FileNotFoundError:
-                os.mkdir(path, 0o700)
-                os.chmod(path, 0o700)
+                bounded_call(("mkdir", path), lambda p=path: os.mkdir(p, 0o700), left())
+                bounded_call(("chmod", path), lambda p=path: os.chmod(p, 0o700), left())
                 continue
             if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):    # a link planted at the name would lead elsewhere
                 raise OutputGone("the files directory is a link or not a folder: refusing to use it")
-        job["files_id"] = list(stat_id(files))          # the directory's own identity (a run saves it and checks it per step)
+        job["files_id"] = list(stat_id_bounded(files, left()))   # the directory's own identity (a run saves it and checks it per step)
         return files
 
     def sources(self, job):
@@ -650,13 +666,25 @@ class Store:
             json.dump(job, f, indent=2, sort_keys=True, ensure_ascii=False)
         os.replace(tmp, self.path(job["id"], "job.json"))
 
-    def update(self, job_id, fn):
-        """Load @p job_id, call `fn(job)`, save it and return it, all under the job's lock."""
-        with self.lock(job_id):
+    def update(self, job_id, fn, timeout=None):
+        """Load @p job_id, call `fn(job)`, save it and return it, all under the job's lock. With @p timeout (seconds) the
+        lock is waited for that long, else `Busy`: a caller holding the lifecycle lock never waits for it unboundedly."""
+        with self._job_lock(job_id, timeout):
             job = self.load(job_id)
             fn(job)
             self._write(job)
             return job
+
+    @contextlib.contextmanager
+    def _job_lock(self, job_id, timeout=None):
+        """The job's lock, waited for at most @p timeout seconds (`Busy` when it is not free by then; forever for None)."""
+        lock = self.lock(job_id)
+        if not (lock.acquire() if timeout is None else lock.acquire(timeout=max(0.0, timeout))):
+            raise Busy("job %s is busy" % job_id)
+        try:
+            yield lock
+        finally:
+            lock.release()
 
     def list(self):
         """One dict per job, newest first: `{"id", "state", "created", "fonts"}`, the last the font count.
@@ -682,7 +710,7 @@ class Store:
         out.sort(key=lambda item: (item["created"], item["id"]), reverse=True)
         return out
 
-    def delete(self, job_id, locked=False):
+    def delete(self, job_id, locked=False, timeout=None):
         """Remove the job's directory; `ValueError` for a `queued` or `running` job (the worker owns it).
 
         The state check and the removal hold the job's own lock (W1): a `POST /run` that turns an `uploading` job
@@ -692,12 +720,13 @@ class Store:
         when the record does not land in time `Busy` is raised and the job stays (its `job.json` still names the folder).
         The tombstone is removed after every lock is released. With @p locked the caller already holds the lifecycle lock
         and gets the finishing step back as a callable to run once it has released it; otherwise it is run here.
-        `on_delete` is called once the directory is gone (the caller's per-job bookkeeping).
+        `on_delete` is called once the directory is gone (the caller's per-job bookkeeping). With @p timeout the job's lock
+        is waited for that long, else `Busy` (a caller holding the lifecycle lock passes `LOCKED_IO_S`).
         """
         finish = None
         with (contextlib.nullcontext() if locked else self.lifecycle):
             lock = self.lock(job_id)
-            with lock:
+            with self._job_lock(job_id, timeout):
                 job = self.load(job_id)
                 if job.get("state") in ("queued", "running"):
                     raise ValueError("job %s is %s" % (job_id, job.get("state")))
@@ -1494,8 +1523,8 @@ class Worker(threading.Thread):
             if total <= MAX_JOBS and time.time() - item["created"] <= MAX_AGE:
                 break
             try:
-                self.store.delete(item["id"])
-            except (ValueError, KeyError, OSError):
+                self.store.delete(item["id"], timeout=LOCKED_IO_S)
+            except (ValueError, KeyError, OSError):      # (`Busy` is a `TimeoutError`: a busy job waits for the next pass)
                 continue
             total -= 1
 
