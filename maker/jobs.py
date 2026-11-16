@@ -512,7 +512,9 @@ class Store:
         # (`lock(id)`) -> the job's preview locks (`on_sweep`) -> the pending-sweeps lock. It is held for every local state
         # change into an active state (create, reuse, PUT sources and detect on a finished job, run), including reading
         # the state the decision uses, and for the "state check + rename to a tombstone" step of every sweep. It is never
-        # held across a removal, a scan or a tool run, and nothing here re-enters it.
+        # held across a removal, a scan or a tool run, and nothing here re-enters it. It is never held across a read of an
+        # input, planning or any unbounded call (a local run prepares outside it); every lock taken under it is taken with
+        # a timeout (a job lock) or a try-lock (a preview lock); no job-lock holder waits for a preview lock.
         self.lifecycle = threading.Lock()
         self._pending_lock = threading.Lock()
         self._retry_lock = threading.Lock()

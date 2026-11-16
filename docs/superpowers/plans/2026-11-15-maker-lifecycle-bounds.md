@@ -883,3 +883,21 @@ re-checked against d410d53.
 | SOL Low: the retry's 50 ms floor lets calls run past the deadline | Still held in d410d53. Fixed: 2.4 (no floor; `dl.expired()` checked before each filesystem call); test `test_a_retry_starts_no_filesystem_call_after_its_deadline` with a scripted deadline object (Task 2) |
 
 Test counts after round 2: Task 1 +9, Task 2 +15, Task 3 +6, Task 4 +5, Task 5 +10: N = B + 45 at the end.
+
+## Accepted deviations (Task 6 closing)
+
+- **An existing test was rewritten:** the start-up test in `maker/test/test_local.py` now pins "a left tombstone never
+  makes a done job inactive" (tombstones are inert and never add a job to `cleanup_pending`, 2.4). Accepted by the
+  controller; it replaces the old assertion, which expressed the behaviour the plan removed.
+- **An existing test's mock changed:** the `Store.update` mock in an existing test takes the new `timeout` keyword (the
+  signature gained it, 2.6). Accepted.
+- **Test counts differ from the plan's arithmetic:** the observed base was B = 997 (not 1023); each task's count is in its
+  commit body. After rebasing onto main 05a450c (t_df773bf5: mkfont routes canonicalise with `svf2to3`, the Worker
+  clears or removes `work/sNN/mkfont.tmp`; +7 tests) the full suite is 1084 tests, `OK (skipped=24)`: the lifecycle
+  work's 1077 plus those 7, instead of B + 45.
+- **Client-visible 409s** (busy job or cleanup record, a run being prepared, a preview being made, a failed takeover with
+  a busy holder) and the narrowed W2 window are accepted; they are listed in `docs/maker-audit.md` section 8.
+- **Documented limits:** an abandoned rename or mkdir that never returns fences that job's files directory until
+  restart; start-up and stop are the exceptions to "`LOCKED_IO_S` per locked section" (`STARTUP_CLEANUP_S`,
+  `STOP_SWEEP_TOTAL_S`); a job-lock wait plus the I/O each get `LOCKED_IO_S`.
+- **Follow-up:** automatic retry of the new 409s by the page is a separate card (filed by the controller).

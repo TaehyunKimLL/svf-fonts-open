@@ -232,20 +232,60 @@ exercised by mocks); a real disk-full condition (mocked); a case-insensitive fil
 but a symlinked parent; sync clients reading `.svf-maker-<id>/`; and `sessionStorage` persistence across a real
 Electron relaunch.
 
-**Accepted trade-off (lifecycle lock).** `POST run` of a local job holds the store-wide lifecycle lock for its whole
-pre-queue check (path rules, the stat of every input, planning, free space). A hung input mount therefore delays other
-creates, activations and sweeps until that stat returns; the sweeps wait for a job's preview locks only with a short
-try-lock (0.5 s) and are recorded as pending when a bake holds them. This was accepted over a second lock.
+**Bounded lifecycle (t_d1aba4b8).** This replaces the earlier "accepted trade-off (lifecycle lock)" and "known limits of
+the cleanup". What is bounded now, and what is not.
 
-**Known limits of the cleanup (follow-up card t_d1aba4b8).**
-- Start-up and stop cleanup are bounded by one `Deadline` for the lifecycle lock, the preview locks, the stats and the
-  removals, but not everything: start-up `sweep_trash` (listdir, islink, isdir, one removal allowance per tombstone) and the
-  `os.rename` to a tombstone under the lifecycle and preview locks are not covered by it, and a failure to record a pending
-  entry waits for the pending lock and the synchronous write and fsync of `pending-sweeps.json` without a bound. A mount
-  that answers `stat` and then hangs on `rename` or `listdir` can therefore still hold start-up or shutdown.
-- The lifecycle lock is held across the raw stat/lstat/mkdir of `ensure_files_dir` and across the pre-queue reads of
-  `POST run` (inputs, licence hashing, planning, range-file copy). A hung removable or network volume used by one job
-  delays creates, activations and idle cleanup of unrelated jobs until the call returns.
+- **Per section.** Every lifecycle-lock section of a request or of the idle sweeper (`ensure_files_dir`'s calls, the
+  stats and the rename of `_rename_away`, the pending record a local `delete` writes, the commit check of a run) has one
+  `Deadline` of `LOCKED_IO_S` (5 s) for all its calls together, not per call. A job-lock wait taken under the lifecycle
+  lock and the I/O that follows it each get `LOCKED_IO_S`; a preview lock is only try-locked (`PREVIEW_TRY_S`). A second
+  request on the same hung path shares the call already in flight, inside its own section's bound.
+- **Exceptions.** Start-up cleanup uses `STARTUP_CLEANUP_S` (30 s) and stop uses `STOP_SWEEP_TOTAL_S` (8 s) as their one
+  deadline for every wait (lifecycle lock, preview locks, stats, renames, removals, pending records); they are not capped
+  at `LOCKED_IO_S`. A pass overruns its deadline by at most the pending floor and the flush (about 1 s), inside the
+  margins of `desktop/lib/budget.js`. The data root (`job.json`, `Store.list`, `log.md`) is assumed to be a local disk
+  and is not bounded.
+- **The fence.** A rename that is abandoned (timed out) stays registered as in flight and keeps its path fenced:
+  `ensure_files_dir` refuses to make a new generation at that name, and the sweeps record it as pending, so a late
+  rename can only move the generation it was issued for. Read-only calls (stat, listdir) share the one in flight.
+  **Accepted limit:** a rename or mkdir that never returns (a dead hard mount) keeps that one job's files directory
+  fenced until the process restarts: its previews answer 404 with "the files directory is still being moved or made on
+  a slow or hung volume". Nothing else is held.
+- **The pending record.** Every read and write of `pending-sweeps.json` goes through one writer thread; a caller waits
+  until its deadline, but at least `PENDING_FLOOR_S` (0.5 s) when the writer is idle, and no floor while an earlier
+  operation is unfinished. An operation not waited for still runs later, in order. Stop and start-up flush the writer
+  before they return. `delete` of a local job saves its cleanup record before it removes the metadata; when the record
+  cannot be saved the job stays and DELETE answers 409 busy.
+- **A local `POST run` has three sections.** Prepare (short, under the lifecycle lock: checks, the files directory, the
+  preview try-locks, the `preparing` marker), read and plan (no store lock: input stats, licence hashing, planning,
+  range copies), commit (under the lifecycle lock: files directory still current, then the state and a fingerprint of the
+  job re-checked inside the job lock). A hung input volume therefore no longer delays creates, activations or sweeps of
+  other jobs.
+- **Lock order restored.** lifecycle lock -> job lock -> preview locks -> pending lock, everywhere. `PUT settings`
+  saves under the job lock and clears the changed fonts' previews afterwards, outside it; `_preview_dir` makes the
+  directory before it takes the preview lock.
+- **Client-visible changes (accepted).** 409 `"job X is busy; try again"` when a job lock or the cleanup record is not
+  available in time (DELETE, create takeover, run activation, ensure); 409 `"a run of job X is being prepared"` (a preview adds
+  "; try again"); 409 `"the job changed while the run was being prepared: run again"`; 409 `"job X is busy: a
+  preview is being made; try again"`
+  from `POST run` when a bake holds a preview lock longer than `LOCKED_IO_S`; DELETE may answer 409 busy when its cleanup
+  record cannot be saved (the job stays; a retry works once the writer recovers); a create takeover that fails with a
+  busy holder answers 409 busy and leaves the holder (swept when idle); a bake that lands between saving settings and
+  clearing previews is dropped and redrawn (the W2 window, narrowed). The page shows the error text; automatic retry of
+  these 409s is a separate card.
+- **Not bounded.** The data root; a never-returning rename or mkdir (above); the volume's own recovery (a hung call keeps
+  its daemon thread until it returns).
+
+Evidence (tests in `maker/test/test_local_bounds.py` unless named):
+
+| Bound | Tests |
+|---|---|
+| fence, shared reads, pending writer | `test_rename_bounded_abandons_a_hung_rename_and_fences_the_path`, `test_a_read_only_call_waits_for_the_one_in_flight`, `test_pending_op_returns_by_the_deadline_while_the_pending_lock_is_held`, `test_pending_op_returns_by_the_deadline_while_fsync_hangs`, `test_pending_op_with_an_expired_deadline_still_lands_on_a_healthy_disk`, `test_records_after_a_stalled_one_do_not_wait_the_floor`, `test_the_pending_writer_exits_when_idle_and_restarts` |
+| stop and sweeps | `test_stop_returns_by_the_deadline_although_a_rename_hangs`, `test_an_abandoned_rename_never_moves_a_later_generation`, `test_stop_returns_by_the_deadline_while_fsync_hangs`, `test_stop_lands_its_pending_records_before_returning`, `test_an_idle_sweep_does_not_wait_beyond_its_deadline_for_the_lifecycle_lock`, `test_a_retry_starts_no_filesystem_call_after_its_deadline` |
+| delete records before it forgets | `test_a_delete_whose_cleanup_record_cannot_be_saved_keeps_the_job`, `test_the_only_job_of_a_folder_leaves_a_findable_tombstone_when_deleted`, `test_a_failed_takeover_that_cannot_record_answers_409_busy_and_keeps_the_job` |
+| start-up | `test_startup_returns_by_the_deadline_although_a_rename_hangs`, `test_startup_with_several_hung_tombstones_returns_by_the_single_deadline`, `test_startup_returns_by_the_deadline_although_listdir_hangs`, `test_startup_with_hung_tombstones_and_a_stalled_writer_returns_by_the_deadline`, `test_an_orphan_tombstone_is_swept_at_start_up` |
+| locked I/O, lock order | `test_a_create_is_not_held_by_a_hung_output_stat_in_ensure`, `test_a_create_is_not_held_by_a_hung_mkdir`, `test_a_lifecycle_holder_does_not_wait_for_a_held_job_lock`, `test_a_preview_and_a_settings_change_of_one_font_do_not_deadlock`, `test_a_settings_put_never_waits_for_a_preview_lock_under_the_job_lock`, `test_after_a_settings_put_returns_the_old_preview_is_never_served` |
+| run prepare and commit | `test_a_create_is_not_held_by_a_run_reading_a_hung_input`, `test_a_create_is_not_held_by_a_run_hashing_a_hung_licence`, `test_a_create_is_not_held_by_a_run_planning_on_a_hung_volume`, `test_run_preparation_holds_no_lifecycle_lock`, `test_a_run_whose_job_changed_while_preparing_is_refused`, `test_a_second_run_during_preparation_is_refused`, `test_a_run_waits_a_bounded_time_for_a_preview_lock` |
 
 ## 9. Desktop app: closing evidence (cards t_f04f1355 shell, t_e64a56a7 packaging)
 
