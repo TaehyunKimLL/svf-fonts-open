@@ -80,13 +80,20 @@ def _preview_lock(job_id, font_id):
 
 
 @contextlib.contextmanager
-def _sweep_locks(job, timeout=None):
-    """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`).
-    With @p timeout (seconds, in all) every lock is waited for within that one allowance, not per font; `TimeoutError`
-    (nothing held) when it runs out."""
+def _sweep_locks(job, timeout=None, preparing=None):
+    """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`): the
+    fonts the job lists and every lock that still exists for its id (a deleted job's metadata is gone, its held locks
+    are not). With @p timeout (seconds, in all) every lock is waited for within that one allowance, not per font;
+    `TimeoutError` (nothing held) when it runs out. @p preparing (the server's marker dict): a job whose run is being
+    prepared is refused the same way, so no sweep moves a directory the run plans into."""
     end = None if timeout is None else time.monotonic() + timeout
+    if preparing is not None and job["id"] in preparing:
+        raise TimeoutError(job["id"])
+    with _PREVIEW_GUARD:
+        known = sorted(key[1] for key in _PREVIEW_LOCKS if key[0] == job["id"])
+    ids = dict.fromkeys([font.get("id") for font in job.get("fonts") or []] + known)
     with contextlib.ExitStack() as stack:
-        for font_id in dict.fromkeys(font.get("id") for font in job.get("fonts") or []):
+        for font_id in ids:
             if font_id:
                 lock = _preview_lock(job["id"], font_id)
                 if end is None:
@@ -137,9 +144,11 @@ def _sweep_idle(server, now=None):
 
 
 def _drop_preview_locks(job_id):
-    """Forget @p job_id's per-font preview locks (its directory is gone: `DELETE` and `retain`, W13)."""
+    """Forget @p job_id's per-font preview locks (its directory is gone: `DELETE` and `retain`, W13). A lock that is
+    held stays: its holder (a run being prepared, a bake) may still be using the directory, and a sweep that comes later
+    must find the lock held (`_sweep_locks`); it is dropped by the next call once it is free."""
     with _PREVIEW_GUARD:
-        for key in [key for key in _PREVIEW_LOCKS if key[0] == job_id]:
+        for key in [key for key in _PREVIEW_LOCKS if key[0] == job_id and not _PREVIEW_LOCKS[key].locked()]:
             _PREVIEW_LOCKS.pop(key, None)
 
 
@@ -521,7 +530,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
         os.umask(0o077)                                  # local mode: nothing it makes is readable by others
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
-    store.on_sweep = _sweep_locks
+    store.on_sweep = lambda job, timeout=None: _sweep_locks(job, timeout, server.preparing)
     lock_fd = _lock_data_root(store.data_root)            # before the reap: a second server must not kill the first's tools
     worker = server = reg = None
     try:
@@ -1568,6 +1577,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         the block ends. The marker stays on a normal exit (`_commit_run` clears it); it is cleared here only when the
         block raises. Errors as `_check_local_run` answered them: a gone or changed output folder is a 409."""
         store = self.server.store
+        wait = jobs.Deadline(jobs.LOCKED_IO_S)               # ONE allowance for every preview lock waited for, not per lock
         while True:
             stack = contextlib.ExitStack()
             wait_font = None
@@ -1604,7 +1614,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if wait_font is None:
                 break
             lock = _preview_lock(job, wait_font)
-            if not lock.acquire(timeout=jobs.LOCKED_IO_S):       # no other lock held; bounded like the preview's wait
+            if not lock.acquire(timeout=wait.remaining()):       # no other lock held; bounded like the preview's wait
                 raise _HttpError(409, "job %s is busy: a preview is being made; try again" % job)
             lock.release()
         try:

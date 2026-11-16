@@ -578,8 +578,13 @@ class Store:
             if mutation_pending(self.files_dir(job)):         # an abandoned rename/mkdir of this very name is in flight
                 raise OutputGone("the files directory is still being moved or made on a slow or hung volume; "
                                  "try again later")
+            made = []
             if not persist:
-                return self._make_files_dir(job, budget())
+                try:
+                    return self._make_files_dir(job, budget(), made)
+                except BaseException:
+                    self._failed_make(job, made, None)
+                    raise
             lock = self.lock(job["id"])
             if not lock.acquire(timeout=budget().remaining()):
                 raise Busy("job %s is busy" % job["id"])
@@ -588,7 +593,11 @@ class Store:
                     fresh = self.load(job["id"])
                 except KeyError:
                     raise OutputGone("job %s no longer exists" % job["id"])
-                files = self._make_files_dir(job, budget())          # the I/O budget starts with the locks held
+                try:
+                    files = self._make_files_dir(job, budget(), made)    # the I/O budget starts with the locks held
+                except BaseException:
+                    self._failed_make(job, made, fresh)
+                    raise
                 if job.get("files_id") != fresh.get("files_id"):    # against the job as it is now, not the caller's copy
                     fresh["files_id"] = job["files_id"]
                     self._write(fresh)
@@ -612,9 +621,29 @@ class Store:
         except OSError:
             return False
 
-    def _make_files_dir(self, job, dl):
+    def _failed_make(self, job, made, fresh):
+        """`ensure_files_dir` failed after it had started to make the files directory itself (@p made): a directory of a
+        generation nobody has recorded may exist now (or a mkdir of it is still in flight). The saved `files_id` (@p fresh,
+        the job as loaded under its lock; None where the caller saves the job) is the OLD generation and would make a
+        later sweep or retry take the new directory for "a newer generation" and leave it: it is cleared, and the path is
+        recorded pending with `making` (a generation of unknown identity), bounded. Never raises."""
+        if not made:
+            return
+        try:
+            if fresh is not None and fresh.get("files_id") is not None:
+                fresh["files_id"] = None
+                self._write(fresh)
+            job["files_id"] = None
+            self._add_pending_many([self._entry(job, self.files_dir(job), "the files directory was being made when "
+                                                "the call failed", files_id=None, making=True)],
+                                   Deadline(LOCKED_IO_S))
+        except Exception:
+            print_exc()
+
+    def _make_files_dir(self, job, dl, made=None):
         """The body of `ensure_files_dir`: every call bounded by @p dl (a `Deadline`) and keyed, so a hung volume costs
-        a request its section's allowance, never the lifecycle lock."""
+        a request its section's allowance, never the lifecycle lock. @p made (a list) gets an item once the mkdir of the
+        files directory itself is started."""
         left = lambda: min(STAT_TIMEOUT_S, dl.remaining())
         try:
             same = stat_id_bounded(job["output_dir"], left()) == tuple(job.get("output_id") or ())
@@ -625,8 +654,10 @@ class Store:
         files = self.files_dir(job)
         for path in (files, os.path.join(files, "work"), os.path.join(files, "work", "tmp")):
             try:
-                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p).st_mode, left())
+                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left()).st_mode   # one result type per key
             except FileNotFoundError:
+                if made is not None and path == files:
+                    made.append(path)
                 bounded_call(("mkdir", path), lambda p=path: os.mkdir(p, 0o700), left())
                 bounded_call(("chmod", path), lambda p=path: os.chmod(p, 0o700), left())
                 continue
@@ -1159,8 +1190,14 @@ class Store:
                         if left() <= 0:
                             continue                              # out of time: nothing started, nothing to record
                         try:
-                            rename_bounded(path, tomb, left())
+                            # the preview locks of that id (a run being prepared may still plan into it): try-lock
+                            hold = (contextlib.nullcontext() if self.on_sweep is None else
+                                    self.on_sweep({"id": job_id, "fonts": []}, min(PREVIEW_TRY_S, left())))
+                            with hold:
+                                rename_bounded(path, tomb, left())
                             trash.append((tomb, job_id))
+                        except TimeoutError:
+                            continue                          # held: left for the next pass
                         except CallPending:                   # in flight: both names are recorded
                             collected.append(self._entry({"id": job_id, "output_dir": out, "output_id": list(oid)},
                                                          path, "rename did not finish in time"))
@@ -1230,7 +1267,7 @@ class Store:
                     continue
                 # a bounded lstat, not `os.path.islink/isdir` (they turn every OSError into False, and a tombstone whose
                 # lookup fails would then be skipped and forgotten): FileNotFoundError = gone, any other error collects it
-                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p).st_mode, left())
+                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left()).st_mode   # one result type per key
                 if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
                     continue
                 if left() <= 0 or not remove_tree_bounded(path, min(REMOVE_BOUND_S, dl.remaining())):

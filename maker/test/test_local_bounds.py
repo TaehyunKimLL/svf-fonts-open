@@ -1117,7 +1117,7 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         self.assertFalse(t.is_alive())
         self.assertEqual(box, [404])
         job = self.store.load(jid)
-        self.assertTrue(job.get("files_id"))                   # the swept run's generation is still on the job
+        self.assertIsNone(job.get("files_id"))                 # the failed ensure cleared the swept run's stale generation
         st, sbox = on_thread(lambda: self.store.sweep_files(job, bound=0.5))
         st.join(2)
         self.assertFalse(st.is_alive())
@@ -1126,14 +1126,14 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         entry = [e for e in entries if e["path"] == fd][0]
         self.assertIsNone(entry["files_id"])
         self.assertTrue(entry.get("making"))
-        log = os.path.join(self.data, "jobs", jid, "log.md")      # the reason goes to the job's log
+        log = os.path.join(self.data, "jobs", jid, "log.md")      # the reason goes to the job's log, once per directory
         end = time.monotonic() + 2
         text = ""
-        while time.monotonic() < end and "busy" not in text:
+        while time.monotonic() < end and ("sweep: %s:" % fd) not in text:
             time.sleep(0.05)
             with open(log, encoding="utf-8") as f:
                 text = f.read()
-        self.assertIn("sweep: %s: busy" % fd, text)
+        self.assertIn("sweep: %s: the files directory was being made" % fd, text)
         t, box = on_thread(lambda: self.api("DELETE", "/api/jobs/%s" % jid))
         t.join(3)
         self.assertFalse(t.is_alive())
@@ -1355,6 +1355,51 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         th.join(2)
         self.assertFalse(os.path.exists(self.files_dir(jid)))
 
+    def test_two_callers_sharing_one_lstat_both_get_what_they_ask_for(self):
+        jid = self.swept_job()
+        job = self.store.load(jid)
+        fd = self.store.ensure_files_dir(job)
+        job = self.store.load(jid)
+        hang = self.hang(os, "lstat", os.lstat, lambda p, *a: p == fd)
+        a, abox = on_thread(lambda: self.store.files_current(job, jobs.Deadline(3)))
+        self.assertTrue(hang.entered.wait(3))
+        threading.Timer(0.15, hang.release.set).start()        # while the second caller waits for the first one's call
+        b, bbox = on_thread(lambda: self.store.ensure_files_dir(job))
+        for th in (a, b):
+            th.join(3)
+            self.assertFalse(th.is_alive())
+        self.assertEqual(abox, [True])
+        self.assertEqual(bbox, [fd])                           # not a TypeError from the other caller's result type
+
+    def test_a_failed_ensure_after_the_directory_was_made_leaves_a_sweepable_generation(self):
+        jid = self.swept_job()
+        fd = self.files_dir(jid)
+        self.assertTrue(self.store.load(jid)["files_id"])      # the swept run's generation, now stale
+        real = os.mkdir
+
+        def mkdir(path, *a, **k):
+            if path == os.path.join(fd, "work"):
+                raise OSError(5, "Input/output error")
+            return real(path, *a, **k)
+        with mock.patch.object(os, "mkdir", mkdir):
+            with self.assertRaises(OSError):
+                self.store.ensure_files_dir(self.store.load(jid))
+        self.assertTrue(os.path.isdir(fd))                      # made before the failure
+        self.assertIsNone(self.store.load(jid)["files_id"])     # not the old generation: it would hide this one
+        poll_pending(self, self.data, lambda es: any(e["path"] == fd and e.get("making") for e in es))
+        # a sweep that fails before it has looked records what it knows; the retry must still remove the directory
+        real_fs = jobs.fs_bounded
+
+        def fs(op, path, timeout):
+            if op == "lexists" and path == fd:
+                raise OSError(5, "Input/output error")
+            return real_fs(op, path, timeout)
+        with mock.patch.object(jobs, "fs_bounded", fs):
+            self.store.sweep_files(self.store.load(jid), bound=2)
+        self.assertTrue(os.path.isdir(fd))
+        self.store.retry_pending_sweeps()
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-" + jid)], [])
+
     def test_ensure_saves_the_generation_when_the_stored_one_differs_from_the_callers(self):
         jid = self.swept_job()
         files = self.store.ensure_files_dir(self.store.load(jid))
@@ -1528,12 +1573,46 @@ class RunPrepareTest(localfx.LocalRunBase):
         self.assertEqual(self.job(self.A)["state"], "detected")
         self.assertNotIn(self.A, self.srv.preparing)
 
+    def test_a_run_waits_for_several_held_preview_locks_within_one_allowance(self):
+        ids = list(dict.fromkeys(f["id"] for f in self.job(self.A)["fonts"]))
+        first, second = server._preview_lock(self.A, ids[0]), server._preview_lock(self.A, ids[1])
+        first.acquire()
+        second.acquire()
+        released = []
+
+        def release(lock):
+            if lock not in released:
+                released.append(lock)
+                lock.release()
+        self.addCleanup(release, second)
+        self.addCleanup(release, first)
+        timer = threading.Timer(0.2, release, (first,))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
+            t0 = time.monotonic()
+            thread, box = self.run_on_thread()
+            thread.join(3)
+            elapsed = time.monotonic() - t0
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(box[0][0], 409, box)
+        self.assertIn("busy", box[0][1]["error"])
+        self.assertLess(elapsed, 0.45)                         # one allowance (0.3 s), not one per lock (0.2 + 0.3 s)
+        self.assertNotIn(self.A, self.srv.preparing)
+
     def test_a_delete_during_run_preparation_leaves_no_files_directory(self):
         hang = self.planning_hang()
         thread, box = self.run_on_thread()
         self.assertTrue(hang.entered.wait(5))
         status, body = self.api("DELETE", "/api/jobs/%s" % self.A)
         self.assertEqual(status, 200, body)
+        fd = os.path.join(self.out, ".svf-maker-" + self.A)
+        # the run still plans into the directory under its preview locks: no sweep may move it meanwhile, however it
+        # reaches it (the pending retry, the orphan sweep), although the job's metadata is gone
+        self.store.retry_pending_sweeps()
+        self.store.sweep_orphans(jobs.Deadline(3))
+        self.assertTrue(os.path.isdir(fd), "a sweep moved the directory under the run's plan")
+        self.assertEqual([n for n in os.listdir(self.out) if ".trash-" in n], [])
         hang.release.set()
         thread.join(10)
         self.assertFalse(thread.is_alive())

@@ -242,7 +242,7 @@ the cleanup". What is bounded now, and what is not.
   request on the same hung path shares the call already in flight, inside its own section's bound.
 - **Exceptions.** Start-up cleanup uses `STARTUP_CLEANUP_S` (30 s) and stop uses `STOP_SWEEP_TOTAL_S` (8 s) as their one
   deadline for every wait (lifecycle lock, preview locks, stats, renames, removals, pending records); they are not capped
-  at `LOCKED_IO_S`. A pass overruns its deadline by at most the pending floor and the flush (about 1 s), inside the
+  at `LOCKED_IO_S`. A pass overruns its deadline by at most a few pending floors (about 2 s: the records of one pass, then the flush), inside the
   margins of `desktop/lib/budget.js`. The data root (`job.json`, `Store.list`, `log.md`) is assumed to be a local disk
   and is not bounded.
 - **The fence.** A rename that is abandoned (timed out) stays registered as in flight and keeps its path fenced:

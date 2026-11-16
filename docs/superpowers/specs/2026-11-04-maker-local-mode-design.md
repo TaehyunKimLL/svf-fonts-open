@@ -514,7 +514,8 @@ local job serve from `steps/`. If the owner rules otherwise (D5) they are swept 
 404 after the job.
 
 *Later bounds (t_d1aba4b8).* The sentence above, "the start-up sweep runs on a thread after the bind", is historical: the
-sweep still never holds the "listening on" line, but its deadlines, the fence on an abandoned rename, the single writer of
+start-up sweep now runs BEFORE the "listening on" line, bounded in all by `STARTUP_CLEANUP_S` plus the pending floor and
+the flush of the pending records; its deadlines, the fence on an abandoned rename, the single writer of
 `pending-sweeps.json`, the three sections of a local `POST run` (prepare, read and plan outside the lifecycle lock,
 commit) and the restored lock order are described in `docs/maker-audit.md` section 8, "Bounded lifecycle".
 
