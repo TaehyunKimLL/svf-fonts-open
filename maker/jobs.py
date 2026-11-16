@@ -1085,7 +1085,7 @@ class Store:
                 try:
                     if stat_id_bounded(out, left()) != oid:
                         continue
-                    names = bounded_call(("listdir", out), lambda: os.listdir(out), left())
+                    names = bounded_call(("listdir", out), lambda o=out: os.listdir(o), left())
                 except (OSError, TypeError):
                     continue
                 for name in names:
@@ -1179,7 +1179,7 @@ class Store:
                     continue
                 # a bounded lstat, not `os.path.islink/isdir` (they turn every OSError into False, and a tombstone whose
                 # lookup fails would then be skipped and forgotten): FileNotFoundError = gone, any other error collects it
-                mode = bounded_call(("lstat", path), lambda: os.lstat(path).st_mode, left())
+                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p).st_mode, left())
                 if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
                     continue
                 if left() <= 0 or not remove_tree_bounded(path, min(REMOVE_BOUND_S, dl.remaining())):

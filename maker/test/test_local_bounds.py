@@ -904,16 +904,30 @@ class StartupBoundsTest(localfx.LocalRunBase):
 
     def test_startup_with_several_hung_tombstones_returns_by_the_single_deadline(self):
         jid, _ = self.done_job()
-        self.tombstones(jid, 3)
+        tombs = self.tombstones(jid, 3)
         self.hang_tomb_rmtree(jid)
         self.release_lock()
-        with mock.patch.object(jobs, "REMOVE_BOUND_S", 0.8), mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0):
+        calls = []
+        real = jobs.remove_tree_bounded
+
+        def spy(path, timeout):
+            if path in tombs:
+                calls.append(timeout)
+            return real(path, timeout)
+        with mock.patch.object(jobs, "REMOVE_BOUND_S", 0.8), mock.patch.object(server, "STARTUP_CLEANUP_S", 1.0), \
+                mock.patch.object(jobs, "remove_tree_bounded", spy):
             t, box, t0 = self.start_server()
             t.join(5)
             self.assertFalse(t.is_alive())
             elapsed = time.monotonic() - t0
         self.assertNotIsInstance(box[0], BaseException)
-        self.assertLess(elapsed, 1.5)                     # one deadline (about 1.04 s); a REMOVE_BOUND_S each would be 1.6+
+        # The shared deadline, pinned directly (not by wall clock): each removal gets at most REMOVE_BOUND_S of what is left,
+        # so all together at most the deadline, and the third tombstone is never tried.
+        self.assertTrue(calls)
+        self.assertLessEqual(max(calls), 0.8)
+        self.assertLessEqual(sum(calls), 1.0 + 0.05, calls)
+        self.assertLessEqual(len(calls), 2, calls)
+        self.assertLess(elapsed, 2.5)                     # only a guard: it includes the server's construction
         self.assertNotIn(jid, box[0].cleanup_pending)
 
     def test_startup_returns_by_the_deadline_although_listdir_hangs(self):
