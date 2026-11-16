@@ -1576,6 +1576,66 @@ class RunPrepareTest(localfx.LocalRunBase):
         self.finish(hang, thread, box)
         self.wait_done(self.A)
 
+    def commit_gap_hang(self, target, name, real):
+        return self.hang(target, name, real, lambda *a, **k: True)
+
+    def test_a_job_changed_after_the_preview_locks_went_is_refused_inside_the_job_lock(self):
+        hang = self.commit_gap_hang(jobs.Store, "files_current", jobs.Store.files_current)
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        st = self.job(self.A)["settings"]
+        st["fonts"][self.ttf]["sizes"] = [16, 24]
+        status, body = self.api("PUT", "/api/jobs/%s/settings" % self.A, st)
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.job(self.A)["settings"]["fonts"][self.ttf]["sizes"], [16, 24])
+        body = self.finish(hang, thread, box, 409)
+        self.assertIn("changed while the run was being prepared", body["error"])
+        self.assertEqual(self.job(self.A)["state"], "detected")
+
+    def test_the_marker_stays_through_the_gap_between_prepare_and_commit(self):
+        hang = self.commit_gap_hang(server.Handler, "_commit_run", server.Handler._commit_run)
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        t0 = time.monotonic()
+        status, body = self.api("POST", "/api/jobs/%s/run" % self.A)
+        self.assertEqual(status, 409, body)
+        self.assertIn("being prepared", body["error"])
+        self.assertLess(time.monotonic() - t0, 1.0)
+        self.finish(hang, thread, box)
+        self.assertEqual(self.wait_done(self.A)["state"], "done")
+
+    def test_a_pending_mutation_on_the_files_directory_refuses_the_commit(self):
+        hang = self.planning_hang()
+        thread, box = self.run_on_thread()
+        self.assertTrue(hang.entered.wait(5))
+        key = ("rename", self.fd)
+        with jobs._CALLS_LOCK:
+            jobs._CALLS_IN_FLIGHT[key] = (threading.Event(), [], time.monotonic())
+
+        def forget():
+            with jobs._CALLS_LOCK:
+                jobs._CALLS_IN_FLIGHT.pop(key, None)
+        self.addCleanup(forget)
+        body = self.finish(hang, thread, box, 409)
+        self.assertEqual(body["error"], "output folder is gone or changed")
+        self.assertNotIn(self.A, self.srv.preparing)
+
+    def test_a_run_waits_a_bounded_time_for_a_preview_lock(self):
+        lock = server._preview_lock(self.A, self.ttf)
+        lock.acquire()
+        self.addCleanup(lambda: lock.locked() and lock.release())
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
+            t0 = time.monotonic()
+            thread, box = self.run_on_thread()
+            thread.join(3)
+        self.assertFalse(thread.is_alive(), "the run waits for ever")
+        status, body = box[0]
+        self.assertEqual(status, 409, box)
+        self.assertIn("busy", body["error"])
+        self.assertLess(time.monotonic() - t0, 2.0)
+        self.assertNotIn(self.A, self.srv.preparing)
+        self.assertFalse(self.store.lifecycle.locked())
+
     def test_a_run_on_a_gone_output_folder_still_answers_409(self):
         os.rename(self.out, self.out + ".moved")
         os.mkdir(self.out)

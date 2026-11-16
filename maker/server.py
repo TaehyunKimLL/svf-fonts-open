@@ -1604,7 +1604,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if wait_font is None:
                 break
             lock = _preview_lock(job, wait_font)
-            lock.acquire()                                       # no other lock held
+            if not lock.acquire(timeout=jobs.LOCKED_IO_S):       # no other lock held; bounded like the preview's wait
+                raise _HttpError(409, "job %s is busy: a preview is being made; try again" % job)
             lock.release()
         try:
             yield current, files
