@@ -162,6 +162,11 @@ class _HttpError(Exception):
         self.extra = extra or {}
 
 
+def _busy(kind, message, extra=None):
+    """The retryable 409: @p message as is, plus `"busy": kind` (`lock` | `preparing` | `preview`) for the page's retry."""
+    return _HttpError(409, message, dict(extra or {}, busy=kind))
+
+
 def _count_dir(root):
     """`(files, bytes)` of the regular files under @p root (`lstat`: a symlink is never followed).
 
@@ -844,7 +849,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except KeyError:
             raise _HttpError(409, "job %s is gone" % job_id)
         except jobs.Busy:
-            raise _HttpError(409, "job %s is busy; try again" % job_id)
+            raise _busy("lock", "job %s is busy; try again" % job_id)
 
     def _content_length(self):
         raw = self.headers.get("Content-Length")
@@ -944,9 +949,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         try:
                             after.append(store.delete(job["id"], locked=True, timeout=jobs.LOCKED_IO_S))
                         except jobs.Busy:                     # its cleanup record was not saved: the job stays, swept when idle
-                            raise _HttpError(409, "job %s is busy; try again" % job["id"])
+                            raise _HttpError(409, "job %s is busy; try again" % job["id"])   # untagged: a job was created
                         if isinstance(exc, jobs.Busy):        # the job lock was not free: nothing was made, say busy
-                            raise _HttpError(409, "job %s is busy; try again" % job["id"])
+                            raise _HttpError(409, "job %s is busy; try again" % job["id"])   # untagged: a job was created
                         raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
                     answer = {"id": job["id"]}
         finally:
@@ -966,7 +971,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 fresh = self._load(job)
                 if fresh.get("source") == "local" and fresh.get("state") in ("done", "failed"):
                     if self.server.worker.owns(job):               # its run has published the end but is still cleaning up
-                        raise _HttpError(409, "job %s: the previous run is finishing; try again in a moment" % job)
+                        raise _busy("lock", "job %s: the previous run is finishing; try again in a moment" % job)
                     self._claim_folder(fresh.get("output_id"), exclude=job, after=after)
                 return self._update(job, transition, timeout=jobs.LOCKED_IO_S)
         finally:
@@ -998,7 +1003,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             finish()
                         continue
                     except jobs.Busy:                          # the holder's lock is not free: say so, name the job
-                        raise _HttpError(409, "job %s is busy; try again" % item["id"], {"job": item["id"]})
+                        raise _busy("lock", "job %s is busy; try again" % item["id"], {"job": item["id"]})
                     except (ValueError, KeyError, OSError):
                         pass
                 raise _HttpError(409, "output folder is in use by job %s (delete it, or wait until it has been "
@@ -1046,7 +1051,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         break
             if waiting is not None:
                 if not waiting.wait(jobs.LOCKED_IO_S):           # outside every lock, bounded
-                    raise _HttpError(409, "a run of job %s is being prepared; try again" % job)
+                    raise _busy("preparing", "a run of job %s is being prepared; try again" % job)
             else:
                 lock.acquire()                                   # a bake holds it: wait with no other lock held
                 lock.release()
@@ -1071,7 +1076,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except jobs.OutputGone as exc:
             raise _HttpError(404, str(exc))
         except jobs.Busy:
-            raise _HttpError(409, "job %s is busy; try again" % current["id"])
+            raise _busy("lock", "job %s is busy; try again" % current["id"])
         except OSError as exc:
             raise _HttpError(404, "output folder: %s" % _os_reason(exc))
 
@@ -1086,7 +1091,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except jobs.OutputGone as exc:
             raise _HttpError(404, str(exc))
         except jobs.Busy:
-            raise _HttpError(409, "job %s is busy; try again" % current["id"])
+            raise _busy("lock", "job %s is busy; try again" % current["id"])
         except OSError as exc:
             raise _HttpError(404, "output folder: %s" % _os_reason(exc))
 
@@ -1173,7 +1178,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except KeyError:
             raise _HttpError(404, "no job %s" % job)
         except jobs.Busy:
-            raise _HttpError(409, "job %s is busy; try again" % job)
+            raise _busy("lock", "job %s is busy; try again" % job)
         except (ValueError, OSError):
             raise _HttpError(409, "job %s cannot be deleted" % job)
         self.send_json({"deleted": job})
@@ -1589,7 +1594,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         raise _HttpError(503, "the server is stopping")
                     self._refuse_cleanup_pending(job)
                     if job in self.server.preparing:
-                        raise _HttpError(409, "a run of job %s is being prepared" % job)
+                        raise _busy("preparing", "a run of job %s is being prepared" % job)
                     current = self._load(job)
                     if current.get("state") != "detected":
                         raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
@@ -1598,7 +1603,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     except jobs.OutputGone as exc:
                         raise _HttpError(409, str(exc))
                     except jobs.Busy:
-                        raise _HttpError(409, "job %s is busy; try again" % job)
+                        raise _busy("lock", "job %s is busy; try again" % job)
                     except OSError as exc:
                         raise _HttpError(409, "output folder: %s" % _os_reason(exc))
                     current = self._load(job)                    # with the generation `ensure_files_dir` saved
@@ -1616,7 +1621,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 break
             lock = _preview_lock(job, wait_font)
             if not lock.acquire(timeout=wait.remaining()):       # no other lock held; bounded like the preview's wait
-                raise _HttpError(409, "job %s is busy: a preview is being made; try again" % job)
+                raise _busy("preview", "job %s is busy: a preview is being made; try again" % job)
             lock.release()
         try:
             yield current, files
@@ -1648,7 +1653,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if j.get("state") != "detected":
                         raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
                     if _run_fingerprint(j) != fingerprint:
-                        raise _HttpError(409, "the job changed while the run was being prepared: run again")
+                        raise _HttpError(409, "the job changed while the run was being prepared: run again", {"stale": True})
                     shutil.rmtree(os.path.join(store.meta_dir(job), "steps"), ignore_errors=True)
                     j.update(state="queued", error=None, steps=steps, result=None)
                 self._update(job, commit, timeout=jobs.LOCKED_IO_S)

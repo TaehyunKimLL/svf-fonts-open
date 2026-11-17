@@ -625,6 +625,7 @@ class SweepBoundsTest(localfx.LocalRunBase):
         status, body = box[0]
         self.assertEqual(status, 409, body)
         self.assertIn("busy", json.dumps(body))
+        self.assertEqual(body.get("busy"), "lock")
         self.assertTrue(os.path.exists(os.path.join(self.data, "jobs", jid, "job.json")))
         fsync.release.set()
         self.wait_writer_idle()
@@ -822,6 +823,7 @@ class SweepBoundsTest(localfx.LocalRunBase):
         status, body = box[0]
         self.assertEqual(status, 409, body)
         self.assertIn("busy", json.dumps(body))
+        self.assertNotIn("busy", body)
         left = [i for i in self.store.list()]
         self.assertEqual([i["state"] for i in left], ["uploading"])
         fsync.release.set()
@@ -1200,6 +1202,7 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         status, body = box2[0]
         self.assertEqual(status, 409, body)
         self.assertIn("busy", json.dumps(body))
+        self.assertEqual(body.get("busy"), "lock")
         self.assertNotIn("output folder", json.dumps(body))
         self.assertFalse(os.path.exists(fd))
         self.assertFalse(jobs.mutation_pending(fd))
@@ -1465,6 +1468,7 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         self.assertEqual(status, 409, body)
         self.assertIn("busy", body["error"])
         self.assertEqual(body.get("job"), holder)
+        self.assertEqual(body.get("busy"), "lock")
 
     def test_a_create_whose_ensure_is_busy_answers_busy_not_400(self):
         before = [item["id"] for item in self.store.list()]
@@ -1472,6 +1476,7 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
             status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": self.healthy})
         self.assertEqual(status, 409, body)
         self.assertIn("busy", body["error"])
+        self.assertNotIn("busy", body)
         self.assertEqual([item["id"] for item in self.store.list()], before)
 
 
@@ -1588,6 +1593,7 @@ class RunPrepareTest(localfx.LocalRunBase):
         self.assertEqual(self.job(self.A)["settings"]["fonts"][self.ttf]["sizes"], [16, 24], "the PUT never saved")
         body = self.finish(hang, thread, box, 409)
         self.assertIn("changed while the run was being prepared", body["error"])
+        self.assertIs(body.get("stale"), True)
         put.join(10)
         self.assertFalse(put.is_alive())
         self.assertEqual(pbox[0][0], 200, pbox)
@@ -1604,6 +1610,7 @@ class RunPrepareTest(localfx.LocalRunBase):
         status, body = self.api("POST", "/api/jobs/%s/run" % self.A)
         self.assertEqual(status, 409, body)
         self.assertIn("being prepared", body["error"])
+        self.assertEqual(body.get("busy"), "preparing")
         self.assertLess(time.monotonic() - t0, 1.0)
         self.finish(hang, thread, box)
         self.wait_done(self.A)
@@ -1697,6 +1704,7 @@ class RunPrepareTest(localfx.LocalRunBase):
         status, body = gbox[0]
         self.assertEqual(status, 409, gbox)
         self.assertIn("being prepared", body["error"])
+        self.assertEqual(body.get("busy"), "preparing")
         self.assertLess(time.monotonic() - t0, 2.0)
         self.finish(hang, thread, box)
         self.wait_done(self.A)
@@ -1715,6 +1723,7 @@ class RunPrepareTest(localfx.LocalRunBase):
         self.assertEqual(self.job(self.A)["settings"]["fonts"][self.ttf]["sizes"], [16, 24])
         body = self.finish(hang, thread, box, 409)
         self.assertIn("changed while the run was being prepared", body["error"])
+        self.assertIs(body.get("stale"), True)
         self.assertEqual(self.job(self.A)["state"], "detected")
 
     def test_the_marker_stays_through_the_gap_between_prepare_and_commit(self):
@@ -1757,6 +1766,7 @@ class RunPrepareTest(localfx.LocalRunBase):
         status, body = box[0]
         self.assertEqual(status, 409, box)
         self.assertIn("busy", body["error"])
+        self.assertEqual(body.get("busy"), "preview")
         self.assertLess(time.monotonic() - t0, 2.0)
         self.assertNotIn(self.A, self.srv.preparing)
         self.assertFalse(self.store.lifecycle.locked())
@@ -1805,6 +1815,21 @@ class RetryRaceTest(unittest.TestCase):
         with open(os.path.join(tmp, "data", "pending-sweeps.json"), encoding="utf-8") as f:
             entries = json.load(f)
         self.assertTrue(any(e["path"] == tomb for e in entries), entries)
+
+
+class BusyFieldTest(unittest.TestCase):
+    """Every retryable 409 is built by `_busy` (so it carries `"busy": kind`); only the create path stays untagged."""
+
+    def test_every_busy_409_goes_through_busy_helper(self):
+        import re
+        pattern = re.compile(r'_HttpError\(409,\s*"(?:[^"]*is busy|a run of job|job %s: the previous run is finishing)')
+        with open(server.__file__, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        raw = [n + 1 for n, line in enumerate(lines) if pattern.search(line)]
+        for n in raw:
+            self.assertIn("# untagged: a job was created", lines[n - 1], "server.py:%d" % n)
+        self.assertEqual(len(raw), 2, raw)
+        self.assertGreaterEqual(sum(line.count("raise _busy(") for line in lines), 10)
 
 
 if __name__ == "__main__":
