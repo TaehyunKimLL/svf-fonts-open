@@ -65,6 +65,12 @@ for (const [m, k] of [["DELETE", "lock"], ["POST", "preview"], ["GET", "preparin
 console.log(JSON.stringify(out));""")
         self.assertEqual(got, [[500, 1000, 2000, None], None] * 3)
 
+    def test_busy_policy_takes_a_test_override_of_the_bounds(self):
+        got = node("""console.log(JSON.stringify([L.busyRetryDelay("GET", "lock", 1, 0, {retryMs: [5, 6]}),
+  L.busyRetryDelay("GET", "lock", 2, 0, {retryMs: [5, 6]}), L.busyRetryDelay("GET", "lock", 0, 100, {totalMs: 100}),
+  L.busyRetryDelay("GET", "lock", 0, 99, {totalMs: 100})]));""")
+        self.assertEqual(got, [6, None, None, 500])
+
     def test_busy_policy_never_retries_a_preparing_post_or_an_untagged_answer(self):
         got = node("""const out = [L.busyRetryDelay("POST", "preparing", 0, 0)];
 for (const k of [undefined, "", "other", true]) for (const m of ["GET", "POST", "PUT", "DELETE"]) out.push(L.busyRetryDelay(m, k, 0, 0));

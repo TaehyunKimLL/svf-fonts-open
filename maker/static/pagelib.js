@@ -52,11 +52,13 @@ const BUSY_KINDS = ["lock", "preparing", "preview"];
 // The wait before the next repeat, or null when the page must not repeat: an answer with no busy kind (also a network
 // error: no answer means the outcome is unknown), a "being prepared" answer to anything but a GET (another run is
 // being made: repeating would only race it), the repeats used up, or the total time spent.
-export function busyRetryDelay(method, kind, repeats, elapsedMs) {
+export function busyRetryDelay(method, kind, repeats, elapsedMs, bounds) {
+  const delays = (bounds && bounds.retryMs) || BUSY_RETRY_MS;                 // @p bounds: a test's override
+  const total = bounds && bounds.totalMs !== undefined ? bounds.totalMs : BUSY_RETRY_TOTAL_MS;
   if (typeof kind !== "string" || !BUSY_KINDS.includes(kind)) return null;
   if (kind === "preparing" && method !== "GET") return null;
-  if (repeats >= BUSY_RETRY_MS.length || elapsedMs >= BUSY_RETRY_TOTAL_MS) return null;
-  return BUSY_RETRY_MS[repeats];
+  if (repeats >= delays.length || elapsedMs >= total) return null;
+  return delays[repeats];
 }
 
 export function isBusyKind(kind) { return typeof kind === "string" && BUSY_KINDS.includes(kind); }

@@ -462,6 +462,18 @@ function batchBpp() { return [...bppEl.querySelectorAll("input:checked")].map((b
 
 const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// The retry bounds, read at call time. `window.__busyBounds` (tests only) may override the delays, the total, the follow
+// interval, the clock and the sleep; the production values are pagelib's.
+function busyBounds() {
+  const o = (typeof window !== "undefined" && window.__busyBounds) || {};
+  return {retryMs: o.retryMs || BUSY_RETRY_MS, totalMs: o.totalMs !== undefined ? o.totalMs : BUSY_RETRY_TOTAL_MS,
+          followMs: o.followMs !== undefined ? o.followMs : 1000, now: o.now || Date.now, sleep: o.sleep || sleepMs};
+}
+
+// The run-retry generation: a request tagged with `opts.runGen` stops retrying (and never shows "Try again") once the
+// generation has moved, which `followOtherRun` does when it sees the other run start.
+let runGen = 0;
+
 // One JSON call. A 409 the server tagged `busy` is repeated after 0.5, 1 and 2 s (a bounded retry of the one request,
 // never after a network error and never once the user has started anything else: the notice epoch), then the notice
 // stays with a "Try again" button that sends the identical request once more. The thrown Error carries `body`.
@@ -476,7 +488,9 @@ async function api(method, path, body, opts = {}) {
     }
   }
   const epoch = noticeEpoch;                          // before the first send: an action started meanwhile cancels the retry
-  const start = Date.now();
+  const bounds = busyBounds();
+  const start = bounds.now();
+  const superseded = () => noticeEpoch !== epoch || (opts.runGen !== undefined && opts.runGen !== runGen);
   let repeats = 0;
   let retried = false;
   for (;;) {
@@ -512,25 +526,26 @@ async function api(method, path, body, opts = {}) {
       notice(message);
       throw error;
     }
-    if (noticeEpoch !== epoch) throw error;           // the user moved on while this answer was pending
-    const delay = busyRetryDelay(method, kind, repeats, Date.now() - start);
+    if (superseded()) throw error;                    // the user moved on while this answer was pending
+    const delay = busyRetryDelay(method, kind, repeats, bounds.now() - start, bounds);
     if (delay !== null) {
       retried = true;
-      setNoticeQuiet(message + " (retrying " + (repeats + 1) + "/" + BUSY_RETRY_MS.length + ")");
-      await sleepMs(delay);
-      if (noticeEpoch !== epoch) throw error;
-      if (Date.now() - start < BUSY_RETRY_TOTAL_MS) {   // the deadline is checked again right before the send
+      setNoticeQuiet(message + " (retrying " + (repeats + 1) + "/" + bounds.retryMs.length + ")");
+      await bounds.sleep(delay);
+      if (superseded()) throw error;
+      if (bounds.now() - start < bounds.totalMs) {   // the deadline is checked again right before the send
         repeats++;
         continue;
       }
     }
     // no (further) automatic retry: the message stays, with a "Try again" for the identical request
+    if (superseded()) throw error;
     setNoticeQuiet(message);
     dropBusyWait();                                   // one control: a second exhausted call replaces the first
     noticeRetryEl.hidden = false;
     return new Promise((resolve, reject) => {
       busyWait = {resolve, reject, error, args: [method, path, body, opts]};
-      if (typeof opts.onWait === "function") opts.onWait(kind);
+      if (typeof opts.onWait === "function") opts.onWait(kind, epoch);
     });
   }
 }
@@ -2249,7 +2264,7 @@ async function run() {
   const id = jobId;
   try {
     await api("POST", "/api/jobs/" + encodeURIComponent(id) + "/run", undefined,
-              {onWait: (kind) => { if (kind === "preparing") followOtherRun(id); }});
+              {runGen, onWait: (kind, epoch) => { if (kind === "preparing") followOtherRun(id, epoch); }});
   } catch (err) {
     if (err && err.body && err.body.stale === true) await reload();   // the settings changed under the run: show them
     return;
@@ -2259,28 +2274,31 @@ async function run() {
   await renderJobs();
 }
 
-// "A run of this job is being prepared" (another tab or window): follow that run instead of repeating ours. Once a
-// second, for up to 15 s, read the job; when its state leaves `detected` show it (and poll while it runs) and drop the
-// "Try again" control. One loop at a time; the open job is re-checked after every awaited answer.
-let followId = null;
-async function followOtherRun(id) {
-  if (followId === id) return;
-  followId = id;
+// "A run of this job is being prepared" (another tab or window): follow that run instead of repeating ours. Every
+// `followMs` (1 s), for up to 15 s, read the job; when its state leaves `detected` show it (polling while it runs),
+// drop the "Try again" control and end every retry of the superseded request (`runGen`). The loop belongs to the action
+// that started it (@p epoch): a user action (a public notice / clearNotice) or another open job ends it without touching
+// the newer action's control or notice. One loop per action, also across "Try again".
+let follow = null;
+async function followOtherRun(id, epoch) {
+  if (follow && follow.id === id && follow.epoch === epoch) return;
+  const mine = follow = {id, epoch};
+  const still = () => follow === mine && jobId === id && noticeEpoch === epoch;
   const end = Date.now() + BUSY_RETRY_TOTAL_MS;
   try {
     while (Date.now() < end) {
-      await sleepMs(1000);
-      if (jobId !== id) return;
+      await sleepMs(busyBounds().followMs);
+      if (!still()) return;
       let other = null;
       try {
         const response = await fetch("/api/jobs/" + encodeURIComponent(id));
         if (response.ok) other = await response.json();
       } catch (err) { /* no answer: look again */ }
-      if (jobId !== id) return;                       // a late answer must not render another job
+      if (!still()) return;                           // a late answer must not render another job or wipe a newer notice
       if (other && other.state !== "detected") {
+        runGen++;                                     // the run request (and its Try again) is superseded
         job = other;
-        settings = clone(job.settings || {batch: {}, fonts: {}});
-        dirty = false;
+        if (!dirty) settings = clone(job.settings || {batch: {}, fonts: {}});   // unsaved edits stay, as in poll()
         dropBusyWait();
         setNoticeQuiet("");
         renderAll();
@@ -2290,7 +2308,7 @@ async function followOtherRun(id) {
       }
     }
   } finally {
-    if (followId === id) followId = null;
+    if (follow === mine) follow = null;
   }
 }
 
