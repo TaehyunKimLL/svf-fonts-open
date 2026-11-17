@@ -264,5 +264,121 @@ class LocalEndToEndTest(unittest.TestCase):
                 e2efx.assert_draws(self, os.path.join(self.out, rel))
 
 
+GBATB17 = os.path.join(REPO_DIR, "svf", "dos", "GBATB17.SVF")
+# The exact LICENCES.tsv.lines row of the preset face (zipout.licences_line): the face's note and licence, both in the
+# zip as svf/new/acc/GOWUN.TXT, and the licence is the equal file the repository already has, dos/OFLGOWUN.TXT. (web/LICENCES.tsv has the glob `dos/GBATB*.SVF`, which
+# covers this face too: the duplicate block alone would list it either way, so it is not what pins the identity.)
+GBATB17_ROW = "dos/GBATB17.SVF\tnew/acc/GOWUN.TXT,dos/OFLGOWUN.TXT"
+
+
+def _read(path):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+class PresetAcceptanceTest(unittest.TestCase):
+    """`dos-u-2bpp` at 17 px over GowunBatang-Bold through the full upload job reproduces `svf/dos/GBATB17.SVF` byte
+    for byte. This is the only byte-level pin of the `svf2to3.py --profile default` tail of the mkfont route."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scratch = _scratch("e2e-preset-")
+        try:
+            cls._run()
+        except BaseException:
+            cls.tearDownClass()
+            raise
+
+    @classmethod
+    def _run(cls):
+        cls.server = e2efx.Server(os.path.join(cls.scratch, "data"))
+        api = cls.server.api
+        status, body = api("POST", "/api/jobs")
+        _need(status == 200, body)
+        cls.jid = jid = body["id"]
+        src = os.path.join(REPO_DIR, "ttf", "gowunbatang")
+        for name, rel in (("GowunBatang-Bold.ttf", "gowun/GowunBatang-Bold.ttf"), ("OFL.txt", "gowun/OFL.txt")):
+            status, body = api("PUT", "/api/jobs/%s/files?path=%s" % (jid, urllib.parse.quote(rel, safe="")),
+                               body=_read(os.path.join(src, name)))
+            _need(status == 200, body)
+        status, body = api("POST", "/api/jobs/%s/detect" % jid)
+        _need(status == 200, body)
+        status, job = api("GET", "/api/jobs/%s" % jid)
+        _need(status == 200, job)
+        fid = inputkinds.only_font(job["fonts"])
+        st = job["settings"]
+        for per in st["fonts"].values():
+            per["selected"] = False
+        inputkinds.select(st, fid, dest="new/acc", bpp=(2,), kinds=["precomposed"], sizes=[17], preset="dos-u-2bpp")
+        status, body = api("PUT", "/api/jobs/%s/settings" % jid, st)
+        _need(status == 200, body)
+        status, body = api("POST", "/api/jobs/%s/run" % jid)
+        _need(status == 200, body)
+        cls.job = cls.server.wait_done(jid)
+        status, _h, data = cls.server.call("GET", "/api/jobs/%s/zip" % jid)
+        _need(status == 200, status)
+        cls.zip_path = os.path.join(cls.scratch, "out.zip")
+        with open(cls.zip_path, "wb") as fh:
+            fh.write(data)
+        steps = [s for s in cls.job["steps"] if s["kind"] == "precomposed"]
+        _need(len(steps) == 1, steps)
+        cls.step = steps[0]
+        cls.out = cls.server.srv.store.path(jid, cls.step["output"])
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "server", None):
+            cls.server.stop()
+        shutil.rmtree(cls.scratch, ignore_errors=True)
+
+    def test_dos_u_2bpp_over_http_is_identical_to_gbatb17(self):
+        self.assertEqual(self.job["state"], "done", self.job.get("error"))
+        self.assertEqual(self.step["state"], "done", self.step.get("error"))
+        self.assertEqual(inputkinds.step_tools([self.step])[0], ["mkfont.py", "svf2to3.py"])
+        self.assertEqual(_read(self.out), _read(GBATB17))
+        self.assertEqual(self.step["identical_to"], "dos/GBATB17.SVF")
+
+    def test_zip_skips_the_face_and_lists_its_row(self):
+        self.assertEqual(inputkinds.zip_faces(self.zip_path), {})
+        self.assertEqual([s["identical_to"] for s in self.job["result"]["skipped"]], ["dos/GBATB17.SVF"])
+        side = "svf-maker-%s/" % self.jid
+        with zipfile.ZipFile(self.zip_path) as zf:
+            names = zf.namelist()
+            licences = zf.read(side + "LICENCES.tsv.lines").decode()
+            build = zf.read(side + "BUILD.md").decode()
+        rows = [r for r in licences.splitlines() if r]
+        self.assertEqual(rows, [GBATB17_ROW])                  # exactly one row, exactly this text
+        block = build.split(zipout.DUPLICATE_HEADING, 1)[1].split("```")[1]
+        self.assertEqual([r for r in block.splitlines() if r], [GBATB17_ROW])
+        self.assertIn("identical to dos/GBATB17.SVF", build)
+        for path in GBATB17_ROW.split("\t")[1].split(","):        # the row names a file the zip or svf/ holds
+            self.assertTrue("svf/" + path in names or os.path.isfile(os.path.join(REPO_DIR, "svf", path)), path)
+        self.assertIn("svf/new/acc/GOWUN.TXT", names)
+
+
+@unittest.skipUnless(os.environ.get("SVF_MAKER_SLOW") == "1", "set SVF_MAKER_SLOW=1 for the 2 bpp fit (about 85 s)")
+class SlowFitTest(unittest.TestCase):
+    def test_experimental_2bpp_fit_reports_quality(self):
+        src = os.path.join(REPO_DIR, "ttf", "nanumgothic")
+        files = {"nanum/NanumGothic-Bold.ttf": _read(os.path.join(src, "NanumGothic-Bold.ttf")),
+                 "nanum/OFL.txt": _read(os.path.join(src, "OFL.txt"))}
+
+        def choose(fonts, st):
+            inputkinds.select(st, inputkinds.only_font(fonts), dest="new/slow", bpp=(2,), kinds=["jamo"],
+                              sizes=[16], experimental=True, layout="844")
+        with tempfile.TemporaryDirectory(prefix="e2e-slow-") as tmp:
+            job, z = inputkinds.run_batch(self, tmp, files, choose)
+            step = job["steps"][0]
+            self.assertEqual(step["state"], "done", step.get("error"))
+            q = step["quality"]
+            print("SLOWFIT quality", q, flush=True)
+            self.assertEqual(q["compared"], 11172)
+            self.assertGreater(q["all"], 0.0)
+            self.assertLess(q["all"], 0.15)          # measured 0.0777 at 004a449 (0 is exact; 2 bpp mean level error)
+            self.assertLess(q["ks2350"], 0.15)       # measured 0.0731
+            inputkinds.assert_facecheck(self, z)
+            self.assertIsNotNone(inputkinds.zip_face(z).jset)
+
+
 if __name__ == "__main__":
     unittest.main()
