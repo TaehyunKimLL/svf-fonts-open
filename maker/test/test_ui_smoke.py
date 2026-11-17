@@ -34,13 +34,15 @@ KILL_S = 140         # Python kills the driver's process group after this (the t
 PAGE_SCRIPT = r"""
 const deadline = Date.now() + %(page_ms)d;
 const left = () => Math.max(1000, deadline - Date.now());
+// a timeout names the step it was waiting for
+const wait = async (label, fn) => { try { return await waitFor(fn, left()); } catch (err) { throw new Error('page step "' + label + '": ' + err.message); } };
 const $ = (id) => document.getElementById(id);
 const fire = (node) => { node.dispatchEvent(new Event('input', {bubbles: true})); node.dispatchEvent(new Event('change', {bubbles: true})); };
 
 // 1. the zip is already in #files (pagedrive --files): upload it
 if (!$('files').files.length) throw new Error('no file in #files');
 $('upload').click();
-await waitFor(() => document.querySelector('#fonts tr[data-font]'), left());
+await wait('fonts listed after upload', () => document.querySelector('#fonts tr[data-font]'));
 if ($('ack') && !$('ack').hidden) $('ack-ok').click();
 
 // 2. the job and its outline font
@@ -63,18 +65,18 @@ $('sizes').value = '20'; fire($('sizes'));
 
 // 4. save: the server holds the settings
 $('save').click();
-await waitFor(async () => {
+await wait('saved settings show bpp [1], sizes [20]', async () => {
   const s = (await (await fetch('/api/jobs/' + id)).json()).settings;
   return JSON.stringify(s.batch.bpp) === '[1]' && JSON.stringify(s.batch.sizes) === '[20]';
-}, left());
+});
 
 // 5. run: done, and the result canvas drawn
 $('run').click();
-await waitFor(() => $('state').textContent.includes('done'), left());
-await waitFor(() => document.querySelector('canvas[data-step][data-drawn="1"]'), left());
+await wait('state shows done', () => $('state').textContent.includes('done'));
+await wait('result canvas drawn', () => document.querySelector('canvas[data-step][data-drawn="1"]'));
 
 // 6. the download link
-await waitFor(() => !$('download').hidden, left());
+await wait('download link shown', () => !$('download').hidden);
 const r = await fetch($('download').href);
 const bytes = new Uint8Array(await r.arrayBuffer());
 return {job: id, status: r.status, magic: Array.from(bytes.slice(0, 4))};
