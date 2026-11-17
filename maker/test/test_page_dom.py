@@ -846,6 +846,262 @@ class LocalPageTest(localfx.LocalBase):
                       "choose a folder that is not synced", html)
         self.assertNotIn(' style="', html)                                       # the CSP allows no inline style
 
+    # ---- busy / being-prepared 409s (t_39c9fb52): a fetch stub answers chosen requests with a 409 ----------------
+
+    BUSY_STUB = """
+      (() => {
+        const real = window.fetch.bind(window);
+        const st = window.__stub = {rules: [], sent: [], passed: [], realFetch: real};
+        window.fetch = async (input, init) => {
+          const method = ((init && init.method) || 'GET').toUpperCase();
+          const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
+          st.sent.push(method + ' ' + path);
+          const rule = st.rules.find((r) => r.method === method && new RegExp(r.path).test(path) && r.times > 0);
+          if (rule) {
+            rule.times--;
+            if (rule.delay) await new Promise((res) => setTimeout(res, rule.delay));
+            return new Response(JSON.stringify(rule.body), {status: 409, headers: {'Content-Type': 'application/json'}});
+          }
+          const res = await real(input, init);
+          st.passed.push({m: method, path, status: res.status});
+          return res;
+        };
+        window.__notices = [];
+        document.addEventListener('DOMContentLoaded', () => {
+          const n = document.getElementById('notice');
+          new MutationObserver(() => window.__notices.push(n.textContent)).observe(n, {childList: true});
+        });
+      })();
+    """
+
+    BUSY_JS = """
+      const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
+      const $ = (id) => document.getElementById(id);
+      const jid = new URLSearchParams(location.search).get('job');
+      const rules = (list) => { window.__stub.rules.push(...list); };
+      const count = (key) => window.__stub.sent.filter((s) => s === key).length;
+      const lock = (jid) => ({error: 'job ' + jid + ' is busy; try again', busy: 'lock'});
+      await waitFor(() => visible($('delete-job')));
+    """
+
+    def ready_job(self):
+        jid = self.local_job()
+        job = self.job(jid)
+        ttf = next(f["id"] for f in job["fonts"] if f["path"] == "Munjo.ttf")
+        st = job["settings"]
+        st["fonts"][ttf].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16], bpp=[1])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        return jid
+
+    def busy_drive(self, jid, body):
+        return self.drive(self.BUSY_JS + body, query="?job=" + jid, preload=self.BUSY_STUB)
+
+    def test_a_busy_delete_is_retried_and_succeeds(self):
+        jid = self.local_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'DELETE', path: '/api/jobs/[0-9a-f]+$', times: 2, body: lock(jid)}]);
+      $('delete-job').click();
+      await waitFor(() => $('state').textContent === 'no job');
+      return {del: count('DELETE /api/jobs/' + jid), notices: window.__notices, notice: visible($('notice')),
+              retry: visible($('notice-retry'))};
+    """)
+        self.assertEqual(out["del"], 3)
+        text = "\n".join(out["notices"])
+        self.assertIn("(retrying 1/3)", text)
+        self.assertIn("(retrying 2/3)", text)
+        self.assertFalse(out["notice"])
+        self.assertFalse(out["retry"])
+        self.assertEqual(self.api("GET", "/api/jobs/%s" % jid)[0], 404)
+
+    def test_a_busy_run_past_the_bound_offers_try_again_and_runs_once(self):
+        jid = self.ready_job()
+        text = "job %s is busy: a preview is being made; try again" % jid
+        out = self.busy_drive(jid, """
+      rules([{method: 'POST', path: '/run$', times: 4, body: {error: %s, busy: 'preview'}}]);
+      $('run').click();
+      await waitFor(() => visible($('notice-retry')));
+      const first = {sent: count('POST /api/jobs/' + jid + '/run'), notice: $('notice').textContent};
+      $('notice-retry').click();
+      await waitFor(() => $('state').textContent.includes('written to'), 60000);
+      return {first, sent: count('POST /api/jobs/' + jid + '/run'),
+              passed: window.__stub.passed.filter((p) => p.m === 'POST' && p.path.endsWith('/run')),
+              notice: visible($('notice')), retry: visible($('notice-retry'))};
+    """ % json.dumps(text))
+        self.assertEqual(out["first"]["sent"], 4)
+        self.assertEqual(out["first"]["notice"], "POST /api/jobs/%s/run: HTTP 409: %s" % (jid, text))
+        self.assertEqual(out["sent"], 5)
+        self.assertEqual([p["status"] for p in out["passed"]], [200])
+        self.assertFalse(out["notice"])
+        self.assertFalse(out["retry"])
+
+    def test_a_run_being_prepared_is_not_retried_and_follows_the_other_run(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'POST', path: '/run$', times: 1, body: {error: 'a run of job ' + jid + ' is being prepared', busy: 'preparing'}}]);
+      $('run').click();
+      await waitFor(() => visible($('notice-retry')));
+      await sleep(2000);
+      await window.__stub.realFetch('/api/jobs/' + jid + '/run', {method: 'POST'});   // the other tab's run
+      await waitFor(() => $('state').textContent.includes('written to'), 60000);
+      const sent = window.__stub.sent;
+      const at = sent.indexOf('POST /api/jobs/' + jid + '/run');
+      return {runs: count('POST /api/jobs/' + jid + '/run'),
+              gets: sent.slice(at).filter((s) => s === 'GET /api/jobs/' + jid).length, retry: visible($('notice-retry'))};
+    """)
+        self.assertEqual(out["runs"], 1)
+        self.assertGreaterEqual(out["gets"], 2)
+        self.assertLessEqual(out["gets"], 16)
+        self.assertFalse(out["retry"])                                           # the follow dropped the control
+
+    def test_try_again_on_a_run_being_prepared_keeps_one_follow_loop(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      const body = {error: 'a run of job ' + jid + ' is being prepared', busy: 'preparing'};
+      rules([{method: 'POST', path: '/run$', times: 2, body}]);
+      $('run').click();
+      await waitFor(() => visible($('notice-retry')));
+      $('notice-retry').click();
+      await waitFor(() => count('POST /api/jobs/' + jid + '/run') === 2);
+      await waitFor(() => visible($('notice-retry')));
+      await sleep(3500);
+      const sent = window.__stub.sent;
+      const at = sent.indexOf('POST /api/jobs/' + jid + '/run');
+      return sent.slice(at).filter((s) => s === 'GET /api/jobs/' + jid).length;
+    """)
+        self.assertGreaterEqual(out, 2)
+        self.assertLessEqual(out, 4)                                             # one loop: ~1 GET per second
+
+    def test_busy_create_sources_and_detect_are_each_retried_once(self):
+        out = self.drive(self.typed_script("""
+      window.__stub.rules.push({method: 'POST', path: '/api/jobs$', times: 1, body: {error: 'job x is busy; try again', busy: 'lock', job: 'x'}},
+                               {method: 'PUT', path: '/sources$', times: 1, body: {error: 'job x is busy; try again', busy: 'lock'}},
+                               {method: 'POST', path: '/detect$', times: 1, body: {error: 'job x is busy; try again', busy: 'lock'}});
+      await detectOnce();
+      const sent = window.__stub.sent;
+      const n = (m, re) => sent.filter((s) => s.startsWith(m + ' ') && re.test(s)).length;
+      return {create: n('POST', /\\/api\\/jobs$/), sources: n('PUT', /\\/sources$/), detect: n('POST', /\\/detect$/),
+              rows: rows().length};
+    """), preload=self.BUSY_STUB)
+        self.assertEqual((out["create"], out["sources"], out["detect"]), (2, 2, 2))
+        self.assertGreaterEqual(out["rows"], 5)
+        self.assertEqual(len(self.srv.store.list()), 1)
+
+    def test_other_409s_are_unchanged(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      const notices = [];
+      for (const error of ['job ' + jid + ' is queued', 'cleanup pending: the earlier files are still being removed']) {
+        rules([{method: 'POST', path: '/run$', times: 1, body: {error, job: jid}}]);
+        $('run').click();
+        await waitFor(() => $('notice').textContent.includes(error));
+        notices.push($('notice').textContent);
+        await sleep(2500);                                                  // a retry would have shown by now
+      }
+      return {notices, runs: count('POST /api/jobs/' + jid + '/run'), retry: visible($('notice-retry')),
+              retrying: window.__notices.some((t) => t.includes('retrying'))};
+    """)
+        self.assertEqual(out["notices"], ["POST /api/jobs/%s/run: HTTP 409: job %s is queued" % (jid, jid),
+                                          "POST /api/jobs/%s/run: HTTP 409: cleanup pending: the earlier files are still "
+                                          "being removed" % jid])
+        self.assertEqual(out["runs"], 2)
+        self.assertFalse(out["retry"])
+        self.assertFalse(out["retrying"])
+
+    def test_the_create_path_busy_answer_is_not_retried(self):
+        out = self.drive(self.typed_script("""
+      window.__stub.rules.push({method: 'POST', path: '/api/jobs$', times: 1, body: {error: 'job y is busy; try again'}});
+      document.getElementById('detect-local').click();
+      await sleep(300);
+      if (visible(document.getElementById('ack'))) document.getElementById('ack-ok').click();
+      await waitFor(() => document.getElementById('notice').textContent.includes('job y is busy'));
+      await sleep(2500);
+      return {notice: document.getElementById('notice').textContent,
+              sent: window.__stub.sent.filter((s) => s === 'POST /api/jobs').length,
+              retry: visible(document.getElementById('notice-retry')),
+              retrying: window.__notices.some((t) => t.includes('retrying'))};
+    """), preload=self.BUSY_STUB)
+        self.assertEqual(out["notice"], "POST /api/jobs: HTTP 409: job y is busy; try again")
+        self.assertEqual(out["sent"], 1)
+        self.assertFalse(out["retry"])
+        self.assertFalse(out["retrying"])
+
+    def test_another_action_drops_the_try_again_control(self):
+        jid = self.local_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'DELETE', path: '/api/jobs/[0-9a-f]+$', times: 4, body: lock(jid)}]);
+      $('delete-job').click();
+      await waitFor(() => visible($('notice-retry')));
+      $('save').click();
+      await sleep(3000);
+      return {retry: visible($('notice-retry')), del: count('DELETE /api/jobs/' + jid)};
+    """)
+        self.assertFalse(out["retry"])
+        self.assertEqual(out["del"], 4)
+        self.assertEqual(self.api("GET", "/api/jobs/%s" % jid)[0], 200)
+
+    def test_an_action_during_a_sleeping_retry_cancels_it(self):
+        jid = self.local_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'DELETE', path: '/api/jobs/[0-9a-f]+$', times: 4, body: lock(jid)}]);
+      $('delete-job').click();
+      await sleep(700);
+      const n0 = count('DELETE /api/jobs/' + jid);
+      $('save').click();
+      await sleep(4000);
+      return {after: count('DELETE /api/jobs/' + jid) - n0, notice: $('notice').textContent, retry: visible($('notice-retry'))};
+    """)
+        self.assertLessEqual(out["after"], 1)
+        self.assertNotIn("retrying", out["notice"])
+        self.assertFalse(out["retry"])
+        self.assertEqual(self.api("GET", "/api/jobs/%s" % jid)[0], 200)
+
+    def test_an_action_while_the_first_answer_is_pending_cancels_the_retry(self):
+        jid = self.local_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'DELETE', path: '/api/jobs/[0-9a-f]+$', times: 4, delay: 1500, body: lock(jid)}]);
+      $('delete-job').click();
+      await sleep(300);
+      $('save').click();
+      await sleep(4500);
+      return {del: count('DELETE /api/jobs/' + jid), retry: visible($('notice-retry'))};
+    """)
+        self.assertEqual(out["del"], 1)                                          # the late busy answer sent nothing more
+        self.assertFalse(out["retry"])                                           # ... and installed no button
+        self.assertEqual(self.api("GET", "/api/jobs/%s" % jid)[0], 200)
+
+    def test_a_sleep_that_crosses_the_deadline_sends_nothing_and_offers_try_again(self):
+        jid = self.local_job()
+        out = self.busy_drive(jid, """
+      const path = '/api/jobs/[0-9a-f]+$';
+      rules([{method: 'DELETE', path, times: 1, delay: 5000, body: lock(jid)},
+             {method: 'DELETE', path, times: 1, delay: 7000, body: lock(jid)},
+             {method: 'DELETE', path, times: 1, body: lock(jid)}]);      // answers at 5.0, 12.5, 13.5 s; its 2 s sleep ends at 15.5 s
+      $('delete-job').click();
+      await waitFor(() => visible($('notice-retry')), 30000);
+      await sleep(500);
+      return {del: count('DELETE /api/jobs/' + jid), retry: visible($('notice-retry'))};
+    """)
+        self.assertEqual(out["del"], 3)
+        self.assertTrue(out["retry"])
+        self.assertEqual(self.api("GET", "/api/jobs/%s" % jid)[0], 200)
+
+    def test_a_stale_run_reloads_the_job_without_retry(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'POST', path: '/run$', times: 1, body: {error: 'the job changed while the run was being prepared: run again', stale: true}}]);
+      $('run').click();
+      await sleep(1500);
+      const sent = window.__stub.sent;
+      const at = sent.indexOf('POST /api/jobs/' + jid + '/run');
+      return {runs: count('POST /api/jobs/' + jid + '/run'), reloaded: sent.slice(at + 1).includes('GET /api/jobs/' + jid),
+              retry: visible($('notice-retry')), notice: $('notice').textContent};
+    """)
+        self.assertEqual(out["runs"], 1)
+        self.assertTrue(out["reloaded"])
+        self.assertFalse(out["retry"])
+        self.assertEqual(out["notice"], "POST /api/jobs/%s/run: HTTP 409: the job changed while the run was being "
+                                        "prepared: run again" % jid)
+
 
 if __name__ == "__main__":
     unittest.main()

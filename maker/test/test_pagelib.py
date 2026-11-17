@@ -56,5 +56,21 @@ console.log(JSON.stringify([same, rerun, mate, ident]));""", json.dumps(step))
         self.assertEqual(got, [True, True, True, True])
 
 
+    def test_busy_policy_retries_lock_and_preview_then_stops(self):
+        got = node("""const out = [];
+for (const [m, k] of [["DELETE", "lock"], ["POST", "preview"], ["GET", "preparing"]]) {
+  out.push([0, 1, 2, 3].map((r) => L.busyRetryDelay(m, k, r, 0)));
+  out.push(L.busyRetryDelay(m, k, 0, 15000));
+}
+console.log(JSON.stringify(out));""")
+        self.assertEqual(got, [[500, 1000, 2000, None], None] * 3)
+
+    def test_busy_policy_never_retries_a_preparing_post_or_an_untagged_answer(self):
+        got = node("""const out = [L.busyRetryDelay("POST", "preparing", 0, 0)];
+for (const k of [undefined, "", "other", true]) for (const m of ["GET", "POST", "PUT", "DELETE"]) out.push(L.busyRetryDelay(m, k, 0, 0));
+console.log(JSON.stringify(out));""")
+        self.assertEqual(got, [None] * 17)
+
+
 if __name__ == "__main__":
     unittest.main()

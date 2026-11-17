@@ -18,7 +18,7 @@
 "use strict";
 
 import * as svfview from "./svfview.js";
-import {parseDyText, stepSig} from "./pagelib.js";
+import {parseDyText, stepSig, busyRetryDelay, isBusyKind, BUSY_RETRY_MS, BUSY_RETRY_TOTAL_MS} from "./pagelib.js";
 import {cutList} from "./clip.js";
 
 const POLL_MS = 2000;
@@ -153,6 +153,7 @@ const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\
 const $ = (id) => document.getElementById(id);
 const stateEl = $("state");
 const noticeEl = $("notice");
+const noticeRetryEl = $("notice-retry");
 const refusedEl = $("refused");
 const fontsEl = $("fonts");
 const stepsEl = $("steps");
@@ -256,9 +257,29 @@ function fillSelect(select, options, value) {
   select.value = text;
 }
 
-function notice(message) {
+// The notice epoch: every public notice() / clearNotice() (an action starting, a message of its own) moves it, hides the
+// "Try again" control and rejects a request that waits on it; api() watches it so that a retry the user has moved on
+// from sends nothing more. api()'s own lines (the retry line, the exhausted message) go through setNoticeQuiet.
+let noticeEpoch = 0;
+let busyWait = null;                                  // {resolve, reject, error, args}: the one request waiting on "Try again"
+
+function setNoticeQuiet(message) {
   noticeEl.textContent = escapeNotice(message);
   noticeEl.hidden = !message;
+}
+
+// Hide the control and reject the request that waits on it with its original error.
+function dropBusyWait() {
+  const wait = busyWait;
+  busyWait = null;
+  noticeRetryEl.hidden = true;
+  if (wait) wait.reject(wait.error);
+}
+
+function notice(message) {
+  noticeEpoch++;
+  dropBusyWait();
+  setNoticeQuiet(message);
 }
 
 function clearNotice() { notice(""); }
@@ -439,7 +460,12 @@ function batchBpp() { return [...bppEl.querySelectorAll("input:checked")].map((b
 
 // ---- the API --------------------------------------------------------------------------------------------------
 
-async function api(method, path, body) {
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// One JSON call. A 409 the server tagged `busy` is repeated after 0.5, 1 and 2 s (a bounded retry of the one request,
+// never after a network error and never once the user has started anything else: the notice epoch), then the notice
+// stays with a "Try again" button that sends the identical request once more. The thrown Error carries `body`.
+async function api(method, path, body, opts = {}) {
   const init = {method, headers: {}};
   if (body !== undefined && body !== null) {
     if (typeof Blob !== "undefined" && body instanceof Blob) init.body = body;
@@ -449,30 +475,73 @@ async function api(method, path, body) {
       init.body = JSON.stringify(body);
     }
   }
-  let response;
-  try {
-    response = await fetch(path, init);
-  } catch (err) {
-    const message = method + " " + path + ": " + err;
-    notice(message);
-    throw new Error(message);
-  }
-  if (!response.ok) {
-    let message = method + " " + path + ": HTTP " + response.status;
+  const epoch = noticeEpoch;                          // before the first send: an action started meanwhile cancels the retry
+  const start = Date.now();
+  let repeats = 0;
+  let retried = false;
+  for (;;) {
+    let response;
     try {
-      const data = await response.json();
+      response = await fetch(path, init);
+    } catch (err) {
+      const message = method + " " + path + ": " + err;
+      notice(message);
+      throw new Error(message);
+    }
+    if (response.ok) {
+      try {
+        const data = await response.json();
+        if (retried && noticeEpoch === epoch) setNoticeQuiet("");
+        return data;
+      } catch (err) {
+        notice(method + " " + path + ": the answer is not JSON");
+        throw err;
+      }
+    }
+    let message = method + " " + path + ": HTTP " + response.status;
+    let data = null;
+    try {
+      data = await response.json();
       if (data && data.error) message += ": " + data.error;
       if (data && Array.isArray(data.errors) && data.errors.length) message += "\n" + data.errors.join("\n");
     } catch (err) { /* a non-JSON error body: the status line stands */ }
-    notice(message);
-    throw new Error(message);
+    const error = new Error(message);
+    error.body = data;
+    const kind = response.status === 409 && data ? data.busy : undefined;
+    if (!isBusyKind(kind)) {
+      notice(message);
+      throw error;
+    }
+    if (noticeEpoch !== epoch) throw error;           // the user moved on while this answer was pending
+    const delay = busyRetryDelay(method, kind, repeats, Date.now() - start);
+    if (delay !== null) {
+      retried = true;
+      setNoticeQuiet(message + " (retrying " + (repeats + 1) + "/" + BUSY_RETRY_MS.length + ")");
+      await sleepMs(delay);
+      if (noticeEpoch !== epoch) throw error;
+      if (Date.now() - start < BUSY_RETRY_TOTAL_MS) {   // the deadline is checked again right before the send
+        repeats++;
+        continue;
+      }
+    }
+    // no (further) automatic retry: the message stays, with a "Try again" for the identical request
+    setNoticeQuiet(message);
+    dropBusyWait();                                   // one control: a second exhausted call replaces the first
+    noticeRetryEl.hidden = false;
+    return new Promise((resolve, reject) => {
+      busyWait = {resolve, reject, error, args: [method, path, body, opts]};
+      if (typeof opts.onWait === "function") opts.onWait(kind);
+    });
   }
-  try {
-    return await response.json();
-  } catch (err) {
-    notice(method + " " + path + ": the answer is not JSON");
-    throw err;
-  }
+}
+
+function tryAgain() {
+  const wait = busyWait;
+  if (!wait) return;
+  busyWait = null;
+  noticeRetryEl.hidden = true;
+  setNoticeQuiet("");
+  wait.resolve(api(...wait.args));
 }
 
 // ---- what one font offers (mirrors maker/routes.py) -----------------------------------------------------------
@@ -2177,14 +2246,52 @@ async function run() {
     }
     await reload();
   }
+  const id = jobId;
   try {
-    await api("POST", "/api/jobs/" + encodeURIComponent(jobId) + "/run");
+    await api("POST", "/api/jobs/" + encodeURIComponent(id) + "/run", undefined,
+              {onWait: (kind) => { if (kind === "preparing") followOtherRun(id); }});
   } catch (err) {
+    if (err && err.body && err.body.stale === true) await reload();   // the settings changed under the run: show them
     return;
   }
   await reload();
   startPolling();
   await renderJobs();
+}
+
+// "A run of this job is being prepared" (another tab or window): follow that run instead of repeating ours. Once a
+// second, for up to 15 s, read the job; when its state leaves `detected` show it (and poll while it runs) and drop the
+// "Try again" control. One loop at a time; the open job is re-checked after every awaited answer.
+let followId = null;
+async function followOtherRun(id) {
+  if (followId === id) return;
+  followId = id;
+  const end = Date.now() + BUSY_RETRY_TOTAL_MS;
+  try {
+    while (Date.now() < end) {
+      await sleepMs(1000);
+      if (jobId !== id) return;
+      let other = null;
+      try {
+        const response = await fetch("/api/jobs/" + encodeURIComponent(id));
+        if (response.ok) other = await response.json();
+      } catch (err) { /* no answer: look again */ }
+      if (jobId !== id) return;                       // a late answer must not render another job
+      if (other && other.state !== "detected") {
+        job = other;
+        settings = clone(job.settings || {batch: {}, fonts: {}});
+        dirty = false;
+        dropBusyWait();
+        setNoticeQuiet("");
+        renderAll();
+        if (job.state === "queued" || job.state === "running") startPolling();
+        await renderJobs();
+        return;
+      }
+    }
+  } finally {
+    if (followId === id) followId = null;
+  }
 }
 
 async function cancel() {
@@ -2338,6 +2445,7 @@ function wire() {
   chooseOutputEl.onclick = chooseOutput;
   detectLocalEl.onclick = detectLocal;
   deleteJobEl.onclick = deleteJob;
+  noticeRetryEl.onclick = tryAgain;
   openFolderEl.onclick = async () => {
     const b = bridge();
     if (b && typeof b.openOutputFolder === "function") {

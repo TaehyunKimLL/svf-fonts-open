@@ -41,3 +41,22 @@ export function stepSig(step, companion) {
   return JSON.stringify([pick(step), pick(companion), step.stderr_tail || "", step.quality || null, step.facts || null,
     step.identity || null]);
 }
+
+// ---- busy answers (t_39c9fb52) -------------------------------------------------------------------------------
+// The server tags its retryable 409s with `busy: "lock" | "preparing" | "preview"`. Repeat the identical request after
+// these delays (at most three repeats), and never once BUSY_RETRY_TOTAL_MS have passed since the first send.
+export const BUSY_RETRY_MS = [500, 1000, 2000];
+export const BUSY_RETRY_TOTAL_MS = 15000;
+const BUSY_KINDS = ["lock", "preparing", "preview"];
+
+// The wait before the next repeat, or null when the page must not repeat: an answer with no busy kind (also a network
+// error: no answer means the outcome is unknown), a "being prepared" answer to anything but a GET (another run is
+// being made: repeating would only race it), the repeats used up, or the total time spent.
+export function busyRetryDelay(method, kind, repeats, elapsedMs) {
+  if (typeof kind !== "string" || !BUSY_KINDS.includes(kind)) return null;
+  if (kind === "preparing" && method !== "GET") return null;
+  if (repeats >= BUSY_RETRY_MS.length || elapsedMs >= BUSY_RETRY_TOTAL_MS) return null;
+  return BUSY_RETRY_MS[repeats];
+}
+
+export function isBusyKind(kind) { return typeof kind === "string" && BUSY_KINDS.includes(kind); }
