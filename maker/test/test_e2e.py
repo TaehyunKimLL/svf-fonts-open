@@ -13,6 +13,7 @@ for _p in (TEST_DIR, MAKER_DIR, os.path.join(REPO_DIR, "tools")):
 import hashlib
 import shutil
 import tempfile
+import time
 import unittest
 import urllib.parse
 import zipfile
@@ -26,6 +27,49 @@ import zipout
 
 def _scratch(prefix):
     return os.path.realpath(tempfile.mkdtemp(prefix=prefix))
+
+FACE_NAMES = ["svf/dos/ISO16.SVF", "svf/dos/NANUM20.SVF", "svf/jamo-extra/FIXT16J.SVF", "svf/jamo-extra/HAN16J.SVF"]
+
+
+def _need(ok, what):
+    """A setup check that survives `python -O` (a bare `assert` does not)."""
+    if not ok:
+        raise AssertionError(what)
+
+
+def assert_roles(test, job, role_of, shipped):
+    """Every planned step done, no failed step, one output step per role with the pinned tool sequences."""
+    test.assertEqual(job["state"], "done", job.get("error"))
+    test.assertEqual(job["result"]["failed_steps"], [])
+    test.assertTrue(job["steps"])
+    test.assertTrue(all(s["state"] == "done" for s in job["steps"]), [(s["kind"], s["state"]) for s in job["steps"]])
+    out = {}                                              # role -> [(kind, tools of that step)], in step order
+    for s in job["steps"]:
+        if s["kind"] in ("precomposed", "jamo"):
+            out.setdefault(role_of[s["font"]], []).append((s["kind"], inputkinds.step_tools([s])[0]))
+    want = {"ttf": ["precomposed"], "bdf": ["precomposed"], "pcf": ["jamo"], "dos": ["jamo"]}
+    if shipped:
+        want["shipped"] = ["precomposed"]
+    test.assertEqual({r: [k for k, _ in v] for r, v in out.items()}, want)      # exactly one output step per role
+    # the landed tool sequences (t_df773bf5: a mkfont face ends with svf2to3); the copy of a shipped face runs none
+    test.assertEqual(out["ttf"][0][1], ["mkfont.py", "svf2to3.py"])
+    test.assertEqual(out["bdf"][0][1], ["mkfont.py", "svf2to3.py"])
+    test.assertEqual(out["dos"][0][1], ["jamoset.py"])
+    test.assertEqual(out["pcf"][0][1], ["jamoset.py"])     # its `srcprep.py pcf-bdf` is a separate source step
+    if shipped:
+        test.assertEqual(out["shipped"][0][1], [])
+    sources = [s for s in job["steps"] if s["kind"] == "source"]
+    test.assertEqual([inputkinds.step_tools([s])[0] for s in sources], [["srcprep.py pcf-bdf"]])
+    test.assertEqual(role_of[sources[0]["font"]], "pcf")
+
+
+def _walk_rel(root):
+    """The `/`-separated relative paths of every file under @p root, leftovers (`.svf-maker-*`) included."""
+    out = set()
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            out.add(os.path.relpath(os.path.join(dirpath, name), root).replace(os.sep, "/"))
+    return out
 
 
 class MixedTreeTest(unittest.TestCase):
@@ -55,24 +99,24 @@ class UploadEndToEndTest(unittest.TestCase):
         cls.server = e2efx.Server(os.path.join(cls.scratch, "data"))
         api = cls.server.api
         status, body = api("POST", "/api/jobs")
-        assert status == 200, body
+        _need(status == 200, body)
         cls.jid = jid = body["id"]
         status, body = api("PUT", "/api/jobs/%s/files?path=%s" % (jid, urllib.parse.quote("e2e.zip", safe="")),
                            body=e2efx.zip_tree(os.path.join(cls.scratch, "in")))
-        assert status == 200, body
+        _need(status == 200, body)
         status, body = api("POST", "/api/jobs/%s/detect" % jid)
-        assert status == 200, body
+        _need(status == 200, body)
         status, job = api("GET", "/api/jobs/%s" % jid)
-        assert status == 200, job
+        _need(status == 200, job)
         st, ids = e2efx.select_mixed(job)
         cls.role_of = {fid: role for role, fid in ids.items()}
         status, body = api("PUT", "/api/jobs/%s/settings" % jid, st)
-        assert status == 200, body
+        _need(status == 200, body)
         status, body = api("POST", "/api/jobs/%s/run" % jid)
-        assert status == 200, body
+        _need(status == 200, body)
         cls.job = cls.server.wait_done(jid)
         status, _h, data = cls.server.call("GET", "/api/jobs/%s/zip" % jid)
-        assert status == 200, status
+        _need(status == 200, status)
         cls.zip_path = os.path.join(cls.scratch, "out.zip")
         with open(cls.zip_path, "wb") as fh:
             fh.write(data)
@@ -95,25 +139,7 @@ class UploadEndToEndTest(unittest.TestCase):
         shutil.rmtree(cls.scratch, ignore_errors=True)
 
     def test_every_step_done_with_the_expected_tools(self):
-        self.assertEqual(self.job["state"], "done", self.job.get("error"))
-        self.assertEqual(self.job["result"]["failed_steps"], [])
-        self.assertTrue(all(s["state"] == "done" for s in self.job["steps"]))
-        out = {}                                              # role -> [(kind, tools of that step)], in step order
-        for s in self.job["steps"]:
-            if s["kind"] in ("precomposed", "jamo"):
-                out.setdefault(self.role_of[s["font"]], []).append((s["kind"], inputkinds.step_tools([s])[0]))
-        self.assertEqual({r: [k for k, _ in v] for r, v in out.items()},
-                         {"ttf": ["precomposed"], "bdf": ["precomposed"], "pcf": ["jamo"], "dos": ["jamo"],
-                          "shipped": ["precomposed"]})          # exactly one output step per role
-        # the landed tool sequences (t_df773bf5: a mkfont face ends with svf2to3); the copy of a shipped face runs none
-        self.assertEqual(out["ttf"][0][1], ["mkfont.py", "svf2to3.py"])
-        self.assertEqual(out["bdf"][0][1], ["mkfont.py", "svf2to3.py"])
-        self.assertEqual(out["dos"][0][1], ["jamoset.py"])
-        self.assertEqual(out["pcf"][0][1], ["jamoset.py"])     # its `srcprep.py pcf-bdf` is a separate source step
-        self.assertEqual(out["shipped"][0][1], [])
-        sources = [s for s in self.job["steps"] if s["kind"] == "source"]
-        self.assertEqual([inputkinds.step_tools([s])[0] for s in sources], [["srcprep.py pcf-bdf"]])
-        self.assertEqual(self.role_of[sources[0]["font"]], "pcf")
+        assert_roles(self, self.job, self.role_of, shipped=True)
 
     def test_zip_passes_facecheck_and_the_shipped_copy_is_skipped(self):
         inputkinds.assert_facecheck(self, self.zip_path)       # manifest + verify, every SVF is v3
@@ -130,7 +156,9 @@ class UploadEndToEndTest(unittest.TestCase):
         e2efx.merge_check(self, self.extracted_svf, self.side, base_repo=True, scratch=self.merge_dir)
 
     def test_every_face_draws(self):
-        for name in inputkinds.zip_faces(self.zip_path):
+        faces = inputkinds.zip_faces(self.zip_path)
+        self.assertEqual(sorted(faces), FACE_NAMES)
+        for name in faces:
             with self.subTest(face=name):
                 e2efx.assert_draws(self, os.path.join(self.extracted, name))
 
@@ -168,20 +196,27 @@ class LocalEndToEndTest(unittest.TestCase):
         cls.server = e2efx.Server(os.path.join(cls.scratch, "data"), token=localfx.TOKEN)
         api = cls.server.api
         status, body = api("POST", "/api/jobs", {"source": "local", "output_dir": cls.out})
-        assert status == 200, body
+        _need(status == 200, body)
         cls.jid = jid = body["id"]
         status, body = api("PUT", "/api/jobs/%s/sources" % jid, {"paths": cls.tree["roots"]})
-        assert status == 200, body
+        _need(status == 200, body)
         status, body = api("POST", "/api/jobs/%s/detect" % jid)
-        assert status == 200, body
+        _need(status == 200, body)
         status, job = api("GET", "/api/jobs/%s" % jid)
-        assert status == 200, job
-        st, _ids = e2efx.select_mixed(job)
+        _need(status == 200, job)
+        st, ids = e2efx.select_mixed(job)
+        cls.role_of = {fid: role for role, fid in ids.items()}
         status, body = api("PUT", "/api/jobs/%s/settings" % jid, st)
-        assert status == 200, body
+        _need(status == 200, body)
         status, body = api("POST", "/api/jobs/%s/run" % jid)
-        assert status == 200, body
+        _need(status == 200, body)
         cls.job = cls.server.wait_done(jid)
+        deadline = time.monotonic() + 10                  # the end-of-run sweep of `.svf-maker-<id>/`, bounded
+        while time.monotonic() < deadline:
+            cls.disk = _walk_rel(cls.out)
+            if not any(p.startswith(".svf-maker-") for p in cls.disk):
+                break
+            time.sleep(0.1)
         side = os.path.join(cls.out, "build-%s" % jid)
         cls.side = {}
         if os.path.isdir(side):
@@ -199,14 +234,20 @@ class LocalEndToEndTest(unittest.TestCase):
     def input_hashes_now(self):
         return _hashes(self.tree["roots"])
 
+    def test_every_step_done_with_the_expected_tools(self):
+        assert_roles(self, self.job, self.role_of, shipped=False)
+
     def test_done_and_only_svf_and_build_written(self):
         self.assertEqual(self.job["state"], "done", self.job.get("error"))
         self.assertNotIn("zip", self.job["result"])
         files = self.job["result"]["files"]
         self.assertEqual(sorted(f for f in files if f.endswith(".SVF")),
                          sorted(s["written"] for s in self.job["steps"] if s.get("written")))
-        self.assertEqual(len([f for f in files if f.endswith(".SVF")]), 4)
-        self.assertTrue(all(f.startswith(("svf/dos/", "svf/jamo-extra/", "build-%s/" % self.jid)) for f in files))
+        self.assertEqual(sorted(f for f in files if f.endswith(".SVF")), FACE_NAMES)
+        self.assertEqual(self.disk, set(files))             # the folder holds exactly what the result reports
+        self.assertTrue(all(f.startswith(("svf/dos/", "svf/jamo-extra/", "build-%s/" % self.jid)) for f in self.disk),
+                        sorted(self.disk))
+        self.assertEqual([p for p in self.disk if p.startswith(".svf-maker-")], [])
         self.assertEqual(self.input_hashes_now(), self.input_hashes)       # the fonts were read in place, unchanged
 
     def test_tree_passes_facecheck(self):
@@ -216,7 +257,9 @@ class LocalEndToEndTest(unittest.TestCase):
         e2efx.merge_check(self, os.path.join(self.out, "svf"), self.side, base_repo=False, scratch=self.merge_dir)
 
     def test_every_face_draws(self):
-        for rel in (f for f in self.job["result"]["files"] if f.endswith(".SVF")):
+        faces = sorted(p for p in self.disk if p.endswith(".SVF"))        # from the folder (equal to result["files"])
+        self.assertEqual(faces, FACE_NAMES)
+        for rel in faces:
             with self.subTest(face=rel):
                 e2efx.assert_draws(self, os.path.join(self.out, rel))
 

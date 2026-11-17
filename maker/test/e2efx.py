@@ -149,6 +149,8 @@ class Server:
             _s, job = self.api("GET", "/api/jobs/%s" % jid)
             if job["state"] in ("done", "failed") and not self.srv.worker.owns(jid):
                 return job
+            if job["state"] not in ("queued", "running", "done", "failed"):
+                raise AssertionError("job %s is in state %r" % (jid, job["state"]))
             time.sleep(0.1)
         raise AssertionError("job %s did not finish in %s s" % (jid, timeout))
 
