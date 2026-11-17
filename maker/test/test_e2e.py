@@ -135,6 +135,91 @@ class UploadEndToEndTest(unittest.TestCase):
                 e2efx.assert_draws(self, os.path.join(self.extracted, name))
 
 
+def _hashes(roots):
+    """{path: sha256} of every file under @p roots."""
+    out = {}
+    for root in roots:
+        for dirpath, _dirs, files in os.walk(root):
+            for name in files:
+                path = os.path.join(dirpath, name)
+                with open(path, "rb") as fh:
+                    out[path] = hashlib.sha256(fh.read()).hexdigest()
+    return out
+
+
+class LocalEndToEndTest(unittest.TestCase):
+    """The mixed folder (without the shipped copy) in local mode: sources by path, an output folder."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scratch = _scratch("e2e-local-")
+        try:
+            cls._run()
+        except BaseException:
+            cls.tearDownClass()
+            raise
+
+    @classmethod
+    def _run(cls):
+        cls.tree = e2efx.mixed_tree(os.path.join(cls.scratch, "in"), shipped=False)
+        cls.out = os.path.join(cls.scratch, "out")
+        os.makedirs(cls.out)
+        cls.input_hashes = _hashes(cls.tree["roots"])
+        cls.server = e2efx.Server(os.path.join(cls.scratch, "data"), token=localfx.TOKEN)
+        api = cls.server.api
+        status, body = api("POST", "/api/jobs", {"source": "local", "output_dir": cls.out})
+        assert status == 200, body
+        cls.jid = jid = body["id"]
+        status, body = api("PUT", "/api/jobs/%s/sources" % jid, {"paths": cls.tree["roots"]})
+        assert status == 200, body
+        status, body = api("POST", "/api/jobs/%s/detect" % jid)
+        assert status == 200, body
+        status, job = api("GET", "/api/jobs/%s" % jid)
+        assert status == 200, job
+        st, _ids = e2efx.select_mixed(job)
+        status, body = api("PUT", "/api/jobs/%s/settings" % jid, st)
+        assert status == 200, body
+        status, body = api("POST", "/api/jobs/%s/run" % jid)
+        assert status == 200, body
+        cls.job = cls.server.wait_done(jid)
+        side = os.path.join(cls.out, "build-%s" % jid)
+        cls.side = {}
+        if os.path.isdir(side):
+            for name in ("LICENCES.tsv.lines", "FAMILIES.tsv.lines", "FACES.TSV.lines", "BUILD.md"):
+                with open(os.path.join(side, name), "rb") as fh:
+                    cls.side[name] = fh.read()
+        cls.merge_dir = os.path.join(cls.scratch, "merge")
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "server", None):
+            cls.server.stop()
+        shutil.rmtree(cls.scratch, ignore_errors=True)
+
+    def input_hashes_now(self):
+        return _hashes(self.tree["roots"])
+
+    def test_done_and_only_svf_and_build_written(self):
+        self.assertEqual(self.job["state"], "done", self.job.get("error"))
+        self.assertNotIn("zip", self.job["result"])
+        files = self.job["result"]["files"]
+        self.assertEqual(sorted(f for f in files if f.endswith(".SVF")),
+                         sorted(s["written"] for s in self.job["steps"] if s.get("written")))
+        self.assertEqual(len([f for f in files if f.endswith(".SVF")]), 4)
+        self.assertTrue(all(f.startswith(("svf/dos/", "svf/jamo-extra/", "build-%s/" % self.jid)) for f in files))
+        self.assertEqual(self.input_hashes_now(), self.input_hashes)       # the fonts were read in place, unchanged
+
+    def test_tree_passes_facecheck(self):
+        inputkinds.assert_facecheck_tree(self, self.out)
+
+    def test_tree_passes_mkindex_on_its_own(self):
+        e2efx.merge_check(self, os.path.join(self.out, "svf"), self.side, base_repo=False, scratch=self.merge_dir)
+
+    def test_every_face_draws(self):
+        for rel in (f for f in self.job["result"]["files"] if f.endswith(".SVF")):
+            with self.subTest(face=rel):
+                e2efx.assert_draws(self, os.path.join(self.out, rel))
+
 
 if __name__ == "__main__":
     unittest.main()
