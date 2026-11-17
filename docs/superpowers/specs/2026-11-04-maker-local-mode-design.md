@@ -513,6 +513,12 @@ piece), which the page's step rows and the clipping panel read after the job. `G
 local job serve from `steps/`. If the owner rules otherwise (D5) they are swept with the rest and those two GETs are
 404 after the job.
 
+*Later bounds (t_d1aba4b8).* The sentence above, "the start-up sweep runs on a thread after the bind", is historical: the
+start-up sweep now runs BEFORE the "listening on" line, bounded in all by `STARTUP_CLEANUP_S` plus the pending floor and
+the flush of the pending records; its deadlines, the fence on an abandoned rename, the single writer of
+`pending-sweeps.json`, the three sections of a local `POST run` (prepare, read and plan outside the lifecycle lock,
+commit) and the restored lock order are described in `docs/maker-audit.md` section 8, "Bounded lifecycle".
+
 ### 8.4 `job.json`, the log, the notes
 
 - `job.json` (metadata directory): holds `roots` (absolute paths), every entry's root index and relative path,

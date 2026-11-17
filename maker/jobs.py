@@ -18,6 +18,7 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 """
 
 import contextlib
+import copy
 import json
 import os
 import queue
@@ -51,6 +52,15 @@ RETRY_DEADLINE_S = 30.0       # one pending-sweep pass ends after this long; unf
 IN_USE_STATES = ("queued", "running", "uploading", "detected")   # a job in these states uses its files directory
 STOP_SWEEP_TOTAL_S = 8.0      # shutdown: all the sweeps together
 STOP_STAT_TIMEOUT_S = 1.0     # the same at stop, so shutdown is not held by a mount
+PENDING_FLOOR_S = 0.5         # a pending record is waited for at least this long (a healthy disk lands it in ms)
+PENDING_IDLE_S = 2.0          # the pending writer thread exits after this long without work
+LOCKED_IO_S = 5.0             # one lifecycle-lock section of a request or of the idle sweeper (all its calls together)
+_MAKING = "making"            # `_rename_away`'s generation slot when a mkdir/chmod of the path is still in flight
+
+
+class Busy(TimeoutError):
+    """A job's lock was not free in time, or its cleanup record could not be saved in time (a stalled pending file):
+    nothing was made and nothing was forgotten."""
 
 
 class Deadline:
@@ -65,6 +75,12 @@ class Deadline:
 
     def expired(self):
         return time.monotonic() >= self.end
+
+    def capped(self, seconds):
+        """A new `Deadline` ending at the earlier of this one and @p seconds from now."""
+        other = Deadline(seconds)
+        other.end = min(self.end, other.end)
+        return other
 
 
 def tombstone_of(files):
@@ -99,41 +115,97 @@ def remove_tree_bounded(path, timeout):
     return _run_bounded(lambda: shutil.rmtree(path), timeout)
 
 
-_CALLS_IN_FLIGHT = set()      # keys with a filesystem call still running: one daemon thread per key, however often asked
+class _OutOfTime(Exception):
+    """A pass reached its deadline between two filesystem calls (private: never leaves `retry_pending_sweeps`)."""
+
+
+class CallPending(OSError):
+    """A bounded filesystem call did not return in time, or one with the same key is still running (an `OSError`, so
+    every existing `except OSError` keeps working)."""
+
+
+MUTATING_OPS = ("rename", "mkdir", "chmod")    # calls that change the volume: never run twice, and they fence their path
+_CALLS_IN_FLIGHT = {}         # key -> (Event done, list box, start time): one daemon thread per key, however often asked
 _CALLS_LOCK = threading.Lock()
 
 
 def bounded_call(key, fn, timeout):
-    """`fn()`, but `OSError` when it does not return within @p timeout seconds (it runs in a daemon thread that is left
-    behind). While a call with the same @p key is still running (a hung mount) a further one does not start another
-    thread: it raises at once, so the threads stay bounded by the number of distinct keys."""
-    box = []
+    """`fn()`, but `CallPending` (an `OSError`) when it does not return within @p timeout seconds (it runs in a daemon
+    thread that is left behind). @p key is `(op, path)`. While a call with the same key is still running (a hung mount)
+    no second thread starts: a read-only call (@p op not in `MUTATING_OPS`) waits for the first one within its own
+    timeout and returns or raises the first call's result, but never past `STAT_TIMEOUT_S` after the first call began
+    (a call in flight that long is a hung mount: it raises at once); a mutating call raises at once (never runs twice)."""
     with _CALLS_LOCK:
-        if key in _CALLS_IN_FLIGHT:
-            raise OSError("call still pending: %s" % (key,))
-        _CALLS_IN_FLIGHT.add(key)
-
-    def run():
+        running = _CALLS_IN_FLIGHT.get(key)
+        if running is None:
+            if timeout <= 0:
+                raise CallPending("no time left: %s" % (key,))       # nothing is started after the deadline
+            done, box, start = threading.Event(), [], time.monotonic()
+            _CALLS_IN_FLIGHT[key] = (done, box, start)
+        elif key[0] in MUTATING_OPS:
+            raise CallPending("call still pending: %s" % (key,))      # never run twice
+    if running is not None:
+        # A read-only call shares it, but only while it can still be healthy: one in flight for STAT_TIMEOUT_S counts as
+        # a hung mount (N callers on it cost one STAT_TIMEOUT_S in all, however small their own budgets are).
+        done, box, start = running
+        left = min(timeout, start + STAT_TIMEOUT_S - time.monotonic())
+        if left <= 0 or not done.wait(left):
+            raise CallPending("call still pending: %s" % (key,))
+    else:
+        def run():
+            try:
+                box.append(("ok", fn()))
+            except BaseException as exc:
+                box.append(("err", exc))
+            finally:
+                with _CALLS_LOCK:
+                    _CALLS_IN_FLIGHT.pop(key, None)
+                done.set()
         try:
-            box.append(("ok", fn()))
-        except BaseException as exc:
-            box.append(("err", exc))
-        finally:
+            threading.Thread(target=run, daemon=True, name="svf-maker-stat").start()
+        except BaseException:
             with _CALLS_LOCK:
-                _CALLS_IN_FLIGHT.discard(key)
-    thread = threading.Thread(target=run, daemon=True, name="svf-maker-stat")
-    thread.start()
-    thread.join(timeout)
-    if not box:
-        raise OSError("call timed out: %s" % (key,))
+                _CALLS_IN_FLIGHT.pop(key, None)
+            box.append(("err", CallPending("call could not start: %s" % (key,))))
+            done.set()
+            raise
+        if not done.wait(timeout):
+            raise CallPending("call timed out: %s" % (key,))
     kind, value = box[0]
     if kind == "err":
         raise value
     return value
 
 
+def _mutations_under(path):
+    """The ops of the mutating calls in flight whose key path is @p path or below it."""
+    prefix = path.rstrip(os.sep) + os.sep
+    with _CALLS_LOCK:
+        return [key[0] for key in _CALLS_IN_FLIGHT
+                if key[0] in MUTATING_OPS and (key[1] == path or key[1].startswith(prefix))]
+
+
+def mutation_pending(path):
+    """True while a mutating call (`MUTATING_OPS`) on @p path or below it is still in flight."""
+    return bool(_mutations_under(path))
+
+
+def mutation_kind(path):
+    """The op of such a call (`"rename"` wins over the others), or None."""
+    ops = _mutations_under(path)
+    if not ops:
+        return None
+    return "rename" if "rename" in ops else ops[0]
+
+
+def rename_bounded(src, dst, timeout):
+    """`os.rename(src, dst)` within @p timeout seconds. `CallPending` when it did not return: the rename is then still
+    in flight and fences @p src (`mutation_pending`)."""
+    bounded_call(("rename", src), lambda: os.rename(src, dst), timeout)
+
+
 def stat_id_bounded(path, timeout=STAT_TIMEOUT_S):
-    """`stat_id(path)` within @p timeout seconds (`OSError` otherwise)."""
+    """`stat_id(path)` within @p timeout seconds (`CallPending`, an `OSError`, otherwise)."""
     return bounded_call(("stat", path), lambda: stat_id(path), timeout)
 
 
@@ -440,10 +512,18 @@ class Store:
         # (`lock(id)`) -> the job's preview locks (`on_sweep`) -> the pending-sweeps lock. It is held for every local state
         # change into an active state (create, reuse, PUT sources and detect on a finished job, run), including reading
         # the state the decision uses, and for the "state check + rename to a tombstone" step of every sweep. It is never
-        # held across a removal, a scan or a tool run, and nothing here re-enters it.
+        # held across a removal, a scan or a tool run, and nothing here re-enters it. It is never held across a read of an
+        # input, planning or any unbounded call (a local run prepares outside it); every lock taken under it is taken with
+        # a timeout (a job lock) or a try-lock (a preview lock); no job-lock holder waits for a preview lock.
         self.lifecycle = threading.Lock()
         self._pending_lock = threading.Lock()
         self._retry_lock = threading.Lock()
+        # The pending writer: every operation on pending-sweeps.json runs on one daemon thread (see `_pending_op`).
+        self._pending_q = queue.Queue()
+        self._pending_thread = None
+        self._pending_thread_lock = threading.Lock()
+        self._pending_unfinished = 0                  # test support: lets a test wait until the writer is idle
+        self._pending_stalled = False
 
     def lock(self, job_id):
         """The `threading.Lock` of @p job_id, made once: two handlers never write one job's file together."""
@@ -470,7 +550,7 @@ class Store:
             return os.path.join(job["output_dir"], FILES_DIR_PREFIX + job["id"])
         return self.path(job["id"])
 
-    def ensure_files_dir(self, job, locked=False, persist=True):
+    def ensure_files_dir(self, job, locked=False, persist=True, deadline=None):
         """Make a local job's files directory (`work/tmp` inside, all 0700) and return it.
 
         The output folder must still be the folder picked at create time (`output_id`), else `OutputGone`: nothing is
@@ -478,28 +558,102 @@ class Store:
 
         The directory is made under the lifecycle lock (@p locked: the caller holds it), so a sweep's rename and this
         creation never interleave, and the new generation's identity is saved to `job.json` (@p persist; False where the
-        caller saves the job itself) so a pending entry always names the generation it sweeps.
-        """
+        caller saves the job itself) so a pending entry always names the generation it sweeps. @p persist False is for
+        a caller that owns the save and holds NO job lock (`Worker.run_job`: safe because the job is `running` and every
+        sweep skips a running job); a failure after the directory was made then clears `files_id` in `job.json` itself.
+        With @p persist the job's lock is taken FIRST and held while the directory is made and `files_id` saved: `Busy`
+        therefore always means that nothing was made. The lock wait has its own `LOCKED_IO_S` budget (capped by
+        @p deadline), and the budget of the filesystem calls starts only once every lock is held (also `LOCKED_IO_S`,
+        capped by @p deadline): a long wait for a lock never makes a healthy folder look gone. Every filesystem call is
+        bounded (`CallPending`, an `OSError`, when one does not return; a mkdir or chmod left behind fences the name and
+        is tracked as pending by the sweeps)."""
         if job.get("source") != "local":
             return self.files_dir(job)
+        budget = lambda: Deadline(LOCKED_IO_S) if deadline is None else deadline.capped(LOCKED_IO_S)
         with (contextlib.nullcontext() if locked else self.lifecycle):
             try:
                 self.load(job["id"])                          # a deleted job (or one being deleted: delete holds this
             except KeyError:                                  # lock) never gets a directory made for it
                 raise OutputGone("job %s no longer exists" % job["id"])
-            before = job.get("files_id")
-            files = self._make_files_dir(job)
-            if persist and job.get("files_id") != before:
-                gen = job["files_id"]
+            if mutation_pending(self.files_dir(job)):         # an abandoned rename/mkdir of this very name is in flight
+                raise OutputGone("the files directory is still being moved or made on a slow or hung volume; "
+                                 "try again later")
+            made = []
+            if not persist:
                 try:
-                    self.update(job["id"], lambda j: j.update(files_id=gen))
+                    return self._make_files_dir(job, budget(), made)
+                except BaseException:
+                    self._failed_make(job, made, None)
+                    raise
+            lock = self.lock(job["id"])
+            if not lock.acquire(timeout=budget().remaining()):
+                raise Busy("job %s is busy" % job["id"])
+            try:
+                try:
+                    fresh = self.load(job["id"])
+                except KeyError:
+                    raise OutputGone("job %s no longer exists" % job["id"])
+                try:
+                    files = self._make_files_dir(job, budget(), made)    # the I/O budget starts with the locks held
+                except BaseException:
+                    self._failed_make(job, made, fresh)
+                    raise
+                if job.get("files_id") != fresh.get("files_id"):    # against the job as it is now, not the caller's copy
+                    fresh["files_id"] = job["files_id"]
+                    self._write(fresh)
+                return files
+            finally:
+                lock.release()
+
+    def files_current(self, job, deadline):
+        """True when @p job's output folder is still the one picked and its files directory is still the generation the
+        job saved (`files_id`): a real directory, not being renamed or made, every look bounded by @p deadline. False on
+        any `OSError`."""
+        left = lambda: min(STAT_TIMEOUT_S, deadline.remaining())
+        files = self.files_dir(job)
+        try:
+            if mutation_pending(files):
+                return False
+            if stat_id_bounded(job["output_dir"], left()) != tuple(job.get("output_id") or ()):
+                return False
+            st = bounded_call(("lstat", files), lambda: os.lstat(files), left())
+            return stat.S_ISDIR(st.st_mode) and [st.st_dev, st.st_ino] == list(job.get("files_id") or ())
+        except OSError:
+            return False
+
+    def _failed_make(self, job, made, fresh):
+        """`ensure_files_dir` failed after it had started to make the files directory itself (@p made): a directory of a
+        generation nobody has recorded may exist now (or a mkdir of it is still in flight). The saved `files_id` (@p fresh,
+        the job as loaded under its lock; None where the caller saves the job) is the OLD generation and would make a
+        later sweep or retry take the new directory for "a newer generation" and leave it: it is cleared, and the path is
+        recorded pending with `making` (a generation of unknown identity), bounded. @p fresh None: the caller holds no job
+        lock and the clearing is a bounded `update` of `job.json`. Never raises."""
+        if not made:
+            return
+        try:
+            if fresh is not None:
+                if fresh.get("files_id") is not None:
+                    fresh["files_id"] = None
+                    self._write(fresh)
+            else:                                       # the caller saves the job itself (the worker, holding no lock): the
+                try:                                    # job.json it reloads later must not keep the old generation either
+                    self.update(job["id"], lambda j: j.update(files_id=None), timeout=LOCKED_IO_S)
                 except KeyError:
                     pass
-            return files
+            job["files_id"] = None
+            self._add_pending_many([self._entry(job, self.files_dir(job), "the files directory was being made when "
+                                                "the call failed", files_id=None, making=True)],
+                                   Deadline(LOCKED_IO_S))
+        except Exception:
+            print_exc()
 
-    def _make_files_dir(self, job):
+    def _make_files_dir(self, job, dl, made=None):
+        """The body of `ensure_files_dir`: every call bounded by @p dl (a `Deadline`) and keyed, so a hung volume costs
+        a request its section's allowance, never the lifecycle lock. @p made (a list) gets an item once the mkdir of the
+        files directory itself is started."""
+        left = lambda: min(STAT_TIMEOUT_S, dl.remaining())
         try:
-            same = stat_id(job["output_dir"]) == tuple(job.get("output_id") or ())
+            same = stat_id_bounded(job["output_dir"], left()) == tuple(job.get("output_id") or ())
         except OSError:
             same = False
         if not same:
@@ -507,14 +661,16 @@ class Store:
         files = self.files_dir(job)
         for path in (files, os.path.join(files, "work"), os.path.join(files, "work", "tmp")):
             try:
-                mode = os.lstat(path).st_mode
+                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left()).st_mode   # one result type per key
             except FileNotFoundError:
-                os.mkdir(path, 0o700)
-                os.chmod(path, 0o700)
+                if made is not None and path == files:
+                    made.append(path)
+                bounded_call(("mkdir", path), lambda p=path: os.mkdir(p, 0o700), left())
+                bounded_call(("chmod", path), lambda p=path: os.chmod(p, 0o700), left())
                 continue
             if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):    # a link planted at the name would lead elsewhere
                 raise OutputGone("the files directory is a link or not a folder: refusing to use it")
-        job["files_id"] = list(stat_id(files))          # the directory's own identity (a run saves it and checks it per step)
+        job["files_id"] = list(stat_id_bounded(files, left()))   # the directory's own identity (a run saves it and checks it per step)
         return files
 
     def sources(self, job):
@@ -570,13 +726,25 @@ class Store:
             json.dump(job, f, indent=2, sort_keys=True, ensure_ascii=False)
         os.replace(tmp, self.path(job["id"], "job.json"))
 
-    def update(self, job_id, fn):
-        """Load @p job_id, call `fn(job)`, save it and return it, all under the job's lock."""
-        with self.lock(job_id):
+    def update(self, job_id, fn, timeout=None):
+        """Load @p job_id, call `fn(job)`, save it and return it, all under the job's lock. With @p timeout (seconds) the
+        lock is waited for that long, else `Busy`: a caller holding the lifecycle lock never waits for it unboundedly."""
+        with self._job_lock(job_id, timeout):
             job = self.load(job_id)
             fn(job)
             self._write(job)
             return job
+
+    @contextlib.contextmanager
+    def _job_lock(self, job_id, timeout=None):
+        """The job's lock, waited for at most @p timeout seconds (`Busy` when it is not free by then; forever for None)."""
+        lock = self.lock(job_id)
+        if not (lock.acquire() if timeout is None else lock.acquire(timeout=max(0.0, timeout))):
+            raise Busy("job %s is busy" % job_id)
+        try:
+            yield lock
+        finally:
+            lock.release()
 
     def list(self):
         """One dict per job, newest first: `{"id", "state", "created", "fonts"}`, the last the font count.
@@ -602,26 +770,33 @@ class Store:
         out.sort(key=lambda item: (item["created"], item["id"]), reverse=True)
         return out
 
-    def delete(self, job_id, locked=False):
+    def delete(self, job_id, locked=False, timeout=None):
         """Remove the job's directory; `ValueError` for a `queued` or `running` job (the worker owns it).
 
         The state check and the removal hold the job's own lock (W1): a `POST /run` that turns an `uploading` job
         `queued` in the same instant is either seen by the check or waits for the removal, never lost between them.
-        A local job's files directory is renamed away under the lifecycle lock (with the state check) and removed after
-        every lock is released. With @p locked the caller already holds the lifecycle lock and gets the finishing step
-        back as a callable to run once it has released it; otherwise it is run here.
-        `on_delete` is called once the directory is gone (the caller's per-job bookkeeping).
+        A local job's files directory is renamed away under the lifecycle lock (with the state check); what remains of it
+        (the tombstone, or the directory when the rename failed) is RECORDED as pending before the metadata is removed:
+        when the record does not land in time `Busy` is raised and the job stays (its `job.json` still names the folder).
+        The tombstone is removed after every lock is released. With @p locked the caller already holds the lifecycle lock
+        and gets the finishing step back as a callable to run once it has released it; otherwise it is run here.
+        `on_delete` is called once the directory is gone (the caller's per-job bookkeeping). With @p timeout the job's lock
+        is waited for that long, else `Busy` (a caller holding the lifecycle lock passes `LOCKED_IO_S`).
         """
         finish = None
         with (contextlib.nullcontext() if locked else self.lifecycle):
             lock = self.lock(job_id)
-            with lock:
+            with self._job_lock(job_id, timeout):
                 job = self.load(job_id)
                 if job.get("state") in ("queued", "running"):
                     raise ValueError("job %s is %s" % (job_id, job.get("state")))
                 if job.get("source") == "local":
-                    step = self._rename_away(job, None, check_active=False)     # a failure is kept as pending
-                    finish = lambda: self._finish_sweep(job, step, None)
+                    dl = Deadline(LOCKED_IO_S)
+                    step = self._rename_away(job, dl, check_active=False)
+                    entries = self._step_entries(job, step)
+                    if entries and not self._add_pending_many(entries, dl):
+                        raise Busy("job %s is busy: its cleanup record could not be saved" % job_id)
+                    finish = lambda: self._finish_delete(job, step)
                 shutil.rmtree(self.path(job_id))
             with self._locks_guard:
                 if self._locks.get(job_id) is lock:         # never drop a lock a later caller already made
@@ -633,6 +808,22 @@ class Store:
         if finish is not None:
             finish()
 
+    def _finish_delete(self, job, step):
+        """After a local `delete` released every lock: remove the tombstone (bounded) and drop its pending entry when
+        that finished. Never raises: the job is gone, so no error may reach the caller; whatever fails stays recorded."""
+        status, trash = step[0], step[1]
+        if status != "renamed":
+            return
+        try:
+            try:
+                removed = remove_tree_bounded(trash, REMOVE_BOUND_S)
+            except FileNotFoundError:
+                removed = True                                    # already gone: a bounded removal finished first
+            if removed:
+                self._pending_op(lambda entries: ([e for e in entries if e.get("path") != trash], None)
+                                 if any(e.get("path") == trash for e in entries) else (None, None))
+        except Exception:
+            print_exc()                                           # any other error: the entry stays, the answer is not touched
 
     # ---- the sweeps of a local job's files directory (`<output_dir>/.svf-maker-<id>/`) --------------------------
 
@@ -679,39 +870,144 @@ class Store:
         except OSError:
             pass
 
-    def _add_pending(self, job, files, reason, trash=None, generation=None):
-        """Record @p files (or, when its removal was started and not finished, the tombstone @p trash it was renamed to)
-        as still to be removed."""
-        entry = {"path": trash or files, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"),
-                 "job": job["id"], "files_id": None if trash else (generation or job.get("files_id"))}
-        files = trash or files
-        with self._pending_lock:
-            entries = self._read_pending()
-            same = [e for e in entries if e.get("path") == files]
-            fresh = not same
-            if fresh:
-                entries.append(entry)
-                self._write_pending(entries)
-            elif same[0].get("files_id") != entry["files_id"]:
-                same[0].update(entry)                     # a newer generation of the directory: the entry follows it
-                self._write_pending(entries)
-        if not fresh:
-            return                                        # logged when first recorded: once per directory, not per sweep
-        try:
-            zipout.append_log(self.path(job["id"]), "\nsweep: %s: %s; intermediate files may remain there\n"
-                              % (files, reason))
-        except OSError:
-            pass                                          # the metadata directory is already gone
+    def _pending_run(self):
+        """The pending writer thread: serves `_pending_q` in order, exits when idle (see `_pending_op`)."""
+        while True:
+            try:
+                req = self._pending_q.get(timeout=PENDING_IDLE_S)
+            except queue.Empty:
+                with self._pending_thread_lock:
+                    if self._pending_q.empty():
+                        self._pending_thread = None
+                        return
+                continue
+            fn, event, box, state, after = req
+            try:
+                with self._pending_lock:
+                    entries = self._read_pending()
+                    before = copy.deepcopy(entries)
+                    new, result = fn(entries)
+                    if new is not None and new != before:
+                        self._write_pending(new)
+                box.append(("ok", result))
+            except BaseException as exc:
+                box.append(("err", exc))
+            if after is not None and box[0][0] == "ok":
+                try:
+                    after(box[0][1])                      # e.g. the log.md lines: written even if nobody waits any more
+                except BaseException:
+                    print_exc()                           # never turns a written record into an error for the caller
+            with self._pending_thread_lock:
+                self._pending_unfinished -= 1
+                self._pending_stalled = False
+                abandoned = state["abandoned"]
+                event.set()
+            if abandoned and box[0][0] == "err":
+                try:
+                    raise box[0][1]
+                except BaseException:
+                    print_exc()
 
-    def _rename_away(self, job, deadline, check_active=True, own_run=False, stat_timeout=None):
+    def _pending_op(self, fn, deadline=None, always_floor=False, after=None):
+        """Run @p fn(entries) -> (new entries or None, result) on the one pending writer thread, as a read-modify-write
+        of pending-sweeps.json under `_pending_lock`. Waits until @p deadline (default `Deadline(STAT_TIMEOUT_S)`) but at
+        least `PENDING_FLOOR_S`, and returns `(True, result)`, or `(False, None)` when it is not done by then; an
+        operation not waited for still runs later, in order. The floor is not waited while the writer is stalled (a
+        caller already gave up on an unfinished operation; cleared when the writer completes one) unless @p always_floor.
+        An exception of @p fn is re-raised to a caller that waited (printed otherwise). @p after(result), when given,
+        runs on the writer thread once the write is done, whether or not the caller still waits."""
+        dl = deadline if deadline is not None else Deadline(STAT_TIMEOUT_S)
+        event, box, state = threading.Event(), [], {"abandoned": False}
+        with self._pending_thread_lock:
+            floor = always_floor or not self._pending_stalled
+            if self._pending_thread is None:
+                thread = threading.Thread(target=self._pending_run, daemon=True, name="svf-maker-pending")
+                thread.start()                            # a failed start leaves nothing queued and no thread recorded
+                self._pending_thread = thread
+            self._pending_unfinished += 1
+            self._pending_q.put((fn, event, box, state, after))
+        wait = max(dl.remaining(), PENDING_FLOOR_S) if floor else dl.remaining()
+        if not event.wait(wait):
+            with self._pending_thread_lock:
+                if not event.is_set():
+                    state["abandoned"] = True
+                    self._pending_stalled = True
+                    return False, None
+        kind, value = box[0]
+        if kind == "err":
+            raise value
+        return True, value
+
+    def flush_pending(self, deadline=None):
+        """True when every pending operation submitted so far has run (waits at least `PENDING_FLOOR_S`, always)."""
+        return self._pending_op(lambda entries: (None, None), deadline, always_floor=True)[0]
+
+    @staticmethod
+    def _merge_pending(entries, entry):
+        """Add @p entry to @p entries, or merge it into the entry with the same path; True when it was new. A `making`
+        entry (a generation of unknown identity is being made there) sets the recorded `files_id` to None; otherwise a
+        None `files_id` never overwrites a recorded one, and a different non-None one replaces it (a newer generation)."""
+        same = [e for e in entries if e.get("path") == entry["path"]]
+        if not same:
+            entries.append(entry)
+            return True
+        old = same[0]
+        if entry.get("making"):
+            old.update(entry)
+        elif entry["files_id"] is not None and entry["files_id"] != old.get("files_id"):
+            old.update(entry)
+            old.pop("making", None)
+        if entry.get("from") and not old.get("from"):
+            old["from"] = entry["from"]
+        return False
+
+    def _add_pending_many(self, entries, deadline=None):
+        """Record @p entries (dicts with `path`, `output_dir`, `output_id`, `job`, `files_id`, `reason`, optionally `from`
+        and `making`) in ONE pending operation; True when it was written in time. The `log.md` line of each new one is
+        written by the writer thread when the operation is done (also when the caller stopped waiting)."""
+        entries = [dict(e) for e in entries]
+        reasons = [(e["job"], e["path"], e.pop("reason", "")) for e in entries]
+
+        def merge(current):
+            return current, [self._merge_pending(current, dict(e)) for e in entries]
+
+        def log(fresh):
+            for new, (job_id, path, reason) in zip(fresh, reasons):
+                if not new:
+                    continue                              # logged when first recorded: once per directory, not per sweep
+                try:
+                    zipout.append_log(self.path(job_id), "\nsweep: %s: %s; intermediate files may remain there\n"
+                                      % (path, reason))
+                except (OSError, KeyError):
+                    pass                                  # the metadata directory is already gone
+        return self._pending_op(merge, deadline, after=log)[0]
+
+    def _add_pending(self, job, files, reason, trash=None, generation=None, deadline=None, origin=None, making=False):
+        """Record @p files (or, when its removal was started and not finished, the tombstone @p trash it was renamed to)
+        as still to be removed; True when written in time. @p origin is stored as `from` (the directory a tombstone was
+        renamed from); @p making: a generation of unknown identity is being made at @p files (its `files_id` is cleared)."""
+        entry = {"path": trash or files, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"),
+                 "job": job["id"], "files_id": None if trash or making else (generation or job.get("files_id")),
+                 "reason": reason}
+        if origin:
+            entry["from"] = origin
+        if making:
+            entry["making"] = True
+        return self._add_pending_many([entry], deadline)
+
+    def _rename_away(self, job, deadline, check_active=True, own_run=False, stat_timeout=None, capped=True):
         """The step of a sweep that needs the lifecycle lock (the caller holds it): look at the job's state as it is now,
         then rename its files directory to a unique tombstone. Returns `(status, trash, reason, generation, files)`:
         status `gone` (nothing there), `skipped` (the job is in use), `renamed` (@p trash is to be removed outside the
-        locks) or `failed` (@p reason; to be recorded as pending). @p generation is the identity of the directory
-        actually renamed. Every filesystem check on the output folder is bounded by @p deadline (a `Deadline`) or, without
-        one, by `STAT_TIMEOUT_S`; the preview locks are taken in the order the server defines, within the same deadline."""
+        locks), `abandoned` (the rename did not return in time: it is still in flight and fences the name; @p trash is
+        where it will land) or `failed` (@p reason; to be recorded as pending; @p generation is `_MAKING` when a mkdir of
+        the name is in flight). Otherwise @p generation is the identity of the directory actually renamed. Every
+        filesystem call is bounded by @p deadline (a `Deadline`; `LOCKED_IO_S` without one), capped at `LOCKED_IO_S`
+        unless @p capped is False (start-up and stop, which are the only work then); the preview locks are taken in the
+        order the server defines, within the same deadline."""
         files = self.files_dir(job)
-        left = (lambda: STAT_TIMEOUT_S) if deadline is None else (lambda: min(STAT_TIMEOUT_S, deadline.remaining()))
+        dl = Deadline(LOCKED_IO_S) if deadline is None else (deadline.capped(LOCKED_IO_S) if capped else deadline)
+        left = lambda: min(STAT_TIMEOUT_S, dl.remaining())
         if stat_timeout is not None:
             base = left
             left = lambda: min(base(), stat_timeout)
@@ -721,13 +1017,19 @@ class Store:
             fresh = job
         if check_active and not own_run and fresh.get("state") in ("queued", "running"):
             return ("skipped", None, None, None, files)
+        if dl.expired():
+            return ("failed", None, "out of time", None, files)       # nothing is started after the deadline
+        kind = mutation_kind(files)
+        if kind is not None:                                  # an abandoned call of this very name is still in flight
+            return ("failed", None, "busy (a filesystem call is still pending)",
+                    _MAKING if kind in ("mkdir", "chmod") else None, files)
         try:
             if self.on_sweep is None:
                 hold = contextlib.nullcontext()
             else:
                 # a try-lock: a bake holding the preview lock is not waited for under the lifecycle lock; the sweep is
                 # recorded as pending (busy) and retried later
-                hold = self.on_sweep(job, PREVIEW_TRY_S if deadline is None else min(PREVIEW_TRY_S, deadline.remaining()))
+                hold = self.on_sweep(job, min(PREVIEW_TRY_S, dl.remaining()))
             with hold:
                 try:
                     same = stat_id_bounded(job["output_dir"], left()) == tuple(job.get("output_id") or ())
@@ -742,15 +1044,47 @@ class Store:
                         raise OSError("not a real directory")
                     generation = list(stat_id_bounded(files, left()))
                     trash = tombstone_of(files)
-                    os.rename(files, trash)                       # under the locks: the name is free for a later generation
-                    return ("renamed", trash, None, generation, files)
                 except Exception as exc:
                     return ("failed", None, exc_text(exc, True) if type(exc) is not OutputGone else str(exc), None, files)
+                if left() <= 0:
+                    return ("failed", None, "out of time", None, files)     # nothing is started, so nothing is in flight
+                try:
+                    rename_bounded(files, trash, left())          # under the locks: the name is free for a later generation
+                except CallPending:
+                    return ("abandoned", trash, "rename did not finish in time", generation, files)
+                except Exception as exc:
+                    return ("failed", None, exc_text(exc, True), None, files)
+                return ("renamed", trash, None, generation, files)
         except TimeoutError:
             return ("failed", None, "busy (a preview holds it)", None, files)
         except Exception:
             print_exc()
             return ("failed", None, "sweep failed", None, files)
+
+    def _entry(self, job, path, reason, files_id=None, origin=None, making=False):
+        entry = {"path": path, "output_dir": job.get("output_dir"), "output_id": job.get("output_id"), "job": job["id"],
+                 "files_id": files_id, "reason": reason}
+        if origin:
+            entry["from"] = origin
+        if making:
+            entry["making"] = True
+        return entry
+
+    def _step_entries(self, job, step, removal_reason=None):
+        """The pending entries a `_rename_away` result leaves to be recorded: the tombstone of a `renamed` step, the
+        directory (generation read) and its tombstone (`from` the directory) of an `abandoned` one, the directory of a
+        `failed` one, nothing for `gone` and `skipped`."""
+        status, trash, reason, generation, files = step
+        if status == "renamed":
+            return [self._entry(job, trash, removal_reason or "removal pending")]
+        if status == "abandoned":
+            return [self._entry(job, files, reason, files_id=generation or job.get("files_id")),
+                    self._entry(job, trash, reason, origin=files)]
+        if status == "failed":
+            making = generation == _MAKING
+            return [self._entry(job, files, reason, files_id=None if making else (generation or job.get("files_id")),
+                                making=making)]
+        return []
 
     def _finish_sweep(self, job, step, deadline):
         """After the lifecycle lock is released: remove the tombstone (bounded), or record what is left as pending.
@@ -760,23 +1094,24 @@ class Store:
             return True
         if status == "skipped":
             return False
+        removal = None
         try:
             if status == "renamed":
                 bound = REMOVE_BOUND_S if deadline is None else min(REMOVE_BOUND_S, deadline.remaining())
                 if remove_tree_bounded(trash, bound):
                     return True
-                reason = "removal did not finish in time"
+                removal = "removal did not finish in time"
         except FileNotFoundError:
             return True                                           # already removed by a bounded removal that finished
         except Exception as exc:
-            reason = exc_text(exc, True)
+            removal = exc_text(exc, True)
         try:
-            self._add_pending(job, files, reason, trash, generation)       # outside every lock but the pending one
+            self._add_pending_many(self._step_entries(job, step, removal), deadline)   # outside every lock but the pending one
         except Exception:
             print_exc()
         return False
 
-    def sweep_files(self, job, stat_timeout=None, bound=None, deadline=None, own_run=False):
+    def sweep_files(self, job, stat_timeout=None, bound=None, deadline=None, own_run=False, capped=True):
         """Remove a local job's files directory; True when it is gone. Never raises.
 
         Under the lifecycle lock, from the job's state as it is now: a job that is queued or running is left alone (the
@@ -785,20 +1120,19 @@ class Store:
         recorded in `pending-sweeps.json` with the folder's identity and the generation actually swept, and logged to
         `log.md`; `retry_pending_sweeps` takes it up later.
 
-        With @p bound (seconds) or a @p deadline (a `Deadline`) every wait of the call - the lifecycle lock, the preview
-        locks, the filesystem checks, the removal - counts against that one deadline."""
+        Every wait of the call - the lifecycle lock, the preview locks, the filesystem checks, the removal - counts
+        against one deadline: the given @p deadline (a `Deadline`), else @p bound seconds, else `REMOVE_BOUND_S`; the
+        locked step is capped at `LOCKED_IO_S` unless @p capped is False (start-up and stop)."""
         if job.get("source") != "local":
             return True
-        if deadline is None and bound is not None:
-            deadline = Deadline(bound)
+        if deadline is None:
+            deadline = Deadline(REMOVE_BOUND_S if bound is None else bound)
         try:
-            if deadline is None:
-                self.lifecycle.acquire()
-            elif not self.lifecycle.acquire(timeout=deadline.remaining()):
+            if not self.lifecycle.acquire(timeout=deadline.remaining()):
                 step = ("failed", None, "busy (lifecycle)", None, self.files_dir(job))
                 return self._finish_sweep(job, step, deadline)
             try:
-                step = self._rename_away(job, deadline, own_run=own_run, stat_timeout=stat_timeout)
+                step = self._rename_away(job, deadline, own_run=own_run, stat_timeout=stat_timeout, capped=capped)
             finally:
                 self.lifecycle.release()
         except Exception:
@@ -806,11 +1140,14 @@ class Store:
             return False
         return self._finish_sweep(job, step, deadline)
 
+    _ORPHAN_RE = re.compile(r"^\.svf-maker-([0-9a-f]{12})(\.trash-[0-9a-f]{8})?$")
+
     def sweep_orphans(self, deadline=None):
         """Remove every `.svf-maker-<id>` directory beside a known output folder (one a local job or a pending entry
-        records, same device and inode) whose job no longer exists in the store: nothing tracks it. Start-up and stop. The
-        rename to a tombstone is under the lifecycle lock; the removal is outside it. A folder shared with another
-        running maker would lose that maker's live directories: one maker per output folder is the rule."""
+        records, same device and inode) whose job no longer exists in the store: nothing tracks it; and every
+        `.svf-maker-<id>.trash-*` tombstone there, whatever its job (a tombstone is dead by name). Start-up and stop. The
+        lifecycle lock is taken per folder, each section capped at `LOCKED_IO_S`; the removals are outside it, each on its
+        own: one that fails or does not finish is recorded (one pending operation at the end), never raised."""
         dl = deadline or Deadline(STOP_SWEEP_TOTAL_S)
         folders = {}
         try:
@@ -820,62 +1157,141 @@ class Store:
                     folders[job.get("output_dir")] = tuple(job.get("output_id") or ())
         except KeyError:
             pass
-        with self._pending_lock:
-            for entry in self._read_pending():
+        done, entries = self._pending_op(lambda current: (None, copy.deepcopy(current)), dl)
+        for entry in (entries if done else []):               # not read in time: only the jobs' folders are visited
+            try:
+                folders.setdefault(entry["output_dir"], tuple(entry["output_id"]))
+            except (KeyError, TypeError):
+                continue
+        collected = []
+        for out, oid in folders.items():
+            if dl.expired() or not self.lifecycle.acquire(timeout=dl.remaining()):
+                break
+            trash = []                                        # (tombstone path, job id) to remove outside the lock
+            try:
+                sec = dl.capped(LOCKED_IO_S)
+                left = lambda: min(STAT_TIMEOUT_S, sec.remaining())
                 try:
-                    folders.setdefault(entry["output_dir"], tuple(entry["output_id"]))
-                except (KeyError, TypeError):
-                    continue
-        trash = []
-        if not self.lifecycle.acquire(timeout=dl.remaining()):
-            return
-        try:
-            for out, oid in folders.items():
-                if dl.expired():
-                    break
-                try:
-                    if stat_id_bounded(out, min(STAT_TIMEOUT_S, dl.remaining())) != oid:
+                    if stat_id_bounded(out, left()) != oid:
                         continue
-                    names = bounded_call(("listdir", out), lambda: os.listdir(out), min(STAT_TIMEOUT_S, dl.remaining()))
+                    names = bounded_call(("listdir", out), lambda o=out: os.listdir(o), left())
                 except (OSError, TypeError):
                     continue
                 for name in names:
-                    if not re.match(r"^\.svf-maker-[0-9a-f]{12}$", name) or os.path.exists(self.path(name[len(FILES_DIR_PREFIX):], "job.json")):
+                    match = self._ORPHAN_RE.match(name)
+                    if match is None or sec.expired():
                         continue
+                    job_id, is_tomb = match.group(1), match.group(2) is not None
                     path = os.path.join(out, name)
+                    if mutation_pending(path):
+                        continue
                     try:
-                        if os.path.islink(path) or not os.path.isdir(path):
+                        if not is_tomb and os.path.exists(self.path(job_id, "job.json")):
+                            continue                          # a live job's directory
+                        if fs_bounded("islink", path, left()) or not fs_bounded("isdir", path, left()):
+                            continue
+                        if is_tomb:
+                            trash.append((path, job_id))
                             continue
                         tomb = tombstone_of(path)
-                        os.rename(path, tomb)
-                        trash.append(tomb)
+                        if left() <= 0:
+                            continue                              # out of time: nothing started, nothing to record
+                        try:
+                            # the preview locks of that id (a run being prepared may still plan into it): try-lock
+                            hold = (contextlib.nullcontext() if self.on_sweep is None else
+                                    self.on_sweep({"id": job_id, "fonts": []}, min(PREVIEW_TRY_S, left())))
+                            with hold:
+                                rename_bounded(path, tomb, left())
+                            trash.append((tomb, job_id))
+                        except TimeoutError:
+                            continue                          # held: left for the next pass
+                        except CallPending:                   # in flight: both names are recorded
+                            collected.append(self._entry({"id": job_id, "output_dir": out, "output_id": list(oid)},
+                                                         path, "rename did not finish in time"))
+                            collected.append(self._entry({"id": job_id, "output_dir": out, "output_id": list(oid)},
+                                                         tomb, "rename did not finish in time", origin=path))
                     except OSError:
                         continue
-        finally:
-            self.lifecycle.release()
-        for tomb in trash:
-            if dl.expired() or not remove_tree_bounded(tomb, min(REMOVE_BOUND_S, dl.remaining())):
-                break
+            except Exception:
+                print_exc()
+            finally:
+                self.lifecycle.release()
+            for tomb, job_id in trash:
+                reason = "removal did not finish in time"
+                try:
+                    if dl.expired() or not remove_tree_bounded(tomb, min(REMOVE_BOUND_S, dl.remaining())):
+                        collected.append(self._entry({"id": job_id, "output_dir": out, "output_id": list(oid)},
+                                                     tomb, reason))
+                except FileNotFoundError:
+                    continue                                  # already removed
+                except Exception as exc:
+                    print("sweep: %s: %s" % (tomb, type(exc).__name__), file=sys.stderr)      # type only
+                    collected.append(self._entry({"id": job_id, "output_dir": out, "output_id": list(oid)},
+                                                 tomb, exc_text(exc, True)))
+        if collected:
+            try:
+                self._add_pending_many(collected, dl)
+            except Exception:
+                print_exc()
 
-    def sweep_trash(self, job):
-        """Remove the leftover tombstones (`.svf-maker-<id>.trash-*`) of a local job beside its output folder's
-        identity (start-up only). Each removal is bounded; nothing else in the folder is touched."""
+    _TOMB_RE = re.compile(r"^\.svf-maker-[0-9a-f]{12}\.trash-[0-9a-f]{8}$")
+
+    def sweep_trash(self, job, deadline=None):
+        """Remove the leftover tombstones (`.svf-maker-<id>.trash-*`) of a local job beside its output folder's identity
+        (start-up). Everything is bounded by ONE absolute @p deadline (a `Deadline`; one `REMOVE_BOUND_S` for the call
+        without one): the stat, the listing, each check and each removal, which gets at most `REMOVE_BOUND_S` of what is
+        left. Each tombstone is handled on its own: one whose check or removal fails, times out or is not reached before
+        the deadline is collected and the loop goes on; the collected ones are recorded as pending in ONE operation at the
+        end ("not reached before the deadline" for the ones never tried). Returns True when no tombstone of the job
+        was left (every one removed, or none seen), and also when there is nothing of this job to look at (the output folder is another
+        one now, or the job has none); False when one was collected or is being renamed, or when the folder could not be
+        listed in time. Never raises. Nothing else in the folder is touched."""
         if job.get("source") != "local":
-            return
+            return True
+        dl = deadline or Deadline(REMOVE_BOUND_S)
+        left = lambda: min(STAT_TIMEOUT_S, dl.remaining())
         out, prefix = job.get("output_dir"), FILES_DIR_PREFIX + job["id"] + ".trash-"
         try:
-            if stat_id_bounded(out) != tuple(job.get("output_id") or ()):
-                return
-            names = os.listdir(out)
-        except (OSError, TypeError):
-            return
+            if stat_id_bounded(out, left()) != tuple(job.get("output_id") or ()):
+                return True                                   # another folder: nothing of ours is there
+            names = bounded_call(("listdir", out), lambda: os.listdir(out), left())
+        except TypeError:
+            return True
+        except OSError:
+            return False                                      # could not look: unknown, nothing to record
+        collected, untouched = [], False
         for name in names:
+            if not (self._TOMB_RE.match(name) and name.startswith(prefix)):
+                continue
             path = os.path.join(out, name)
-            if (re.match(r"^\.svf-maker-[0-9a-f]{12}\.trash-[0-9a-f]{8}$", name) and name.startswith(prefix)
-                    and not os.path.islink(path) and os.path.isdir(path)):
-                remove_tree_bounded(path, REMOVE_BOUND_S)
+            reason = "removal did not finish in time"
+            try:
+                if mutation_pending(path):
+                    untouched = True                          # a call on it is in flight: never started twice
+                    continue
+                if left() <= 0:
+                    collected.append(self._entry(job, path, "not reached before the deadline"))
+                    continue
+                # a bounded lstat, not `os.path.islink/isdir` (they turn every OSError into False, and a tombstone whose
+                # lookup fails would then be skipped and forgotten): FileNotFoundError = gone, any other error collects it
+                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left()).st_mode   # one result type per key
+                if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+                    continue
+                if left() <= 0 or not remove_tree_bounded(path, min(REMOVE_BOUND_S, dl.remaining())):
+                    collected.append(self._entry(job, path, reason))
+            except FileNotFoundError:
+                continue                                      # already removed
+            except Exception as exc:                          # a timeout (`CallPending`) included
+                print("sweep: %s: %s" % (path, type(exc).__name__), file=sys.stderr)       # type only
+                collected.append(self._entry(job, path, exc_text(exc, True)))
+        if collected:
+            try:
+                self._add_pending_many(collected, dl)
+            except Exception:
+                print_exc()
+        return not collected and not untouched
 
-    def retry_pending_sweeps(self, stat_timeout=None, deadline_s=None):
+    def retry_pending_sweeps(self, stat_timeout=None, deadline_s=None, deadline=None, capped=True):
         """Retry each pending sweep; it removes only a real `.svf-maker-<job id>` directory directly inside the output
         folder it was recorded for, when that folder is still the same one and the directory is still the generation
         that was recorded (`files_id`).
@@ -883,43 +1299,53 @@ class Store:
         An entry is dropped when the directory is gone, was replaced by a newer generation, or the removal finished. It
         is KEPT, untouched, when the folder cannot be reached or another folder is mounted there (the original may come
         back), when its job is queued, running, uploading or detected (the directory is in use), when a lock or the
-        removal does not finish, and when the overall deadline @p deadline_s (`RETRY_DEADLINE_S`) has passed.
+        removal does not finish, when a rename of its path is still in flight, and when the overall deadline has passed.
 
         The state check and the rename to a tombstone happen together under the lifecycle lock, so a job cannot become
         active between them; the tombstone is removed after every lock is released. Every wait counts against one
-        `Deadline`. Callers: the idle sweeper (and the start-up cleanup). One retry runs at a time; a second returns."""
+        `Deadline` (@p deadline as given, else @p deadline_s seconds, else `RETRY_DEADLINE_S`), and no filesystem call
+        starts once it has passed. Callers: the idle sweeper (and the start-up cleanup, which passes @p capped False).
+        One retry runs at a time; a second returns."""
         if not self._retry_lock.acquire(blocking=False):
             return
         try:
-            with self._pending_lock:
-                entries = self._read_pending()
-            if not entries:
-                return                                            # nothing to retry: no file is written
-            dl = Deadline(RETRY_DEADLINE_S if deadline_s is None else deadline_s)
+            dl = deadline or Deadline(RETRY_DEADLINE_S if deadline_s is None else deadline_s)
+            done, entries = self._pending_op(lambda current: (None, copy.deepcopy(current)), dl)
+            if not done or not entries:
+                return                                            # nothing to retry (or not readable in time): no file is written
             dropped = []
             tombs = []
             new_tombs = []
+            abandoned = []
+
+            def step(fn, *args):
+                """A bounded call, which never starts after the deadline."""
+                if dl.expired():
+                    raise _OutOfTime()
+                return fn(*args, min(STAT_TIMEOUT_S if stat_timeout is None else stat_timeout, dl.remaining()))
             for entry in entries:
                 if dl.expired():
                     break                                         # out of time: the rest stays for the next pass
-                left = lambda: max(0.05, min(STAT_TIMEOUT_S if stat_timeout is None else stat_timeout, dl.remaining()))
                 try:
                     path, job_id = entry["path"], entry["job"]
                     out, oid = entry["output_dir"], tuple(entry["output_id"])
                     name = ".svf-maker-" + job_id
                     base = os.path.basename(path)
                     try:
-                        mounted = stat_id_bounded(out, left()) == oid
+                        mounted = step(stat_id_bounded, out) == oid
                     except OSError:
                         continue                                  # the folder cannot be reached (unmounted): keep it
                     if not mounted:
                         continue                                  # another folder is mounted there: wait for the original
-                    if not fs_bounded("lexists", path, left()):
+                    in_flight = mutation_pending(entry.get("from") or path)    # BEFORE the look: a landing rename is seen by one
+                    if not step(fs_bounded, "lexists", path):
+                        if in_flight:
+                            continue                              # a rename of it is in flight: it may still land
                         dropped.append((path, entry.get("files_id")))             # confirmed gone
                         continue
                     if os.path.dirname(path) != out or not re.match(r"^\.svf-maker-[0-9a-f]{12}(\.trash-[0-9a-f]{8})?$", base) \
                             or not (base == name or base.startswith(name + ".trash-")) \
-                            or fs_bounded("islink", path, left()) or not fs_bounded("isdir", path, left()):
+                            or step(fs_bounded, "islink", path) or not step(fs_bounded, "isdir", path):
                         print("sweep: %s: not the directory this job made; left alone" % path, file=sys.stderr)
                         dropped.append((path, entry.get("files_id")))
                         continue
@@ -930,7 +1356,9 @@ class Store:
                     if not self.lifecycle.acquire(timeout=dl.remaining()):
                         break                                     # the lifecycle lock is busy: the rest waits
                     try:
-                        if recorded is not None and list(stat_id_bounded(path, left())) != list(recorded):
+                        if dl.expired():
+                            raise _OutOfTime()                    # the lock wait used the deadline: nothing starts now
+                        if recorded is not None and list(step(stat_id_bounded, path)) != list(recorded):
                             dropped.append((path, recorded))      # a newer generation of the directory: not this entry's
                             continue
                         try:
@@ -939,29 +1367,36 @@ class Store:
                             job = {"id": job_id, "source": "local", "fonts": [], "output_dir": out, "output_id": list(oid)}
                         if job.get("state") in IN_USE_STATES:
                             continue                              # a rerun or an open job uses it: keep the entry
-                        step = self._rename_away(job, dl, check_active=False, stat_timeout=stat_timeout)
+                        step_result = self._rename_away(job, dl, check_active=False, stat_timeout=stat_timeout,
+                                                        capped=capped)
                     finally:
                         self.lifecycle.release()
-                    status, trash = step[0], step[1]
+                    status, trash = step_result[0], step_result[1]
                     if status == "gone":
                         dropped.append((path, recorded))
                     elif status == "renamed":
                         dropped.append((path, recorded))
                         new_tombs.append({"path": trash, "output_dir": out, "output_id": list(oid), "job": job_id,
                                           "files_id": None})
+                    elif status == "abandoned":                   # in flight: the entry stays; the tombstone is recorded, not removed
+                        abandoned.append({"path": trash, "output_dir": out, "output_id": list(oid), "job": job_id,
+                                          "files_id": None, "from": path})
+                except _OutOfTime:
+                    break                                         # the entry is kept; no call starts after the deadline
                 except TimeoutError:
                     continue                                      # a preview lock is held: kept
                 except Exception as exc:
                     print("sweep: %s: %s" % (entry.get("path"), type(exc).__name__), file=sys.stderr)
             # The replacement of each renamed directory by its tombstone is saved BEFORE anything is removed: a removal
             # that raises or is cut short can then never leave a directory that no entry names.
-            with self._pending_lock:
-                current = self._read_pending()
-                kept = [e for e in current if (e.get("path"), e.get("files_id")) not in dropped]
-                known = {e.get("path") for e in kept}
-                kept += [t for t in new_tombs if t["path"] not in known]
-                if kept != current:
-                    self._write_pending(kept)
+            if dropped or new_tombs or abandoned:
+                def replace(current):
+                    kept = [e for e in current if (e.get("path"), e.get("files_id")) not in dropped]
+                    known = {e.get("path") for e in kept}
+                    kept += [t for t in new_tombs + abandoned if t["path"] not in known]
+                    return (kept if kept != current else None), None
+                if not self._pending_op(replace, dl)[0]:
+                    return                                        # not saved in time: nothing is removed, the next pass retries
             removed = []
             for trash in [t for t, _g in tombs] + [t["path"] for t in new_tombs]:
                 if dl.expired():
@@ -974,11 +1409,8 @@ class Store:
                 except Exception as exc:
                     print("sweep: %s: %s" % (trash, type(exc).__name__), file=sys.stderr)    # kept: type only
             if removed:
-                with self._pending_lock:
-                    current = self._read_pending()
-                    kept = [e for e in current if e.get("path") not in removed]
-                    if kept != current:
-                        self._write_pending(kept)
+                self._pending_op(lambda current: ([e for e in current if e.get("path") not in removed], None)
+                                 if any(e.get("path") in removed for e in current) else (None, None), dl)
         finally:
             self._retry_lock.release()
 
@@ -1106,10 +1538,18 @@ class Worker(threading.Thread):
                 if deadline.expired():
                     break
                 try:
-                    self.store.sweep_files(self.store.load(item["id"]), STOP_STAT_TIMEOUT_S, deadline=deadline)
+                    self.store.sweep_files(self.store.load(item["id"]), STOP_STAT_TIMEOUT_S, deadline=deadline,
+                                           capped=False)
                 except KeyError:
                     continue
-        self.store.sweep_orphans(deadline)
+        try:
+            self.store.sweep_orphans(deadline)
+        except Exception:
+            print_exc()
+        try:
+            self.store.flush_pending(deadline)                # a process that exits right after stop keeps its records
+        except Exception:
+            print_exc()
 
     def recover(self):
         """Called once before `start()`: a `running` job is `failed`/`interrupted`, a `queued` one re-enqueued.
@@ -1149,8 +1589,8 @@ class Worker(threading.Thread):
             if total <= MAX_JOBS and time.time() - item["created"] <= MAX_AGE:
                 break
             try:
-                self.store.delete(item["id"])
-            except (ValueError, KeyError, OSError):
+                self.store.delete(item["id"], timeout=LOCKED_IO_S)
+            except (ValueError, KeyError, OSError):      # (`Busy` is a `TimeoutError`: a busy job waits for the next pass)
                 continue
             total -= 1
 

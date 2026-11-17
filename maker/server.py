@@ -80,13 +80,20 @@ def _preview_lock(job_id, font_id):
 
 
 @contextlib.contextmanager
-def _sweep_locks(job, timeout=None):
-    """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`).
-    With @p timeout (seconds, in all) every lock is waited for within that one allowance, not per font; `TimeoutError`
-    (nothing held) when it runs out."""
+def _sweep_locks(job, timeout=None, preparing=None):
+    """Hold the preview locks of every font of @p job while its files directory is swept (the store's `on_sweep`): the
+    fonts the job lists and every lock that still exists for its id (a deleted job's metadata is gone, its held locks
+    are not). With @p timeout (seconds, in all) every lock is waited for within that one allowance, not per font;
+    `TimeoutError` (nothing held) when it runs out. @p preparing (the server's marker dict): a job whose run is being
+    prepared is refused the same way, so no sweep moves a directory the run plans into."""
     end = None if timeout is None else time.monotonic() + timeout
+    if preparing is not None and job["id"] in preparing:
+        raise TimeoutError(job["id"])
+    with _PREVIEW_GUARD:
+        known = sorted(key[1] for key in _PREVIEW_LOCKS if key[0] == job["id"])
+    ids = dict.fromkeys([font.get("id") for font in job.get("fonts") or []] + known)
     with contextlib.ExitStack() as stack:
-        for font_id in dict.fromkeys(font.get("id") for font in job.get("fonts") or []):
+        for font_id in ids:
             if font_id:
                 lock = _preview_lock(job["id"], font_id)
                 if end is None:
@@ -98,30 +105,50 @@ def _sweep_locks(job, timeout=None):
         yield
 
 
+def _run_fingerprint(j):
+    """What a run is planned from: Prepare's copy of the job and the one Commit reads under the job lock must agree.
+    `mask_ok` (set on read, never stored) is left out."""
+    keep = {key: j.get(key) for key in ("state", "roots", "scan_roots", "settings", "output_dir", "output_id", "files_id")}
+    keep["fonts"] = [{k: v for k, v in font.items() if k != "mask_ok"} if isinstance(font, dict) else font
+                     for font in j.get("fonts") or []]
+    return json.dumps(keep, sort_keys=True)
+
+
 def _sweep_idle(server, now=None):
     """Sweep the files directory of every `detected` local job nobody touched for `LOCAL_IDLE_SWEEP_S`."""
     now = time.monotonic() if now is None else now
+    deadline = jobs.Deadline(jobs.RETRY_DEADLINE_S)       # one deadline for the whole pass, read now (not at import)
     for item in server.store.list():
+        if deadline.expired():
+            break
         if item.get("source") != "local" or item["state"] not in ("detected", "uploading"):
+            continue
+        if item["id"] in server.preparing:                # a run is being prepared: its directory is not swept
             continue
         if now - server.touched.get(item["id"], server.started) > LOCAL_IDLE_SWEEP_S:
             try:
-                server.store.sweep_files(server.store.load(item["id"]))
+                server.store.sweep_files(server.store.load(item["id"]), deadline=deadline)
             except KeyError:
                 continue
     for job_id in list(server.cleanup_pending):           # the start-up cleanup that did not finish
+        if deadline.expired():
+            break
+        if job_id in server.preparing:
+            continue
         try:
-            if server.store.sweep_files(server.store.load(job_id)):
+            if server.store.sweep_files(server.store.load(job_id), deadline=deadline):
                 server.cleanup_pending.discard(job_id)
         except KeyError:
             server.cleanup_pending.discard(job_id)
-    server.store.retry_pending_sweeps()
+    server.store.retry_pending_sweeps(deadline=deadline)
 
 
 def _drop_preview_locks(job_id):
-    """Forget @p job_id's per-font preview locks (its directory is gone: `DELETE` and `retain`, W13)."""
+    """Forget @p job_id's per-font preview locks (its directory is gone: `DELETE` and `retain`, W13). A lock that is
+    held stays: its holder (a run being prepared, a bake) may still be using the directory, and a sweep that comes later
+    must find the lock held (`_sweep_locks`); it is dropped by the next call once it is free."""
     with _PREVIEW_GUARD:
-        for key in [key for key in _PREVIEW_LOCKS if key[0] == job_id]:
+        for key in [key for key in _PREVIEW_LOCKS if key[0] == job_id and not _PREVIEW_LOCKS[key].locked()]:
             _PREVIEW_LOCKS.pop(key, None)
 
 
@@ -503,7 +530,8 @@ def make_server(host, port, repo_dir, data_root, token=None):
         os.umask(0o077)                                  # local mode: nothing it makes is readable by others
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
-    store.on_sweep = _sweep_locks
+    preparing = {}                                        # local job id -> Event: a run is being prepared; made before any sweep can run
+    store.on_sweep = lambda job, timeout=None: _sweep_locks(job, timeout, preparing)
     lock_fd = _lock_data_root(store.data_root)            # before the reap: a second server must not kill the first's tools
     worker = server = reg = None
     try:
@@ -533,6 +561,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
         server.cleanup_pending = set()                        # old local jobs whose start-up cleanup did not finish
         server.index = naming.RepoIndex(server.svf_dir)
         server.started = time.monotonic()
+        server.preparing = preparing                          # the dict `store.on_sweep` already reads
         server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
         server.sweep_idle = lambda now=None: _sweep_idle(server, now)
         local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only
@@ -544,7 +573,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
             sweeper has finished it; nothing here runs on a background thread, so no request can reopen a job between its
             state check and its directory's removal."""
             deadline = jobs.Deadline(STARTUP_CLEANUP_S)
-            store.retry_pending_sweeps(deadline_s=deadline.remaining())
+            store.retry_pending_sweeps(deadline=deadline, capped=False)
             for job_id in local_ids:
                 if deadline.expired():
                     server.cleanup_pending.add(job_id)
@@ -554,13 +583,23 @@ def make_server(host, port, repo_dir, data_root, token=None):
                 except KeyError:
                     continue
                 try:
-                    if not store.sweep_files(job, deadline=deadline):
+                    if not store.sweep_files(job, deadline=deadline, capped=False):
                         server.cleanup_pending.add(job_id)
-                    store.sweep_trash(job)
                 except Exception:
                     jobs.print_exc()
                     server.cleanup_pending.add(job_id)
-            store.sweep_orphans(deadline)
+                try:
+                    store.sweep_trash(job, deadline)          # tombstones are inert: a left one never marks the job
+                except Exception:
+                    jobs.print_exc()
+            try:
+                store.sweep_orphans(deadline)
+            except Exception:
+                jobs.print_exc()
+            try:
+                store.flush_pending(deadline)                 # a process that exits right after start-up keeps its records
+            except Exception:
+                jobs.print_exc()
         server.stopping = threading.Event()
         server.startup_sweep = None                           # (kept for callers: the cleanup is synchronous now)
         if token is not None or local_ids or have_pending:    # an upload-only server has nothing to sweep
@@ -796,12 +835,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             out.append(font)
         return out
 
-    def _update(self, job_id, fn):
-        """`store.update` with a job deleted under us reported as a 409 conflict, never a 500 (W1)."""
+    def _update(self, job_id, fn, timeout=None):
+        """`store.update` with a job deleted under us reported as a 409 conflict, never a 500 (W1). With @p timeout a job
+        lock not free in time is a 409 busy (`jobs.Busy`)."""
         try:
-            return self.server.store.update(job_id, fn)
+            store = self.server.store
+            return store.update(job_id, fn) if timeout is None else store.update(job_id, fn, timeout=timeout)
         except KeyError:
             raise _HttpError(409, "job %s is gone" % job_id)
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % job_id)
 
     def _content_length(self):
         raw = self.headers.get("Content-Length")
@@ -898,7 +941,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     try:
                         store.ensure_files_dir(job, locked=True)
                     except (jobs.OutputGone, OSError) as exc:
-                        after.append(store.delete(job["id"], locked=True))
+                        try:
+                            after.append(store.delete(job["id"], locked=True, timeout=jobs.LOCKED_IO_S))
+                        except jobs.Busy:                     # its cleanup record was not saved: the job stays, swept when idle
+                            raise _HttpError(409, "job %s is busy; try again" % job["id"])
+                        if isinstance(exc, jobs.Busy):        # the job lock was not free: nothing was made, say busy
+                            raise _HttpError(409, "job %s is busy; try again" % job["id"])
                         raise _HttpError(400, "output folder: %s" % (_os_reason(exc) if isinstance(exc, OSError) else exc))
                     answer = {"id": job["id"]}
         finally:
@@ -920,7 +968,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     if self.server.worker.owns(job):               # its run has published the end but is still cleaning up
                         raise _HttpError(409, "job %s: the previous run is finishing; try again in a moment" % job)
                     self._claim_folder(fresh.get("output_id"), exclude=job, after=after)
-                return self._update(job, transition)
+                return self._update(job, transition, timeout=jobs.LOCKED_IO_S)
         finally:
             for finish in after:
                 finish()
@@ -942,12 +990,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     and item["state"] in self.ACTIVE_STATES):
                 if item["state"] in ("uploading", "detected") and self._job_idle(item):
                     try:
-                        finish = store.delete(item["id"], locked=True)     # abandoned for the idle window: taken over
+                        finish = store.delete(item["id"], locked=True,     # abandoned for the idle window: taken over
+                                              timeout=jobs.LOCKED_IO_S)
                         if after is not None:
                             after.append(finish)
                         else:
                             finish()
                         continue
+                    except jobs.Busy:                          # the holder's lock is not free: say so, name the job
+                        raise _HttpError(409, "job %s is busy; try again" % item["id"], {"job": item["id"]})
                     except (ValueError, KeyError, OSError):
                         pass
                 raise _HttpError(409, "output folder is in use by job %s (delete it, or wait until it has been "
@@ -967,9 +1018,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _preview_dir(self, job, font):
         """Hold font @p font's preview lock with the job's files directory made and its generation saved, for a bake.
 
-        Order: the lifecycle lock, then the preview lock (never waiting for a held preview lock while holding the
-        lifecycle lock: a try-lock, and on failure wait for it outside and try again). The directory is made and its
-        `files_id` persisted while both are held; then the lifecycle lock goes and the preview lock stays for the bake,
+        Order: the lifecycle lock; the directory made and its `files_id` persisted (bounded: it takes and releases the
+        job lock); then the preview lock (never waiting for a held preview lock while holding the lifecycle lock: a
+        try-lock, and on failure wait for it outside and try again). Then the lifecycle lock goes and the preview lock
+        stays for the bake,
         so a sweep (which needs both to rename the directory away) cannot slip in between making and using it. Refused
         (404/409/503) for a job that is gone, whose cleanup is pending, or while the store is stopping. An upload job
         only takes the preview lock."""
@@ -985,16 +1037,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if self.server.worker._stopping:
                     raise _HttpError(503, "the server is stopping")
                 self._refuse_cleanup_pending(job)
-                if lock.acquire(blocking=False):
-                    try:
-                        current = self._load(job)
-                        files = self._ensure_dir(current)
-                    except BaseException:
-                        lock.release()
-                        raise
-                    break
-            lock.acquire()                                       # a bake holds it: wait with no other lock held
-            lock.release()
+                waiting = self.server.preparing.get(job)         # a run is being prepared: like a held preview lock
+                if waiting is None:
+                    # the lock order: the directory first (it takes and releases the job lock, bounded), then the preview
+                    # try-lock; no sweep can rename the directory in between (both happen under the lifecycle lock)
+                    files = self._ensure_dir(self._load(job))
+                    if lock.acquire(blocking=False):
+                        break
+            if waiting is not None:
+                if not waiting.wait(jobs.LOCKED_IO_S):           # outside every lock, bounded
+                    raise _HttpError(409, "a run of job %s is being prepared; try again" % job)
+            else:
+                lock.acquire()                                   # a bake holds it: wait with no other lock held
+                lock.release()
         try:
             yield files
         finally:
@@ -1015,6 +1070,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return files
         except jobs.OutputGone as exc:
             raise _HttpError(404, str(exc))
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % current["id"])
         except OSError as exc:
             raise _HttpError(404, "output folder: %s" % _os_reason(exc))
 
@@ -1028,6 +1085,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return files
         except jobs.OutputGone as exc:
             raise _HttpError(404, str(exc))
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % current["id"])
         except OSError as exc:
             raise _HttpError(404, "output folder: %s" % _os_reason(exc))
 
@@ -1110,9 +1169,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _job_delete(self, query, job):
         """Delete the job's directory; the store's own locked check refuses a `queued`/`running` job (W1)."""
         try:
-            self.server.store.delete(job)
+            self.server.store.delete(job, timeout=jobs.LOCKED_IO_S)
         except KeyError:
             raise _HttpError(404, "no job %s" % job)
+        except jobs.Busy:
+            raise _HttpError(409, "job %s is busy; try again" % job)
         except (ValueError, OSError):
             raise _HttpError(409, "job %s cannot be deleted" % job)
         self.send_json({"deleted": job})
@@ -1425,6 +1486,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
         body = self._json_body()
         store = self.server.store
+        changed = []
 
         def transition(j):
             if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
@@ -1433,11 +1495,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             errors = settings.validate(fonts, body, store.sources(j))
             if errors:
                 raise _HttpError(400, errors[0], {"errors": errors})
-            for font_id in _changed_preview_fonts(fonts, j.get("settings") or {}, body):
-                with _preview_lock(job, font_id):            # W2: a new input invalidates the drawn preview
-                    _remove_preview(store, j, font_id)
+            changed[:] = _changed_preview_fonts(fonts, j.get("settings") or {}, body)
             j["settings"] = body
         current = self._update(job, transition)
+        # W2: a new input invalidates the drawn preview. Removed here, each under its preview lock, outside every store
+        # lock (a preview lock is never waited for under the job lock: lifecycle -> job -> preview). A bake that starts
+        # between the save and the removal draws from the new settings (it reloads the job); the removal then only drops
+        # that fresh PNG, which the next GET draws again.
+        try:
+            for font_id in changed:
+                with _preview_lock(job, font_id):
+                    _remove_preview(store, self._load(job), font_id)
+        except _HttpError as exc:
+            if exc.status != 404:                            # the job was deleted meanwhile: nothing to clear
+                raise
         self.send_json(current)
 
     def _job_run(self, query, job):
@@ -1448,57 +1519,151 @@ class Handler(http.server.BaseHTTPRequestHandler):
         index = naming.RepoIndex(os.path.join(first["output_dir"], "svf") if local else self.server.svf_dir)
         repo_index = naming.RepoIndex(self.server.svf_dir) if local else None      # the repository's licence files, not the output folder's
 
-        def transition(j):
-            if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
-                raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
-            fonts = self._stamped(j.get("fonts") or [])
-            files_dir, sources = store.files_dir(j), store.sources(j)
-            if local:
-                self._check_local_run(j, fonts, sources)
-            errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources,
-                                        own_earlier=jobs.own_earlier(j) if local else (), repo_index=repo_index)
-            if errors:
-                raise _HttpError(400, errors[0], {"errors": errors})
-            try:
-                steps = settings.plan_steps(dict(j, fonts=fonts), files_dir, self.server.tools_dir, sources,
-                                            pylib=os.environ.get("JAMOSET_PYLIB") or None)
-            except ValueError as exc:
-                raise _HttpError(400, str(exc))
-            self._check_steps(files_dir, sources, fonts, steps)
-            self._check_notes(fonts, steps, sources, files_dir)
-            if local:                                      # reports and scores kept from an earlier run are not this run's
-                shutil.rmtree(os.path.join(store.meta_dir(job), "steps"), ignore_errors=True)
-            j.update(state="queued", error=None, steps=steps, result=None)
         if local:
-            self._activate(job, transition)                  # under the lifecycle lock, from the state as it is now
+            # Prepare (short, locked) -> read and plan (no store lock, under the job's preview locks) -> Commit (short,
+            # locked; the job's state and fingerprint are checked inside the job lock)
+            with self._run_prepare(job) as (current, files_dir):
+                fingerprint = _run_fingerprint(current)
+                fonts, sources = self._stamped(current.get("fonts") or []), store.sources(current)
+                self._check_local_inputs(current, fonts, sources)
+                errors = settings.run_ready(fonts, current.get("settings") or {}, index, sources,
+                                            own_earlier=jobs.own_earlier(current), repo_index=repo_index)
+                if errors:
+                    raise _HttpError(400, errors[0], {"errors": errors})
+                try:
+                    steps = settings.plan_steps(dict(current, fonts=fonts), files_dir, self.server.tools_dir, sources,
+                                                pylib=os.environ.get("JAMOSET_PYLIB") or None)
+                except ValueError as exc:
+                    raise _HttpError(400, str(exc))
+                self._check_steps(files_dir, sources, fonts, steps)
+                self._check_notes(fonts, steps, sources, files_dir)
+            self._commit_run(job, fingerprint, steps)
         else:
+            def transition(j):
+                if j.get("state") != "detected":                 # re-checked under the job's lock (W1)
+                    raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
+                fonts = self._stamped(j.get("fonts") or [])
+                files_dir, sources = store.files_dir(j), store.sources(j)
+                errors = settings.run_ready(fonts, j.get("settings") or {}, index, sources,
+                                            own_earlier=(), repo_index=repo_index)
+                if errors:
+                    raise _HttpError(400, errors[0], {"errors": errors})
+                try:
+                    steps = settings.plan_steps(dict(j, fonts=fonts), files_dir, self.server.tools_dir, sources,
+                                                pylib=os.environ.get("JAMOSET_PYLIB") or None)
+                except ValueError as exc:
+                    raise _HttpError(400, str(exc))
+                self._check_steps(files_dir, sources, fonts, steps)
+                self._check_notes(fonts, steps, sources, files_dir)
+                j.update(state="queued", error=None, steps=steps, result=None)
             self._update(job, transition)
         position = self.server.worker.enqueue(job)          # the position it really got (W13)
         current = self._load(job)
         current["queue_position"] = position
         self.send_json(current)
 
-    def _check_local_run(self, j, fonts, sources):
-        """The checks a local `POST run` adds, under the job lock: the output folder is still the one picked, every
-        root still passes the path rules, no other job is active on the folder, every input a step reads is the file
-        that was detected, and the folder has room for the output."""
+    def _end_prepare(self, job, marker):
+        """Forget the "run being prepared" marker @p marker of @p job (when it is still the one set) and wake the waiters."""
+        if marker is not None:
+            if self.server.preparing.get(job) is marker:
+                self.server.preparing.pop(job, None)
+            marker.set()
+
+    @contextlib.contextmanager
+    def _run_prepare(self, job):
+        """Prepare of a local `POST run`: under the lifecycle lock (short) check that the job may run, make its files
+        directory, take every preview lock of the job by try-lock and set the job's `server.preparing` marker; then
+        release the lifecycle lock and yield `(current, files_dir)` with the preview locks held (a sweep needs them to
+        rename the directory away, so none can move it while the run is planned). The preview locks are released when
+        the block ends. The marker stays on a normal exit (`_commit_run` clears it); it is cleared here only when the
+        block raises. Errors as `_check_local_run` answered them: a gone or changed output folder is a 409."""
         store = self.server.store
+        wait = jobs.Deadline(jobs.LOCKED_IO_S)               # ONE allowance for every preview lock waited for, not per lock
+        while True:
+            stack = contextlib.ExitStack()
+            wait_font = None
+            marker = None
+            try:
+                with self.server.create_lock:
+                    if self.server.worker._stopping:
+                        raise _HttpError(503, "the server is stopping")
+                    self._refuse_cleanup_pending(job)
+                    if job in self.server.preparing:
+                        raise _HttpError(409, "a run of job %s is being prepared" % job)
+                    current = self._load(job)
+                    if current.get("state") != "detected":
+                        raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
+                    try:
+                        files = store.ensure_files_dir(current, locked=True)
+                    except jobs.OutputGone as exc:
+                        raise _HttpError(409, str(exc))
+                    except jobs.Busy:
+                        raise _HttpError(409, "job %s is busy; try again" % job)
+                    except OSError as exc:
+                        raise _HttpError(409, "output folder: %s" % _os_reason(exc))
+                    current = self._load(job)                    # with the generation `ensure_files_dir` saved
+                    try:
+                        stack.enter_context(_sweep_locks(current, 0.0))
+                    except TimeoutError as exc:                  # a bake holds a preview lock: wait for it outside
+                        wait_font = exc.args[0]
+                    else:
+                        marker = self.server.preparing[job] = threading.Event()
+                        self.server.touched[job] = time.monotonic()
+            except BaseException:
+                stack.close()
+                raise
+            if wait_font is None:
+                break
+            lock = _preview_lock(job, wait_font)
+            if not lock.acquire(timeout=wait.remaining()):       # no other lock held; bounded like the preview's wait
+                raise _HttpError(409, "job %s is busy: a preview is being made; try again" % job)
+            lock.release()
         try:
-            store.ensure_files_dir(j, locked=True, persist=False)     # the run holds the lifecycle lock and saves j
-        except jobs.OutputGone as exc:
-            raise _HttpError(409, str(exc))
-        except OSError as exc:
-            raise _HttpError(409, "output folder: %s" % _os_reason(exc))
+            yield current, files
+        except BaseException:
+            self._end_prepare(job, marker)
+            raise
+        finally:
+            stack.close()
+
+    def _commit_run(self, job, fingerprint, steps):
+        """Commit of a local `POST run`: queue the planned @p steps when the job and its files directory are still what
+        Prepare saw. The marker is cleared whatever happens (the `try` starts before the lifecycle-lock wait)."""
+        store = self.server.store
+        marker = self.server.preparing.get(job)
+        try:
+            with self.server.create_lock:
+                if self.server.worker._stopping:
+                    raise _HttpError(503, "the server is stopping")
+                self._refuse_cleanup_pending(job)
+                current = self._load(job)
+                if not store.files_current(current, jobs.Deadline(jobs.LOCKED_IO_S)):
+                    raise _HttpError(409, "output folder is gone or changed")
+                for item in store.list():
+                    if (item.get("source") == "local" and item["id"] != job
+                            and item.get("output_id") == current.get("output_id") and item["state"] in self.ACTIVE_STATES):
+                        raise _HttpError(409, "output folder is in use by job %s" % item["id"])
+
+                def commit(j):                                   # under the job's lock: a PUT settings lands before or after
+                    if j.get("state") != "detected":
+                        raise _HttpError(409, "job %s is %s" % (job, j.get("state")))
+                    if _run_fingerprint(j) != fingerprint:
+                        raise _HttpError(409, "the job changed while the run was being prepared: run again")
+                    shutil.rmtree(os.path.join(store.meta_dir(job), "steps"), ignore_errors=True)
+                    j.update(state="queued", error=None, steps=steps, result=None)
+                self._update(job, commit, timeout=jobs.LOCKED_IO_S)
+        finally:
+            self._end_prepare(job, marker)
+
+    def _check_local_inputs(self, j, fonts, sources):
+        """The checks of a local `POST run` that read volumes (no store lock held): every root still passes the path
+        rules, every input a step reads is the file that was detected, and the folder has room for the output."""
         allowed = sourcesmod.allowed_roots(os.environ)
         for item in j.get("roots") or []:
             try:
                 sourcesmod.check_path(item["path"], want="source", data_root=self.server.data_root, allowed=allowed)
             except sourcesmod.PathRefused as exc:
                 raise _HttpError(409, "%s: %s" % (item["path"], exc.reason))
-        for item in store.list():
-            if (item.get("source") == "local" and item["id"] != j["id"] and item.get("output_id") == j.get("output_id")
-                    and item["state"] in self.ACTIVE_STATES):
-                raise _HttpError(409, "output folder is in use by job %s" % item["id"])
         total = 0
         for entry in self._inputs_of_selected(j, fonts):
             total += self._check_unchanged(entry, sources)

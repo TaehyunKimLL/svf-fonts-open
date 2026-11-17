@@ -1582,7 +1582,10 @@ class LocalSweepTest(LocalRunBase):
         self.addCleanup(setattr, self.srv.worker, "_stopping", False)
         self.assertEqual(self.raw("GET", "/api/jobs/%s/preview/%s/source.png" % (jid, ttf))[0], 503)
 
-    def test_a_real_failed_start_up_cleanup_leaves_the_job_inactive(self):
+    def test_a_failed_tombstone_removal_at_start_up_is_recorded_and_does_not_make_the_job_inactive(self):
+        # t_d1aba4b8: a tombstone is inert (the live name is what `cleanup_pending` guards): a removal that fails leaves
+        # it pending and never marks the job (before, the error escaping `sweep_trash` did). The entry checked below comes
+        # from `retry_pending_sweeps`' own failed removal; this test pins only the "not made inactive" rule.
         import threading
         server_mod = sys.modules["server"]
         jid, fd, pend = self._done_job_with_a_directory()
@@ -1596,9 +1599,11 @@ class LocalSweepTest(LocalRunBase):
         with mock.patch.object(shutil, "rmtree", deny):
             srv2 = server_mod.make_server("127.0.0.1", 0, fixtures.REPO_DIR, self.data, token=localfx.TOKEN)
         try:
-            self.assertIn(jid, srv2.cleanup_pending)                            # from a real failed removal
+            self.assertNotIn(jid, srv2.cleanup_pending)                         # the live name is gone
             self.assertEqual(self.job(jid)["state"], "done")
-            srv2.cleanup_pending.discard(jid)
+            self.assertTrue(srv2.store.flush_pending())
+            with open(pend, encoding="utf-8") as f:
+                self.assertTrue(any(".trash-" in e["path"] for e in json.load(f)))   # the tombstone is still tracked
         finally:
             srv2.worker.stop()
             srv2.server_close()
@@ -1659,10 +1664,10 @@ class LocalSweepTest(LocalRunBase):
         fd = self.files_dir(jid)
         real = jobs.Store.update
 
-        def update(store, job_id, fn):
+        def update(store, job_id, fn, timeout=None):                            # Task 4: a lifecycle holder passes a timeout
             if getattr(fn, "__name__", "") == "move":                           # _finish_local's report preservation
                 raise OSError(5, "Input/output error")
-            return real(store, job_id, fn)
+            return real(store, job_id, fn, timeout=timeout)
         with mock.patch.object(jobs.Store, "update", update):
             job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done", job.get("error"))
