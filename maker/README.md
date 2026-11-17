@@ -127,9 +127,30 @@ filesystems and sync clients.
 
 ## Tests
 
-    ~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'     # the maker suite
+    export TMPDIR=$HOME/work/tmp/maker-tests; mkdir -p $TMPDIR                        # scratch, never /tmp
+    flock $HOME/work/tmp/svf-browser.lock ~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'   # the maker suite (it starts Chrome)
     ~/.local/bin/heavy python3 -m unittest discover -s tools -p test_web_picker.py   # the module and the picker
-    python3 maker/test/smoke_dom.py                                                  # the page in headless Chrome
+    flock $HOME/work/tmp/svf-browser.lock python3 maker/test/smoke_dom.py              # the page in headless Chrome
 
-The page tests (`test_page_dom.py`, `smoke_dom.py`) need google-chrome or chromium-browser and the built module and
-skip without them. `docs/maker-audit.md` records the design state and the gap list.
+The end-to-end tests (t_e073891a), each also part of the suite above (with `TMPDIR` set as above):
+
+    python3 -m unittest discover -s maker/test -p test_e2e.py            # about 9 s
+    SVF_MAKER_SLOW=1 ~/.local/bin/heavy python3 -m unittest discover -s maker/test -p test_e2e.py -k SlowFit   # about 85 s
+    flock $HOME/work/tmp/svf-browser.lock ~/.local/bin/heavy python3 -m unittest discover -s maker/test -p test_ui_smoke.py
+
+- `test_e2e.py`: `UploadEndToEndTest` and `LocalEndToEndTest` convert one mixed folder (TTF + BDF + johab PCF + DOS raw
+  844, plus a shipped SVF in upload mode) through the real HTTP server, in upload mode (a zip) and in local mode (an output
+  folder). Every step and role is checked, the output passes `facecheck.py`, the owner's merge of the sidecar `.lines` files
+  passes `web/mkindex.py --check`, and every face draws U+AC00. `PresetAcceptanceTest` bakes the `dos-u-2bpp` preset at 17 px
+  through the upload job: the face is byte-equal to `svf/dos/GBATB17.SVF`, skipped as identical, and its row is listed.
+  `SlowFitTest` (the experimental 2 bpp fit, quality bound) runs only with `SVF_MAKER_SLOW=1` and is skipped otherwise.
+  Fixtures are synthetic or copied from `ttf/` and `svf/` (`e2efx.py`).
+- `test_ui_smoke.py`: the upload page driven once in headless Chrome (`pagedrive.mjs --files '#files=PATH'` puts a zip in
+  the file input), through upload, the batch controls, save, run, the drawn canvas and the download link.
+
+Every run that starts Chrome (or Electron) takes the browser lock and the heavy guard:
+`flock $HOME/work/tmp/svf-browser.lock ~/.local/bin/heavy ...` (the full suite above includes browser tests, so its command takes both). Put scratch
+under the project area, never `/tmp`: `export TMPDIR=$HOME/work/tmp/<name>` (the tests use `tempfile`, which honours it).
+
+The page tests (`test_page_dom.py`, `test_ui_smoke.py`, `smoke_dom.py`) need google-chrome or chromium-browser, node and the
+built module and skip without them. `docs/maker-audit.md` records the design state and the gap list.

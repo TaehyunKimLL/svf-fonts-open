@@ -141,14 +141,12 @@ and it carries no "Implemented" notes; the state below comes from the files and 
 |---|---|
 | 1-13 (cmap_has, fixtures, detect, scan, presets/routes, naming, settings, quality, zip, previews, archive, jobs, server) | done: modules and tests present; tests green (below) |
 | 14 the page | done: `maker/static/index.html`, `maker.js` (1,327 lines), `style.css`; the ids the plan lists are present (`files`, `folder`, `upload`, `state`, `notice`, `fonts`, `settings`, `advanced`, `save`, `run`, `cancel`, `download`, `steps`, `jobs`, `position`) |
-| 15 systemd unit, README, `.gitignore`, docs line | **not done**: no `maker/svf-maker.service`, no `maker/README.md` |
-| 16 end-to-end, preset acceptance, slow fit, UI smoke | **not done**: no `maker/test/test_maker.py`, no `maker/test/smoke.mjs` |
+| 15 systemd unit, README, `.gitignore`, docs line | **re-scoped (t_bbceabe9, 2026-11-09)**: no server deployment, so no `maker/svf-maker.service`; `maker/README.md` exists (run, token, local mode, desktop app, tests); the `docs/tools.md` pointer landed |
+| 16 end-to-end, preset acceptance, slow fit, UI smoke | **done (t_e073891a)**: `maker/test/test_e2e.py` (mixed folder in upload and local mode, facecheck, merged `mkindex --check`, draws; `dos-u-2bpp` byte-equal to GBATB17; the slow fit behind `SVF_MAKER_SLOW=1`), `maker/test/test_ui_smoke.py`; `smoke.mjs`/playwright replaced by `pagedrive.mjs --files` |
 
-Cards: t_a1cf496b (web UI v1 goal; close needs a systemd service on the tailnet converting a TTF+BDF+PCF+DOS test
-folder into a zip that passes `facecheck.py`, plus reviews) is open because T15 (t_bbceabe9) and T16 (t_e073891a)
-remain. With the 2026-11-03 direction (Electron, local), the tailnet-service half of t_a1cf496b's closing measurement
-is out of date; T16's end-to-end and preset tests stay useful as written; T15's unit and README are needed only if the
-server deployment is kept.
+Cards: t_a1cf496b (web UI v1 goal) was re-scoped on 2026-11-09: no tailnet service; it closes on the maker run locally
+(desktop app, or `maker/server.py` on loopback) converting a TTF+BDF+PCF+DOS Johab test folder into faces that pass
+`facecheck.py`, T16 green, reviewed. T15 (t_bbceabe9) was re-scoped and closed; T16 (t_e073891a) is row 16 above.
 
 ## 6. Run state (2026-11-03, this worktree)
 
@@ -189,8 +187,9 @@ under google-chrome; `git diff 01a943f -- c/src c/include`: empty.
 8. **t_e64a56a7** - packaging: replace `[sys.executable, "-P", tool]` (routes.py:20) with a sidecar tool entry
    point; ship `tools/`, the `svf/` subset and `web/mkindex.py`; repo head as a build id; Pillow/FreeType/fontTools in
    the bundle.
-9. **t_bbceabe9 / t_e073891a / t_a1cf496b** - T16 tests are still worth landing (they exercise the routes end to
-   end); T15's unit/README and the tailnet clause of t_a1cf496b should be re-scoped to the desktop direction.
+9. **t_bbceabe9 / t_e073891a / t_a1cf496b** - T16 landed (t_e073891a, after t_df773bf5, which made the maker's mkfont
+   faces byte-identical to the shipped faces they reproduce: the route ends with `svf2to3.py --profile default`, and
+   `PresetAcceptanceTest` pins it byte for byte); T15's unit/README and the tailnet clause of t_a1cf496b should be re-scoped to the desktop direction.
 
 ## 8. Local mode: closing evidence, the shell contract and what was not verified (card t_cbd14d61)
 
