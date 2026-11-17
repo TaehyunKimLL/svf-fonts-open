@@ -368,8 +368,13 @@ class SlowFitTest(unittest.TestCase):
                               sizes=[16], experimental=True, layout="844")
         with tempfile.TemporaryDirectory(prefix="e2e-slow-") as tmp:
             job, z = inputkinds.run_batch(self, tmp, files, choose)
-            step = job["steps"][0]
+            self.assertEqual(job["state"], "done", job.get("error"))
+            steps = [s for s in job["steps"] if s["kind"] == "jamo"]
+            self.assertEqual(len(steps), 1, [(s["kind"], s["state"]) for s in job["steps"]])
+            step = steps[0]
             self.assertEqual(step["state"], "done", step.get("error"))
+            self.assertEqual(inputkinds.step_tools([step])[0], ["jamoset.py"], inputkinds.step_tools(job["steps"]))
+            self.assertIsInstance(step.get("quality"), dict, "the experimental fit reported no quality")
             q = step["quality"]
             print("SLOWFIT quality", q, flush=True)
             self.assertEqual(q["compared"], 11172)
