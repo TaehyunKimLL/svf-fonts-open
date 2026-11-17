@@ -1,4 +1,4 @@
-// pagedrive.mjs CHROME URL SCRIPT_FILE [--header NAME:VALUE]... [--preload FILE] - loads URL in headless Chrome and evaluates the async function body in
+// pagedrive.mjs CHROME URL SCRIPT_FILE [--header NAME:VALUE]... [--preload FILE] [--files SELECTOR=PATH]... - loads URL in headless Chrome and evaluates the async function body in
 // SCRIPT_FILE in the page (helpers: sleep(ms), waitFor(fn, ms)); prints the JSON it returns on stdout. Chrome is driven
 // over the DevTools protocol with node's built-in WebSocket (no playwright). Exit 1 with the page's error on stderr.
 import { spawn } from 'node:child_process';
@@ -12,6 +12,10 @@ const [chrome, url, scriptFile, ...options] = process.argv.slice(2);
 // scripts run (Page.addScriptToEvaluateOnNewDocument: a stand-in for the shell's preload bridge).
 const extraHeaders = {};
 let preloadFile = null;
+// --files SELECTOR=PATH (repeatable): after the page's load event and before the script runs, PATH is put into the file
+// input SELECTOR matches (DOM.setFileInputFiles), as a user choosing it in the dialog would; no match exits 1. The
+// selector ends at the first `=` outside square brackets (`input[type=file]=/x` works).
+const fileInputs = [];
 for (let i = 0; i < options.length; i++) {
   if (options[i] === '--header') {
     const text = options[++i] || '';
@@ -19,6 +23,16 @@ for (let i = 0; i < options.length; i++) {
     extraHeaders[text.slice(0, cut)] = text.slice(cut + 1);
   } else if (options[i] === '--preload') {
     preloadFile = options[++i];
+  } else if (options[i] === '--files') {
+    const text = options[++i] || '';
+    let depth = 0, cut = -1;
+    for (let k = 0; k < text.length && cut < 0; k++) {
+      if (text[k] === '[') depth++;
+      else if (text[k] === ']') depth--;
+      else if (text[k] === '=' && depth === 0) cut = k;
+    }
+    if (cut < 1) { process.stderr.write('pagedrive: --files wants SELECTOR=PATH\n'); process.exit(1); }
+    fileInputs.push([text.slice(0, cut), text.slice(cut + 1)]);
   }
 }
 // Chrome's singleton socket lives under TMPDIR and a unix socket path is limited to 107 bytes: when the temp directory
@@ -98,6 +112,13 @@ try {
   if (preloadFile) await send('Page.addScriptToEvaluateOnNewDocument', { source: readFileSync(preloadFile, 'utf8') }, sessionId);
   await send('Page.navigate', { url }, sessionId);
   await until(() => events.some((e) => e.method === 'Page.loadEventFired' && e.sessionId === sessionId), 60000, 'page load');
+  for (const [selector, file] of fileInputs) {
+    const doc = await send('DOM.getDocument', { depth: 0 }, sessionId);
+    const found = await send('DOM.querySelector', { nodeId: doc.result.root.nodeId, selector }, sessionId);
+    if (!found.result || !found.result.nodeId) throw new Error('pagedrive: no element for ' + selector);
+    const set = await send('DOM.setFileInputFiles', { files: [file], nodeId: found.result.nodeId }, sessionId);
+    if (set.error) throw new Error('pagedrive: cannot set files on ' + selector + ': ' + set.error.message);
+  }
   const body = readFileSync(scriptFile, 'utf8');
   const expr = `(async () => { const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     const waitFor = async (fn, ms = 20000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('waitFor timeout: ' + fn); await sleep(100); } };
