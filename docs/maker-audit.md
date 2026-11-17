@@ -245,6 +245,14 @@ the cleanup". What is bounded now, and what is not.
   at `LOCKED_IO_S`. A pass overruns its deadline by at most a few pending floors (about 2 s: the records of one pass, then the flush), inside the
   margins of `desktop/lib/budget.js`. The data root (`job.json`, `Store.list`, `log.md`) is assumed to be a local disk
   and is not bounded.
+- **A failed ensure.** `ensure_files_dir` that fails after it started to make the directory clears `files_id` in
+  `job.json` and records the path pending (`making`), within its own `LOCKED_IO_S`. A failing call can therefore hold the
+  lifecycle lock for about 2 x `LOCKED_IO_S` (the I/O budget, then that record) plus the job-lock wait.
+- **Accepted limits of the preview locks.** The preview locks of a deleted job that are held at that moment stay in
+  `_PREVIEW_LOCKS` (a few small objects, never growing with use; dropped by a later call once free), so a sweep that
+  comes after the delete still finds them held. `_drop_preview_locks` checks `locked()` and removes under one guard, but a
+  holder may take a lock just after; every holder re-checks under the lifecycle lock that the job still exists before it
+  uses the directory.
 - **The fence.** A rename that is abandoned (timed out) stays registered as in flight and keeps its path fenced:
   `ensure_files_dir` refuses to make a new generation at that name, and the sweeps record it as pending, so a late
   rename can only move the generation it was issued for. Read-only calls (stat, listdir) share the one in flight.

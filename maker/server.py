@@ -530,7 +530,8 @@ def make_server(host, port, repo_dir, data_root, token=None):
         os.umask(0o077)                                  # local mode: nothing it makes is readable by others
     store = jobs.Store(data_root)
     store.on_delete = _drop_preview_locks                 # W13: `retain` drops a removed job's preview locks too
-    store.on_sweep = lambda job, timeout=None: _sweep_locks(job, timeout, server.preparing)
+    preparing = {}                                        # local job id -> Event: a run is being prepared; made before any sweep can run
+    store.on_sweep = lambda job, timeout=None: _sweep_locks(job, timeout, preparing)
     lock_fd = _lock_data_root(store.data_root)            # before the reap: a second server must not kill the first's tools
     worker = server = reg = None
     try:
@@ -560,7 +561,7 @@ def make_server(host, port, repo_dir, data_root, token=None):
         server.cleanup_pending = set()                        # old local jobs whose start-up cleanup did not finish
         server.index = naming.RepoIndex(server.svf_dir)
         server.started = time.monotonic()
-        server.preparing = {}                                 # local job id -> Event: a run is being prepared (Task 5)
+        server.preparing = preparing                          # the dict `store.on_sweep` already reads
         server.touched = {}                                   # local job id -> when a preview/probe/source GET last asked
         server.sweep_idle = lambda now=None: _sweep_idle(server, now)
         local_ids = [item["id"] for item in store.list() if item.get("source") == "local"]   # jobs of an earlier run only

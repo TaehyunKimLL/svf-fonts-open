@@ -12,6 +12,7 @@ for _p in (MAKER_DIR, os.path.join(REPO_DIR, "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import contextlib
 import functools
 import io
 import json
@@ -1399,6 +1400,51 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
         self.assertTrue(os.path.isdir(fd))
         self.store.retry_pending_sweeps()
         self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-" + jid)], [])
+
+    def test_a_failed_run_ensure_after_the_directory_was_made_leaves_a_sweepable_generation(self):
+        """The worker's `persist=False` call: the job it holds is saved by others, so job.json must not keep the stale id."""
+        jid = self.swept_job()
+        fd = self.files_dir(jid)
+        self.assertTrue(self.store.load(jid)["files_id"])
+        real = os.mkdir
+
+        def mkdir(path, *a, **k):
+            if path == os.path.join(fd, "work"):
+                raise OSError(5, "Input/output error")
+            return real(path, *a, **k)
+        with mock.patch.object(os, "mkdir", mkdir):
+            with self.assertRaises(OSError):
+                self.store.ensure_files_dir(self.store.load(jid), persist=False)
+        self.assertTrue(os.path.isdir(fd))
+        self.assertIsNone(self.store.load(jid)["files_id"])     # job.json too, which `_job_failed` reloads
+        real_fs = jobs.fs_bounded
+
+        def fs(op, path, timeout):
+            if op == "lexists" and path == fd:
+                raise OSError(5, "Input/output error")
+            return real_fs(op, path, timeout)
+        with mock.patch.object(jobs, "fs_bounded", fs):
+            self.store.sweep_files(self.store.load(jid), bound=2)
+        self.store.retry_pending_sweeps()
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-" + jid)], [])
+
+    def test_a_failed_start_still_sweeps_the_files_directory(self):
+        jid = self.swept_job()
+        fd = self.store.ensure_files_dir(self.store.load(jid))
+        self.assertTrue(os.path.isdir(fd))
+        self.release_lock()
+        import socket
+        busy = socket.socket()
+        self.addCleanup(busy.close)
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with self.assertRaises(OSError):
+                server.make_server("127.0.0.1", busy.getsockname()[1], fixtures.REPO_DIR, self.data,
+                                   token=localfx.TOKEN)
+        self.assertNotIn("AttributeError", err.getvalue())
+        self.assertFalse(os.path.exists(fd))
 
     def test_ensure_saves_the_generation_when_the_stored_one_differs_from_the_callers(self):
         jid = self.swept_job()

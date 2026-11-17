@@ -559,8 +559,8 @@ class Store:
         The directory is made under the lifecycle lock (@p locked: the caller holds it), so a sweep's rename and this
         creation never interleave, and the new generation's identity is saved to `job.json` (@p persist; False where the
         caller saves the job itself) so a pending entry always names the generation it sweeps. @p persist False is for
-        callers that own the save: `_check_local_run` holds the job's lock (taking it again would deadlock); `Worker.run_job`
-        holds none, which is safe because the job is `running` and every sweep skips a running job.
+        a caller that owns the save and holds NO job lock (`Worker.run_job`: safe because the job is `running` and every
+        sweep skips a running job); a failure after the directory was made then clears `files_id` in `job.json` itself.
         With @p persist the job's lock is taken FIRST and held while the directory is made and `files_id` saved: `Busy`
         therefore always means that nothing was made. The lock wait has its own `LOCKED_IO_S` budget (capped by
         @p deadline), and the budget of the filesystem calls starts only once every lock is held (also `LOCKED_IO_S`,
@@ -626,13 +626,20 @@ class Store:
         generation nobody has recorded may exist now (or a mkdir of it is still in flight). The saved `files_id` (@p fresh,
         the job as loaded under its lock; None where the caller saves the job) is the OLD generation and would make a
         later sweep or retry take the new directory for "a newer generation" and leave it: it is cleared, and the path is
-        recorded pending with `making` (a generation of unknown identity), bounded. Never raises."""
+        recorded pending with `making` (a generation of unknown identity), bounded. @p fresh None: the caller holds no job
+        lock and the clearing is a bounded `update` of `job.json`. Never raises."""
         if not made:
             return
         try:
-            if fresh is not None and fresh.get("files_id") is not None:
-                fresh["files_id"] = None
-                self._write(fresh)
+            if fresh is not None:
+                if fresh.get("files_id") is not None:
+                    fresh["files_id"] = None
+                    self._write(fresh)
+            else:                                       # the caller saves the job itself (the worker, holding no lock): the
+                try:                                    # job.json it reloads later must not keep the old generation either
+                    self.update(job["id"], lambda j: j.update(files_id=None), timeout=LOCKED_IO_S)
+                except KeyError:
+                    pass
             job["files_id"] = None
             self._add_pending_many([self._entry(job, self.files_dir(job), "the files directory was being made when "
                                                 "the call failed", files_id=None, making=True)],
