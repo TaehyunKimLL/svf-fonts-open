@@ -16,6 +16,7 @@ import threading
 import time
 import unittest
 import urllib.parse
+from unittest import mock
 import http.client
 
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +28,7 @@ for _p in (MAKER_DIR, TEST_DIR, os.path.join(REPO_DIR, "tools")):
 
 import fixtures  # noqa: E402
 import inputfx  # noqa: E402
+import jobs  # noqa: E402
 import localfx  # noqa: E402
 import server  # noqa: E402
 
@@ -46,6 +48,21 @@ def browser():
 def read(path):
     with open(path, "rb") as f:
         return f.read()
+
+
+class ReleaseOnWait(threading.Event):
+    """A "run being prepared" marker that is released by its @p n-th `wait`: it pops itself from `preparing` and sets."""
+
+    def __init__(self, n, preparing, job):
+        super().__init__()
+        self.n, self.calls, self.preparing, self.job = n, 0, preparing, job
+
+    def wait(self, timeout=None):
+        self.calls += 1
+        if self.calls == self.n:
+            self.preparing.pop(self.job, None)
+            self.set()
+        return super().wait(timeout)
 
 
 class PageDomTest(unittest.TestCase):
@@ -1043,6 +1060,57 @@ class LocalPageTest(localfx.LocalBase):
         self.assertEqual(out["state"], "no job")                                 # the late answer rendered nothing
         self.assertEqual(out["laterGets"], 0)                                    # and the loop ended
         self.wait_done(jid)
+
+    def test_a_source_preview_being_prepared_is_retried_and_shown(self):
+        jid = self.local_job(roots=[self.roots[0]])                             # the TTF is the only entry with a preview
+        ttf = next(f["id"] for f in self.job(jid)["fonts"] if f["path"] == "Munjo.ttf")
+        marker = ReleaseOnWait(3, self.srv.preparing, jid)       # wait 1: the <img> load, 2: the fallback fetch, 3: its repeat
+        self.srv.preparing[jid] = marker
+        self.addCleanup(self.srv.preparing.pop, jid, None)
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
+            out = self.busy_drive(jid, """
+      const img = () => document.querySelector('img.preview');
+      await waitFor(() => img() && img().naturalWidth > 0, 90000);
+      return {shown: !img().hidden, passed: window.__stub.passed.filter((p) => p.path.endsWith('/source.png')).map((p) => p.status)};
+    """)
+        self.assertTrue(out["shown"])
+        self.assertEqual(out["passed"], [409, 200])                              # the fallback's first answer, then its repeat
+        self.assertGreaterEqual(marker.calls, 3)
+        self.assertTrue(ttf)
+
+    def test_a_source_preview_busy_past_the_bound_is_hidden_as_before(self):
+        jid = self.local_job(roots=[self.roots[0]])
+        marker = threading.Event()                                               # a run that never finishes preparing
+        self.srv.preparing[jid] = marker
+        self.addCleanup(self.srv.preparing.pop, jid, None)
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
+            out = self.busy_drive(jid, """
+      window.__busyBounds = {retryMs: [50, 50, 50]};
+      const img = () => document.querySelector('img.preview');
+      await waitFor(() => img() && img().hidden, 30000);
+      await sleep(500);
+      return {gets: window.__stub.sent.filter((x) => x.includes('/source.png')).length, notice: visible($('notice'))};
+    """)
+        self.assertGreater(out["gets"], 0)
+        self.assertEqual(out["gets"] % 4, 0, out)                                # 1 + 3 repeats per table build
+        self.assertFalse(out["notice"])                                          # silent
+
+    def test_a_source_preview_retry_checks_the_deadline_before_every_resend(self):
+        jid = self.local_job(roots=[self.roots[0]])
+        marker = threading.Event()
+        self.srv.preparing[jid] = marker
+        self.addCleanup(self.srv.preparing.pop, jid, None)
+        with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
+            out = self.busy_drive(jid, """
+      window.__t = 0;                                                          // a controlled clock; each sleep adds 500
+      window.__busyBounds = {totalMs: 1000, retryMs: [20, 20, 20], now: () => window.__t,
+                             sleep: async (ms) => { window.__t += 500; await new Promise((res) => setTimeout(res, ms)); }};
+      const img = () => document.querySelector('img.preview');
+      await waitFor(() => img() && img().hidden, 30000);
+      await sleep(500);
+      return window.__stub.sent.filter((x) => x.includes('/source.png')).length;
+    """)
+        self.assertEqual(out, 2)                                                 # sends at t=0 and t=500; t=1000 is past it
 
     def test_busy_create_sources_and_detect_are_each_retried_once(self):
         out = self.drive(self.typed_script("""

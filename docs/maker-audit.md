@@ -278,8 +278,23 @@ the cleanup". What is bounded now, and what is not.
   from `POST run` when a bake holds a preview lock longer than `LOCKED_IO_S`; DELETE may answer 409 busy when its cleanup
   record cannot be saved (the job stays; a retry works once the writer recovers); a create takeover that fails with a
   busy holder answers 409 busy and leaves the holder (swept when idle); a bake that lands between saving settings and
-  clearing previews is dropped and redrawn (the W2 window, narrowed). The page shows the error text; automatic retry of
-  these 409s is a separate card.
+  clearing previews is dropped and redrawn (the W2 window, narrowed).
+  The server tags each retryable 409 with `"busy": "lock" | "preparing" | "preview"` (one helper, `_busy`) and the changed
+  run with `"stale": true`; the texts are unchanged. The page decides from those fields only: it repeats the one request
+  that got a busy answer, after 0.5, 1 and 2 s and not past 15 s since the first send, then leaves the message with a
+  "Try again" button that sends the identical request once more. Never repeated: a network error (no answer, outcome
+  unknown), an untagged 409, and a `POST run` answered "being prepared" (another run is being made: the page shows
+  the button and follows the other run instead, reading the job once a second until it leaves `detected`). A repeat
+  never outlives the user's next action (a notice epoch cancels a sleeping retry and a late answer). A "stale" answer
+  reloads the job so the changed settings show. The preview GETs (`fetchBusy`, the source `<img>` fallback) retry the
+  same way, silently, and show today's failure when the bound is used up. The create path's own busy answers
+  (`_job_create`: ensure or cleanup busy after a job was made) stay untagged and unretried.
+  What a busy answer leaves behind: nothing is submitted twice, but some busy answers come after the request changed
+  state, and a repeat sees that state: `DELETE` has moved the files directory away before the cleanup record fails (the
+  job stays, the repeat finishes the delete); `POST detect` has appended the detection-error notes to `log.md` (a repeat
+  appends them again: duplicate log lines, nothing else); `PUT sources` / `POST detect` / a takeover create may have
+  deleted an idle competing job (allowed anyway; a repeat finds the folder free). A create whose ensure / cleanup was
+  busy leaves the job it made (an orphan, accepted).
 - **Not bounded.** The data root; a never-returning rename or mkdir (above); the volume's own recovery (a hung call keeps
   its daemon thread until it returns).
 

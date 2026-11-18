@@ -1009,8 +1009,20 @@ function fontMainRow(font, per, override) {
       cell.append(sourceFaceCanvas(font));
     } else {
       const image = el("img", {class: "preview", loading: "lazy", alt: fontName(font)});
-      image.src = previewSrc(job.id, font.id, "source");
-      image.onerror = () => { image.hidden = true; };
+      const src = previewSrc(job.id, font.id, "source");
+      image.src = src;
+      // An <img> cannot see a status, so its first failure asks again through fetchBusy (a busy 409 is retried, silently);
+      // only an ok answer is shown (as an object URL, revoked when it has loaded), anything else hides the image as before.
+      image.onerror = () => {
+        image.onerror = () => { image.hidden = true; };                 // no loop
+        fetchBusy(src, {cache: "no-cache"}).then(async (response) => {
+          if (!response.ok) { image.hidden = true; return; }
+          const url = URL.createObjectURL(await response.blob());
+          image.onload = () => URL.revokeObjectURL(url);
+          image.onerror = () => { URL.revokeObjectURL(url); image.hidden = true; };
+          image.src = url;
+        }).catch(() => { image.hidden = true; });
+      };
       cell.append(image);
     }
   }
@@ -1400,8 +1412,11 @@ function clippingPanel(font, per, optionBox) {
     selected = null;
     counts.textContent = "measuring…";
     try {
-      const response = await fetch(url("json"), {cache: "no-cache"});
-      if (!response.ok) throw new Error("no probe (" + response.status + "): save the settings first if the size or bpp is new");
+      const response = await fetchBusy(url("json"), {cache: "no-cache"});
+      if (!response.ok) {
+        throw new Error(await busyText(response) ||
+                        "no probe (" + response.status + "): save the settings first if the size or bpp is new");
+      }
       report = await response.json();
       if (report.probe_face) face = await fetchFresh(url("svf"));
     } catch (err) {
@@ -1564,10 +1579,39 @@ function svfModule() {
   return svfReady;
 }
 
+// A GET that repeats itself on a busy 409 (a lock held, a run being prepared, a preview being made): after the bounded
+// delays of `api()`, silently - no notice, and no notice epoch (a background fetch belongs to no action). The 15 s
+// deadline is checked again right before every resend. Returns the last Response; a network error is not retried.
+async function fetchBusy(url, init) {
+  const bounds = busyBounds();
+  const start = bounds.now();
+  let repeats = 0;
+  for (;;) {
+    const response = await fetch(url, init);
+    if (response.status !== 409) return response;
+    let kind;
+    try { kind = (await response.clone().json()).busy; } catch (err) { return response; }
+    const delay = busyRetryDelay("GET", kind, repeats, bounds.now() - start, bounds);
+    if (delay === null) return response;
+    await bounds.sleep(delay);
+    if (bounds.now() - start >= bounds.totalMs) return response;
+    repeats++;
+  }
+}
+
+// The server's text of a busy 409 answer, or null for any other answer.
+async function busyText(response) {
+  if (response.status !== 409) return null;
+  try {
+    const data = await response.clone().json();
+    return isBusyKind(data.busy) && data.error ? String(data.error) : null;
+  } catch (err) { return null; }
+}
+
 // A fresh read of @p url: the browser revalidates by ETag (the server answers 304), so a face the server re-baked or a
 // step a re-run rewrote is never served from an earlier fetch.
 function fetchFresh(url) {
-  return fetch(url, {cache: "no-cache"}).then((response) => {
+  return fetchBusy(url, {cache: "no-cache"}).then((response) => {
     if (!response.ok) throw new Error(url + ": " + response.status);
     return response.arrayBuffer();
   }).then((buffer) => new Uint8Array(buffer));
