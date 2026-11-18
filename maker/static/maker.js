@@ -1192,6 +1192,7 @@ function perFontText(per, key, font) {
 function namesField(font) {
   const box = el("div", {class: "names"});
   const names = ((job && job.effective_names) || {})[font.id] || {};
+  const own = (((settings.fonts || {})[font.id] || {}).names) || {};      // the owner's unsaved edits win over the suggestions
   const keys = Object.keys(names);
   if (!keys.length) {
     box.append(el("p", {class: "sub", text: "no name yet: pick a kind, a size and a bpp first"}));
@@ -1201,7 +1202,7 @@ function namesField(font) {
     const input = el("input", {type: "text", class: "name", dir: "auto"});
     input.dataset.key = key;
     input.setAttribute("aria-label", "name " + escapeControls(key) + " for " + fontName(font));
-    input.value = names[key];
+    input.value = Object.prototype.hasOwnProperty.call(own, key) ? own[key] : names[key];
     input.onchange = () => {
       const per = perFont(font.id);
       if (!per) return;
@@ -2305,13 +2306,40 @@ async function save() {
   if (!jobId) return;
   if (!readBatch()) return;
   if (!readPerOptions()) return;
+  const id = jobId;
   try {
-    await api("PUT", "/api/jobs/" + encodeURIComponent(jobId) + "/settings", settings);
+    await api("PUT", "/api/jobs/" + encodeURIComponent(id) + "/settings", settings);
   } catch (err) {
+    // A 409 says the job can no longer be edited (the other run started): show its state, keep the form as typed.
+    if (err && err.published && err.status === 409 && jobId === id) {
+      const epoch = noticeEpoch;
+      const fresh = await readJob(id);
+      if (fresh && jobId === id && noticeEpoch === epoch && fresh.state !== "detected") applyRecoveredJob(fresh);
+    }
     return;
   }
   await reload();
   await renderJobs();
+}
+
+// The page after a recovery read of the job (another tab started or changed the run): the job's status, steps, results and
+// progress follow it, and polling starts while it runs. The settings forms are rebuilt from the job's settings ONLY when
+// the form holds nothing of its own: not dirty and no field of the settings or the font table focused (a draft not yet
+// committed by `change`). Otherwise the form DOM is left alone (no rebuild, no parsing, no notice) and dirty stays.
+function applyRecoveredJob(fresh) {
+  job = fresh;
+  const active = document.activeElement;
+  const typing = !!active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName) &&
+    (settingsEl.contains(active) || fontsEl.contains(active));
+  if (!dirty && !typing) {
+    settings = clone(job.settings || {batch: {}, fonts: {}});
+    renderAll();
+  } else {
+    renderStatus();
+    buildSteps();
+    renderRefused(job.upload ? job.upload.refused : []);
+  }
+  if (job.state === "queued" || job.state === "running") startPolling();
 }
 
 async function run() {
@@ -2334,28 +2362,14 @@ async function run() {
   } catch (err) {
     // The job moved under the run: its settings changed (stale), or a 409 says it may no longer be `detected` ("job X is
     // queued", the other run's doing). Read the job (nothing is sent again): a stale run shows it; another 409 shows it
-    // only when its state really left `detected`, and then polls while it runs; otherwise the page is left as it is and
-    // the 409 notice stays. The read belongs to this action: a newer user action (the epoch) or another open job drops
-    // its answer. Unsaved edits are typed into the form fields and not yet in `settings`: while dirty they are read
-    // into `settings` first and the forms rebuilt from those; a value that cannot be read leaves the forms untouched.
+    // only when its state really left `detected`; otherwise the page is left as it is and the 409 notice stays. The read
+    // belongs to this action: a newer user action (the epoch) or another open job drops its answer.
     const stale = !!(err && err.body && err.body.stale === true);
     const conflict = !!(err && err.published && err.status === 409);
     if ((stale || conflict) && jobId === id) {
       const epoch = noticeEpoch;
       const fresh = await readJob(id);
-      if (fresh && jobId === id && noticeEpoch === epoch && (stale || fresh.state !== "detected")) {
-        job = fresh;
-        if (!dirty) {
-          settings = clone(job.settings || {batch: {}, fonts: {}});
-          renderAll();
-        } else if (readBatch() && readPerOptions()) {
-          renderAll();
-        } else {
-          renderStatus();                              // the edits stay in their fields; the status and steps follow the job
-          buildSteps();
-        }
-        if (job.state === "queued" || job.state === "running") startPolling();
-      }
+      if (fresh && jobId === id && noticeEpoch === epoch && (stale || fresh.state !== "detected")) applyRecoveredJob(fresh);
     }
     return;
   }
@@ -2396,12 +2410,9 @@ async function followOtherRun(id, epoch) {
       if (!still()) return;                           // a late answer must not render another job or wipe a newer notice
       if (other && other.state !== "detected") {
         runGen++;                                     // the run request (and its Try again) is superseded
-        job = other;
-        if (!dirty) settings = clone(job.settings || {batch: {}, fonts: {}});   // unsaved edits stay, as in poll()
         dropBusyWait();
         setNoticeQuiet("");
-        renderAll();
-        if (job.state === "queued" || job.state === "running") startPolling();
+        applyRecoveredJob(other);
         await renderJobs();
         return;
       }
