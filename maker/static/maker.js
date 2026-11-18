@@ -499,6 +499,7 @@ async function api(method, path, body, opts = {}) {
       response = await fetch(path, init);
     } catch (err) {
       const message = method + " " + path + ": " + err;
+      if (superseded()) throw new Error(message);       // the user moved on: no notice over the newer message
       notice(message);
       throw new Error(message);
     }
@@ -522,11 +523,13 @@ async function api(method, path, body, opts = {}) {
     const error = new Error(message);
     error.body = data;
     const kind = response.status === 409 && data ? data.busy : undefined;
+    if (superseded()) throw error;                    // the user moved on while this answer was pending: say nothing
     if (!isBusyKind(kind)) {
+      error.status = response.status;
+      error.published = true;                         // its message is the notice now
       notice(message);
       throw error;
     }
-    if (superseded()) throw error;                    // the user moved on while this answer was pending
     const delay = busyRetryDelay(method, kind, repeats, bounds.now() - start, bounds);
     if (delay !== null) {
       retried = true;
@@ -1406,23 +1409,34 @@ function clippingPanel(font, per, optionBox) {
     }
   };
 
+  // One load per size/bpp choice: the URLs are taken when it starts, and a result or error that comes after a newer
+  // load began (a size picked meanwhile) is dropped, so it never overwrites the newer report.
+  let loadGen = 0;
   const load = async () => {
+    const gen = ++loadGen;
+    const probeUrl = (ext) => url(ext);                 // url() reads the selectors now; the svf URL is fixed below
+    const jsonUrl = probeUrl("json");
+    const svfUrl = probeUrl("svf");
     report = null;
     face = null;
     selected = null;
     counts.textContent = "measuring…";
+    let loadedReport, loadedFace = null;
     try {
-      const response = await fetchBusy(url("json"), {cache: "no-cache"});
+      const response = await fetchBusy(jsonUrl, {cache: "no-cache"});
       if (!response.ok) {
         throw new Error(await busyText(response) ||
                         "no probe (" + response.status + "): save the settings first if the size or bpp is new");
       }
-      report = await response.json();
-      if (report.probe_face) face = await fetchFresh(url("svf"));
+      loadedReport = await response.json();
+      if (loadedReport.probe_face) loadedFace = await fetchFresh(svfUrl);
     } catch (err) {
-      counts.textContent = escapeControls(err && err.message);
+      if (gen === loadGen) counts.textContent = escapeControls(err && err.message);
       return;
     }
+    if (gen !== loadGen) return;
+    report = loadedReport;
+    face = loadedFace;
     if (ascentIn.value.trim() === "") ascentIn.value = String(report.step_ascent ?? report.auto_ascent);
     await update();
   };
@@ -2310,7 +2324,13 @@ async function run() {
     await api("POST", "/api/jobs/" + encodeURIComponent(id) + "/run", undefined,
               {runGen, onWait: (kind, epoch) => { if (kind === "preparing") followOtherRun(id, epoch); }});
   } catch (err) {
-    if (err && err.body && err.body.stale === true) await reload();   // the settings changed under the run: show them
+    // The job moved under the run: its settings changed (stale), or it is no longer `detected` ("job X is queued", a
+    // 409 the other run caused): show the job as the server has it, and poll when it runs. Nothing is sent again.
+    const moved = err && ((err.body && err.body.stale === true) || (err.published && err.status === 409));
+    if (moved && jobId === id) {
+      await reload();
+      if (job && (job.state === "queued" || job.state === "running")) startPolling();
+    }
     return;
   }
   await reload();

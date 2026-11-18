@@ -282,10 +282,15 @@ the cleanup". What is bounded now, and what is not.
   The server tags each retryable 409 with `"busy": "lock" | "preparing" | "preview"` (one helper, `_busy`) and the changed
   run with `"stale": true`; the texts are unchanged. The page decides from those fields only: it repeats the one request
   that got a busy answer, after 0.5, 1 and 2 s and not past 15 s since the first send, then leaves the message with a
-  "Try again" button that sends the identical request once more. Never repeated: a network error (no answer, outcome
-  unknown), an untagged 409, and a `POST run` answered "being prepared" (another run is being made: the page shows
-  the button and follows the other run instead, reading the job once a second until it leaves `detected`). A repeat
-  never outlives the user's next action (a notice epoch cancels a sleeping retry and a late answer). A "stale" answer
+  "Try again" button that sends the identical request once more. "The previous run is finishing" is tagged and
+  retried like the others. Never repeated: a network error (no answer, outcome unknown), an untagged 409, and a `POST
+  run` answered "being prepared" (another run is being made: the page shows the button and follows the other run
+  instead, reading the job once a second until it leaves `detected`, for at most 15 s). The `OutputGone` 409 ("the
+  files directory is still being moved or made ...; try again later") is deliberately untagged: a hung rename or mkdir
+  keeps the directory fenced until the process restarts, so a bounded retry cannot help. For the JSON calls a repeat
+  never outlives the user's next action (a notice epoch cancels a sleeping retry, a late answer, and the late terminal
+  error of a superseded call, which is dropped without a notice); the silent preview GETs belong to no action and run
+  to their bound. A "stale" answer
   reloads the job so the changed settings show. The preview GETs (`fetchBusy`, the source `<img>` fallback) retry the
   same way, silently, and show today's failure when the bound is used up. The create path's own busy answers
   (`_job_create`: ensure or cleanup busy after a job was made) stay untagged and unretried.

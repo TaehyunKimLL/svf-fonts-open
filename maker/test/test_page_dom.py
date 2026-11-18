@@ -869,6 +869,7 @@ class LocalPageTest(localfx.LocalBase):
       (() => {
         const real = window.fetch.bind(window);
         const st = window.__stub = {rules: [], sent: [], times: [], passed: [], realFetch: real};
+        window.__t = 0;
         st.gate = new Promise((res) => { st.release = res; });          // rules with hold:true wait here
         window.fetch = async (input, init) => {
           const method = ((init && init.method) || 'GET').toUpperCase();
@@ -879,6 +880,7 @@ class LocalPageTest(localfx.LocalBase):
           if (rule) {
             rule.times--;
             if (rule.hold) await st.gate;
+            if (rule.fail) throw new TypeError('network down');
             if (rule.body !== undefined) {                              // no body: the real server answers (after the hold)
               return new Response(JSON.stringify(rule.body), {status: rule.status || 409,
                                                               headers: {'Content-Type': 'application/json'}});
@@ -915,8 +917,10 @@ class LocalPageTest(localfx.LocalBase):
         self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
         return jid
 
-    def busy_drive(self, jid, body):
-        return self.drive(self.BUSY_JS + body, query="?job=" + jid, preload=self.BUSY_STUB)
+    def busy_drive(self, jid, body, bounds=None):
+        """@p bounds: JS for `window.__busyBounds`, set in the preload so it exists before any page script runs."""
+        pre = self.BUSY_STUB + ("\nwindow.__busyBounds = %s;\n" % bounds if bounds else "")
+        return self.drive(self.BUSY_JS + body, query="?job=" + jid, preload=pre)
 
     def test_a_busy_delete_is_retried_and_succeeds(self):
         jid = self.local_job()
@@ -1085,12 +1089,11 @@ class LocalPageTest(localfx.LocalBase):
         self.addCleanup(self.srv.preparing.pop, jid, None)
         with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
             out = self.busy_drive(jid, """
-      window.__busyBounds = {retryMs: [50, 50, 50]};
       const img = () => document.querySelector('img.preview');
       await waitFor(() => img() && img().hidden, 30000);
       await sleep(500);
       return {gets: window.__stub.sent.filter((x) => x.includes('/source.png')).length, notice: visible($('notice'))};
-    """)
+    """, bounds="{retryMs: [50, 50, 50]}")
         self.assertGreater(out["gets"], 0)
         self.assertEqual(out["gets"] % 4, 0, out)                                # 1 + 3 repeats per table build
         self.assertFalse(out["notice"])                                          # silent
@@ -1102,15 +1105,87 @@ class LocalPageTest(localfx.LocalBase):
         self.addCleanup(self.srv.preparing.pop, jid, None)
         with mock.patch.object(jobs, "LOCKED_IO_S", 0.3):
             out = self.busy_drive(jid, """
-      window.__t = 0;                                                          // a controlled clock; each sleep adds 500
-      window.__busyBounds = {totalMs: 1000, retryMs: [20, 20, 20], now: () => window.__t,
-                             sleep: async (ms) => { window.__t += 500; await new Promise((res) => setTimeout(res, ms)); }};
       const img = () => document.querySelector('img.preview');
       await waitFor(() => img() && img().hidden, 30000);
       await sleep(500);
       return window.__stub.sent.filter((x) => x.includes('/source.png')).length;
-    """)
+    """, bounds="""{totalMs: 1000, retryMs: [20, 20, 20], now: () => window.__t,    // a controlled clock; each sleep adds 500
+                             sleep: async (ms) => { window.__t += 500; await new Promise((res) => setTimeout(res, ms)); }}""")
         self.assertEqual(out, 2)                                                 # sends at t=0 and t=500; t=1000 is past it
+
+    def superseded_terminal_error(self, fail):
+        if True:
+            jid = self.ready_job()
+            held = {"method": "DELETE", "path": "/api/jobs/[0-9a-f]+$", "times": 1, "hold": True}
+            if fail:
+                held["fail"] = True
+            else:
+                held["body"] = {"error": "job x is queued"}
+            out = self.busy_drive(jid, """
+      rules([%s,
+             {method: 'POST', path: '/run$', times: 1, body: {error: 'a run of job ' + jid + ' is being prepared', busy: 'preparing'}}]);
+      $('delete-job').click();
+      await waitFor(() => count('DELETE /api/jobs/' + jid) === 1);
+      $('run').click();                                                        // a newer action: a message and a button
+      await waitFor(() => visible($('notice-retry')));
+      const before = $('notice').textContent;
+      window.__stub.release();                                                 // the older call's terminal error arrives late
+      await sleep(500);
+      return {before, notice: $('notice').textContent, retry: visible($('notice-retry'))};
+    """ % json.dumps(held))
+            self.assertIn("being prepared", out["before"])
+            self.assertEqual(out["notice"], out["before"], fail)                 # not replaced by the older call's error
+            self.assertTrue(out["retry"], fail)                                  # and its button not rejected away
+
+    def test_a_superseded_untagged_409_leaves_the_newer_message_and_button(self):
+        self.superseded_terminal_error(False)
+
+    def test_a_superseded_network_rejection_leaves_the_newer_message_and_button(self):
+        self.superseded_terminal_error(True)
+
+    def test_try_again_after_the_other_run_started_shows_the_job_instead_of_a_stale_page(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      const detected = $('state').textContent;
+      rules([{method: 'POST', path: '/run$', times: 1, body: {error: 'a run of job ' + jid + ' is being prepared', busy: 'preparing'}}]);
+      $('run').click();
+      await waitFor(() => visible($('notice-retry')));
+      await window.__stub.realFetch('/api/jobs/' + jid + '/run', {method: 'POST'});   // the other run starts; no follow GET yet
+      $('notice-retry').click();                                               // "job X is queued" (or running / done)
+      await waitFor(() => $('state').textContent.includes('written to'), 60000);
+      return {runs: count('POST /api/jobs/' + jid + '/run'), detected};
+    """, bounds="{sleep: () => new Promise(() => {})}")                          # the follow loop never reads the job
+        self.assertEqual(out["runs"], 2)                                         # the second send is the Try again, nothing more
+
+    def test_a_late_probe_of_an_earlier_size_does_not_overwrite_the_newer_one(self):
+        jid = self.local_job()
+        job = self.job(jid)
+        ttf = next(f["id"] for f in job["fonts"] if f["path"] == "Munjo.ttf")
+        st = job["settings"]
+        st["fonts"][ttf].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16, 17], bpp=[1])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        out = self.busy_drive(jid, """
+      rules([{method: 'GET', path: '/probe/[^/]+/16/1\\.json$', times: 1, hold: true, body: {error: 'job ' + jid + ' is busy; try again', busy: 'lock'}}]);
+      const row = document.querySelector('tr[data-font]');
+      row.querySelector('input.override').click();
+      const panel = document.querySelector('tr.override');
+      const details = panel.querySelector('details.clipping');
+      details.open = true; details.dispatchEvent(new Event('toggle'));       // size 16: its probe is held
+      await waitFor(() => window.__stub.rules[0].times === 0);
+      const size = panel.querySelector('select[aria-label="clipping size"]');
+      size.value = '17'; size.dispatchEvent(new Event('change', {bubbles: true}));
+      const counts = panel.querySelector('.clip-counts');
+      await waitFor(() => /glyphs cut/.test(counts.textContent));
+      const second = {counts: counts.textContent, cell: [...panel.querySelectorAll('.svf-controls span')].map((n) => n.textContent).join(' ')};
+      let changes = 0;
+      new MutationObserver(() => changes++).observe(counts, {childList: true});
+      window.__stub.release();                                                 // size 16's probe gets through, late
+      await sleep(2500);
+      return {changes, counts: counts.textContent, size: size.value, second};
+    """)
+        self.assertEqual(out["size"], "17")
+        self.assertEqual(out["changes"], 0)                                      # the older load wrote nothing
+        self.assertEqual(out["counts"], out["second"]["counts"])
 
     def test_busy_create_sources_and_detect_are_each_retried_once(self):
         out = self.drive(self.typed_script("""
