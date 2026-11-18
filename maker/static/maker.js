@@ -18,7 +18,7 @@
 "use strict";
 
 import * as svfview from "./svfview.js";
-import {parseDyText, stepSig} from "./pagelib.js";
+import {parseDyText, stepSig, busyRetryDelay, isBusyKind, BUSY_RETRY_MS, BUSY_RETRY_TOTAL_MS} from "./pagelib.js";
 import {cutList} from "./clip.js";
 
 const POLL_MS = 2000;
@@ -153,6 +153,7 @@ const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\
 const $ = (id) => document.getElementById(id);
 const stateEl = $("state");
 const noticeEl = $("notice");
+const noticeRetryEl = $("notice-retry");
 const refusedEl = $("refused");
 const fontsEl = $("fonts");
 const stepsEl = $("steps");
@@ -256,10 +257,34 @@ function fillSelect(select, options, value) {
   select.value = text;
 }
 
-function notice(message) {
+// The notice epoch: every public notice() / clearNotice() (an action starting, a message of its own) moves it, hides the
+// "Try again" control and rejects a request that waits on it; api() watches it so that a retry the user has moved on
+// from sends nothing more. api()'s own lines (the retry line, the exhausted message) go through setNoticeQuiet.
+let noticeEpoch = 0;
+let busyWait = null;                                  // {resolve, reject, error, args}: the one request waiting on "Try again"
+
+function setNoticeQuiet(message) {
   noticeEl.textContent = escapeNotice(message);
   noticeEl.hidden = !message;
 }
+
+// Hide the control and reject the request that waits on it with its original error.
+function dropBusyWait() {
+  const wait = busyWait;
+  busyWait = null;
+  noticeRetryEl.hidden = true;
+  if (wait) wait.reject(wait.error);
+}
+
+function notice(message) {
+  noticeEpoch++;
+  dropBusyWait();
+  setNoticeQuiet(message);
+}
+
+// A message no user action asked for (a failed poll, the renderer warning, the repo error): shown, but it supersedes no
+// call in flight and takes no control away, so only the user's own actions move the epoch.
+function backgroundNotice(message) { setNoticeQuiet(message); }
 
 function clearNotice() { notice(""); }
 
@@ -439,7 +464,24 @@ function batchBpp() { return [...bppEl.querySelectorAll("input:checked")].map((b
 
 // ---- the API --------------------------------------------------------------------------------------------------
 
-async function api(method, path, body) {
+const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The retry bounds, read at call time. `window.__busyBounds` (tests only) may override the delays, the total, the follow
+// interval, the clock and the sleep; the production values are pagelib's.
+function busyBounds() {
+  const o = (typeof window !== "undefined" && window.__busyBounds) || {};
+  return {retryMs: o.retryMs || BUSY_RETRY_MS, totalMs: o.totalMs !== undefined ? o.totalMs : BUSY_RETRY_TOTAL_MS,
+          followMs: o.followMs !== undefined ? o.followMs : 1000, now: o.now || Date.now, sleep: o.sleep || sleepMs};
+}
+
+// The run-retry generation: a request tagged with `opts.runGen` stops retrying (and never shows "Try again") once the
+// generation has moved, which `followOtherRun` does when it sees the other run start.
+let runGen = 0;
+
+// One JSON call. A 409 the server tagged `busy` is repeated after 0.5, 1 and 2 s (a bounded retry of the one request,
+// never after a network error and never once the user has started anything else: the notice epoch), then the notice
+// stays with a "Try again" button that sends the identical request once more. The thrown Error carries `body`.
+async function api(method, path, body, opts = {}) {
   const init = {method, headers: {}};
   if (body !== undefined && body !== null) {
     if (typeof Blob !== "undefined" && body instanceof Blob) init.body = body;
@@ -449,30 +491,80 @@ async function api(method, path, body) {
       init.body = JSON.stringify(body);
     }
   }
-  let response;
-  try {
-    response = await fetch(path, init);
-  } catch (err) {
-    const message = method + " " + path + ": " + err;
-    notice(message);
-    throw new Error(message);
-  }
-  if (!response.ok) {
-    let message = method + " " + path + ": HTTP " + response.status;
+  const epoch = noticeEpoch;                          // before the first send: an action started meanwhile cancels the retry
+  const bounds = busyBounds();
+  const start = bounds.now();
+  const superseded = () => noticeEpoch !== epoch || (opts.runGen !== undefined && opts.runGen !== runGen);
+  const publish = (message) => (opts.background ? backgroundNotice(message) : notice(message));   // opts.background: a poll, a list
+  let repeats = 0;
+  let retried = false;
+  for (;;) {
+    let response;
     try {
-      const data = await response.json();
+      response = await fetch(path, init);
+    } catch (err) {
+      const message = method + " " + path + ": " + err;
+      if (superseded()) throw new Error(message);       // the user moved on: no notice over the newer message
+      publish(message);
+      throw new Error(message);
+    }
+    if (response.ok) {
+      try {
+        const data = await response.json();
+        if (retried && noticeEpoch === epoch) setNoticeQuiet("");
+        return data;
+      } catch (err) {
+        publish(method + " " + path + ": the answer is not JSON");
+        throw err;
+      }
+    }
+    let message = method + " " + path + ": HTTP " + response.status;
+    let data = null;
+    try {
+      data = await response.json();
       if (data && data.error) message += ": " + data.error;
       if (data && Array.isArray(data.errors) && data.errors.length) message += "\n" + data.errors.join("\n");
     } catch (err) { /* a non-JSON error body: the status line stands */ }
-    notice(message);
-    throw new Error(message);
+    const error = new Error(message);
+    error.body = data;
+    const kind = response.status === 409 && data ? data.busy : undefined;
+    if (superseded()) throw error;                    // the user moved on while this answer was pending: say nothing
+    if (!isBusyKind(kind)) {
+      error.status = response.status;
+      error.published = true;                         // its message is the notice now
+      publish(message);
+      throw error;
+    }
+    const delay = busyRetryDelay(method, kind, repeats, bounds.now() - start, bounds);
+    if (delay !== null) {
+      retried = true;
+      setNoticeQuiet(message + " (retrying " + (repeats + 1) + "/" + bounds.retryMs.length + ")");
+      await bounds.sleep(delay);
+      if (superseded()) throw error;
+      if (bounds.now() - start < bounds.totalMs) {   // the deadline is checked again right before the send
+        repeats++;
+        continue;
+      }
+    }
+    // no (further) automatic retry: the message stays, with a "Try again" for the identical request
+    if (superseded()) throw error;
+    setNoticeQuiet(message);
+    dropBusyWait();                                   // one control: a second exhausted call replaces the first
+    noticeRetryEl.hidden = false;
+    return new Promise((resolve, reject) => {
+      busyWait = {resolve, reject, error, args: [method, path, body, opts]};
+      if (typeof opts.onWait === "function") opts.onWait(kind, epoch);
+    });
   }
-  try {
-    return await response.json();
-  } catch (err) {
-    notice(method + " " + path + ": the answer is not JSON");
-    throw err;
-  }
+}
+
+function tryAgain() {
+  const wait = busyWait;
+  if (!wait) return;
+  busyWait = null;
+  noticeRetryEl.hidden = true;
+  setNoticeQuiet("");
+  wait.resolve(api(...wait.args));
 }
 
 // ---- what one font offers (mirrors maker/routes.py) -----------------------------------------------------------
@@ -586,7 +678,7 @@ function renderStatus() {
 async function renderJobs() {
   let data;
   try {
-    data = await api("GET", "/api/jobs");
+    data = await api("GET", "/api/jobs", undefined, {background: true});
   } catch (err) {
     return;
   }
@@ -925,8 +1017,20 @@ function fontMainRow(font, per, override) {
       cell.append(sourceFaceCanvas(font));
     } else {
       const image = el("img", {class: "preview", loading: "lazy", alt: fontName(font)});
-      image.src = previewSrc(job.id, font.id, "source");
-      image.onerror = () => { image.hidden = true; };
+      const src = previewSrc(job.id, font.id, "source");
+      image.src = src;
+      // An <img> cannot see a status, so its first failure asks again through fetchBusy (a busy 409 is retried, silently);
+      // only an ok answer is shown (as an object URL, revoked when it has loaded), anything else hides the image as before.
+      image.onerror = () => {
+        image.onerror = () => { image.hidden = true; };                 // no loop
+        fetchBusy(src, {cache: "no-cache"}).then(async (response) => {
+          if (!response.ok) { image.hidden = true; return; }
+          const url = URL.createObjectURL(await response.blob());
+          image.onload = () => URL.revokeObjectURL(url);
+          image.onerror = () => { URL.revokeObjectURL(url); image.hidden = true; };
+          image.src = url;
+        }).catch(() => { image.hidden = true; });
+      };
       cell.append(image);
     }
   }
@@ -1254,8 +1358,11 @@ function clippingPanel(font, per, optionBox) {
   const url = (ext) => "/api/jobs/" + encodeURIComponent(job.id) + "/probe/" + encodeURIComponent(font.id) + "/" +
     sizeSel.value + "/" + bppSel.value + "." + ext;
 
+  let loadGen = 0;                                      // see load(): every size/bpp choice starts a new generation
   const update = async () => {
     if (!report) return;
+    const gen = loadGen, snap = report, snapFace = face;   // the queued drawing below belongs to this load
+    const mine = () => gen === loadGen && snap === report;
     const ascent = Number(ascentIn.value);
     const h = cellH();
     cellEl.textContent = "cell " + h + " rows";
@@ -1266,7 +1373,7 @@ function clippingPanel(font, per, optionBox) {
       for (const old of wrap.querySelectorAll(".guide, .clip-band")) old.remove();
       return;
     }
-    const cut = cutList(report, ascent, h, report.cell[0]);
+    const cut = cutList(snap, ascent, h, snap.cell[0]);
     counts.textContent = cut.cut.toLocaleString("en") + " glyphs cut: " + cut.top.toLocaleString("en") + " at the top, " +
       cut.bottom.toLocaleString("en") + " at the bottom; " + cut.wide.toLocaleString("en") + " wider than the cell" +
       (effOption("fit_cell") ? " (fit cell is on: the run decides the size)" : "");
@@ -1279,17 +1386,18 @@ function clippingPanel(font, per, optionBox) {
       list.append(line);
     }
     if (cut.rows.length > 200) list.append(el("div", {class: "sub", text: "and " + (cut.rows.length - 200).toLocaleString("en") + " more"}));
-    if (!face) return;                                   // no probe face (the ink spans past 255 rows): list and counts only
+    if (!snapFace) return;                                   // no probe face (the ink spans past 255 rows): list and counts only
     const text = previewState.text + " " + cut.rows.slice(0, 12).map((row) => String.fromCodePoint(row.cp)).join("") +
       (selected !== null ? " " + String.fromCodePoint(selected) : "");
     try {
-      await withChain([face], () => {
+      await withChain([snapFace], () => {
+        if (!mine()) return;                             // a newer load began while this drawing waited its turn
         svfview.setScale(1, 1);
         const r = svfview.drawLine(canvas, text, {target: "gray8"});
         canvas.style.imageRendering = "pixelated";
         canvas.style.width = canvas.width * 2 + "px";
         for (const old of wrap.querySelectorAll(".guide, .clip-band")) old.remove();
-        const probeTop = 1, probeBottom = 1 + report.cell[1];     // the probe face's rows in the canvas
+        const probeTop = 1, probeBottom = 1 + snap.cell[1];     // the probe face's rows in the canvas
         const top = r.baseline - ascent, bottom = top + h;
         const band = (from, to) => {
           if (to <= from) return;
@@ -1306,24 +1414,37 @@ function clippingPanel(font, per, optionBox) {
         wrap.append(frame);
       });
     } catch (err) {
-      counts.append(" (" + escapeControls(err && err.message) + ")");
+      if (mine()) counts.append(" (" + escapeControls(err && err.message) + ")");
     }
   };
 
+  // One load per size/bpp choice: the URLs are taken when it starts, and a result or error that comes after a newer
+  // load began (a size picked meanwhile) is dropped, so it never overwrites the newer report.
   const load = async () => {
+    const gen = ++loadGen;
+    const probeUrl = (ext) => url(ext);                 // url() reads the selectors now; the svf URL is fixed below
+    const jsonUrl = probeUrl("json");
+    const svfUrl = probeUrl("svf");
     report = null;
     face = null;
     selected = null;
     counts.textContent = "measuring…";
+    let loadedReport, loadedFace = null;
     try {
-      const response = await fetch(url("json"), {cache: "no-cache"});
-      if (!response.ok) throw new Error("no probe (" + response.status + "): save the settings first if the size or bpp is new");
-      report = await response.json();
-      if (report.probe_face) face = await fetchFresh(url("svf"));
+      const response = await fetchBusy(jsonUrl, {cache: "no-cache"});
+      if (!response.ok) {
+        throw new Error(await busyText(response) ||
+                        "no probe (" + response.status + "): save the settings first if the size or bpp is new");
+      }
+      loadedReport = await response.json();
+      if (loadedReport.probe_face) loadedFace = await fetchFresh(svfUrl);
     } catch (err) {
-      counts.textContent = escapeControls(err && err.message);
+      if (gen === loadGen) counts.textContent = escapeControls(err && err.message);
       return;
     }
+    if (gen !== loadGen) return;
+    report = loadedReport;
+    face = loadedFace;
     if (ascentIn.value.trim() === "") ascentIn.value = String(report.step_ascent ?? report.auto_ascent);
     await update();
   };
@@ -1475,15 +1596,44 @@ let drawChain = Promise.resolve();                   // draws run one at a time:
 function svfModule() {
   if (!svfReady) {
     svfReady = svfview.load();
-    svfReady.catch(() => notice(svfview.NOTICE));
+    svfReady.catch(() => backgroundNotice(svfview.NOTICE));
   }
   return svfReady;
+}
+
+// A GET that repeats itself on a busy 409 (a lock held, a run being prepared, a preview being made): after the bounded
+// delays of `api()`, silently - no notice, and no notice epoch (a background fetch belongs to no action). The 15 s
+// deadline is checked again right before every resend. Returns the last Response; a network error is not retried.
+async function fetchBusy(url, init) {
+  const bounds = busyBounds();
+  const start = bounds.now();
+  let repeats = 0;
+  for (;;) {
+    const response = await fetch(url, init);
+    if (response.status !== 409) return response;
+    let kind;
+    try { kind = (await response.clone().json()).busy; } catch (err) { return response; }
+    const delay = busyRetryDelay("GET", kind, repeats, bounds.now() - start, bounds);
+    if (delay === null) return response;
+    await bounds.sleep(delay);
+    if (bounds.now() - start >= bounds.totalMs) return response;
+    repeats++;
+  }
+}
+
+// The server's text of a busy 409 answer, or null for any other answer.
+async function busyText(response) {
+  if (response.status !== 409) return null;
+  try {
+    const data = await response.clone().json();
+    return isBusyKind(data.busy) && data.error ? String(data.error) : null;
+  } catch (err) { return null; }
 }
 
 // A fresh read of @p url: the browser revalidates by ETag (the server answers 304), so a face the server re-baked or a
 // step a re-run rewrote is never served from an earlier fetch.
 function fetchFresh(url) {
-  return fetch(url, {cache: "no-cache"}).then((response) => {
+  return fetchBusy(url, {cache: "no-cache"}).then((response) => {
     if (!response.ok) throw new Error(url + ": " + response.status);
     return response.arrayBuffer();
   }).then((buffer) => new Uint8Array(buffer));
@@ -2074,7 +2224,7 @@ async function poll() {
   pollTimer = null;
   if (!jobId) return;
   try {
-    job = await api("GET", "/api/jobs/" + encodeURIComponent(jobId));
+    job = await api("GET", "/api/jobs/" + encodeURIComponent(jobId), undefined, {background: true});
   } catch (err) {
     /* the notice carries the error; keep polling while the state says so */
   }
@@ -2177,14 +2327,78 @@ async function run() {
     }
     await reload();
   }
+  const id = jobId;
   try {
-    await api("POST", "/api/jobs/" + encodeURIComponent(jobId) + "/run");
+    await api("POST", "/api/jobs/" + encodeURIComponent(id) + "/run", undefined,
+              {runGen, onWait: (kind, epoch) => { if (kind === "preparing") followOtherRun(id, epoch); }});
   } catch (err) {
+    // The job moved under the run: its settings changed (stale), or a 409 says it may no longer be `detected` ("job X is
+    // queued", the other run's doing). Read the job (nothing is sent again): a stale run shows it (the unsaved edits
+    // stay); another 409 shows it only when its state really left `detected`, and then polls while it runs; otherwise
+    // the page is left as it is and the 409 notice stays.
+    const stale = !!(err && err.body && err.body.stale === true);
+    const conflict = !!(err && err.published && err.status === 409);
+    if ((stale || conflict) && jobId === id) {
+      const fresh = await readJob(id);
+      if (fresh && jobId === id && (stale || fresh.state !== "detected")) {
+        job = fresh;
+        if (!dirty) settings = clone(job.settings || {batch: {}, fonts: {}});
+        renderAll();
+        if (job.state === "queued" || job.state === "running") startPolling();
+      }
+    }
     return;
   }
   await reload();
   startPolling();
   await renderJobs();
+}
+
+// The job as the server has it, or null: a read that touches neither the notice nor the epoch.
+async function readJob(id) {
+  try {
+    const response = await fetch("/api/jobs/" + encodeURIComponent(id));
+    return response.ok ? await response.json() : null;
+  } catch (err) { return null; }
+}
+
+// "A run of this job is being prepared" (another tab or window): follow that run instead of repeating ours. Every
+// `followMs` (1 s), for up to 15 s, read the job; when its state leaves `detected` show it (polling while it runs),
+// drop the "Try again" control and end every retry of the superseded request (`runGen`). The loop belongs to the action
+// that started it (@p epoch): a user action (a public notice / clearNotice) or another open job ends it without touching
+// the newer action's control or notice. One loop per action, also across "Try again".
+let follow = null;
+async function followOtherRun(id, epoch) {
+  if (follow && follow.id === id && follow.epoch === epoch) return;
+  const mine = follow = {id, epoch};
+  const still = () => follow === mine && jobId === id && noticeEpoch === epoch;
+  const bounds = busyBounds();
+  const end = bounds.now() + bounds.totalMs;
+  try {
+    while (bounds.now() < end) {
+      await bounds.sleep(bounds.followMs);
+      if (!still()) return;
+      let other = null;
+      try {
+        const response = await fetch("/api/jobs/" + encodeURIComponent(id));
+        if (response.ok) other = await response.json();
+      } catch (err) { /* no answer: look again */ }
+      if (!still()) return;                           // a late answer must not render another job or wipe a newer notice
+      if (other && other.state !== "detected") {
+        runGen++;                                     // the run request (and its Try again) is superseded
+        job = other;
+        if (!dirty) settings = clone(job.settings || {batch: {}, fonts: {}});   // unsaved edits stay, as in poll()
+        dropBusyWait();
+        setNoticeQuiet("");
+        renderAll();
+        if (job.state === "queued" || job.state === "running") startPolling();
+        await renderJobs();
+        return;
+      }
+    }
+  } finally {
+    if (follow === mine) follow = null;
+  }
 }
 
 async function cancel() {
@@ -2338,6 +2552,7 @@ function wire() {
   chooseOutputEl.onclick = chooseOutput;
   detectLocalEl.onclick = detectLocal;
   deleteJobEl.onclick = deleteJob;
+  noticeRetryEl.onclick = tryAgain;
   openFolderEl.onclick = async () => {
     const b = bridge();
     if (b && typeof b.openOutputFolder === "function") {
@@ -2376,7 +2591,7 @@ async function init() {
   renderSources();
   let repoError = null;
   try {
-    repo = await api("GET", "/api/repo");
+    repo = await api("GET", "/api/repo", undefined, {background: true});
   } catch (err) {
     repo = null;
     repoError = err.message || String(err);           // M1: kept visible after a `?job=` load
@@ -2384,7 +2599,7 @@ async function init() {
   const id = new URLSearchParams(location.search).get("job");
   if (id) await loadJob(id);
   else renderAll();
-  if (repoError) notice(repoError);
+  if (repoError) backgroundNotice(repoError);
   await renderJobs();
 }
 

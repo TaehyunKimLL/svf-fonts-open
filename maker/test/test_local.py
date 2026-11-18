@@ -1487,6 +1487,7 @@ class LocalSweepTest(LocalRunBase):
                 status, answer = self.api(method, path, body)
                 self.assertEqual(status, 409, (path, answer))
                 self.assertIn("previous run is finishing", answer["error"])
+                self.assertEqual(answer.get("busy"), "lock")
             go.set()
             self.wait_done(jid)                                                 # ... and released by the worker
         self.assertEqual(self.job(jid)["state"], "done")
