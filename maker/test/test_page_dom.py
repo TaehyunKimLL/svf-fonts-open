@@ -890,6 +890,7 @@ class LocalPageTest(localfx.LocalBase):
           }
           const res = await real(input, init);
           st.passed.push({m: method, path, status: res.status});
+          if (rule && rule.holdAfter) await gate(rule.holdAfter).p;       // the real answer, delivered late
           return res;
         };
         window.__notices = [];
@@ -1226,6 +1227,74 @@ class LocalPageTest(localfx.LocalBase):
         self.assertTrue(out["before"])
         self.assertTrue(out["after"])                                            # the edit survived the 409
         self.assertIn("input changed since detection", out["notice"])
+
+    EDIT_JS = """
+      const typeEdits = async () => {                                          // real inputs: they only mark dirty
+        $('sizes').value = '24, 32'; $('sizes').dispatchEvent(new Event('input', {bubbles: true}));
+        document.querySelector('tr[data-font] input.override').click();
+        document.querySelector('tr.override input.ov-advanced-toggle').click();
+        const cell = document.querySelector('tr.override [data-option="cell"]');
+        cell.value = '9'; cell.dispatchEvent(new Event('input', {bubbles: true}));
+      };
+      const edits = () => ({sizes: $('sizes').value,                           // the override panel's open state is cosmetic
+        cell: (document.querySelector('tr.override [data-option="cell"]') || {}).value});
+    """
+
+    def test_a_stale_run_keeps_the_typed_edits(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, self.EDIT_JS + """
+      rules([{method: 'POST', path: '/run$', times: 1, hold: true, body: {error: 'the job changed while the run was being prepared: run again', stale: true}}]);
+      $('run').click();
+      await waitFor(() => count('POST /api/jobs/' + jid + '/run') === 1);
+      await typeEdits();
+      window.__stub.release();
+      await waitFor(() => $('notice').textContent.includes('changed while the run'));
+      await sleep(800);
+      const kept = edits();
+      $('run').click();                                                        // dirty is still true: the edits are saved first
+      await waitFor(() => window.__stub.passed.some((p) => p.m === 'POST' && p.path.endsWith('/run') && p.status === 200));
+      return {kept, puts: count('PUT /api/jobs/' + jid + '/settings')};
+    """)
+        self.assertEqual(out["kept"], {"sizes": "24, 32", "cell": "9"})
+        self.assertEqual(out["puts"], 1)
+        self.wait_done(jid)
+
+    def test_a_run_409_after_the_job_left_detected_keeps_the_typed_edits(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, self.EDIT_JS + """
+      rules([{method: 'POST', path: '/run$', times: 1, hold: true, body: {error: 'job ' + jid + ' is queued'}}]);
+      $('run').click();
+      await waitFor(() => count('POST /api/jobs/' + jid + '/run') === 1);
+      await typeEdits();
+      await window.__stub.realFetch('/api/jobs/' + jid + '/run', {method: 'POST'});   // the other run: the job leaves detected
+      const detected = $('state').textContent;
+      window.__stub.release();
+      await waitFor(() => $('state').textContent !== detected, 30000);        // the page shows the job as it is now
+      await sleep(500);
+      return edits();
+    """)
+        self.assertEqual(out, {"sizes": "24, 32", "cell": "9"})
+        self.wait_done(jid)
+
+    def test_a_late_recovery_read_does_not_replace_newly_saved_settings(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'POST', path: '/run$', times: 1, body: {error: 'the job changed while the run was being prepared: run again', stale: true}},
+             {method: 'GET', path: '/api/jobs/[0-9a-f]+$', times: 1, holdAfter: 'snap'}]);
+      const before = $('sizes').value;
+      $('run').click();                                                        // stale; its recovery read answers late
+      await waitFor(() => window.__stub.rules[1].times === 0);                 // the read ran (its old snapshot is held back)
+      await waitFor(() => $('notice').textContent.includes('changed while the run'));
+      $('sizes').value = '24, 32'; $('sizes').dispatchEvent(new Event('input', {bubbles: true}));
+      $('save').click();                                                       // a newer action: Save completes
+      await waitFor(async () => (await (await window.__stub.realFetch('/api/jobs/' + jid)).json()).settings.batch.sizes.join() === '24,32');
+      await sleep(500);
+      window.__stub.release('snap');                                           // the old snapshot arrives
+      await sleep(800);
+      return {before, sizes: $('sizes').value};
+    """)
+        self.assertNotEqual(out["before"], "24, 32")
+        self.assertEqual(out["sizes"], "24, 32")                                 # the saved value stayed
 
     def test_a_stale_probe_drawing_is_not_drawn_after_another_size_was_chosen(self):
         jid = self.local_job()

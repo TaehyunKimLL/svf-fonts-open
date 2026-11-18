@@ -2333,17 +2333,27 @@ async function run() {
               {runGen, onWait: (kind, epoch) => { if (kind === "preparing") followOtherRun(id, epoch); }});
   } catch (err) {
     // The job moved under the run: its settings changed (stale), or a 409 says it may no longer be `detected` ("job X is
-    // queued", the other run's doing). Read the job (nothing is sent again): a stale run shows it (the unsaved edits
-    // stay); another 409 shows it only when its state really left `detected`, and then polls while it runs; otherwise
-    // the page is left as it is and the 409 notice stays.
+    // queued", the other run's doing). Read the job (nothing is sent again): a stale run shows it; another 409 shows it
+    // only when its state really left `detected`, and then polls while it runs; otherwise the page is left as it is and
+    // the 409 notice stays. The read belongs to this action: a newer user action (the epoch) or another open job drops
+    // its answer. Unsaved edits are typed into the form fields and not yet in `settings`: while dirty they are read
+    // into `settings` first and the forms rebuilt from those; a value that cannot be read leaves the forms untouched.
     const stale = !!(err && err.body && err.body.stale === true);
     const conflict = !!(err && err.published && err.status === 409);
     if ((stale || conflict) && jobId === id) {
+      const epoch = noticeEpoch;
       const fresh = await readJob(id);
-      if (fresh && jobId === id && (stale || fresh.state !== "detected")) {
+      if (fresh && jobId === id && noticeEpoch === epoch && (stale || fresh.state !== "detected")) {
         job = fresh;
-        if (!dirty) settings = clone(job.settings || {batch: {}, fonts: {}});
-        renderAll();
+        if (!dirty) {
+          settings = clone(job.settings || {batch: {}, fonts: {}});
+          renderAll();
+        } else if (readBatch() && readPerOptions()) {
+          renderAll();
+        } else {
+          renderStatus();                              // the edits stay in their fields; the status and steps follow the job
+          buildSteps();
+        }
         if (job.state === "queued" || job.state === "running") startPolling();
       }
     }
