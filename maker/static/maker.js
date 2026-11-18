@@ -2284,10 +2284,11 @@ async function followOtherRun(id, epoch) {
   if (follow && follow.id === id && follow.epoch === epoch) return;
   const mine = follow = {id, epoch};
   const still = () => follow === mine && jobId === id && noticeEpoch === epoch;
-  const end = Date.now() + BUSY_RETRY_TOTAL_MS;
+  const bounds = busyBounds();
+  const end = bounds.now() + bounds.totalMs;
   try {
-    while (Date.now() < end) {
-      await sleepMs(busyBounds().followMs);
+    while (bounds.now() < end) {
+      await bounds.sleep(bounds.followMs);
       if (!still()) return;
       let other = null;
       try {

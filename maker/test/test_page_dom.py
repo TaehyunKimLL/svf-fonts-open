@@ -961,7 +961,8 @@ class LocalPageTest(localfx.LocalBase):
     def test_try_again_on_a_run_being_prepared_keeps_one_follow_loop(self):
         jid = self.ready_job()
         out = self.busy_drive(jid, """
-      window.__busyBounds = {followMs: 200};
+      window.__ticks = [];                                                     // the follow loop's waits, released by hand
+      window.__busyBounds = {sleep: () => new Promise((res) => window.__ticks.push(res))};
       const body = {error: 'a run of job ' + jid + ' is being prepared', busy: 'preparing'};
       rules([{method: 'POST', path: '/run$', times: 2, body}]);
       $('run').click();
@@ -969,16 +970,16 @@ class LocalPageTest(localfx.LocalBase):
       $('notice-retry').click();
       await waitFor(() => count('POST /api/jobs/' + jid + '/run') === 2);
       await waitFor(() => visible($('notice-retry')));
-      await sleep(1500);
-      const sent = window.__stub.sent;
-      const at = sent.indexOf('POST /api/jobs/' + jid + '/run');
-      const gets = sent.slice(at).filter((s) => s === 'GET /api/jobs/' + jid).length;
-      return {gets, elapsed: Date.now() - window.__stub.times[at]};
+      await sleep(200);
+      const waiting = window.__ticks.length;                                   // one loop: one pending wait
+      const at = window.__stub.sent.indexOf('POST /api/jobs/' + jid + '/run');
+      const gets = () => window.__stub.sent.slice(at).filter((x) => x === 'GET /api/jobs/' + jid).length;
+      window.__ticks[0]();                                                     // one interval passes
+      await waitFor(() => gets() === 1);
+      await sleep(200);
+      return {waiting, created: window.__ticks.length, gets: gets()};
     """)
-        bound = -(-out["elapsed"] // 200) + 1                                    # ceil(elapsed / interval) + 1: one loop
-        self.assertGreaterEqual(out["gets"], 3)
-        self.assertLessEqual(out["gets"], bound, out)
-
+        self.assertEqual(out, {"waiting": 1, "created": 2, "gets": 1})           # a second loop would have waited twice
 
     def test_a_late_busy_answer_of_a_superseded_try_again_neither_resumes_nor_shows_the_button(self):
         jid = self.ready_job()
@@ -1027,9 +1028,10 @@ class LocalPageTest(localfx.LocalBase):
       rules([{method: 'POST', path: '/run$', times: 1, body: {error: 'a run of job ' + jid + ' is being prepared', busy: 'preparing'}},
              {method: 'GET', path: '/api/jobs/[0-9a-f]+$', times: 1, hold: true},
              {method: 'DELETE', path: '/api/jobs/[0-9a-f]+$', times: 1, status: 200, body: {deleted: jid}}]);
+      const n0 = count('GET /api/jobs/' + jid);                               // the page's own load already read the job
       $('run').click();
       await waitFor(() => visible($('notice-retry')));
-      await waitFor(() => count('GET /api/jobs/' + jid) === 1);               // the follow loop's GET is held
+      await waitFor(() => window.__stub.rules[1].times === 0 && count('GET /api/jobs/' + jid) === n0 + 1);   // the follow GET is held
       await window.__stub.realFetch('/api/jobs/' + jid + '/run', {method: 'POST'});   // the other run starts
       $('delete-job').click();
       await waitFor(() => $('state').textContent === 'no job');
