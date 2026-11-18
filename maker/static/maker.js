@@ -1122,6 +1122,7 @@ function perFontSizes(per, font) {
   input.title = font.sizes_fixed
     ? "this source is fixed-size: only the strikes " + strikes + " are offered"
     : "comma-separated sizes, each an int 6..96; empty: the batch's value";
+  input.addEventListener("input", markDirty);         // a typed draft is a draft before `change` commits it
   input.onchange = () => {
     if (!input.value.trim()) { delete per.sizes; markDirty(); return; }
     const sizes = parseSizes(input.value);
@@ -1203,6 +1204,7 @@ function namesField(font) {
     input.dataset.key = key;
     input.setAttribute("aria-label", "name " + escapeControls(key) + " for " + fontName(font));
     input.value = Object.prototype.hasOwnProperty.call(own, key) ? own[key] : names[key];
+    input.addEventListener("input", markDirty);
     input.onchange = () => {
       const per = perFont(font.id);
       if (!per) return;
@@ -1293,6 +1295,7 @@ function dyEditor(per, font, refresh) {
   const input = el("input", {type: "text", size: "30", placeholder: "U+0041=1 g=-1",
                              "aria-label": "dy table for " + fontName(font)});
   input.value = dyText(per.dy);
+  input.addEventListener("input", markDirty);
   input.onchange = () => {
     const parsed = parseDyText(input.value);
     if (parsed === null) {
@@ -2304,18 +2307,16 @@ async function detect() {
 async function save() {
   clearNotice();
   if (!jobId) return;
-  if (!readBatch()) return;
-  if (!readPerOptions()) return;
   const id = jobId;
+  if (!readBatch() || !readPerOptions()) {           // refused here: the validation notice stays, the status still follows the job
+    await recoverJob(id, false);
+    return;
+  }
   try {
     await api("PUT", "/api/jobs/" + encodeURIComponent(id) + "/settings", settings);
   } catch (err) {
     // A 409 says the job can no longer be edited (the other run started): show its state, keep the form as typed.
-    if (err && err.published && err.status === 409 && jobId === id) {
-      const epoch = noticeEpoch;
-      const fresh = await readJob(id);
-      if (fresh && jobId === id && noticeEpoch === epoch && fresh.state !== "detected") applyRecoveredJob(fresh);
-    }
+    if (err && err.published && err.status === 409) await recoverJob(id, false);
     return;
   }
   await reload();
@@ -2324,14 +2325,11 @@ async function save() {
 
 // The page after a recovery read of the job (another tab started or changed the run): the job's status, steps, results and
 // progress follow it, and polling starts while it runs. The settings forms are rebuilt from the job's settings ONLY when
-// the form holds nothing of its own: not dirty and no field of the settings or the font table focused (a draft not yet
-// committed by `change`). Otherwise the form DOM is left alone (no rebuild, no parsing, no notice) and dirty stays.
+// the form is clean (not dirty: every typed draft marks it dirty on `input`). A dirty form's DOM is left alone (no
+// rebuild, no parsing, no notice) and stays dirty; a clean one shows the server's settings, whatever has focus.
 function applyRecoveredJob(fresh) {
   job = fresh;
-  const active = document.activeElement;
-  const typing = !!active && /^(INPUT|SELECT|TEXTAREA)$/.test(active.tagName) &&
-    (settingsEl.contains(active) || fontsEl.contains(active));
-  if (!dirty && !typing) {
+  if (!dirty) {
     settings = clone(job.settings || {batch: {}, fonts: {}});
     renderAll();
   } else {
@@ -2340,6 +2338,16 @@ function applyRecoveredJob(fresh) {
     renderRefused(job.upload ? job.upload.refused : []);
   }
   if (job.state === "queued" || job.state === "running") startPolling();
+}
+
+// Read the job again after an action of the user's failed or was refused while the job may have moved, and show it. The
+// read belongs to the action (the epoch is taken here, after its own notice) and to the open job; @p always shows the
+// job whatever its state, otherwise only a job that left `detected`.
+async function recoverJob(id, always) {
+  if (jobId !== id) return;
+  const epoch = noticeEpoch;
+  const fresh = await readJob(id);
+  if (fresh && jobId === id && noticeEpoch === epoch && (always || fresh.state !== "detected")) applyRecoveredJob(fresh);
 }
 
 async function run() {
@@ -2366,11 +2374,7 @@ async function run() {
     // belongs to this action: a newer user action (the epoch) or another open job drops its answer.
     const stale = !!(err && err.body && err.body.stale === true);
     const conflict = !!(err && err.published && err.status === 409);
-    if ((stale || conflict) && jobId === id) {
-      const epoch = noticeEpoch;
-      const fresh = await readJob(id);
-      if (fresh && jobId === id && noticeEpoch === epoch && (stale || fresh.state !== "detected")) applyRecoveredJob(fresh);
-    }
+    if (stale || conflict) await recoverJob(id, stale);
     return;
   }
   await reload();

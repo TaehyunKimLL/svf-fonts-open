@@ -868,7 +868,7 @@ class LocalPageTest(localfx.LocalBase):
     BUSY_STUB = """
       (() => {
         const real = window.fetch.bind(window);
-        const st = window.__stub = {rules: [], sent: [], times: [], passed: [], realFetch: real};
+        const st = window.__stub = {rules: [], sent: [], times: [], bodies: [], passed: [], realFetch: real};
         window.__t = 0;
         const gates = {};                                               // rules with hold: true (or a name) wait here
         const gate = (name) => gates[name] = gates[name] || (() => { let r; const p = new Promise((res) => { r = res; }); return {p, r}; })();
@@ -878,6 +878,7 @@ class LocalPageTest(localfx.LocalBase):
           const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
           st.sent.push(method + ' ' + path);
           st.times.push(Date.now());
+          st.bodies.push(init && typeof init.body === 'string' ? init.body : null);
           const rule = st.rules.find((r) => r.method === method && new RegExp(r.path).test(path) && r.times > 0);
           if (rule) {
             rule.times--;
@@ -1405,6 +1406,80 @@ class LocalPageTest(localfx.LocalBase):
       return edits();
     """)
         self.assertEqual(out, {"sizes": "24, 32", "cell": "9"})
+
+    def test_a_typed_name_draft_survives_a_recovery_a_poll_and_a_rebuild_and_is_what_save_sends(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, self.LEFT_DETECTED + """
+      document.querySelector('tr[data-font] input.override').click();
+      const panel = document.querySelector('tr.override');
+      const details = panel.querySelector('details.clipping');
+      details.open = true; details.dispatchEvent(new Event('toggle'));
+      await waitFor(() => /glyphs cut/.test(panel.querySelector('.clip-counts').textContent));
+      const name = document.querySelector('input.name');
+      name.focus(); name.value = 'MYNAME16.SVF'; name.dispatchEvent(new Event('input', {bubbles: true}));   // a draft: no change yet
+      await finish();
+      await sleep(2600);                                                       // past a poll
+      const live = document.querySelector('input.name');                      // the field as it is now (rebuilt or not)
+      const draft = live.value;
+      live.blur(); live.dispatchEvent(new Event('change', {bubbles: true}));   // blur: `change` commits the draft
+      [...panel.querySelectorAll('button')].find((b) => b.textContent === 'apply').click();   // rebuilds the font table
+      await waitFor(() => $('notice').textContent.includes('save the settings to keep it'));
+      const shown = document.querySelector('input.name').value;
+      $('save').click();
+      await waitFor(() => window.__stub.sent.includes('PUT /api/jobs/' + jid + '/settings'));
+      const at = window.__stub.sent.lastIndexOf('PUT /api/jobs/' + jid + '/settings');
+      const sentNames = Object.values(JSON.parse(window.__stub.bodies[at]).fonts).map((f) => f.names).filter(Boolean);
+      return {shown, draft, sentNames};
+    """)
+        self.assertEqual(out["draft"], "MYNAME16.SVF")                           # the recovery left the draft in its field
+        self.assertEqual(out["shown"], "MYNAME16.SVF")
+        self.assertTrue(any("MYNAME16.SVF" in n.values() for n in out["sentNames"]), out)
+        self.wait_done(jid)
+
+    def test_a_focused_untouched_field_does_not_keep_stale_settings_after_a_recovery(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'POST', path: '/run$', times: 1, hold: true, body: {error: 'the job changed while the run was being prepared: run again', stale: true}}]);
+      $('run').click();
+      await waitFor(() => count('POST /api/jobs/' + jid + '/run') === 1);
+      const j = await (await window.__stub.realFetch('/api/jobs/' + jid)).json();      // another tab saves other sizes
+      j.settings.batch.sizes = [20];
+      await window.__stub.realFetch('/api/jobs/' + jid + '/settings', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(j.settings)});
+      $('sizes').focus();                                                      // an untouched field merely has focus
+      window.__stub.release();
+      await waitFor(() => $('notice').textContent.includes('changed while the run'));
+      await sleep(800);
+      const shown = $('sizes').value;
+      $('run').click();                                                        // clean: runs what the page shows
+      await waitFor(() => window.__stub.passed.some((p) => p.m === 'POST' && p.path.endsWith('/run') && p.status === 200));
+      return {shown, puts: count('PUT /api/jobs/' + jid + '/settings')};
+    """)
+        self.assertEqual(out["shown"], "20")
+        self.assertEqual(out["puts"], 0)
+        self.wait_done(jid)
+
+    def test_a_save_refused_by_validation_still_recovers_the_job_status(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      const detected = $('state').textContent;
+      await window.__stub.realFetch('/api/jobs/' + jid + '/run', {method: 'POST'});          // another tab started the run
+      rules([{method: 'POST', path: '/run$', times: 1, body: {error: 'job ' + jid + ' is queued'}},
+             {method: 'GET', path: '/api/jobs/[0-9a-f]+$', times: 1, hold: 'rec'}]);        // the run conflict's recovery read
+      $('run').click();
+      await waitFor(() => window.__stub.rules[1].times === 0);
+      document.querySelector('tr[data-font] input.override').click();
+      document.querySelector('tr.override input.ov-advanced-toggle').click();
+      const cell = document.querySelector('tr.override [data-option="cell"]');
+      cell.value = 'abc'; cell.dispatchEvent(new Event('input', {bubbles: true}));
+      $('save').click();                                                       // refused locally: not a number
+      await waitFor(() => $('state').textContent !== detected, 30000);
+      window.__stub.release('rec');
+      await waitFor(() => $('state').textContent.includes('written to'), 60000);
+      return {notice: $('notice').textContent, puts: count('PUT /api/jobs/' + jid + '/settings'), cell: cell.value};
+    """)
+        self.assertIn("must be numbers", out["notice"])
+        self.assertEqual(out["puts"], 0)
+        self.assertEqual(out["cell"], "abc")
 
     def test_a_stale_probe_drawing_is_not_drawn_after_another_size_was_chosen(self):
         jid = self.local_job()
