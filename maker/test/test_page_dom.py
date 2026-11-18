@@ -870,7 +870,9 @@ class LocalPageTest(localfx.LocalBase):
         const real = window.fetch.bind(window);
         const st = window.__stub = {rules: [], sent: [], times: [], passed: [], realFetch: real};
         window.__t = 0;
-        st.gate = new Promise((res) => { st.release = res; });          // rules with hold:true wait here
+        const gates = {};                                               // rules with hold: true (or a name) wait here
+        const gate = (name) => gates[name] = gates[name] || (() => { let r; const p = new Promise((res) => { r = res; }); return {p, r}; })();
+        st.release = (name) => gate(name === undefined ? 'default' : name).r();
         window.fetch = async (input, init) => {
           const method = ((init && init.method) || 'GET').toUpperCase();
           const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
@@ -879,7 +881,7 @@ class LocalPageTest(localfx.LocalBase):
           const rule = st.rules.find((r) => r.method === method && new RegExp(r.path).test(path) && r.times > 0);
           if (rule) {
             rule.times--;
-            if (rule.hold) await st.gate;
+            if (rule.hold) await gate(rule.hold === true ? 'default' : rule.hold).p;
             if (rule.fail) throw new TypeError('network down');
             if (rule.body !== undefined) {                              // no body: the real server answers (after the hold)
               return new Response(JSON.stringify(rule.body), {status: rule.status || 409,
@@ -1186,6 +1188,74 @@ class LocalPageTest(localfx.LocalBase):
         self.assertEqual(out["size"], "17")
         self.assertEqual(out["changes"], 0)                                      # the older load wrote nothing
         self.assertEqual(out["counts"], out["second"]["counts"])
+
+    def test_a_background_notice_does_not_supersede_a_pending_save(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'GET', path: '/api/jobs/[0-9a-f]+$', times: 1},                      // run's reload reads the job
+             {method: 'GET', path: '/api/jobs/[0-9a-f]+$', times: 1, hold: 'poll', status: 500, body: {error: 'poll down'}},
+             {method: 'PUT', path: '/settings$', times: 1, hold: true, status: 400, body: {error: 'bad settings'}}]);
+      $('run').click();
+      await waitFor(() => window.__stub.rules[0].times === 0);                 // run's reload is done; the poll timer is armed
+      $('save').click();                                                       // the Save's PUT is held; the poll fires later
+      await waitFor(() => count('PUT /api/jobs/' + jid + '/settings') === 1);
+      await waitFor(() => window.__stub.rules[1].times === 0, 30000);          // the poll's GET (started after the Save) is held
+      window.__stub.release('poll');                                           // a background notice appears ...
+      await waitFor(() => $('notice').textContent.includes('poll down'));
+      window.__stub.release();                                                 // ... then the Save is refused
+      await sleep(500);
+      return $('notice').textContent;
+    """)
+        self.assertIn("bad settings", out)                                       # the Save's own error is shown
+
+    def test_an_unrelated_run_409_leaves_the_users_unsaved_edit_alone(self):
+        jid = self.ready_job()
+        out = self.busy_drive(jid, """
+      rules([{method: 'POST', path: '/run$', times: 1, hold: true, body: {error: 'a/b.ttf: the input changed since detection: detect again'}}]);
+      $('run').click();                                                        // the run's preparation is pending
+      await waitFor(() => count('POST /api/jobs/' + jid + '/run') === 1);
+      const toggle = document.querySelector('tr[data-font] input.override');
+      toggle.click();                                                          // the user edits a setting meanwhile
+      const edited = () => !!document.querySelector('tr[data-font] input.override').checked;
+      const before = edited();
+      window.__stub.release();
+      await waitFor(() => $('notice').textContent.includes('input changed since detection'));
+      await sleep(800);
+      return {before, after: edited(), notice: $('notice').textContent};
+    """)
+        self.assertTrue(out["before"])
+        self.assertTrue(out["after"])                                            # the edit survived the 409
+        self.assertIn("input changed since detection", out["notice"])
+
+    def test_a_stale_probe_drawing_is_not_drawn_after_another_size_was_chosen(self):
+        jid = self.local_job()
+        job = self.job(jid)
+        ttf = next(f["id"] for f in job["fonts"] if f["path"] == "Munjo.ttf")
+        st = job["settings"]
+        st["fonts"][ttf].update(selected=True, dest="dos", kinds=["precomposed"], sizes=[16, 17], bpp=[1])
+        self.assertEqual(self.api("PUT", "/api/jobs/%s/settings" % jid, st)[0], 200)
+        out = self.busy_drive(jid, """
+      rules([{method: 'GET', path: '[.]wasm$', times: 1, hold: 'wasm'}]);      // the renderer module is not ready: draws queue up
+      document.querySelector('tr[data-font] input.override').click();
+      const panel = document.querySelector('tr.override');
+      const wrap = panel.querySelector('.canvaswrap');
+      let frames = 0;
+      new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.classList && n.classList.contains('clip-frame')) frames++; })
+        .observe(wrap, {childList: true});
+      const details = panel.querySelector('details.clipping');
+      details.open = true; details.dispatchEvent(new Event('toggle'));       // size 16: its drawing is queued
+      const counts = panel.querySelector('.clip-counts');
+      await waitFor(() => /glyphs cut/.test(counts.textContent));
+      const size = panel.querySelector('select[aria-label="clipping size"]');
+      size.value = '17'; size.dispatchEvent(new Event('change', {bubbles: true}));   // size 17 queues its own
+      await sleep(1000);
+      window.__stub.release('wasm');
+      await waitFor(() => wrap.querySelector('.clip-frame'), 30000);
+      await sleep(1500);
+      return {frames, counts: counts.textContent};
+    """)
+        self.assertEqual(out["frames"], 1)                                       # only the newer size was drawn
+        self.assertNotIn("(", out["counts"])                                     # and no error was appended
 
     def test_busy_create_sources_and_detect_are_each_retried_once(self):
         out = self.drive(self.typed_script("""

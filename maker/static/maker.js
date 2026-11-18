@@ -282,6 +282,10 @@ function notice(message) {
   setNoticeQuiet(message);
 }
 
+// A message no user action asked for (a failed poll, the renderer warning, the repo error): shown, but it supersedes no
+// call in flight and takes no control away, so only the user's own actions move the epoch.
+function backgroundNotice(message) { setNoticeQuiet(message); }
+
 function clearNotice() { notice(""); }
 
 // The upload stop reasons: one line per refused file, escaped (I3).
@@ -491,6 +495,7 @@ async function api(method, path, body, opts = {}) {
   const bounds = busyBounds();
   const start = bounds.now();
   const superseded = () => noticeEpoch !== epoch || (opts.runGen !== undefined && opts.runGen !== runGen);
+  const publish = (message) => (opts.background ? backgroundNotice(message) : notice(message));   // opts.background: a poll, a list
   let repeats = 0;
   let retried = false;
   for (;;) {
@@ -500,7 +505,7 @@ async function api(method, path, body, opts = {}) {
     } catch (err) {
       const message = method + " " + path + ": " + err;
       if (superseded()) throw new Error(message);       // the user moved on: no notice over the newer message
-      notice(message);
+      publish(message);
       throw new Error(message);
     }
     if (response.ok) {
@@ -509,7 +514,7 @@ async function api(method, path, body, opts = {}) {
         if (retried && noticeEpoch === epoch) setNoticeQuiet("");
         return data;
       } catch (err) {
-        notice(method + " " + path + ": the answer is not JSON");
+        publish(method + " " + path + ": the answer is not JSON");
         throw err;
       }
     }
@@ -527,7 +532,7 @@ async function api(method, path, body, opts = {}) {
     if (!isBusyKind(kind)) {
       error.status = response.status;
       error.published = true;                         // its message is the notice now
-      notice(message);
+      publish(message);
       throw error;
     }
     const delay = busyRetryDelay(method, kind, repeats, bounds.now() - start, bounds);
@@ -673,7 +678,7 @@ function renderStatus() {
 async function renderJobs() {
   let data;
   try {
-    data = await api("GET", "/api/jobs");
+    data = await api("GET", "/api/jobs", undefined, {background: true});
   } catch (err) {
     return;
   }
@@ -1353,8 +1358,11 @@ function clippingPanel(font, per, optionBox) {
   const url = (ext) => "/api/jobs/" + encodeURIComponent(job.id) + "/probe/" + encodeURIComponent(font.id) + "/" +
     sizeSel.value + "/" + bppSel.value + "." + ext;
 
+  let loadGen = 0;                                      // see load(): every size/bpp choice starts a new generation
   const update = async () => {
     if (!report) return;
+    const gen = loadGen, snap = report, snapFace = face;   // the queued drawing below belongs to this load
+    const mine = () => gen === loadGen && snap === report;
     const ascent = Number(ascentIn.value);
     const h = cellH();
     cellEl.textContent = "cell " + h + " rows";
@@ -1365,7 +1373,7 @@ function clippingPanel(font, per, optionBox) {
       for (const old of wrap.querySelectorAll(".guide, .clip-band")) old.remove();
       return;
     }
-    const cut = cutList(report, ascent, h, report.cell[0]);
+    const cut = cutList(snap, ascent, h, snap.cell[0]);
     counts.textContent = cut.cut.toLocaleString("en") + " glyphs cut: " + cut.top.toLocaleString("en") + " at the top, " +
       cut.bottom.toLocaleString("en") + " at the bottom; " + cut.wide.toLocaleString("en") + " wider than the cell" +
       (effOption("fit_cell") ? " (fit cell is on: the run decides the size)" : "");
@@ -1378,17 +1386,18 @@ function clippingPanel(font, per, optionBox) {
       list.append(line);
     }
     if (cut.rows.length > 200) list.append(el("div", {class: "sub", text: "and " + (cut.rows.length - 200).toLocaleString("en") + " more"}));
-    if (!face) return;                                   // no probe face (the ink spans past 255 rows): list and counts only
+    if (!snapFace) return;                                   // no probe face (the ink spans past 255 rows): list and counts only
     const text = previewState.text + " " + cut.rows.slice(0, 12).map((row) => String.fromCodePoint(row.cp)).join("") +
       (selected !== null ? " " + String.fromCodePoint(selected) : "");
     try {
-      await withChain([face], () => {
+      await withChain([snapFace], () => {
+        if (!mine()) return;                             // a newer load began while this drawing waited its turn
         svfview.setScale(1, 1);
         const r = svfview.drawLine(canvas, text, {target: "gray8"});
         canvas.style.imageRendering = "pixelated";
         canvas.style.width = canvas.width * 2 + "px";
         for (const old of wrap.querySelectorAll(".guide, .clip-band")) old.remove();
-        const probeTop = 1, probeBottom = 1 + report.cell[1];     // the probe face's rows in the canvas
+        const probeTop = 1, probeBottom = 1 + snap.cell[1];     // the probe face's rows in the canvas
         const top = r.baseline - ascent, bottom = top + h;
         const band = (from, to) => {
           if (to <= from) return;
@@ -1405,13 +1414,12 @@ function clippingPanel(font, per, optionBox) {
         wrap.append(frame);
       });
     } catch (err) {
-      counts.append(" (" + escapeControls(err && err.message) + ")");
+      if (mine()) counts.append(" (" + escapeControls(err && err.message) + ")");
     }
   };
 
   // One load per size/bpp choice: the URLs are taken when it starts, and a result or error that comes after a newer
   // load began (a size picked meanwhile) is dropped, so it never overwrites the newer report.
-  let loadGen = 0;
   const load = async () => {
     const gen = ++loadGen;
     const probeUrl = (ext) => url(ext);                 // url() reads the selectors now; the svf URL is fixed below
@@ -1588,7 +1596,7 @@ let drawChain = Promise.resolve();                   // draws run one at a time:
 function svfModule() {
   if (!svfReady) {
     svfReady = svfview.load();
-    svfReady.catch(() => notice(svfview.NOTICE));
+    svfReady.catch(() => backgroundNotice(svfview.NOTICE));
   }
   return svfReady;
 }
@@ -2216,7 +2224,7 @@ async function poll() {
   pollTimer = null;
   if (!jobId) return;
   try {
-    job = await api("GET", "/api/jobs/" + encodeURIComponent(jobId));
+    job = await api("GET", "/api/jobs/" + encodeURIComponent(jobId), undefined, {background: true});
   } catch (err) {
     /* the notice carries the error; keep polling while the state says so */
   }
@@ -2324,18 +2332,34 @@ async function run() {
     await api("POST", "/api/jobs/" + encodeURIComponent(id) + "/run", undefined,
               {runGen, onWait: (kind, epoch) => { if (kind === "preparing") followOtherRun(id, epoch); }});
   } catch (err) {
-    // The job moved under the run: its settings changed (stale), or it is no longer `detected` ("job X is queued", a
-    // 409 the other run caused): show the job as the server has it, and poll when it runs. Nothing is sent again.
-    const moved = err && ((err.body && err.body.stale === true) || (err.published && err.status === 409));
-    if (moved && jobId === id) {
-      await reload();
-      if (job && (job.state === "queued" || job.state === "running")) startPolling();
+    // The job moved under the run: its settings changed (stale), or a 409 says it may no longer be `detected` ("job X is
+    // queued", the other run's doing). Read the job (nothing is sent again): a stale run shows it (the unsaved edits
+    // stay); another 409 shows it only when its state really left `detected`, and then polls while it runs; otherwise
+    // the page is left as it is and the 409 notice stays.
+    const stale = !!(err && err.body && err.body.stale === true);
+    const conflict = !!(err && err.published && err.status === 409);
+    if ((stale || conflict) && jobId === id) {
+      const fresh = await readJob(id);
+      if (fresh && jobId === id && (stale || fresh.state !== "detected")) {
+        job = fresh;
+        if (!dirty) settings = clone(job.settings || {batch: {}, fonts: {}});
+        renderAll();
+        if (job.state === "queued" || job.state === "running") startPolling();
+      }
     }
     return;
   }
   await reload();
   startPolling();
   await renderJobs();
+}
+
+// The job as the server has it, or null: a read that touches neither the notice nor the epoch.
+async function readJob(id) {
+  try {
+    const response = await fetch("/api/jobs/" + encodeURIComponent(id));
+    return response.ok ? await response.json() : null;
+  } catch (err) { return null; }
 }
 
 // "A run of this job is being prepared" (another tab or window): follow that run instead of repeating ours. Every
@@ -2567,7 +2591,7 @@ async function init() {
   renderSources();
   let repoError = null;
   try {
-    repo = await api("GET", "/api/repo");
+    repo = await api("GET", "/api/repo", undefined, {background: true});
   } catch (err) {
     repo = null;
     repoError = err.message || String(err);           // M1: kept visible after a `?job=` load
@@ -2575,7 +2599,7 @@ async function init() {
   const id = new URLSearchParams(location.search).get("job");
   if (id) await loadJob(id);
   else renderAll();
-  if (repoError) notice(repoError);
+  if (repoError) backgroundNotice(repoError);
   await renderJobs();
 }
 
