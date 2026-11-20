@@ -50,6 +50,16 @@ if [ -z "$MISS" ] && [ -z "$STRAY" ]; then ok layout; else fail layout "missing:
 # ---- AppRun (electron-builder's, unchanged: D7) ---------------------------------------------------------------------
 if grep -q 'unshare -Ur' "$SQ/AppRun" 2>/dev/null && grep -q -- '--no-sandbox' "$SQ/AppRun" 2>/dev/null; then ok apprun "unshare probe and --no-sandbox present"; else fail apprun "AppRun lacks the unshare probe or --no-sandbox (is it electron-builder's own?)"; fi
 
+# ---- the runtime: static, so the AppImage starts without libfuse2 on the machine ------------------------------------
+RT=$(node desktop/build/check-runtime.mjs "$APP" 2>&1); RTRC=$?
+if [ $RTRC -eq 0 ]; then
+    # the runtime itself answers, in an empty environment and a directory of its own (it would fail here on a dlopen of libfuse.so.2)
+    RTV=$(cd "$X" && env -i HOME="$HOME" PATH=/usr/bin:/bin "$APP" --appimage-version 2>&1 | head -1)
+    if [ -n "$RTV" ] && ! echo "$RTV" | grep -qi 'libfuse\|error'; then ok runtime "${RT#ok } ($RTV)"; else fail runtime "--appimage-version printed: ${RTV:-<nothing>}"; fi
+else
+    fail runtime "${RT#FAIL }"
+fi
+
 # ---- the embedded .desktop entry ------------------------------------------------------------------------------------
 DESK=$(ls "$SQ"/*.desktop 2>/dev/null | head -1)
 EXEC=$(grep '^Exec=' "$DESK" 2>/dev/null | head -1)
@@ -113,7 +123,8 @@ REC="$OUT/release-${BID:-unknown}-$(sha256sum "$APP" | cut -c1-8).txt"       # o
     echo "BUILD_ID: $(head -1 "$RES/repo/BUILD_ID" 2>/dev/null)"
     echo "desktop entry: $EXEC"
     echo "smoke: ${SANDBOX_LINE:-no sandbox line}"
-    echo "mount: not tested (no FUSE on this host); the extracted AppRun was run under xvfb"
+    echo "runtime: ${RT:-not run}"
+    echo "mount: not tested on this host (no FUSE); the extracted AppRun was run under xvfb"
     echo "${PILLOW_LINE:-debian pillow: not run}"
     echo "files (size path):"
     (cd "$SQ" && find . -type f -printf '%s %p\n' | sort -k2)
