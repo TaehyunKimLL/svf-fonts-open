@@ -254,6 +254,14 @@ class UiSampleTest(unittest.TestCase):
         lines = self.mutated(lambda out: None, job=job)
         self.assertIn("files: no step wrote svf/dos/KSC16.SVF", lines)
 
+    def test_check_flags_a_job_files_list_that_disagrees_with_the_disk(self):
+        job = copy.deepcopy(self.job)
+        job["result"]["files"].remove("svf/dos/KSC.TXT")
+        job["result"]["files"].append("svf/dos/BOGUS.SVF")
+        lines = self.mutated(lambda out: None, job=job)
+        self.assertIn("files: on disk but not reported by the job: svf/dos/KSC.TXT", lines)
+        self.assertIn("files: reported by the job but not on disk: svf/dos/BOGUS.SVF", lines)
+
     def test_check_flags_a_job_that_is_not_done(self):
         lines = self.mutated(lambda out: None, job=dict(self.job, state="failed"))
         self.assertIn("files: job state is failed, not done", lines)

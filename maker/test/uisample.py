@@ -248,7 +248,7 @@ def _check_files(sample, out_dir, job, fails, scratch):
         fails.append("files: missing %s" % rel)
     for rel in sorted(have - want):
         fails.append("files: unexpected %s" % rel)
-    for name in sorted(n for n in os.listdir(out_dir) if n.startswith(".svf-maker-")):      # an empty one counts
+    for name in sorted(n for n in (os.listdir(out_dir) if os.path.isdir(out_dir) else []) if n.startswith(".svf-maker-")):      # an empty one counts
         fails.append("files: work folder not swept: %s" % name)
     reported = set(result.get("files") or [])
     for rel in sorted(reported - have):
