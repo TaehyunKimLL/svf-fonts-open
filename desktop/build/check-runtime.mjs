@@ -44,8 +44,9 @@ export function checkRuntime(buf) {
 }
 
 /** the result of `APPIMAGE --appimage-version` run in an empty environment: exit 0 and the runtime's version line */
-export function checkVersionRun({ status, stdout = '', stderr = '' }) {
-  const out = (stdout + stderr).trim();
+export function checkVersionRun({ status, stdout, stderr, error }) {
+  if (error) return { ok: false, msg: '--appimage-version could not run: ' + (error.code || error.message || error) };
+  const out = ((stdout ?? '') + (stderr ?? '')).trim();
   if (status !== 0) return { ok: false, msg: '--appimage-version exited ' + status + ': ' + (out.split('\n')[0] || '<no output>') };
   const line = out.split('\n').find((l) => /^AppImage runtime version/.test(l));
   if (!line || /libfuse\.so|error/i.test(out)) return { ok: false, msg: '--appimage-version printed: ' + (out.split('\n')[0] || '<nothing>') };
@@ -60,7 +61,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     r = checkRuntime(head.subarray(0, n));                     // the runtime is under 1 MB; the squashfs follows
     if (r.ok) {                                                // and it answers in an empty environment (cwd: the caller's scratch directory)
       const run = spawnSync(path.resolve(file), ['--appimage-version'], { env: { HOME: process.env.HOME || '', PATH: '/usr/bin:/bin' }, encoding: 'utf8', timeout: 60000 });
-      const v = checkVersionRun({ status: run.status === null ? 'signal ' + run.signal : run.status, stdout: run.stdout, stderr: run.stderr });
+      const v = checkVersionRun({ status: run.status === null ? 'signal ' + run.signal : run.status, stdout: run.stdout, stderr: run.stderr, error: run.error });
       r = v.ok ? { ok: true, msg: r.msg + ' ' + v.msg } : v;
     }
   } catch (e) { r = { ok: false, msg: 'cannot read ' + file + ': ' + e.message }; }

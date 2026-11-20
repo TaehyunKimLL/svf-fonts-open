@@ -57,7 +57,7 @@ test('the CLI prints one ok/FAIL line and the exit code', async (t) => {
   const dir = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-rt-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const run = (buf) => { const f = path.join(dir, 'a.AppImage'); fs.writeFileSync(f, buf); return spawnSync('node', [path.join(__dirname, '..', 'build', 'check-runtime.mjs'), f], { encoding: 'utf8' }); };
-  let r = run(elf()); assert.equal(r.status, 1); assert.match(r.stdout, /^FAIL --appimage-version/);   // static image, but not runnable: the run stage fails it
+  let r = run(elf()); assert.equal(r.status, 1); assert.match(r.stdout, /^FAIL --appimage-version could not run: EACCES/);   // static image, but not runnable: the run stage fails it
   r = run(elf({ interp: true })); assert.equal(r.status, 1); assert.match(r.stdout, /^FAIL the runtime has a dynamic loader/);
 });
 
@@ -71,6 +71,10 @@ test('--appimage-version: exit 0 with the version line passes; a non-zero exit a
   assert.equal(checkVersionRun({ status: 0, stdout: '' }).ok, false);
   assert.equal(checkVersionRun({ status: 0, stdout: line, stderr: 'dlopen(): error loading libfuse.so.2' }).ok, false);
   assert.equal(checkVersionRun({ status: 'signal SIGSEGV', stdout: line }).ok, false);
+  // the spawn itself failed: no status, null outputs
+  const e = checkVersionRun({ status: null, stdout: null, stderr: null, error: Object.assign(new Error('spawn x EACCES'), { code: 'EACCES' }) });
+  assert.equal(e.ok, false); assert.match(e.msg, /could not run: EACCES/);
+  assert.equal(checkVersionRun({ status: 0, stdout: null, stderr: null }).ok, false);
 });
 
 // the real runtimes of electron-builder's caches, when this host has them
