@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { execFile } = require('node:child_process');
+const execFileAsync = require('node:util').promisify(execFile);
 global.SVF_MAKER_EMBEDDED = true;                       // main.js must not auto-start: this script calls start()
 const electron = require('electron');
 const { app, BrowserWindow, session } = electron;
@@ -54,6 +56,10 @@ const PRELUDE = `const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const run = (handle, js) => handle.win.webContents.executeJavaScript('(async () => {' + PRELUDE + js + '})()', true);
 const logText = (handle) => fs.readFileSync(handle.log.path, 'utf8');
 
+// The dev pass's sample folder stays until the end of the run (the packaged pass compares with its output); every way
+// out of the run, a failed start included, removes it.
+const cleanupSamples = () => { try { fs.rmSync(path.join(TMP, 'dev', 'sample'), { recursive: true, force: true }); } catch (e) { /* none */ } };
+
 function mkdir(...p) { const d = path.join(TMP, ...p); fs.mkdirSync(d, { recursive: true }); return d; }
 
 async function localJob(handle, srcDir, outDir) {
@@ -89,7 +95,8 @@ async function pass(name, opts) {
   const { main } = { main: require('../main.js') };
   fs.rmSync(path.join(TMP, name), { recursive: true, force: true });       // every run starts from nothing
   const ud = mkdir(name, 'ud');
-  const handle = await main.start(Object.assign({ userData: ud, quitOnClose: false, launch: wrappedLaunch(opts, ud) }, opts));
+  const handle = await main.start(Object.assign({ userData: ud, quitOnClose: false, launch: wrappedLaunch(opts, ud),
+    fatal: () => { cleanupSamples(); app.exit(1); } }, opts));
   const pids = { shell: process.pid, sidecar: handle.sidecar.pid };
   const tmpA = mkdir(name, 'tmpA'), tmpB = mkdir(name, 'tmpB'), outA = mkdir(name, 'outA'), outB = mkdir(name, 'outB');
   const outC = mkdir(name, 'realparent', 'outC'), outD = mkdir(name, 'outD');
@@ -148,6 +155,175 @@ async function pass(name, opts) {
     jobA = await localJob(handle, tmpA, outA);
     await handle.win.loadURL(handle.sidecar.origin + '/');
     jobB = await localJob(handle, tmpB, outB);
+  });
+  await step(T('sample set'), async () => {
+    // The OFL sample set plus the synthetic Mac/HWP/BDF/HangulTalk sample through the page (maker/test/uisample.py owns the
+    // sample, the settings table and the checks of the written tree).
+    const t0 = Date.now();
+    const realTmp = fs.realpathSync(TMP);
+    const bareTmp = path.join(path.sep, 'tmp');
+    assert.ok(realTmp !== bareTmp && !realTmp.startsWith(bareTmp + path.sep), 'TMP must not be under ' + bareTmp + ': ' + realTmp);
+    const PY = process.env.SVF_E2E_PYTHON || 'python3';
+    const helper = path.join(REPO, 'maker', 'test', 'uisample.py');
+    const sampleDir = path.join(TMP, name, 'sample');
+    try {                                                          // (the body keeps its indentation; see the finally)
+    const env = Object.assign({}, process.env, { TMPDIR: TMP });
+    const made = await execFileAsync(PY, ['-B', '-P', helper, 'make', sampleDir], { env, timeout: 60000 });
+    const sample = JSON.parse(made.stdout);
+    assert.equal(sample.dialog.length, 9);
+    await handle.win.loadURL(handle.sidecar.origin + '/');
+    for (const e of sample.dialog) dialogQueue.push({ canceled: false, filePaths: [e.path] });
+    dialogQueue.push({ canceled: false, filePaths: [sample.output] });
+    const jobId = await run(handle, `
+      const S = ${JSON.stringify(sample)};
+      for (const e of S.dialog) {
+        document.getElementById(e.button).click();
+        await waitFor(() => document.getElementById('source-roots').textContent.includes(e.path));
+      }
+      document.getElementById('choose-output').click();
+      await waitFor(() => document.getElementById('output-shown').textContent === S.output);
+      document.getElementById('detect-local').click();
+      await waitFor(() => {
+        const ack = document.getElementById('ack');
+        if (visible(ack)) document.getElementById('ack-ok').click();
+        // one row per file of the picked roots (the scanner lists licences and companions too): 24 for this sample
+        return document.querySelectorAll('#fonts tr[data-font]').length >= Object.keys(S.inputs).length;
+      }, 120000);
+      const rowCount = document.querySelectorAll('#fonts tr[data-font]').length;
+      if (rowCount !== Object.keys(S.inputs).length) throw new Error('font rows ' + rowCount + ' != files ' + Object.keys(S.inputs).length);
+      return new URLSearchParams(location.search).get('job');`);
+    assert.equal(dialogQueue.length, 0, 'every dialog answer must have been used');
+    const settled = await run(handle, `
+      const S = ${JSON.stringify(sample)};
+      const id = ${JSON.stringify(jobId)};
+      const getJob = async () => (await fetch('/api/jobs/' + id)).json();
+      let job = await getJob();
+      const problems = [];
+      // the page's own controls only: a control must exist, be enabled and (a select) offer the option, enabled
+      const choose = (ctl, value, what) => {
+        if (!ctl) throw new Error('no control: ' + what);
+        if (ctl.disabled) throw new Error('disabled control: ' + what);
+        if (ctl.tagName === 'SELECT') {
+          const opt = [...ctl.options].find((o) => o.value === value);
+          if (!opt) throw new Error('no option ' + JSON.stringify(value) + ' in ' + what);
+          if (opt.disabled) throw new Error('disabled option ' + JSON.stringify(value) + ' in ' + what + ': ' + opt.title);
+          ctl.value = value;
+        } else if (ctl.type === 'checkbox') ctl.checked = !!value;
+        else ctl.value = value;
+        ctl.dispatchEvent(new Event('input', { bubbles: true }));
+        ctl.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      S.dialog.forEach((e, i) => { if (!job.roots[i] || job.roots[i].path !== e.path) throw new Error('root ' + i + ' is not ' + e.path); });
+      const rootOf = (p) => S.dialog.findIndex((e) => e.path === p);
+      const fidOf = (root, p) => {
+        const hit = job.fonts.filter((f) => f.root === root && f.path === p);
+        if (hit.length !== 1) throw new Error('font ' + root + '/' + p + ': ' + hit.length + ' entries');
+        return hit[0].id;
+      };
+      const rowOf = (fid) => document.querySelector('#fonts tr[data-font="' + fid + '"]');
+      const ovrOf = (fid) => document.querySelector('#fonts tr.override[data-for="' + fid + '"]');
+      const want = new Map(Object.entries(S.fonts).map(([key, f]) => [fidOf(rootOf(f.root_path), f.path), { key, ui: f.ui }]));
+      if (want.size !== Object.keys(S.fonts).length) throw new Error('two sample fonts share a row');
+      const rows = [...document.querySelectorAll('#fonts tr[data-font]')];
+      if (rows.length !== job.fonts.length) throw new Error('rows ' + rows.length + ' != fonts ' + job.fonts.length);
+      // 1. the rows the page offers no route for stay disabled and unchecked, and are never touched
+      const noRoute = [];
+      for (const tr of rows) {
+        const fid = tr.dataset.font, cb = tr.querySelector('input.selected');
+        if (job.settings.fonts[fid]) { if (cb.disabled) problems.push(fid + ': has a route but its tick is disabled'); continue; }
+        noRoute.push(fid);
+        if (!cb.disabled || cb.checked) problems.push(fid + ': a row with no route must be a disabled, unchecked tick');
+        if (!tr.querySelector('input.override').disabled) problems.push(fid + ': override must be disabled');
+        if (!tr.querySelector('select.licence').disabled) problems.push(fid + ': licence select must be disabled');
+      }
+      const byPath = (p) => job.fonts.filter((f) => f.path === p).map((f) => f.id);
+      for (const p of ['InputBackSupport.rsrc', 'Suitcase.rsrc', 'ASCII.PFT', 'HANGUL24.PFT'])
+        for (const fid of byPath(p)) if (!noRoute.includes(fid)) problems.push(p + ' (' + fid + ') must have no route');
+      for (const f of job.fonts) if (f.format === 'licence' && !noRoute.includes(f.id)) problems.push(f.path + ' (' + f.id + ') must have no route');
+      for (const p of S.not_read) {
+        const ids = byPath(p);
+        if (ids.length !== 1) problems.push(p + ': ' + ids.length + ' rows');
+        else if (!rowOf(ids[0]).textContent.includes('not read')) problems.push(p + ': its label does not say "not read"');
+      }
+      if (problems.length) throw new Error('rows: ' + problems.join('; '));
+      // 2. the ticks: only the enabled ones are changed (on for each sample font, off for every other)
+      for (const tr of rows) {
+        const fid = tr.dataset.font, cb = tr.querySelector('input.selected');
+        if (cb.disabled) continue;
+        const on = want.has(fid);
+        choose(cb, on, 'use ' + fid);
+      }
+      for (const p of S.untick) for (const fid of byPath(p)) if (rowOf(fid).querySelector('input.selected').checked) throw new Error(p + ' is still ticked');
+      // 3. each sample font's settings, in its override row
+      for (const [fid, { ui }] of want) {
+        const tr = rowOf(fid);
+        choose(tr.querySelector('input.override'), true, 'override ' + fid);
+        const ov = ovrOf(fid);
+        const q = (sel, what) => { const c = ov.querySelector(sel); if (!c) throw new Error('no ' + what + ' for ' + fid); return c; };
+        const companion = (p) => fidOf(job.fonts.find((f) => f.id === fid).root, p);
+        if (ui.kinds) choose(q('select.ov-kinds', 'kinds'), ui.kinds.join(','), 'kinds ' + fid);
+        if (ui.dest) choose(q('select[aria-label^="dest for "]', 'dest'), ui.dest, 'dest ' + fid);
+        if (ui.sizes) choose(q('input.ov-sizes', 'sizes'), ui.sizes.join(', '), 'sizes ' + fid);
+        if (ui.bpp) choose(q('select.ov-bpp', 'bpp'), ui.bpp.join(','), 'bpp ' + fid);
+        if (ui.preset) choose(q('select[aria-label^="preset for "]', 'preset'), ui.preset, 'preset ' + fid);
+        if (ui.instance) choose(q('select[data-field=instance]', 'instance'), JSON.stringify(ui.instance), 'instance ' + fid);
+        if (ui.htbl) choose(q('select[data-field=htbl_companion]', 'htbl'), companion(ui.htbl), 'htbl ' + fid);
+        if (ui.latin) choose(q('select[aria-label^="latin companion for "]', 'latin'), companion(ui.latin), 'latin ' + fid);
+        if (ui.dos_layout) choose(tr.querySelector('select.dos-layout'), ui.dos_layout, 'dos layout ' + fid);
+      }
+      // 4. save, then read back what the page wrote
+      const intended = (j) => {
+        const bad = [];
+        for (const [fid, per] of Object.entries(j.settings.fonts)) {
+          const w = want.get(fid);
+          const on = !!w;
+          if (!!per.selected !== on) bad.push(fid + ' selected=' + per.selected);
+          if (!w) continue;
+          const ui = w.ui, cmp = (k, v, got) => { if (JSON.stringify(v) !== JSON.stringify(got)) bad.push(fid + ' ' + k + '=' + JSON.stringify(got)); };
+          for (const k of ['kinds', 'sizes', 'bpp', 'dest', 'preset', 'instance', 'dos_layout']) if (k in ui) cmp(k, ui[k], per[k]);
+          const root = j.fonts.find((f) => f.id === fid).root;
+          if (ui.htbl) cmp('htbl_companion', fidOf(root, ui.htbl), per.htbl_companion);
+          if (ui.latin) cmp('latin_companion', fidOf(root, ui.latin), per.latin_companion);
+        }
+        return bad;
+      };
+      await waitFor(() => visible(document.getElementById('save')) && !document.getElementById('save').disabled);
+      document.getElementById('save').click();
+      let bad = ['not saved yet'];
+      const end = Date.now() + 60000;
+      while (Date.now() < end) { job = await getJob(); bad = intended(job); if (!bad.length) break; await sleep(200); }
+      if (bad.length) throw new Error('saved settings differ from the table: ' + bad.join('; '));
+      // 5. run
+      await waitFor(() => visible(document.getElementById('run')) && !document.getElementById('run').disabled);
+      document.getElementById('run').click();
+      await waitFor(() => document.getElementById('state').textContent.includes('written to'), 180000);
+      return await getJob();`);
+    // the output is checked before the canvases are counted, so a missing face fails here by name
+    const dl = Date.now() + 10000;                              // the end-of-run sweep of .svf-maker-<id>/, bounded
+    while (fs.readdirSync(sample.output).some((n) => n.startsWith('.svf-maker-')) && Date.now() < dl) await sleep(100);
+    const jobJson = path.join(sampleDir, 'job.json');
+    fs.writeFileSync(jobJson, JSON.stringify(settled));
+    const args = ['-B', '-P', helper, 'check', sampleDir, jobJson];
+    if (name === 'packaged') args.push('--same-as', path.join(TMP, 'dev', 'sample', 'out'));
+    let verdict;
+    try { verdict = JSON.parse((await execFileAsync(PY, args, { env, timeout: 180000 })).stdout); }
+    catch (e) {
+      if (e.stdout) { try { verdict = JSON.parse(e.stdout); } catch (e2) { throw e; } } else throw e;
+    }
+    for (const n of verdict.notes || []) console.log('E2E NOTE sample set: ' + n);
+    if (!verdict.ok) throw new Error('uisample check: ' + verdict.failures.slice(0, 3).join(' | '));
+    const canvases = await run(handle, `
+      const sel = 'canvas[data-step][data-drawn="1"]';
+      await waitFor(() => document.querySelectorAll(sel).length >= 10, 120000);
+      return [...document.querySelectorAll(sel)].map((c) => [c.dataset.step, Number(c.dataset.ink)]);`);
+    assert.equal(canvases.length, 10, 'result canvases: ' + JSON.stringify(canvases));
+    for (const [stepId, ink] of canvases) assert.ok(ink > 0, 'canvas of step ' + stepId + ' has no ink');
+    console.log('E2E NOTE sample set ' + name + ' ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
+    } finally {
+      dialogQueue.length = 0;                                      // answers a failed step never used
+      // the dev sample stays: the packaged pass compares against its output (removed at the end of the run)
+      if (name !== 'dev') fs.rmSync(sampleDir, { recursive: true, force: true });
+    }
   });
   await step(T('open-folder'), async () => {
     revealed.length = 0;
@@ -257,7 +433,8 @@ async function pass(name, opts) {
     const text = logText(handle);
     assert.equal(tokens.length, 2);
     for (const tok of tokens) assert.ok(tok && !text.includes(tok), 'a token is in the log');
-    for (const d of [tmpA, tmpB, outA, outB, outC, outCLink, fs.realpathSync(tmpA), fs.realpathSync(outA), outD]) assert.ok(!text.includes(d), 'log has ' + d);
+    for (const d of [tmpA, tmpB, outA, outB, outC, outCLink, fs.realpathSync(tmpA), fs.realpathSync(outA), outD,
+      path.join(TMP, name, 'sample'), path.join(REPO, 'ttf')]) assert.ok(!text.includes(d), 'log has ' + d);
     assert.ok(!text.includes('/api/jobs/'));
     // the positive pin: the stub's stderr line (a path with spaces, a token) is in the log, redacted, for both sidecars
     const lines = text.split('\n').filter((l) => l.includes('sidecar stderr:'));
@@ -300,6 +477,7 @@ app.on('window-all-closed', () => {});            // pass 1 closes its window; t
 app.whenReady().then(async () => {
   const base = Object.assign({}, process.env);
   delete base.SVF_MAKER_DEV;
+  try {
   await loadFailureCase();
   await pass('dev', { env: Object.assign({}, base, { SVF_MAKER_DEV: '1' }) });
   if (process.env.SVF_MAKER_SIDECAR && process.env.SVF_MAKER_STAGED_REPO) {
@@ -310,6 +488,7 @@ app.whenReady().then(async () => {
     fs.symlinkSync(process.env.SVF_MAKER_STAGED_REPO, path.join(res, 'repo'));
     await pass('packaged', { resourcesPath: res, env: base });
   }
+  } finally { cleanupSamples(); }
   console.log('E2E DONE pass=' + results.pass + ' fail=' + results.fail);
   app.exit(results.fail ? 1 : 0);
 }).catch((e) => { console.log('E2E FAIL setup ' + (e && e.stack || e)); app.exit(1); });
