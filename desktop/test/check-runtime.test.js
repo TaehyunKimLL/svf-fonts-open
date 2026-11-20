@@ -57,6 +57,48 @@ test('the CLI prints one ok/FAIL line and the exit code', async (t) => {
   const dir = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-rt-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const run = (buf) => { const f = path.join(dir, 'a.AppImage'); fs.writeFileSync(f, buf); return spawnSync('node', [path.join(__dirname, '..', 'build', 'check-runtime.mjs'), f], { encoding: 'utf8' }); };
-  let r = run(elf()); assert.equal(r.status, 0); assert.match(r.stdout, /^ok static runtime/);
-  r = run(elf({ interp: true })); assert.equal(r.status, 1); assert.match(r.stdout, /^FAIL /);
+  let r = run(elf()); assert.equal(r.status, 1); assert.match(r.stdout, /^FAIL --appimage-version/);   // static image, but not runnable: the run stage fails it
+  r = run(elf({ interp: true })); assert.equal(r.status, 1); assert.match(r.stdout, /^FAIL the runtime has a dynamic loader/);
+});
+
+test('--appimage-version: exit 0 with the version line passes; a non-zero exit after valid output, no line or a libfuse message fails', async () => {
+  const { checkVersionRun } = await import('../build/check-runtime.mjs');
+  const line = 'AppImage runtime version: https://github.com/AppImage/type2-runtime/commit/dd6cebe\n';
+  assert.equal(checkVersionRun({ status: 0, stdout: line }).ok, true);
+  const bad = checkVersionRun({ status: 1, stdout: line });
+  assert.equal(bad.ok, false); assert.match(bad.msg, /exited 1/);
+  assert.equal(checkVersionRun({ status: 0, stdout: 'hello\n' }).ok, false);
+  assert.equal(checkVersionRun({ status: 0, stdout: '' }).ok, false);
+  assert.equal(checkVersionRun({ status: 0, stdout: line, stderr: 'dlopen(): error loading libfuse.so.2' }).ok, false);
+  assert.equal(checkVersionRun({ status: 'signal SIGSEGV', stdout: line }).ok, false);
+});
+
+// the real runtimes of electron-builder's caches, when this host has them
+const CACHE = path.join(os.homedir(), '.cache', 'electron-builder');
+const find = (pool, glob) => {
+  try { for (const d of fs.readdirSync(path.join(CACHE, pool))) { const f = path.join(CACHE, pool, d, ...glob); if (fs.existsSync(f)) return f; } } catch (e) { /* absent */ }
+  return null;
+};
+const NEW_RT = find('appimage@1.0.3', ['runtimes', 'runtime-x64']);
+const OLD_RT = find('appimage-12.0.1', ['runtime-x64']);
+
+test('the cached appimage@1.0.3 runtime is static', { skip: NEW_RT ? false : 'toolset not cached' }, async () => {
+  const r = (await load())(fs.readFileSync(NEW_RT));
+  assert.equal(r.ok, true, r.msg);
+});
+test('the cached appimage-12.0.1 runtime fails on PT_INTERP', { skip: OLD_RT ? false : 'legacy toolset not cached' }, async () => {
+  const r = (await load())(fs.readFileSync(OLD_RT));
+  assert.equal(r.ok, false); assert.match(r.msg, /PT_INTERP/);
+});
+
+test('prune-appimage-toolset: a recorded file missing from the toolset is one message and exit 1, not a traceback', { skip: NEW_RT ? false : 'toolset not cached' }, (t) => {
+  const { spawnSync } = require('node:child_process');
+  const archive = fs.readdirSync(path.join(CACHE, 'appimage@1.0.3')).find((n) => n.endsWith('.tar.gz'));
+  if (!archive) return t.skip('archive not cached');
+  const empty = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-pr-'));
+  t.after(() => fs.rmSync(empty, { recursive: true, force: true }));
+  const r = spawnSync('python3', [path.join(__dirname, '..', 'build', 'prune-appimage-toolset.py'), empty, path.join(CACHE, 'appimage@1.0.3', archive), path.join(empty, 'out')], { encoding: 'utf8' });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /is not in/);
+  assert.ok(!/Traceback/.test(r.stderr), r.stderr);
 });

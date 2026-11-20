@@ -37,7 +37,7 @@ Chrome's socket path is limited to 107 bytes). Never `/tmp`. Every run that star
 
 `build-appimage.sh` runs `maker/build-sidecar.sh` (the frozen test included, no skip allowed), writes `THIRD-PARTY.txt`
 (fails on an unattributed library or a GPL one), builds the AppImage and runs `desktop/build/release-check.sh`, which
-prints one `CHECK <name> ok|FAIL` line each: size, extract, size-sidecar, layout, apprun, runtime (the AppImage's runtime is static: no loader, no needed library, no `libfuse.so.2` string; `desktop/build/check-runtime.mjs`, tested by `desktop/test/check-runtime.test.js`; and `--appimage-version` answers under `env -i`), desktop-entry, frozen
+prints one `CHECK <name> ok|FAIL` line each: size, extract, size-sidecar, layout, apprun, runtime (the AppImage's runtime is static: no loader, no needed library, no `libfuse.so.2` string; `desktop/build/check-runtime.mjs`, tested by `desktop/test/check-runtime.test.js`; and `--appimage-version` exits 0 with its version line under `env -i`), desktop-entry, frozen
 (`test_frozen.py` against the extracted sidecar, 0 skipped), wasm (`cmp` with a fresh build), licences (the generator over
 the extraction), notices and sources (the bundled `THIRD-PARTY.txt` equals the regenerated one; `resources/repo/{maker,tools}/*.py` and `resources/repo/web/mkindex.py` equal the checkout by sha256: `desktop/build/verify-extraction.sh`, run through `verify-report.sh`/`run-verify.sh`, which fail closed on a non-zero exit, a missing or duplicate result line or any other output, stderr included), smoke (the extracted `AppRun` under xvfb), sources (`--release` only) and contents (a file list record in
 `desktop/build/out/release-<build id>-<AppImage sha256 prefix>.txt`, one per AppImage).
@@ -80,7 +80,7 @@ libfuse3 and needs only a `fusermount`/`fusermount3` on the machine (present on 
 newer tool path: squashfs compression is zstd (the legacy path used gzip), and the generated `.desktop` entry reads
 `Exec=AppRun %U` (the `--no-sandbox` flag is added by `AppRun` itself when `unshare -Ur true` fails, as before). The release
 check `runtime` keeps this from regressing. The runtime's sources (type2-runtime 20251108 with libfuse3 and squashfuse) are
-the D8 component `appimage-runtime` version `20251108`.
+the D8 component `appimage-runtime` version `20251108` (LGPL component to archive: libfuse 3.15.0; recipe: the type2-runtime release). THIRD-PARTY.txt carries the texts of all six embedded components (`desktop/build/licences/appimage-runtime.txt`, each from its upstream source at the matching version, source URLs recorded) and prints the runtime's sha256 beside the toolset record.
 
 **Tray icon.** electron-builder copies six old libraries into the AppImage's `usr/lib` (appindicator3, gconf, indicator3,
 notify, Xss, Xtst). `libindicator` is **GPL-3.0**, and the packaging rule forbids GPL in the package; the legacy toolset and
@@ -161,7 +161,7 @@ Nothing below was run. It is the plan a builder on those hosts follows, and what
 
 Windows and macOS entirely; a FUSE-mounted AppImage start with a window; a sandboxed renderer; glibc older than 2.39; `JAMOSET_PYLIB` with
 3.12 wheels in the frozen process and any real recogniser (the tests use a stub interpreter); native dialogs with a display;
-the composition of the AppImage runtime beyond its file names (the map records the electron-builder-binaries source);
+the composition of the AppImage runtime beyond what its binary states (its embedded licence list and version strings: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2, libzstd 1.5.6, zlib 1.3.1; musl's own version is not embedded, so its COPYRIGHT is taken from v1.2.5);
 `SOURCE_DATE_EPOCH` determinism of the AppImage (the sidecar is not bit-reproducible: `base_library.zip` member order
 changes per build); a FreeType other than 2.13.2 in a future Pillow wheel; the exact URLs of the recorded sources
 (recorded, not fetched).

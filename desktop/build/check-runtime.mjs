@@ -3,6 +3,8 @@
 // old type-2 runtime dlopen()s that library at the mount). Prints one line "ok <what>" or "FAIL <why>", exit 0 or 1.
 // The logic is exported for desktop/test/check-runtime.test.js.
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PT_LOAD = 1, PT_DYNAMIC = 2, PT_INTERP = 3, DT_NEEDED = 1, DT_NULL = 0;
@@ -41,12 +43,26 @@ export function checkRuntime(buf) {
   return { ok: true, msg: 'static runtime (' + end + ' bytes): no loader, no needed libraries, no libfuse.so.2' };
 }
 
+/** the result of `APPIMAGE --appimage-version` run in an empty environment: exit 0 and the runtime's version line */
+export function checkVersionRun({ status, stdout = '', stderr = '' }) {
+  const out = (stdout + stderr).trim();
+  if (status !== 0) return { ok: false, msg: '--appimage-version exited ' + status + ': ' + (out.split('\n')[0] || '<no output>') };
+  const line = out.split('\n').find((l) => /^AppImage runtime version/.test(l));
+  if (!line || /libfuse\.so|error/i.test(out)) return { ok: false, msg: '--appimage-version printed: ' + (out.split('\n')[0] || '<nothing>') };
+  return { ok: true, msg: '(' + line + ')' };
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const file = process.argv[2];
   let r;
   try {
     const fd = fs.openSync(file, 'r'); const head = Buffer.alloc(4 * 1024 * 1024); const n = fs.readSync(fd, head, 0, head.length, 0); fs.closeSync(fd);
     r = checkRuntime(head.subarray(0, n));                     // the runtime is under 1 MB; the squashfs follows
+    if (r.ok) {                                                // and it answers in an empty environment (cwd: the caller's scratch directory)
+      const run = spawnSync(path.resolve(file), ['--appimage-version'], { env: { HOME: process.env.HOME || '', PATH: '/usr/bin:/bin' }, encoding: 'utf8', timeout: 60000 });
+      const v = checkVersionRun({ status: run.status === null ? 'signal ' + run.signal : run.status, stdout: run.stdout, stderr: run.stderr });
+      r = v.ok ? { ok: true, msg: r.msg + ' ' + v.msg } : v;
+    }
   } catch (e) { r = { ok: false, msg: 'cannot read ' + file + ': ' + e.message }; }
   console.log((r.ok ? 'ok ' : 'FAIL ') + r.msg);
   process.exit(r.ok ? 0 : 1);

@@ -60,14 +60,16 @@ def main(argv):
     if sha256(archive) != record["archive_sha256"]:
         print("prune-appimage-toolset: %s is not the recorded %s" % (archive, record["archive"]), file=sys.stderr)
         return 1
-    for rel, digest in record.get("runtimes", {}).items():
-        if sha256(os.path.join(src, rel)) != digest:
-            print("prune-appimage-toolset: runtime %s does not match its recorded sha256" % rel, file=sys.stderr)
-            return 1
-    for rel, digest in record["removed"].items():
-        if sha256(os.path.join(src, rel)) != digest:
-            print("prune-appimage-toolset: %s does not match its recorded sha256" % rel, file=sys.stderr)
-            return 1
+    for what, table in (("runtime", record.get("runtimes", {})), ("file", record["removed"])):
+        for rel, digest in table.items():
+            try:
+                good = sha256(os.path.join(src, rel)) == digest
+            except OSError as e:
+                print("prune-appimage-toolset: recorded %s %s is not in %s (%s)" % (what, rel, src, e.strerror), file=sys.stderr)
+                return 1
+            if not good:
+                print("prune-appimage-toolset: %s %s does not match its recorded sha256" % (what, rel), file=sys.stderr)
+                return 1
     # the cached, already-extracted toolset must be exactly what the verified archive holds
     with tempfile.TemporaryDirectory(prefix="appimage-toolset-") as tmp:
         if archive.endswith(".7z"):
@@ -77,10 +79,14 @@ def main(argv):
                 tf.extractall(tmp, filter="tar")
         entries = os.listdir(tmp)
         fresh = os.path.join(tmp, entries[0]) if len(entries) == 1 and os.path.isdir(os.path.join(tmp, entries[0])) else tmp
-        # every regular file equal; every cached link also in the archive (electron-builder's extraction drops a link
-        # to a link: libopenjp2.so), never one the archive does not have
-        fresh_links = links_of(fresh)
-        if tree_digest(fresh) != tree_digest(src) or any(fresh_links.get(k) != v for k, v in links_of(src).items()):
+        # every regular file equal; the links equal, except that electron-builder's extraction drops a link whose target
+        # is itself a link (libopenjp2.so -> libopenjp2.so.7): only such a link may be missing from the cache
+        fresh_links, src_links = links_of(fresh), links_of(src)
+        def link_to_link(k):
+            return os.path.join(os.path.dirname(k), fresh_links[k]) in fresh_links
+        missing = [k for k in fresh_links if k not in src_links and not link_to_link(k)]
+        if (tree_digest(fresh) != tree_digest(src) or missing
+                or any(fresh_links.get(k) != v for k, v in src_links.items())):
             print("prune-appimage-toolset: %s does not match the extraction of %s" % (src, record["archive"]), file=sys.stderr)
             return 1
     shutil.rmtree(out, ignore_errors=True)

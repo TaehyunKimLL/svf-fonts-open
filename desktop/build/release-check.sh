@@ -51,14 +51,8 @@ if [ -z "$MISS" ] && [ -z "$STRAY" ]; then ok layout; else fail layout "missing:
 if grep -q 'unshare -Ur' "$SQ/AppRun" 2>/dev/null && grep -q -- '--no-sandbox' "$SQ/AppRun" 2>/dev/null; then ok apprun "unshare probe and --no-sandbox present"; else fail apprun "AppRun lacks the unshare probe or --no-sandbox (is it electron-builder's own?)"; fi
 
 # ---- the runtime: static, so the AppImage starts without libfuse2 on the machine ------------------------------------
-RT=$(node desktop/build/check-runtime.mjs "$APP" 2>&1); RTRC=$?
-if [ $RTRC -eq 0 ]; then
-    # the runtime itself answers, in an empty environment and a directory of its own (it would fail here on a dlopen of libfuse.so.2)
-    RTV=$(cd "$X" && env -i HOME="$HOME" PATH=/usr/bin:/bin "$APP" --appimage-version 2>&1 | head -1)
-    if [ -n "$RTV" ] && ! echo "$RTV" | grep -qi 'libfuse\|error'; then ok runtime "${RT#ok } ($RTV)"; else fail runtime "--appimage-version printed: ${RTV:-<nothing>}"; fi
-else
-    fail runtime "${RT#FAIL }"
-fi
+RT=$(cd "$X" && node "$HERE/check-runtime.mjs" "$APP" 2>&1); RTRC=$?     # static ELF checks, then --appimage-version under env -i (exit status and version line)
+if [ $RTRC -eq 0 ]; then ok runtime "${RT#ok }"; else fail runtime "${RT#FAIL }"; fi
 
 # ---- the embedded .desktop entry ------------------------------------------------------------------------------------
 DESK=$(ls "$SQ"/*.desktop 2>/dev/null | head -1)
