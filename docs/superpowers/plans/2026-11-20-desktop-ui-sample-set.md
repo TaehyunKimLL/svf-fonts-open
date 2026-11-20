@@ -42,8 +42,10 @@ written into the tasks.
   which `-I` drops; `-B`: its imports of `maker/test/*`, `maker/*` and `tools/*` write no `__pycache__`). Its own
   subprocesses are started with `sys.executable -B ...` (its `facecheck.py` / `mkindex.py` calls add `-B` to `-I`).
   The calls reused unchanged from `inputkinds` / `e2efx` run `-I` scripts that import only the standard library and
-  their own file, so they write no bytecode either; Task 1 test 1 asserts no new file (no `__pycache__`) appears under
-  `maker/`, `tools/`, `web/` or `ttf/` after `make` + `check`.
+  their own file, so they write no bytecode either; Task 1 test 11 asserts no new file (no `__pycache__`) appears under
+  `maker/`, `tools/`, `web/` or `ttf/` around the **subprocess** `make` + `check` (the `-B` guarantee belongs to the CLI;
+  the in-process `check()` sets `sys.dont_write_bytecode` while it imports `web/mkindex.py`, so a test run in another
+  order cannot leave a `__pycache__` either).
 - Commit messages end with `(t_30b843b8)` and `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Do not push.
 
 ### Prerequisites (once, Task 0)
@@ -132,8 +134,10 @@ GOWUN17A identical to GBATB17; on the tree without HangulTalk 1.0, facecheck tre
    job's id, and equals `job["result"]["files"]`; every expected `.SVF` is some step's `written`; no `.svf-maker-*`
    left (the caller waits up to 10 s for the sweep first, as `LocalEndToEndTest` does). When the job has no `result`
    yet (or no id), report `job has no result` plus one `missing <path>` line per absent file instead of raising (L4).
-2. **facecheck:** `inputkinds._facecheck` (manifest + verify on a temp git copy of `out_dir/svf`, every SVF
-   `parse_svfn(...).version == 3`), called on a minimal `unittest.TestCase` shim.
+2. **facecheck:** `inputkinds._facecheck(shim, d)` with `d` under `DIR/check/` (a git copy of `out_dir/svf` there:
+   manifest + verify, every SVF `parse_svfn(...).version == 3`), on a minimal `unittest.TestCase` shim. Not
+   `assert_facecheck_tree` (it uses `tempfile`, so it would follow TMPDIR). A separate `parse` check names a face that
+   does not parse.
 3. **mkindex:** `e2efx.merge_check(..., base_repo=False)` (the standalone tree: `LICENCES/FAMILIES` from the
    `build-<id>/*.lines`, a FACES.TSV row for every jamo face, `web/mkindex.py --check`), scratch under `DIR/check/`.
 4. **Pins and ink:** `GOWUN17A.SVF` == `svf/dos/GBATB17.SVF` bytes (hard, the only per-face byte pin); every face
@@ -194,8 +198,9 @@ the others.
    label contains `not read`, and its `input.selected` is disabled.
 4. Click `#save`; wait until `GET /api/jobs/<id>` shows, for every font, `selected` as intended and the `ui` values (the
    UI wrote them). Click `#run`; wait (page timeout 180 s) for `#state` to contain `written to`, then for **10**
-   `canvas[data-step][data-drawn="1"]` (one per face step). (The page has no ink attribute on its canvases; L7's
-   optional `dataset.ink` check would need a page change and is not done here: blank faces are caught by check 4.)
+   `canvas[data-step][data-drawn="1"]` (one per face step) **and `Number(canvas.dataset.ink) > 0` for each of the 10**
+   (`maker/static/svfview.js` sets `canvas.dataset.ink` next to `data-drawn`, N1); check 4 still covers blank faces
+   on the written files.
 5. Wait (<= 10 s) for no `.svf-maker-*` in the output folder; write the job JSON to `DIR/job.json`; run
    `uisample.py check` (async, with `--same-as TMP/dev/sample/out` in the packaged pass); print every note as
    `E2E NOTE sample set: ...`; on exit 1 fail the step with the first three failure lines. Print
@@ -231,9 +236,9 @@ the others.
   a `shutil.copytree` copy of its output (and, for inputs, on a second `make` dir), so the class run stays clean.
   1. `test_make_builds_the_synthetic_tree` - the files and sizes of the tables above (`in/v1/Munjo16.rsrc` included),
      `sample.json` equal to the returned JSON, 9 `dialog` entries in the order above, every path absolute and
-     existing, the four OFL roots under `REPO/ttf`; nothing written outside `DIR` (snapshot of `maker/`, `tools/`, `web/`
-     and `REPO/ttf` before/after: no new file, no `__pycache__` from the helper's subprocesses); `make` into a non-empty
-     dir raises.
+     existing, the four OFL roots under `REPO/ttf`; `make` into a non-empty dir raises. (The "nothing written outside
+     `DIR`, no `__pycache__`" snapshot of `maker/`, `tools/`, `web/` and `REPO/ttf` moved to test 11, around the
+     subprocess calls: in-process imports make it order-dependent, N2.)
   2. `test_api_run_writes_exactly_the_expected_tree` - an in-process `e2efx.Server(..., token=localfx.TOKEN)` local
      job: sources = the `dialog` paths, detect, settings from the **same `ui` table** (`uisample.apply_ui(job)`, the
      API twin of the page script), run, `wait_done`; `len(EXPECTED) == 33`; `check()` returns no failure and no note;
@@ -326,4 +331,4 @@ the others.
 | L4 job without result | Opus | Done: `job has no result` + `missing` lines; test 11; e2e red step. |
 | L5 mutation 6 names ASCII.PFT | Opus | Done. |
 | L6 async execFile | Opus | Done: `promisify(execFile)`. |
-| L7 parses-but-blank mutation; canvas ink | Opus | Mutation done (test 9). `canvas.dataset.ink` is not done: the page sets no ink attribute and page code is out of scope; check 4 covers blank faces. |
+| L7 parses-but-blank mutation; canvas ink | Opus | Mutation done (test 9). The page already sets `canvas.dataset.ink` next to `data-drawn` (`svfview.js`, N1): Task 2's e2e requires `Number(dataset.ink) > 0` for the 10 result canvases; check 4 covers blank faces on the files. |
