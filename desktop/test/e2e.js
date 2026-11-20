@@ -160,6 +160,7 @@ async function pass(name, opts) {
     const PY = process.env.SVF_E2E_PYTHON || 'python3';
     const helper = path.join(REPO, 'maker', 'test', 'uisample.py');
     const sampleDir = path.join(TMP, name, 'sample');
+    try {                                                          // (the body keeps its indentation; see the finally)
     const env = Object.assign({}, process.env, { TMPDIR: TMP });
     const made = await execFileAsync(PY, ['-B', '-P', helper, 'make', sampleDir], { env, timeout: 60000 });
     const sample = JSON.parse(made.stdout);
@@ -179,7 +180,8 @@ async function pass(name, opts) {
       await waitFor(() => {
         const ack = document.getElementById('ack');
         if (visible(ack)) document.getElementById('ack-ok').click();
-        return document.querySelectorAll('#fonts tr[data-font]').length >= 24;
+        // one row per file of the picked roots (the scanner lists licences and companions too): 24 for this sample
+        return document.querySelectorAll('#fonts tr[data-font]').length === Object.keys(S.inputs).length;
       }, 120000);
       return new URLSearchParams(location.search).get('job');`);
     assert.equal(dialogQueue.length, 0, 'every dialog answer must have been used');
@@ -309,6 +311,11 @@ async function pass(name, opts) {
     assert.equal(canvases.length, 10, 'result canvases: ' + JSON.stringify(canvases));
     for (const [stepId, ink] of canvases) assert.ok(ink > 0, 'canvas of step ' + stepId + ' has no ink');
     console.log('E2E NOTE sample set ' + name + ' ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
+    } finally {
+      dialogQueue.length = 0;                                      // answers a failed step never used
+      // the dev sample stays: the packaged pass compares against its output (removed at the end of the run)
+      if (name !== 'dev') fs.rmSync(sampleDir, { recursive: true, force: true });
+    }
   });
   await step(T('open-folder'), async () => {
     revealed.length = 0;
@@ -419,7 +426,7 @@ async function pass(name, opts) {
     assert.equal(tokens.length, 2);
     for (const tok of tokens) assert.ok(tok && !text.includes(tok), 'a token is in the log');
     for (const d of [tmpA, tmpB, outA, outB, outC, outCLink, fs.realpathSync(tmpA), fs.realpathSync(outA), outD,
-      path.join(TMP, name, 'sample'), path.join(REPO, 'ttf', 'neodgm')]) assert.ok(!text.includes(d), 'log has ' + d);
+      path.join(TMP, name, 'sample'), path.join(REPO, 'ttf')]) assert.ok(!text.includes(d), 'log has ' + d);
     assert.ok(!text.includes('/api/jobs/'));
     // the positive pin: the stub's stderr line (a path with spaces, a token) is in the log, redacted, for both sidecars
     const lines = text.split('\n').filter((l) => l.includes('sidecar stderr:'));
@@ -472,6 +479,7 @@ app.whenReady().then(async () => {
     fs.symlinkSync(process.env.SVF_MAKER_STAGED_REPO, path.join(res, 'repo'));
     await pass('packaged', { resourcesPath: res, env: base });
   }
+  fs.rmSync(path.join(TMP, 'dev', 'sample'), { recursive: true, force: true });
   console.log('E2E DONE pass=' + results.pass + ' fail=' + results.fail);
   app.exit(results.fail ? 1 : 0);
 }).catch((e) => { console.log('E2E FAIL setup ' + (e && e.stack || e)); app.exit(1); });
