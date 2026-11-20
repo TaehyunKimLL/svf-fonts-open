@@ -10,12 +10,14 @@ for _p in (TEST_DIR, MAKER_DIR, os.path.join(REPO_DIR, "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import copy
 import json
 import shutil
 import struct
 import subprocess
 import time
 import unittest
+from unittest import mock
 
 import e2efx
 import inputkinds
@@ -56,11 +58,13 @@ def _write(path, data):
 
 
 def _snapshot(*dirs):
-    out = set()
+    """{path: st_mtime_ns} of every file under @p dirs: a rewritten file shows as a change, not only a new name."""
+    out = {}
     for top in dirs:
         for dirpath, _dirs, names in os.walk(top):
             for name in names:
-                out.add(os.path.join(dirpath, name))
+                path = os.path.join(dirpath, name)
+                out[path] = os.stat(path).st_mtime_ns
     return out
 
 
@@ -192,18 +196,26 @@ class UiSampleTest(unittest.TestCase):
         def mutate(out):
             for rel in gone:
                 os.remove(os.path.join(out, rel))
-        self.assertNames(self.mutated(mutate), *gone)
+        lines = self.mutated(mutate)
+        for rel in gone:
+            self.assertIn("files: missing " + rel, lines)
 
     def test_check_flags_an_extra_file(self):
         def mutate(out):
             shutil.copyfile(os.path.join(out, "svf/dos/NEODU16.SVF"), os.path.join(out, "svf/dos/STRAY.SVF"))
-        self.assertNames(self.mutated(mutate), "svf/dos/STRAY.SVF")
+        self.assertIn("files: unexpected svf/dos/STRAY.SVF", self.mutated(mutate))
 
     def test_check_flags_a_leftover_work_dir(self):
         def mutate(out):
             os.makedirs(os.path.join(out, ".svf-maker-%s" % self.jid))
             _write(os.path.join(out, ".svf-maker-%s" % self.jid, "x"), b"x")
-        self.assertNames(self.mutated(mutate), ".svf-maker-%s/x" % self.jid)
+        self.assertIn("files: work folder not swept: .svf-maker-%s" % self.jid, self.mutated(mutate))
+
+    def test_check_flags_an_empty_leftover_work_dir(self):
+        def mutate(out):
+            os.makedirs(os.path.join(out, ".svf-maker-%s" % self.jid))       # a directory, no file in it
+        lines = self.mutated(mutate)
+        self.assertIn("files: work folder not swept: .svf-maker-%s" % self.jid, lines)
 
     def test_check_flags_a_changed_input(self):
         d = os.path.join(BASE, "second")
@@ -220,7 +232,43 @@ class UiSampleTest(unittest.TestCase):
         def mutate(out):
             path = os.path.join(out, "svf/dos/KSC16.SVF")
             _write(path, _read(path)[:100])
-        self.assertNames(self.mutated(mutate), "KSC16.SVF")
+        lines = self.mutated(mutate)
+        self.assertTrue(any(ln.startswith("parse: svf/dos/KSC16.SVF") for ln in lines), lines)
+        self.assertTrue(any(ln.startswith("facecheck:") for ln in lines), lines)
+        # each check catches it alone: with the parse check disabled the facecheck line is still there
+        with mock.patch.object(uisample, "_check_parse", lambda out, fails: None):
+            lines = self.mutated(mutate)
+        self.assertFalse(any(ln.startswith("parse:") for ln in lines), lines)
+        self.assertTrue(any(ln.startswith("facecheck:") for ln in lines), lines)
+        # and with the facecheck disabled the parse line is still there
+        with mock.patch.object(uisample, "_check_facecheck", lambda out, scratch: None):
+            lines = self.mutated(mutate)
+        self.assertFalse(any(ln.startswith("facecheck:") for ln in lines), lines)
+        self.assertTrue(any(ln.startswith("parse: svf/dos/KSC16.SVF") for ln in lines), lines)
+
+    def test_check_flags_a_step_that_wrote_nothing(self):
+        job = copy.deepcopy(self.job)
+        hit = [s for s in job["steps"] if s.get("written") == "svf/dos/KSC16.SVF"]
+        self.assertEqual(len(hit), 1)
+        del hit[0]["written"]
+        lines = self.mutated(lambda out: None, job=job)
+        self.assertIn("files: no step wrote svf/dos/KSC16.SVF", lines)
+
+    def test_check_flags_a_job_that_is_not_done(self):
+        lines = self.mutated(lambda out: None, job=dict(self.job, state="failed"))
+        self.assertIn("files: job state is failed, not done", lines)
+
+    def test_check_flags_a_blank_latin_only_face(self):
+        def mutate(out):
+            path = os.path.join(out, "svf/dos/CAVEA16.SVF")
+            data = bytearray(_read(path))
+            h = struct.unpack_from(jamoset.HEADER3, data)
+            data[h[15]:h[15] + h[16]] = bytes(h[16])
+            _write(path, bytes(data))
+            self.assertEqual(jamoset.parse_svfn(_read(path)).version, 3)
+            self.assertFalse(jamoset.parse_svfn(_read(path)).glyphs.get(0xAC00))      # Latin only: the `A` branch
+        lines = self.mutated(mutate)
+        self.assertIn("ink: svf/dos/CAVEA16.SVF draws a blank U+0041", lines)
 
     def test_check_flags_a_gbatb17_mismatch(self):
         def mutate(out):
@@ -315,14 +363,51 @@ class UiSampleTest(unittest.TestCase):
                 self.assertTrue(any("JOHA16J.SVF" in ln for ln in body["failures"]), body)
                 shutil.copyfile(os.path.join(self.out, rel), path)
         # the refusal: a directory under /tmp, nothing created
-        r = subprocess.run(py + ["make", "/tmp/uisample-refused-x"], capture_output=True, text=True)
+        refused = "/tmp/uisample-refused-%d" % os.getpid()
+        self.assertFalse(os.path.exists(refused))
+        r = subprocess.run(py + ["make", refused], capture_output=True, text=True)
         self.assertEqual(r.returncode, 2)
         self.assertIn("refusing a directory under /tmp", r.stderr)
-        self.assertFalse(os.path.exists("/tmp/uisample-refused-x"))
+        self.assertFalse(os.path.exists(refused))
         # nothing written outside DIR by the subprocesses (no `__pycache__` either)
         after = _snapshot(os.path.join(repo, "maker"), os.path.join(repo, "tools"), os.path.join(repo, "web"),
                           os.path.join(repo, "ttf"))
-        self.assertEqual(sorted(after - before), [])
+        self.assertEqual(sorted(set(after) - set(before)), [])                 # no new file (no `__pycache__`)
+        self.assertEqual(sorted(p for p in before if after.get(p) != before[p]), [])     # none rewritten either
+
+    def test_cli_check_refuses_unreadable_input(self):
+        py = [sys.executable, "-B", "-P", UISAMPLE]
+        d = os.path.join(BASE, "cli-bad")
+        r = subprocess.run(py + ["make", d], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        job_json = os.path.join(d, "job.json")
+
+        def run(*extra):
+            r = subprocess.run(py + ["check", d, job_json] + list(extra), capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2, (r.stdout, r.stderr))
+            self.assertNotIn("Traceback", r.stderr)
+            self.assertEqual(r.stdout, "")
+            self.assertEqual(len(r.stderr.strip().splitlines()), 1, r.stderr)
+            return r.stderr
+        self.assertIn("cannot read", run())                                   # no job JSON
+        _write(job_json, b"{not json")
+        self.assertIn("cannot read", run())                                   # invalid JSON
+        _write(job_json, b"[1]")
+        self.assertIn("cannot read", run())                                   # not an object
+        _write(job_json, json.dumps(self.job).encode())
+        os.rename(os.path.join(d, "sample.json"), os.path.join(d, "sample.json.bak"))
+        self.assertIn("cannot read", run())                                   # no sample.json
+        _write(os.path.join(d, "sample.json"), b"")
+        self.assertIn("cannot read", run())                                   # empty sample.json
+        # sample.json that names another output folder: refused, the other folder is never read
+        sample = json.loads(_read(os.path.join(d, "sample.json.bak")))
+        sample["output"] = self.out
+        _write(os.path.join(d, "sample.json"), json.dumps(sample).encode())
+        self.assertIn("other than DIR/out", run())
+        sample["output"] = os.path.join(d, "out")                             # the right one passes the guard
+        _write(os.path.join(d, "sample.json"), json.dumps(sample).encode())
+        r = subprocess.run(py + ["check", d, job_json], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, (r.stdout, r.stderr))               # an empty out: failures, not a refusal
 
 
 if __name__ == "__main__":

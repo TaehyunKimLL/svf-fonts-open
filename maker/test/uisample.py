@@ -248,8 +248,8 @@ def _check_files(sample, out_dir, job, fails, scratch):
         fails.append("files: missing %s" % rel)
     for rel in sorted(have - want):
         fails.append("files: unexpected %s" % rel)
-    for rel in sorted(p for p in have if p.startswith(".svf-maker-")):
-        fails.append("files: work folder not swept: %s" % rel)
+    for name in sorted(n for n in os.listdir(out_dir) if n.startswith(".svf-maker-")):      # an empty one counts
+        fails.append("files: work folder not swept: %s" % name)
     reported = set(result.get("files") or [])
     for rel in sorted(reported - have):
         fails.append("files: reported by the job but not on disk: %s" % rel)
@@ -402,10 +402,20 @@ def main(argv=None):
     if len(rest) != 1 or ("--same-as" in argv and not same_as):
         sys.stderr.write("usage: uisample.py check DIR JOB_JSON [--same-as OTHER_OUT]\n")
         return 2
-    with open(os.path.join(dir_, "sample.json"), encoding="utf-8") as fh:
-        sample = json.load(fh)
-    with open(rest[0], encoding="utf-8") as fh:
-        job = json.load(fh)
+    try:
+        with open(os.path.join(dir_, "sample.json"), encoding="utf-8") as fh:
+            sample = json.load(fh)
+        with open(rest[0], encoding="utf-8") as fh:
+            job = json.load(fh)
+        if not isinstance(sample, dict) or not isinstance(job, dict) or not isinstance(sample.get("output"), str):
+            raise ValueError("not a sample / job object")
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("uisample: cannot read the sample or the job: %s: %s\n"
+                         % (type(exc).__name__, (str(exc).splitlines() or [""])[0]))
+        return 2
+    if os.path.realpath(sample["output"]) != os.path.realpath(os.path.join(dir_, "out")):
+        sys.stderr.write("uisample: sample.json names an output folder other than DIR/out\n")
+        return 2
     notes = []
     fails = check(sample, sample["output"], job, same_as=same_as, notes=notes)
     if fails:
