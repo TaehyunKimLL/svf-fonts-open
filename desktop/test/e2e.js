@@ -56,6 +56,10 @@ const PRELUDE = `const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const run = (handle, js) => handle.win.webContents.executeJavaScript('(async () => {' + PRELUDE + js + '})()', true);
 const logText = (handle) => fs.readFileSync(handle.log.path, 'utf8');
 
+// The dev pass's sample folder stays until the end of the run (the packaged pass compares with its output); every way
+// out of the run, a failed start included, removes it.
+const cleanupSamples = () => { try { fs.rmSync(path.join(TMP, 'dev', 'sample'), { recursive: true, force: true }); } catch (e) { /* none */ } };
+
 function mkdir(...p) { const d = path.join(TMP, ...p); fs.mkdirSync(d, { recursive: true }); return d; }
 
 async function localJob(handle, srcDir, outDir) {
@@ -91,7 +95,8 @@ async function pass(name, opts) {
   const { main } = { main: require('../main.js') };
   fs.rmSync(path.join(TMP, name), { recursive: true, force: true });       // every run starts from nothing
   const ud = mkdir(name, 'ud');
-  const handle = await main.start(Object.assign({ userData: ud, quitOnClose: false, launch: wrappedLaunch(opts, ud) }, opts));
+  const handle = await main.start(Object.assign({ userData: ud, quitOnClose: false, launch: wrappedLaunch(opts, ud),
+    fatal: () => { cleanupSamples(); app.exit(1); } }, opts));
   const pids = { shell: process.pid, sidecar: handle.sidecar.pid };
   const tmpA = mkdir(name, 'tmpA'), tmpB = mkdir(name, 'tmpB'), outA = mkdir(name, 'outA'), outB = mkdir(name, 'outB');
   const outC = mkdir(name, 'realparent', 'outC'), outD = mkdir(name, 'outD');
@@ -156,7 +161,8 @@ async function pass(name, opts) {
     // sample, the settings table and the checks of the written tree).
     const t0 = Date.now();
     const realTmp = fs.realpathSync(TMP);
-    assert.ok(realTmp !== '/tmp' && !realTmp.startsWith('/tmp/'), 'TMP must not be under /tmp: ' + realTmp);
+    const bareTmp = path.join(path.sep, 'tmp');
+    assert.ok(realTmp !== bareTmp && !realTmp.startsWith(bareTmp + path.sep), 'TMP must not be under ' + bareTmp + ': ' + realTmp);
     const PY = process.env.SVF_E2E_PYTHON || 'python3';
     const helper = path.join(REPO, 'maker', 'test', 'uisample.py');
     const sampleDir = path.join(TMP, name, 'sample');
@@ -181,8 +187,10 @@ async function pass(name, opts) {
         const ack = document.getElementById('ack');
         if (visible(ack)) document.getElementById('ack-ok').click();
         // one row per file of the picked roots (the scanner lists licences and companions too): 24 for this sample
-        return document.querySelectorAll('#fonts tr[data-font]').length === Object.keys(S.inputs).length;
+        return document.querySelectorAll('#fonts tr[data-font]').length >= Object.keys(S.inputs).length;
       }, 120000);
+      const rowCount = document.querySelectorAll('#fonts tr[data-font]').length;
+      if (rowCount !== Object.keys(S.inputs).length) throw new Error('font rows ' + rowCount + ' != files ' + Object.keys(S.inputs).length);
       return new URLSearchParams(location.search).get('job');`);
     assert.equal(dialogQueue.length, 0, 'every dialog answer must have been used');
     const settled = await run(handle, `
@@ -469,6 +477,7 @@ app.on('window-all-closed', () => {});            // pass 1 closes its window; t
 app.whenReady().then(async () => {
   const base = Object.assign({}, process.env);
   delete base.SVF_MAKER_DEV;
+  try {
   await loadFailureCase();
   await pass('dev', { env: Object.assign({}, base, { SVF_MAKER_DEV: '1' }) });
   if (process.env.SVF_MAKER_SIDECAR && process.env.SVF_MAKER_STAGED_REPO) {
@@ -479,7 +488,7 @@ app.whenReady().then(async () => {
     fs.symlinkSync(process.env.SVF_MAKER_STAGED_REPO, path.join(res, 'repo'));
     await pass('packaged', { resourcesPath: res, env: base });
   }
-  fs.rmSync(path.join(TMP, 'dev', 'sample'), { recursive: true, force: true });
+  } finally { cleanupSamples(); }
   console.log('E2E DONE pass=' + results.pass + ' fail=' + results.fail);
   app.exit(results.fail ? 1 : 0);
 }).catch((e) => { console.log('E2E FAIL setup ' + (e && e.stack || e)); app.exit(1); });
