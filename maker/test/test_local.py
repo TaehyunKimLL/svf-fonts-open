@@ -1400,40 +1400,57 @@ class LocalSweepTest(LocalRunBase):
         self.assertLess(took, 1.6, took)           # one allowance for all waits; the old per-lock waits took 2 s per job
 
     def _probe_vs_delete(self, pause_before):
+        """A probe request and a DELETE of its job, interleaved at a point the lock order allows: the probe held back
+        BEFORE it takes any lock (the job is deleted, then the probe runs), or inside its bake, where it holds the
+        font's preview lock (the DELETE's try-lock of it cannot succeed). Nothing here depends on load: the DELETE's
+        preview try-lock is bounded (`PREVIEW_TRY_S`), so a bake that outlasts it is a recorded pending sweep, and a
+        bake held by the test always does. What must hold either way: no directory of the deleted job stays that
+        `pending-sweeps.json` does not name, and `retry_pending_sweeps` then removes it."""
         import threading
-        jobs_mod = sys.modules["jobs"]
+        server_mod = sys.modules["server"]
         jid = self.local_job()
         self.select(jid)
         fid = self.ttf
-        real = jobs_mod.Store.ensure_files_dir
         paused, go = threading.Event(), threading.Event()
         self.addCleanup(go.set)
+        name = "_exists" if pause_before else "_prepared_source"
+        real = getattr(server_mod.Handler, name)
 
-        def slow(store, job, *a, **k):
-            if job.get("id") == jid and threading.current_thread() is not threading.main_thread() \
-                    and not paused.is_set():
-                if pause_before:
-                    paused.set()
-                    go.wait(20)
-                    return real(store, job, *a, **k)
-                out = real(store, job, *a, **k)
+        def hold(handler, *a, **k):
+            if threading.current_thread() is not threading.main_thread() and not paused.is_set() \
+                    and (not pause_before or a[:1] == (jid,)):
                 paused.set()
-                go.wait(20)
-                return out
-            return real(store, job, *a, **k)
+                go.wait(60)
+            return real(handler, *a, **k)
         res = {}
-        with mock.patch.object(jobs_mod.Store, "ensure_files_dir", slow):
+        with mock.patch.object(server_mod.Handler, name, hold):
             t = threading.Thread(target=lambda: res.update(
                 probe=self.raw("GET", "/api/jobs/%s/probe/%s/16/1.json" % (jid, fid))[0]), daemon=True)
             t.start()
-            self.assertTrue(paused.wait(20))
+            self.assertTrue(paused.wait(30))
             res["delete"] = self.api("DELETE", "/api/jobs/%s" % jid)[0]
             go.set()
-            t.join(60)
+            t.join(120)
+        self.assertFalse(t.is_alive())
         self.assertEqual(res["delete"], 200)
-        self.assertIn(res["probe"], (404, 200))
+        pending = os.path.join(self.data, "pending-sweeps.json")
+
+        def recorded():
+            if not os.path.exists(pending):
+                return []
+            with open(pending, encoding="utf-8") as f:
+                return json.load(f)
         left = [n for n in os.listdir(self.out) if n.startswith(".svf-maker-")]
-        self.assertEqual(left, [], left)                                        # no orphan files directory, no tombstone
+        named = {os.path.basename(e["path"]) for e in recorded()}
+        self.assertLessEqual(set(left), named, (left, recorded()))              # nothing left that is not recorded
+        if pause_before:
+            self.assertEqual(res["probe"], 404, res)                            # the probe finds no job, makes nothing
+        else:
+            self.assertIn(res["probe"], (404, 200))
+            self.assertTrue(left, "the held bake must have kept the directory for the retry")
+        self.srv.store.retry_pending_sweeps()
+        self.assertEqual([n for n in os.listdir(self.out) if n.startswith(".svf-maker-")], [])   # no orphan, no tombstone
+        self.assertEqual(recorded(), [])
         self.assertFalse(os.path.exists(os.path.join(self.data, "jobs", jid)))
 
     def test_a_probe_racing_a_delete_leaves_no_files_directory_after_the_check(self):
