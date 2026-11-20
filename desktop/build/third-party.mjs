@@ -247,7 +247,8 @@ export async function generate(opts) {
   if (toolsetRecord) {
     hr('AppImage toolset modification');
     out.push('The AppImage was built with a copy of electron-builder\'s ' + toolsetRecord.toolset + ' toolset (archive ' + toolsetRecord.archive + ', sha256 ' + toolsetRecord.archive_sha256 + ')',
-      'from which these files were removed (sha256 of each):', ...Object.entries(toolsetRecord.removed).map(([k, v]) => '  ' + k + '  ' + v), '', 'Reason: ' + toolsetRecord.why, '');
+      'from which these files were removed (sha256 of each):', ...Object.entries(toolsetRecord.removed).map(([k, v]) => '  ' + k + '  ' + v), '',
+      ...(toolsetRecord.runtimes ? ['The AppImage runtime of that toolset (sha256):', ...Object.entries(toolsetRecord.runtimes).map(([k, v]) => '  ' + k + '  ' + v), ''] : []), 'Reason: ' + toolsetRecord.why, '');
   }
   hr('Copyleft check');
   const copyleft = [...components.values()].filter((c) => ['lgpl', 'gpl-exception', 'gcc-rle', 'gpl'].includes(c.entry.class));

@@ -4,12 +4,14 @@
 #   AppImage through electron-builder, then desktop/build/release-check.sh on the result.
 # --release adds the D8 sources gate (desktop/build/out/sources/MANIFEST.json must be complete).
 #
-# The AppImage toolset: electron-builder copies six old libraries (appindicator, gconf, indicator, notify, Xss, Xtst)
-# into the AppImage's usr/lib. libindicator is GPL-3.0 (forbidden by the generator, spec 8.10) and both the legacy
-# appimage-12.0.1 and the newer 1.0.2/1.0.3 toolsets carry it, so the build points electron-builder at a copy of the
-# legacy toolset (APPIMAGE_TOOLS_PATH, its documented override) without libindicator and without libappindicator, which
-# cannot load without it (prune-appimage-toolset.py, driven by appimage-toolset.json with the sha256 of the downloaded
-# archive and of each removed file). The app has no tray icon; nothing else changes. Ruling of the controller, plan issue 32.
+# The AppImage toolset: package.json selects electron-builder's appimage@1.0.3 toolset ("toolsets": {"appimage": "1.0.3"}),
+# whose runtime is the static type2 runtime (AppImage/type2-runtime 20251108: no libfuse2 needed on the machine; the legacy
+# appimage-12.0.1 runtime stops with "dlopen(): error loading libfuse.so.2" on a clean Ubuntu 24.04). electron-builder
+# copies six old libraries (appindicator3, gconf, indicator3, notify, Xss, Xtst) into the AppImage's usr/lib. libindicator
+# is GPL-3.0 (forbidden by the generator, spec 8.10) and every toolset carries it, so the build points electron-builder at
+# a copy of the toolset (APPIMAGE_TOOLS_PATH, its documented override) without libindicator and without libappindicator,
+# which cannot load without it (prune-appimage-toolset.py, driven by appimage-toolset.json with the sha256 of the
+# downloaded archive, of the runtime and of each removed file). The app has no tray icon; nothing else changes.
 # Run it under ~/.local/bin/heavy (it takes the browser lock itself for the smoke run).
 set -euo pipefail
 
@@ -28,18 +30,19 @@ START=$(date +%s)
 
 bash maker/build-sidecar.sh
 
-POOL="$HOME/.cache/electron-builder/appimage-12.0.1"
-find_tool() { ls -d "$POOL"/appimage-12.0.1-*/ 2>/dev/null | head -1 || true; }
+POOL="$HOME/.cache/electron-builder/appimage@1.0.3"
+ARCHIVE=appimage-tools-runtime-20251108.tar.gz
+find_tool() { ls -d "$POOL"/appimage-tools-runtime-20251108-*/ 2>/dev/null | head -1 || true; }
 TOOL=$(find_tool)
-if [ -z "$TOOL" ]; then            # fetch the legacy toolset once, with a throw-away build
+if [ -z "$TOOL" ]; then            # fetch the toolset once, with a throw-away build
     # extraResources names THIRD-PARTY.txt: a placeholder keeps electron-builder from failing before it fetches the toolset
     mkdir -p desktop/build/out
     [ -f desktop/build/out/THIRD-PARTY.txt ] || echo "placeholder, replaced by third-party.mjs" > desktop/build/out/THIRD-PARTY.txt
     (cd desktop && npx electron-builder --linux AppImage --publish never >/dev/null 2>&1 || true; rm -rf dist)
     TOOL=$(find_tool)
 fi
-[ -n "$TOOL" ] || { echo "build-appimage: the appimage-12.0.1 toolset is not in $POOL" >&2; exit 1; }
-python3 desktop/build/prune-appimage-toolset.py "$TOOL" "$POOL/appimage-12.0.1.7z" "$T/appimage-tools"
+[ -n "$TOOL" ] || { echo "build-appimage: the appimage@1.0.3 toolset is not in $POOL" >&2; exit 1; }
+python3 desktop/build/prune-appimage-toolset.py "$TOOL" "$POOL/$ARCHIVE" "$T/appimage-tools"
 export APPIMAGE_TOOLS_PATH="$T/appimage-tools"
 
 SRC=()

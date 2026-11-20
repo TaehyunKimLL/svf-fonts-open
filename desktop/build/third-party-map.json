@@ -283,7 +283,7 @@
   "licence_file": "apache-2.0.txt"
  },
  {
-  "match": "libappindicator.so*",
+  "match": "libappindicator*.so*",
   "component": "libappindicator",
   "licence": "LGPL-2.1-only OR LGPL-3.0-only",
   "source_url": "https://launchpad.net/libappindicator",
@@ -309,7 +309,7 @@
   }
  },
  {
-  "match": "libindicator.so*",
+  "match": "libindicator*.so*",
   "component": "libindicator",
   "licence": "GPL-3.0-only",
   "source_url": "https://launchpad.net/libindicator",
@@ -362,16 +362,16 @@
  {
   "match": "(appimage-runtime)",
   "component": "appimage-runtime",
-  "licence": "MIT AND BSD-2-Clause AND LGPL-2.1-only",
-  "source_url": "https://github.com/electron-userland/electron-builder-binaries",
+  "licence": "MIT AND BSD-2-Clause AND LGPL-2.1-only AND BSD-3-Clause AND Zlib",
+  "source_url": "https://github.com/AppImage/type2-runtime",
   "class": "lgpl",
   "runtime": true,
-  "version": "12.0.1",
-  "licence_file": "lgpl-2.1.txt",
-  "note": "electron-builder's appimage-12.0.1 runtime: AppImageKit type-2 runtime (MIT) with squashfuse (BSD-2-Clause) and libfuse (LGPL-2.1) linked statically, plus zlib/liblzma; composition read from file names only",
+  "version": "20251108",
+  "licence_file": "appimage-runtime.txt",
+  "note": "electron-builder's appimage@1.0.3 toolset runtime: AppImage/type2-runtime release 20251108, a static-pie executable (no libfuse2 needed). Composition read from the binary's embedded licence list and version strings: type2-runtime (MIT), musl libc (MIT; version not embedded, Alpine's musl), libfuse 3.15.0 (LGPL-2.1), squashfuse 0.5.2 (BSD-2-Clause), libzstd 1.5.6 (BSD-3-Clause; also offered under GPL-2.0, taken under the BSD licence), zlib inflate 1.3.1 (Zlib). The texts are in the licence section below.",
   "record": {
-   "source": "https://github.com/electron-userland/electron-builder-binaries (appimage-12.0.1) and https://github.com/AppImage/type2-runtime",
-   "replace": "libfuse is linked statically: replacing it means rebuilding the runtime from that source and recipe"
+   "source": "libfuse 3.15.0: https://github.com/libfuse/libfuse/releases/tag/fuse-3.15.0 (the LGPL component to archive for D8); recipe: AppImage/type2-runtime release 20251108 (https://github.com/AppImage/type2-runtime/tree/20251108, binaries via electron-userland/electron-builder-binaries release appimage@1.0.3)",
+   "replace": "libfuse is linked statically: replacing it means rebuilding the runtime from the type2-runtime recipe with another libfuse 3.15.0 build"
   }
  }
 ]
