@@ -1423,16 +1423,6 @@ class LocalSweepTest(LocalRunBase):
                 go.wait(60)
             return real(handler, *a, **k)
         res = {}
-        with mock.patch.object(server_mod.Handler, name, hold):
-            t = threading.Thread(target=lambda: res.update(
-                probe=self.raw("GET", "/api/jobs/%s/probe/%s/16/1.json" % (jid, fid))[0]), daemon=True)
-            t.start()
-            self.assertTrue(paused.wait(30))
-            res["delete"] = self.api("DELETE", "/api/jobs/%s" % jid)[0]
-            go.set()
-            t.join(120)
-        self.assertFalse(t.is_alive())
-        self.assertEqual(res["delete"], 200)
         pending = os.path.join(self.data, "pending-sweeps.json")
 
         def recorded():
@@ -1440,6 +1430,22 @@ class LocalSweepTest(LocalRunBase):
                 return []
             with open(pending, encoding="utf-8") as f:
                 return json.load(f)
+        with mock.patch.object(server_mod.Handler, name, hold):
+            t = threading.Thread(target=lambda: res.update(
+                probe=self.raw("GET", "/api/jobs/%s/probe/%s/16/1.json" % (jid, fid))[0]), daemon=True)
+            t.start()
+            self.assertTrue(paused.wait(30))
+            res["delete"] = self.api("DELETE", "/api/jobs/%s" % jid)[0]
+            if not pause_before:
+                # pins today's "busy -> record -> retry" behaviour of DELETE: the bake still holds the preview lock,
+                # so the directory stays and is named by a pending entry right now, before the bake is released
+                held = [n for n in os.listdir(self.out) if n.startswith(".svf-maker-")]
+                self.assertEqual(len(held), 1, held)
+                self.assertIn(held[0], {os.path.basename(e["path"]) for e in recorded()}, recorded())
+            go.set()
+            t.join(120)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(res["delete"], 200)
         left = [n for n in os.listdir(self.out) if n.startswith(".svf-maker-")]
         named = {os.path.basename(e["path"]) for e in recorded()}
         self.assertLessEqual(set(left), named, (left, recorded()))              # nothing left that is not recorded
