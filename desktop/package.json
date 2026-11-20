@@ -8,7 +8,7 @@
   "license": "MIT",
   "desktopName": "svf-maker.desktop",
   "scripts": {
-    "test": "node --test test/unit.test.js test/third-party.test.js test/verify-extraction.test.js",
+    "test": "node --test test/unit.test.js test/third-party.test.js test/verify-extraction.test.js test/check-runtime.test.js",
     "e2e": "bash test/run-e2e.sh"
   },
   "devDependencies": {
@@ -19,6 +19,9 @@
     "appId": "org.svf-fonts.maker",
     "productName": "svf-maker",
     "electronVersion": "45.2.3",
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
     "npmRebuild": false,
     "publish": null,
     "directories": {

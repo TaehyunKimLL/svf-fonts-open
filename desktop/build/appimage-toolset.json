@@ -1,13 +1,21 @@
 {
-  "toolset": "appimage-12.0.1",
-  "source": "electron-builder's legacy AppImage toolset (electron-userland/electron-builder-binaries), downloaded by electron-builder 26.18.0",
-  "archive": "appimage-12.0.1.7z",
-  "archive_sha256": "d12ff7eb8f1d1ec4652ca5237a7fbdca33acc0c758045636feca62dc6ecb8ec4",
-  "why": "libindicator (GPL-3.0) is in usr/lib of both the legacy and the 1.0.2/1.0.3 toolsets; the licence rule (spec 8.10) forbids GPL in the package. libappindicator cannot load without it and serves only a tray icon, which this app does not have.",
+  "toolset": "appimage@1.0.3",
+  "source": "electron-builder's AppImage toolset with the static type2 runtime (electron-userland/electron-builder-binaries, release appimage@1.0.3; runtime from AppImage/type2-runtime release 20251108), selected by \"toolsets\": {\"appimage\": \"1.0.3\"} in desktop/package.json and downloaded by electron-builder 26.18.0",
+  "archive": "appimage-tools-runtime-20251108.tar.gz",
+  "archive_sha256": "84021a78ee214ae6fd33a2d62a92ba25542dd10bc86bf117a9b2d0bba44e7665",
+  "runtime_version": "20251108",
+  "runtimes": {
+    "runtimes/runtime-x64": "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
+  },
+  "why": "libindicator (GPL-3.0) is in usr/lib of the toolsets (legacy and 1.0.x); the licence rule (spec 8.10) forbids GPL in the package. libappindicator cannot load without it and serves only a tray icon, which this app does not have. The legacy toolset's runtime needs libfuse.so.2 on the machine; the 1.0.3 runtime is static (release check 'runtime').",
   "removed": {
-    "lib/ia32/libindicator.so.7": "59fc6d56dba79cba68065f69bf17353dd1cbc9cd472d99edf2fbf0384a0ef07e",
-    "lib/x64/libindicator.so.7": "3b61ae3424c4800975c1806245a2d286f6e1fc49cd9350913075c27a95f3c7a0",
-    "lib/ia32/libappindicator.so.1": "2842177d7c2f3beb753b7d046d693b59144bf3458afb949b63dbb906e11a546b",
-    "lib/x64/libappindicator.so.1": "033b8803f20b98e8cd56fc8e75e3a71a552f75c0cff9bd0937f3ddd6ee5d2145"
+    "lib/x64/libindicator3.so.7.0.0": "9ef1b4287cbf444af16f3e3da4fa97b6305a0329f457fb25b1ae6a6fd271baea",
+    "lib/x64/libappindicator3.so.1.0.0": "e986459b76c7592b6ee5a27a3ed1bae6aded0c677e9d6efc52d34499006e7fde",
+    "lib/arm32/libindicator3.so.7.0.0": "233f97cebbf361e149ed26fe78329a55f577a8d0ef57a110060c33fb267435b1",
+    "lib/arm32/libappindicator3.so.1.0.0": "bde87762cdd166f5dfe0853a48dbe15505b32e9e2b286d791c6ae19333ec206e",
+    "lib/arm64/libindicator3.so.7.0.0": "68d5ba7792e63ea17c22ff9d9d86de5abf68a13867bfdc067b146d8df3d23ed0",
+    "lib/arm64/libappindicator3.so.1.0.0": "beb131c6ea832c20fce41c9fe50ae557d50f272262632dd3df6a5a3cc01da984",
+    "lib/ia32/libindicator.so.7.0.0": "8cda21f562be4f28fc2c670d09e9d178bcf98fbdb0fa6d0f80d3bf203dc3f734",
+    "lib/ia32/libappindicator.so.1.0.0": "945bb2777923b175615c2d92d2a8df96c3c078be96f3ecec6f82956d20023a53"
   }
 }

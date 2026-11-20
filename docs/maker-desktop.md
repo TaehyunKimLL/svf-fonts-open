@@ -37,7 +37,7 @@ Chrome's socket path is limited to 107 bytes). Never `/tmp`. Every run that star
 
 `build-appimage.sh` runs `maker/build-sidecar.sh` (the frozen test included, no skip allowed), writes `THIRD-PARTY.txt`
 (fails on an unattributed library or a GPL one), builds the AppImage and runs `desktop/build/release-check.sh`, which
-prints one `CHECK <name> ok|FAIL` line each: size, extract, size-sidecar, layout, apprun, desktop-entry, frozen
+prints one `CHECK <name> ok|FAIL` line each: size, extract, size-sidecar, layout, apprun, runtime (the AppImage's runtime is static: no loader, no needed library, no `libfuse.so.2` string; `desktop/build/check-runtime.mjs`, tested by `desktop/test/check-runtime.test.js`; and `--appimage-version` exits 0 with its version line under `env -i`), desktop-entry, frozen
 (`test_frozen.py` against the extracted sidecar, 0 skipped), wasm (`cmp` with a fresh build), licences (the generator over
 the extraction), notices and sources (the bundled `THIRD-PARTY.txt` equals the regenerated one; `resources/repo/{maker,tools}/*.py` and `resources/repo/web/mkindex.py` equal the checkout by sha256: `desktop/build/verify-extraction.sh`, run through `verify-report.sh`/`run-verify.sh`, which fail closed on a non-zero exit, a missing or duplicate result line or any other output, stderr included), smoke (the extracted `AppRun` under xvfb), sources (`--release` only) and contents (a file list record in
 `desktop/build/out/release-<build id>-<AppImage sha256 prefix>.txt`, one per AppImage).
@@ -67,16 +67,29 @@ with user namespaces it would run sandboxed (not verified). The renderer only ev
 loopback server with a strict CSP, plus files the user picked; no remote content is loaded (D7, spec section 17). A `.deb`
 with an AppArmor profile would restore the sandbox on Ubuntu 24.04: a later card (D13), not done here.
 
-## The AppImage toolset and the tray icon
+## The AppImage toolset, the runtime and the tray icon
 
-electron-builder copies six old libraries into the AppImage's `usr/lib` (appindicator, gconf, indicator, notify, Xss,
-Xtst). `libindicator` is **GPL-3.0**, and the packaging rule forbids GPL in the package; both the legacy `appimage-12.0.1`
-toolset and the newer 1.0.2/1.0.3 ones carry it. The build therefore points electron-builder at a copy of the legacy
-toolset from which `libindicator` and `libappindicator` are removed (`desktop/build/prune-appimage-toolset.py`, driven by
-`desktop/build/appimage-toolset.json`: the downloaded archive's sha256 and the sha256 of each removed file are checked and
-printed in THIRD-PARTY.txt; no binary is stored in the repository). **Tray-icon support (libappindicator) is not
-shipped**: `libappindicator` cannot load without `libindicator`, and the app has no tray icon, so nothing is lost. The
-release check proves the pruned AppImage still starts (extracted `AppRun` smoke) and that no GPL library remains in the tree.
+**Runtime (t_ea7dcc8e).** The AppImage built with electron-builder's default (legacy `appimage-12.0.1`) toolset carries
+the old type-2 runtime, which `dlopen()`s `libfuse.so.2`: on a clean Ubuntu 24.04.5 (no `libfuse2t64`) it stopped with
+"dlopen(): error loading libfuse.so.2 ... AppImages require FUSE to run". `desktop/package.json` therefore sets
+`"toolsets": {"appimage": "1.0.3"}` (electron-builder 26.18.0's own switch): the runtime is then the static-pie
+type2 runtime of AppImage/type2-runtime **release 20251108** (`runtimes/runtime-x64`, sha256 `2fca8b44...260d`, taken from
+the electron-builder-binaries release `appimage@1.0.3`, archive `appimage-tools-runtime-20251108.tar.gz` sha256 `84021a78...7665`,
+both pinned in `desktop/build/appimage-toolset.json` and in electron-builder). It mounts through its own statically linked
+libfuse3 and needs only a `fusermount`/`fusermount3` on the machine (present on Ubuntu 24.04). Other differences of the
+newer tool path: squashfs compression is zstd (the legacy path used gzip), and the generated `.desktop` entry reads
+`Exec=AppRun %U` (the `--no-sandbox` flag is added by `AppRun` itself when `unshare -Ur true` fails, as before). The release
+check `runtime` keeps this from regressing. The runtime's sources (type2-runtime 20251108 with libfuse3 and squashfuse) are
+the D8 component `appimage-runtime` version `20251108` (LGPL component to archive: libfuse 3.15.0; recipe: the type2-runtime release). THIRD-PARTY.txt carries the texts of all six embedded components (`desktop/build/licences/appimage-runtime.txt`, each from its upstream source at the matching version, source URLs recorded) and prints the runtime's sha256 beside the toolset record.
+
+**Tray icon.** electron-builder copies six old libraries into the AppImage's `usr/lib` (appindicator3, gconf, indicator3,
+notify, Xss, Xtst). `libindicator` is **GPL-3.0**, and the packaging rule forbids GPL in the package; the legacy toolset and
+the 1.0.x ones all carry it. The build therefore points electron-builder (`APPIMAGE_TOOLS_PATH`) at a copy of the toolset
+from which `libindicator` and `libappindicator` are removed (`desktop/build/prune-appimage-toolset.py`, driven by
+`desktop/build/appimage-toolset.json`: the downloaded archive's sha256, the runtime's sha256 and the sha256 of each removed
+file are checked and printed in THIRD-PARTY.txt; no binary is stored in the repository). **Tray-icon support
+(libappindicator) is not shipped**: it cannot load without `libindicator`, and the app has no tray icon, so nothing is lost.
+The release check proves the pruned AppImage still starts (extracted `AppRun` smoke) and that no GPL library remains.
 
 ## Licences and the release gate
 
@@ -92,8 +105,8 @@ are placed in `desktop/build/out/sources/` with a `MANIFEST.json`:
 
     [{"component": "ffmpeg (Chromium build, in Electron)", "version": "Electron 45.2.3", "kind": "source",
       "archive": "ffmpeg-....tar.xz", "sha256": "<hex>"},
-     {"component": "appimage-runtime", "version": "12.0.1", "kind": "source", "archive": "runtime-src.tar.gz", "sha256": "<hex>"},
-     {"component": "appimage-runtime", "version": "12.0.1", "kind": "recipe", "archive": "runtime-recipe.txt", "sha256": "<hex>"}]
+     {"component": "appimage-runtime", "version": "20251108", "kind": "source", "archive": "runtime-src.tar.gz", "sha256": "<hex>"},
+     {"component": "appimage-runtime", "version": "20251108", "kind": "recipe", "archive": "runtime-recipe.txt", "sha256": "<hex>"}]
 
 (one `source` entry per LGPL component whose component and version equal the map's, plus a `recipe` for the AppImage
 runtime). `build-appimage.sh --release` then fails unless the generator prints "corresponding sources archived: YES".
@@ -106,8 +119,23 @@ host's (2.39, Ubuntu 24.04). A container build on Ubuntu 22.04 (glibc 2.35) woul
 ## Manual checks (a human with a real desktop)
 
 Native file and folder dialogs (the tests stub them), "open folder" in the desktop's file manager, starting the AppImage
-through FUSE (`./svf-maker-0.1.0.AppImage`; no FUSE on the build host, so only `--appimage-extract` and the extracted
-`AppRun` were run), the GPU path (the tests use `--disable-gpu`), a sandboxed renderer on a host with user namespaces.
+through FUSE with a window (`./svf-maker-0.1.0.AppImage`; no FUSE on the build host, so there only `--appimage-extract` and the
+extracted `AppRun` run; the mount itself was shown on the clean host, see below), the GPU path (the tests use `--disable-gpu`), a sandboxed renderer on a host with user namespaces.
+
+## Clean-machine start (t_ea7dcc8e, 2026-11-20)
+
+Host `pc`: Ubuntu 24.04.5, no `libfuse2t64` (`libfuse.so.2` absent), `fusermount`/`fusermount3` present, no display, nothing
+installed for the test. The AppImage built from this branch (133 MB, zstd squashfs) was copied to `~/work/tmp/svf-clean` and run
+with `env -i HOME=$HOME PATH=/usr/bin:/bin`:
+
+    $ ./svf-maker-0.1.0.AppImage --appimage-version
+    AppImage runtime version: https://github.com/AppImage/type2-runtime/commit/dd6cebe          (exit 0)
+    $ ./svf-maker-0.1.0.AppImage
+    ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY          (exit 1)
+    $ ./svf-maker-0.1.0.AppImage --appimage-mount     # the squashfs is mounted: AppRun, chrome_100_percent.pak, ... listed
+
+The libfuse error is gone; the run now fails only for the missing display, after the FUSE mount (Electron started from the
+mounted image). A window run under xvfb on that host is a separate check.
 
 ## Windows and macOS (UNVERIFIED)
 
@@ -131,9 +159,9 @@ Nothing below was run. It is the plan a builder on those hosts follows, and what
 
 ## Not verified here
 
-Windows and macOS entirely; a FUSE-mounted AppImage start; a sandboxed renderer; glibc older than 2.39; `JAMOSET_PYLIB` with
+Windows and macOS entirely; a FUSE-mounted AppImage start with a window; a sandboxed renderer; glibc older than 2.39; `JAMOSET_PYLIB` with
 3.12 wheels in the frozen process and any real recogniser (the tests use a stub interpreter); native dialogs with a display;
-the composition of the AppImage runtime beyond its file names (the map records the electron-builder-binaries source);
+the composition of the AppImage runtime beyond what its binary states (its embedded licence list and version strings: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2, libzstd 1.5.6, zlib 1.3.1; musl's own version is not embedded, so its COPYRIGHT is taken from v1.2.5);
 `SOURCE_DATE_EPOCH` determinism of the AppImage (the sidecar is not bit-reproducible: `base_library.zip` member order
 changes per build); a FreeType other than 2.13.2 in a future Pillow wheel; the exact URLs of the recorded sources
 (recorded, not fetched).

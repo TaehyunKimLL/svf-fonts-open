@@ -236,6 +236,21 @@ test('libXss and libXtst carry their upstream copyright notices into THIRD-PARTY
   assert.ok(r.text.includes('(sha256 ' + sha('xtst') + ')'), 'the digest of an unattributed-by-provenance file is recorded');
 });
 
+test('the AppImage runtime section carries every embedded component with its version, text and no GPL token in its licence', async (t) => {
+  const f = fixture(t);
+  const r = await generate({ ...f.opts, map: REAL_MAP, licencesDir: REAL_LICENCES });
+  withoutProblems(r);
+  const entry = REAL_MAP.find((e) => e.runtime);
+  assert.ok(!/GPL-/.test(entry.licence.replace(/LGPL-2\.1-only/g, '')), entry.licence);
+  assert.equal(entry.licence, 'MIT AND BSD-2-Clause AND LGPL-2.1-only AND BSD-3-Clause AND Zlib');
+  for (const needle of ['type2-runtime (MIT)', 'Copyright (c) 2004-23 probonopd', 'musl libc (MIT', 'Copyright © 2005-2020 Rich Felker',
+    'squashfuse 0.5.2 (BSD-2-Clause)', 'Copyright (c) 2012 Dave Vasilevsky', 'libzstd 1.5.6 (BSD-3-Clause)', 'Copyright (c) Meta Platforms',
+    'zlib 1.3.1 (Zlib', 'Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler', 'The origin of this software must not be misrepresented',
+    'libfuse 3.15.0 (LGPL-2.1)', 'GNU LESSER GENERAL PUBLIC LICENSE', 'libfuse 3.15.0: https://github.com/libfuse/libfuse/releases/tag/fuse-3.15.0']) {
+    assert.ok(r.text.includes(needle), needle);
+  }
+});
+
 test('every licence_file named by the map exists', () => {
   for (const e of REAL_MAP) if (e.licence_file) assert.ok(fs.existsSync(path.join(REAL_LICENCES, e.licence_file)), e.licence_file);
 });
