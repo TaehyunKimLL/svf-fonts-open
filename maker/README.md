@@ -46,6 +46,8 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   place; an archive is listed, not unpacked.
 - A run writes `svf/<dest>/<NAME>.SVF` and its note (and a licence text when one was chosen) and `build-<id>/`
   (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`) into the output folder, and nothing else.
+  `BUILD.md` lists the commands that were run; [docs/recipes.md](../docs/recipes.md#desktop-app-and-maker-routes) maps every
+  route label of the page to its command line and recipe.
   A name the job did not write itself is never replaced. While a job lives, the files the conversion needs on the way
   are kept in `.svf-maker-<id>/` inside the output folder (mode 0700) and removed when the job ends, is deleted or
   the server stops; choose a folder that is not synced.

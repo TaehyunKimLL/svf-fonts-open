@@ -82,7 +82,7 @@ SVF maker 데스크톱 앱은 사용자가 가진 폰트를 자신의 컴퓨터�
 2. **choose output folder**를 눌러 비어 있고 클라우드 클라이언트가 동기화하지 않는 폴더를 고른다.
 3. **detect**를 누르고 "before you convert" 안내를 읽은 뒤 OK를 누른다. 폰트 표가 채워진다.
 4. 원하는 행의 **use** 상자를 체크한다(행은 그 폰트와 함께 라이선스 파일이 발견된 경우에만 미리 체크되며, DOS raw 폰트는 절대
-   미리 체크되지 않는다). 일괄 설정을 살펴보고(처음에는 프리셋 `plain`이면 충분하다) **run**을 누른다. 단계 표는 각 단계의 상태, 시간(seconds), stderr를 보여 준다(명령 자체는 출력 폴더의 `build-<id>/BUILD.md`에 기록된다).
+   미리 체크되지 않는다). 일괄 설정을 살펴보고(처음에는 프리셋 `plain`이면 충분하다) **run**을 누른다. 단계 표는 각 단계의 상태, 시간(seconds), stderr를 보여 준다(명령 자체는 출력 폴더의 `build-<id>/BUILD.md`에 기록되며, [recipes.ko.md](recipes.ko.md#데스크톱-앱과-maker-경로)가 각 경로를 그 명령줄에 대응시킨다).
 5. 작업이 끝나면 **open folder**를 누른다. 페이스는 `<output>/svf/<dest>/`에 있다(6절).
 
 **패키징 없이 체크아웃에서 실행**(개발용. AppImage도 PyInstaller도 없다. 위와 같은 Python, node, emsdk, 네트워크가 필요하지만 한 번만, 그리고 위의 apt 패키지도 필요하다. 셸이 시스템 `python3`로 maker를 시작하므로 그 `python3`이
@@ -243,7 +243,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 
 각 작업은 단계(detect, convert, check, preview...)의 목록이다. 열은 id, font, kind, size, bpp, name, state, seconds,
 quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었고 무엇을 출력했는지 볼 수 있다. 명령 자체는 이 표에 없다. 출력 폴더의
-`build-<id>/BUILD.md`가 무엇을 어떤 명령으로 실행했는지 나열한다. 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
+`build-<id>/BUILD.md`가 무엇을 어떤 명령으로 실행했는지 나열한다([경로 표](recipes.ko.md#데스크톱-앱과-maker-경로)). 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
 볼 수 있다. (캔버스에 잉크가 있다는 것은 저장소의 테스트가 단언하는 것이지 앱이 검사하는 것이 아니다.)
 
 ## 4. 앱이 이해하는 입력

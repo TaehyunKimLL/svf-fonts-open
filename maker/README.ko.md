@@ -46,6 +46,8 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   아카이브는 목록만 보이고 풀지 않는다.
 - 실행하면 `svf/<dest>/<NAME>.SVF`와 그 노트(라이선스 본문을 골랐다면 그것도), 그리고 `build-<id>/`
   (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`)를 출력 폴더에 쓰며, 그 밖에는 쓰지 않는다.
+  `BUILD.md`는 실행한 명령을 나열한다. [docs/recipes.ko.md](../docs/recipes.ko.md#데스크톱-앱과-maker-경로)는 페이지의 모든 경로 레이블을
+  그 명령줄과 레시피에 대응시킨다.
   작업이 직접 쓰지 않은 이름은 절대 덮어쓰지 않는다. 작업이 살아 있는 동안 변환에 중간에 필요한 파일은
   출력 폴더 안의 `.svf-maker-<id>/`(모드 0700)에 두며, 작업이 끝나거나, 삭제되거나, 서버가
   멈추면 지운다. 동기화되지 않는 폴더를 고른다.
