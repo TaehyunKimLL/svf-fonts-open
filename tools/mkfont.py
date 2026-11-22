@@ -471,11 +471,12 @@ def strike_advance(path, size, ch):
     """The advance in px of @p ch from a bitmap-only TrueType's own metrics; None when not applicable.
 
     A TrueType with only bitmaps (bdat/bloc/bhed, e.g. the Mac bitmap-only 'Seoul') has no `head`, so Pillow's
-    getlength() is 0 for every glyph. The strike FreeType opens for @p size (the first whose vertical ppem is
-    @p size) gives the advance: the glyph's own small or big metrics (bdat formats 1, 2, 6, 7), or for the
+    getlength() is 0 for every glyph. The strike FreeType opens for @p size (the first whose ppemX and ppemY
+    are both @p size; FreeType refuses a 14x16 strike at 16) gives the advance: the glyph's own small or big metrics (bdat formats 1, 2, 6, 7), or for the
     shared-metrics formats (5) the metrics of its bloc index subtable. A glyph the strike lacks falls back to
-    hmtx scaled by the bhed unitsPerEm. An explicit 0 in the strike stays 0. Outline fonts (a `head`) and
-    unreadable files give None: they keep getlength().
+    hmtx scaled by the bhed unitsPerEm. An explicit 0 in the strike stays 0. Face 0 of a collection is read.
+    Outline fonts (a `head`) and non-sfnt files give None: they keep getlength(). A bitmap-only font whose
+    data cannot be read (or without fontTools) prints one note on stderr and gives None.
     """
     key = (path, size)
     if key not in _STRIKE_ADVANCES:
@@ -493,15 +494,33 @@ def _metrics_advance(m):
     return None
 
 
+def _sfnt_tags(path):
+    """Table tags of the first font of an sfnt or TTC file, read without fontTools; None if it is neither."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(16)
+            if head[:4] == b"ttcf":
+                off = struct.unpack(">I", head[12:16])[0]
+                f.seek(off)
+                head = f.read(12)
+            else:
+                f.seek(0)
+                head = f.read(12)
+            if len(head) < 12 or head[:4] not in (b"\x00\x01\x00\x00", b"true", b"OTTO", b"typ1"):
+                return None
+            n = struct.unpack(">H", head[4:6])[0]
+            return {f.read(16)[:4].decode("latin-1") for _ in range(n)}
+    except (OSError, struct.error):
+        return None
+
+
 def _read_strike_advances(path, size):
+    tags = _sfnt_tags(path)
+    if tags is None or "head" in tags or "bhed" not in tags:
+        return None, {}      # not a bitmap-only TrueType: Pillow's own advances are right
     try:
         from fontTools.ttLib import TTFont
-        f = TTFont(path, lazy=True)
-        if "head" in f or "bhed" not in f:
-            return None, {}
-    except Exception:
-        return None, {}
-    try:
+        f = TTFont(path, lazy=True, fontNumber=0)       # face 0, as Pillow and cmap_has open it
         cmap = f.getBestCmap() or {}
         adv = {}
         upem = f["bhed"].unitsPerEm
@@ -510,7 +529,8 @@ def _read_strike_advances(path, size):
                 adv[name] = int(round(w * size / upem))
         if "bloc" in f and "bdat" in f:
             for i, strike in enumerate(f["bloc"].strikes):
-                if strike.bitmapSizeTable.ppemY != size:
+                t = strike.bitmapSizeTable
+                if (t.ppemX, t.ppemY) != (size, size):
                     continue
                 data = f["bdat"].strikeData[i]
                 for sub in strike.indexSubTables:
@@ -523,6 +543,7 @@ def _read_strike_advances(path, size):
                 break
         return cmap, adv
     except Exception as e:
+        # ImportError (no fontTools) as well: the font is bitmap-only and its advances would stay 0
         print(f"{path}: 비트맵 전용 글꼴의 스트라이크 폭을 읽지 못했다 ({e!r}); advance 는 0 으로 남을 수 있다",
               file=sys.stderr)
         return None, {}
