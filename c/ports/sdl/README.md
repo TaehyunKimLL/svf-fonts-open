@@ -58,7 +58,7 @@ and the example):
 **SDL3 without root.** SDL3 is not packaged on this host; the gate uses the user's fork (a working tree at
 `~/opt/src/SDL3`, commit `7a588ba6beae4b6f6cc45fdbdca6fd1aea5a2f06`, SDL 3.5.0-dev) built into `~/opt/sdl3` by
 
-    c/cross/install-toolchains.sh sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
+    sh c/cross/install-toolchains.sh "$HOME/opt" sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
 
 which configures out of tree with `-DSDL_X11_XTEST=OFF` (no `libxtst-dev` needed) and records the commit in
 `~/opt/sdl3/COMMIT`; `check.sh` refuses an SDL3 build whose commit differs from the fork tree's. Any SDL3 that

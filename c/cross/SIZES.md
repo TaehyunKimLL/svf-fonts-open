@@ -20,7 +20,7 @@ and their merge); toolchains installed by
 | esp32c3-riscv32 | riscv32-esp-elf-gcc 16.1.0 (crosstool-NG esp-16.1.0_20260609) | `-march=rv32imc_zicsr_zifencei -mabi=ilp32 -Os` (ESP32-C3); link `--specs=nosys.specs -nostartfiles -Wl,-e,main` | Espressif tarball (below) |
 | hazard3-rp2350 | riscv32-pico-elf-gcc 16.1.0 (Raspberry Pi, pico-sdk-tools v2.3.1-0) | `-mcpu=hazard3-rp2350 -mstrict-align -Os` (pico-sdk 2.3.1's flags for `rp2350-riscv`); link `--specs=nosys.specs -nostartfiles -Wl,-e,main` | pico-sdk-tools tarball (below); RP2350 RISC-V core; the pico-sdk's flags; no budget |
 | wasm-emcc | emcc 6.0.13 (emsdk tag 6.0.13) | `-O2`, output a standalone `.wasm` | emsdk git (below) |
-| sdl3 | 3.5.0-dev (fork ~/opt/src/SDL3, commit 7a588ba6beae4b6f6cc45fdbdca6fd1aea5a2f06) | host desktop port only | `install-toolchains.sh sdl3` (the user's fork, built from its working tree) |
+| sdl3 | 3.5.0-dev (fork ~/opt/src/SDL3, commit 7a588ba6beae4b6f6cc45fdbdca6fd1aea5a2f06) | host desktop port only | `sh c/cross/install-toolchains.sh "$HOME/opt" sdl3` (the user's fork, built from its working tree) |
 | sdl2 | 2.30.0 | | libsdl2-dev (system) |
 
 Downloads (sha256 checked by `install-toolchains.sh` before unpacking; the publisher's value, or computed when it lists none):

@@ -57,7 +57,7 @@ rBits, gBits, bBits, aBits, rShift, gShift, bShift, aShift)`이다.
 **root 없이 SDL3.** 이 호스트에는 SDL3이 패키지로 없다. 게이트는 사용자의 포크(`~/opt/src/SDL3`의 작업 트리,
 커밋 `7a588ba6beae4b6f6cc45fdbdca6fd1aea5a2f06`, SDL 3.5.0-dev)를 쓰며, 이를 다음으로 `~/opt/sdl3`에 빌드한다.
 
-    c/cross/install-toolchains.sh sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
+    sh c/cross/install-toolchains.sh "$HOME/opt" sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
 
 이 스크립트는 `-DSDL_X11_XTEST=OFF`(`libxtst-dev`가 필요 없음)로 out-of-tree 설정을 하고 커밋을
 `~/opt/sdl3/COMMIT`에 기록한다. `check.sh`는 커밋이 포크 트리와 다른 SDL3 빌드를 거부한다. `pkg-config sdl3`가 찾는
