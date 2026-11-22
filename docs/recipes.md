@@ -447,7 +447,7 @@ this repository reads directly:
 - the 12x24 English fonts: `jamoset.py ... --eng ASCII.PFT` (12,288 bytes, 256 glyphs of 48 bytes) and HBIOS 12x24
   (15,360 bytes);
 - any precomposed 1 bpp face you made of the Hangul, refitted to pieces: `jamoset.py --layout 844 --from-svf
-  FACE.SVF --check` (for the HWP 1.20 24 px faces this fit was exact);
+  FACE.SVF --mask-font none --check` (for the HWP 1.20 24 px faces this fit was exact);
 - a BDF of the composed syllables: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
 
 What it does **not** read: the HWP `.PFT` Hangul files themselves. Their glyphs are composed by HWP's own rules, which
@@ -552,7 +552,7 @@ what the route makes; the others are fits and are marked experimental):
 | jamo, `experimental fit` | outline (not composite) | 1 bpp: `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --check -o OUT [--eng E] --mask-font none`; 2 bpp: `jamoset.py ... --bpp 2 --check -o OUT` | [Jamo sets from TrueType and OpenType fonts, way 3: fitting to the precomposed syllables](#jamo-sets-from-truetype-and-opentype-fonts) |
 | jamo, `mask fit` | outline or outline-composite with GSUB jamo and a usable mask (1 bpp) | `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --mask-font SRC --no-clean --check -o OUT [--pylib DIR]` | [Jamo sets from TrueType and OpenType fonts, way 2: conjoining-jamo shaping](#jamo-sets-from-truetype-and-opentype-fonts) |
 | jamo, `vector fit` | outline, outline-composite | `jamovec.py master SRC -o M.json [--adaptive]` (no `--components`), then the same `render` | [Jamo sets from TrueType and OpenType fonts, way 3: fitting to the precomposed syllables](#jamo-sets-from-truetype-and-opentype-fonts) (`jamovec.py master` without `--components`) |
-| precomposed, `johab844` | dos-raw, exactly 11,520 bytes (16 px 8x4x4) | `johab844.py SRC dos/NEODG16.SVF OUT [--eng E]` | [Other DOS-era Korean fonts](#other-dos-era-korean-fonts) |
+| precomposed, `johab844` | dos-raw, exactly 11,520 bytes (16 px 8x4x4) | `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng E]` (the maker resolves the base under `svf/`) | [Other DOS-era Korean fonts](#other-dos-era-korean-fonts) |
 | jamo, `dos raw` | dos-raw | `jamoset.py SRC --layout L --check -o OUT [--eng E] [--face 0\|1]` (`--face` for the Dokkaebi printer layouts) | [Other DOS-era Korean fonts](#other-dos-era-korean-fonts) |
 | jamo, `hanterm` | bdf-johab | `jamoset.py SRC --layout hanterm-johab --check -o OUT [--eng E]` | [hanterm](#hanterm) |
 | precomposed, `bdfface` | bdf-ksc5601 (a BDF, or a PCF through the `pcf-bdf` step) | `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST -o OUT` (`WxH` = the BDF's box) | [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) |
