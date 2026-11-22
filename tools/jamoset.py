@@ -2000,9 +2000,13 @@ def read_eng(d):
         return EngCell(16, 24, lambda cp: g_rowmajor(d, cp * 60, 16, 30).rows[3:27], "hbios12x24", 12)
     if len(d) == 12288:
         return EngCell(16, 24, lambda cp: g_rowmajor(d, cp * 48, 16, 24).rows, "pft12x24", 12)
+    if len(d) == 30720:		# Taebaek 3.5.1 GASCII40 / MASCII40: 256 glyphs, 40 rows of 3 bytes, ink 20 wide
+        return EngCell(24, 40, lambda cp: g_rowmajor(d, cp * 120, 24, 40).rows, "pft20x40", 20)
+    if len(d) == 49152:		# GASCII48 / MASCII48: 256 glyphs, 48 rows of 4 bytes, ink 24 wide
+        return EngCell(32, 48, lambda cp: g_rowmajor(d, cp * 192, 32, 48).rows, "pft24x48", 24)
     if len(d) not in (2048, 4096):
-        raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), "
-                          f"not {len(d)}")
+        raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), "
+                          f"30720 (PFT 20x40) or 49152 (PFT 24x48), not {len(d)}")
     return d
 
 
