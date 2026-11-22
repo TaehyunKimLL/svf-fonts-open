@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # CH582M example (YD-CH582M board, SH1106 128 x 64 OLED over hardware I2C): mono profile, bare metal
 
 One image, `svf_ch582_mono`: the WCH CH582M (RISC-V RV32IMAC, 32 KB SRAM, 448 KB CodeFlash) on the YD-CH582M board

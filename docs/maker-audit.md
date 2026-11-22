@@ -1,3 +1,5 @@
+**English** | [한국어](maker-audit.ko.md)
+
 # SVF maker audit: input kinds, controls, preview, desktop readiness
 
 Card t_c3d8c80b. A read-only audit of `maker/` (detect.py, jobs.py, routes.py, presets.py, settings.py, naming.py,

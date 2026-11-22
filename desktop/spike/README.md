@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # Desktop design spike: the measurements behind `docs/superpowers/specs/2026-11-05-maker-desktop-design.md`
 
 Throw-away probes, kept so the numbers in the design can be re-run. Nothing here is the product: `sidecar_spike.py`

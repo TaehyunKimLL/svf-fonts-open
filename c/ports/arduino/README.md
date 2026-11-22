@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # Arduino Uno example (SSD1306 over I2C, face in PROGMEM)
 
 `arduino.ino` draws four lines of Korean and ASCII on a 128 x 64 SSD1306 OLED. The face, `svf/dos/NEODG16G.SVF`

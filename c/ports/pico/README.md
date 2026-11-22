@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # Raspberry Pi Pico example (pico-sdk): colour, grey and mono profiles (default: mono)
 
 One image per profile, chosen at configure time with `-DSVF_PROFILE=colour|grey|mono` (default `mono`). `main.c` runs

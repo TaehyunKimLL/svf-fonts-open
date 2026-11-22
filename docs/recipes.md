@@ -1,3 +1,5 @@
+**English** | [한국어](recipes.ko.md)
+
 # Recipes: from a font to an SVF face
 
 How the faces of `svf/` are made from their upstream fonts, and how to make faces from other kinds of Korean fonts with

@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # Web glue (emscripten)
 
 `svf_web.c` exports the renderer to JavaScript: open faces (mapped from bytes JavaScript puts in the module's memory)

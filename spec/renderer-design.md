@@ -1,3 +1,5 @@
+**English** | [한국어](renderer-design.ko.md)
+
 # Portable C SVF renderer: design
 
 Card t_a5ca9404, 2026-10-19. This document describes the renderer to build. The next step is an implementation plan;

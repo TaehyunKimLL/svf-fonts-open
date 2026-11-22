@@ -1,3 +1,5 @@
+**English** | [한국어](FONTS.ko.md)
+
 # Fonts for hi-res game text
 
 These fonts are shipped with ScummVM for the hi-res text layer

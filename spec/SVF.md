@@ -1,3 +1,5 @@
+**English** | [한국어](SVF.ko.md)
+
 # SVF (SVFN) bitmap font format
 
 Copied on 2026-10-19 from ScummVM branch `jamo` at 40ffd1479a4, `graphics/hires_text/README.md`, sections "Bitmap fonts

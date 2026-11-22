@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 Face baseline (acceptance data for later changes to `svf/`):
 
 - baseline.tsv: the sha256 and size of every `.SVF` face under `svf/` (licence notes, `*.TSV` and `*.md` excluded), one

@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # DOS example (DJGPP, VGA mode 13h)
 
 `svfdemo.c` draws six lines of Korean and ASCII with PAPLG16 (ASCII) + PAPLG18 (2 bpp jamo, every syllable composed)

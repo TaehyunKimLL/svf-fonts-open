@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # WASM font picker (card t_fe9f6c30)
 
 A static page that draws text with SVF faces through the C renderer compiled to WebAssembly (`c/ports/web/svf_web.c`,

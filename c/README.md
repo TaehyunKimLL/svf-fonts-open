@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # SVF C renderer (`c/`)
 
 A portable C99 library that reads SVFN v3 bitmap faces ([spec/SVF.md](../spec/SVF.md)) and draws UTF-8 lines with them,

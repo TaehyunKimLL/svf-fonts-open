@@ -1,3 +1,5 @@
+**English** | [한국어](FACES.ko.md)
+
 | face file | derived from (source, version) | copyright / author | licence | licence file | how it was made |
 |---|---|---|---|---|---|
 | `svf/dos/PAPLG16.SVF` (ASCII, 2 bpp, 18 px cell, 149 glyphs) | Paperlogy-4Regular.ttf, Paperlogy 4 Regular version 1.000 | Copyright (c) 2024 PT& (www.designptn.com); Paperlogy redesigned by Lee Juim, Hangul glyphs from Gmarket Sans, Latin from Montserrat (the font's name table, quoted in `OFLPAPLG.TXT`) | SIL OFL 1.1, no Reserved Font Name claimed | `svf/dos/OFLPAPLG.TXT` | rasterised at 16 px by `mkfont.py` (the exact command in `svf/dos/PAPLG.TXT`): a Modified Version under the OFL |

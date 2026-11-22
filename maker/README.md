@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # SVF maker
 
 The maker turns uploaded fonts (TTF/OTF/TTC, variable fonts, Mac fonts, BDF/PCF, DOS Johab raw fonts, SVF files) into

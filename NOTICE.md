@@ -1,3 +1,5 @@
+**English** | [한국어](NOTICE.ko.md)
+
 # Notice: licences of this repository
 
 The code, the format specification and the documentation written for this repository (`c/`, `tools/`, `maker/`, `web/`,

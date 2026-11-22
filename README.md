@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # svf-fonts
 
 A bitmap font environment: the SVF (SVFN) format, the fonts in it, and the tools that make and check them.
@@ -27,6 +29,8 @@ Mac) to SVF.
 | `spec/SVF.md` | the SVFN v3 format (header, layout bytes, tables, glyph records, profiles, jamo sets JSET v1/v2, BIG, JMAP and LIST, per-glyph dy; v1 and v2 retired) |
 | `docs/STATUS.md` | development status: components, timeline, open cards, decisions, known gaps |
 | `docs/tools.md` | every tool: its purpose, inputs, outputs and options, and the recipes from each input format to an SVF |
+| `docs/desktop-app.md` | the SVF maker desktop app: what it is, how to use it, privacy and security, limits |
+| `docs/c-renderer-guide.md` | integration guide for the C renderer: build, open faces, draw lines, targets, scaling, Hangul, memory, troubleshooting |
 | `docs/recipes.md` | how each face of `svf/` is made, and how-tos for every kind of Korean font source |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | design documents and implementation plans, one pair per feature, named by date; they are the working record and still name faces, tools and paths of the original working repository that this one leaves out |
 | `svf/dos/` | precomposed and jamo-set faces (first made for the ScummVM Korean maps), with their licence `.TXT` files |

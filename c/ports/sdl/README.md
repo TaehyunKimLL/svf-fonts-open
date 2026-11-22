@@ -1,3 +1,5 @@
+**English** | [한국어](README.ko.md)
+
 # SDL2 / SDL3 example (`svfsdl.c`)
 
 `svfsdl.c` draws the lines of `sdl-lines.txt` (the DOS port's file format, parsed by the same `vesa_lines.c`) into an
