@@ -443,7 +443,8 @@ A dy on a jamo piece (`U+F0000..`) is refused. Code points the font lacks are co
 syllables are composed first) or a BDF (`bdfface.read_bdf`: KS X 1001 or Unicode encoding).
 
 **Outputs.** A precomposed SVFN v3 face (flag 5) of cell `round(W x h / H)` x `h`, ascent and advances scaled and
-rounded; an output pixel is the exact share of its source footprint that is inked; 1 bpp keeps share >= `--threshold`,
+rounded, and so is every per-glyph dy (each glyph is resampled from its own cell, so ink a dy moves below the cell
+is kept); an output pixel is the exact share of its source footprint that is inked; 1 bpp keeps share >= `--threshold`,
 2 bpp stores `(share x 255 x 3 + 127) // 255` (mkfont's rule).
 
 **Synopsis.** `python3 tools/svfscale.py SRC --size H [--bpp 1|2] [--threshold 0.5] [--chars ks|face|all|FILE] [--compare FACE.SVF] [--profile NAME] -o OUT.SVF`
@@ -454,12 +455,13 @@ rounded; an output pixel is the exact share of its source footprint that is inke
 | `--bpp 1\|2` | 1 | threshold or four levels |
 | `--threshold F` | 0.5 | 1 bpp: the inked share that keeps a pixel |
 | `--chars` | `ks` | `ks`: ASCII 0x20-0x7E, the 2,350 KS X 1001 syllables and the source's other code points (not a jamo set's pieces in plane 15); `face`: what the source lists; `all`: with all 11,172 syllables; or a file of characters |
-| `--compare FACE.SVF` | none | after writing a 1 bpp result, print its overlap with another 1 bpp face (mean IoU of the KS syllables both draw, at the best shift within 2 px) |
+| `--compare FACE.SVF` | none | after writing a 1 bpp result, print its overlap with another 1 bpp face (mean IoU of the KS syllables both draw, both faces on one baseline, at the best shift within 2 px) |
 | `--profile NAME`, `--box` | `default` | the v3 layout profile |
 
-Exit 1 with a message (not 1 bpp, `--size` not below the source). **Repository modules imported.** `jamoset.py`,
+Exit 1 with a message (not 1 bpp, `--size` below 1 or not below the source, `--compare` with `--bpp 2`). **Repository modules imported.** `jamoset.py`,
 `svfline.py`, `bdfface.py`. **Third-party.** None. **Test.** `tools/test_extract.py` (box-filter levels of a synthetic
-32 px BDF at 16 px, the overlap of a face with itself).
+32 px BDF at 16 px, the 2 bpp level rule at 48 to 16 px, 24 to 16 px with a rounded ascent, scaled advances and a
+dy, the overlap of faces of different ascent).
 
 ### `tools/svf2to3.py`
 
@@ -996,21 +998,47 @@ ceil(W/8) bytes a row), `strips` (8-pixel-wide strips of H bytes one after anoth
 **Synopsis.**
 
     python3 tools/binscan.py info FILE [--block B]
-    python3 tools/binscan.py runs FILE --glyph WxH [--min N] [--max-change C]
-    python3 tools/binscan.py sets FILE [--sets NI,NM,NF] [--slots SI,SM,SF] [--glyph WxH] [--min-inked F]
-    python3 tools/binscan.py ascii FILE [--height H]
+    python3 tools/binscan.py runs FILE --glyph WxH [--min N] [--max-change C] [--start O] [--length N]
+    python3 tools/binscan.py sets FILE [--sets NI,NM,NF] [--slots SI,SM,SF] [--glyph WxH] [--min-inked F] [--start O] [--length N]
+    python3 tools/binscan.py ascii FILE [--height H] [--start O] [--length N]
     python3 tools/binscan.py render FILE --offset O --glyph WxH [--count N] [--cols C] [--png OUT --scale S]
 
 | Command | What it prints |
 |---|---|
 | `info` | size, kind (DOS MZ with its load image and an LZEXE / PKLITE mark, `.COM`, ARJ, ZIP, option ROM `55 AA`), the layouts whose byte size the file matches, an entropy map a block (near 8 bits a byte = packed) |
 | `runs` | runs of at least `--min` (32) inked glyph-like windows (ink 2-60 %, rows that change little) |
-| `sets` | offsets where every set's slot 0 of a raw jamo-piece font is blank and at least `--min-inked` (0.8) of the other slots have ink; of a cluster of nearby passing reads the one whose rows hold together across the byte seams (x = 7 / 8), naming the reads shifted by whole rows that score the same |
+| `sets` | offsets where every set's slot 0 of a raw jamo-piece font is blank and at least `--min-inked` (0.8) of the other slots have ink; of a cluster of nearby passing reads the one whose rows hold together across the byte seams (x = 7 / 8), listing reads a whole row apart, which score the same, together and unranked (decide from the driver's code or a loose copy) |
 | `ascii` | offsets of 8xH English fonts: space blank, `_` in the bottom third, `-` in the middle, 0x21-0x7E inked; of a cluster the alignment with the fewest glyphs inked in their first or last row |
 | `render` | the glyphs from an offset, as `#`/`.` text labelled with index and file offset, or as a PNG |
 
-Exit 0; argparse errors exit 2. **Repository modules imported.** None. **Third-party.** None. **Test.**
+`runs`, `sets` and `ascii` try every offset of the window they scan: `--start O` / `--length N` name the window (offsets
+printed stay file offsets), and a window above 16 MiB is refused (scan a large file in overlapping windows). Use
+`--order strips` for the Korean VGA font ROMs. Exit 0; argparse errors (a zero or negative `--block`, `--step`,
+`--stride`, `--glyph`, `--count`, ...) exit 2. **Repository modules imported.** None. **Third-party.** None. **Test.**
 `tools/test_extract.py`.
+
+### `tools/nkpspec.py`
+
+**Purpose.** Write the `rawcarve.py compose` spec of an NKP Hangul TSR (the 1989 Hercules Hangul drivers NKP.COM V3.00,
+NKP3.COM) from the driver's own tables: the piece-set records, the jamo tables and the initial-set and medial selection
+tables of its Hangul routine (recipes.md, NKP).
+
+**Status.** Special-purpose (one driver family); it shows the shape of a driver-table-to-spec script for other drivers.
+
+**Inputs.** The driver's .COM image. Table addresses are found by the instruction bytes that use them (`find`), or given
+as memory addresses (`--desc`, `--cho`, `--jung`, `--jong`, `--iset`, `--med`; file offset = address - 0x100).
+
+**Outputs.** `find`: one line a table (memory address, file offset; the English font's too). `spec`: the JSON spec
+(offsets and rules only): a record with flag bit 0 set is a 16-pixel piece of (end - first) / 2 rows, one with it clear
+a right- (or left-) half piece of (end - first + 1) / 2 rows of one byte; the initial-set and medial tables name records
+by byte offset (record = value / 6); the final set is record 96.
+
+**Synopsis.** `python3 tools/nkpspec.py find FILE`, `python3 tools/nkpspec.py spec FILE [--desc A ...] -o SPEC.json`. Exit
+1 with a message when a table is missing, outside the file, or not in the NKP shape (jamo tables not in Unicode order,
+a record offset not a multiple of 6).
+
+**Repository modules imported.** None. **Third-party.** None. **Test.** `tools/test_extract.py` (a synthetic .COM with the
+instruction patterns and tables; the spec's geometry and a composed syllable).
 
 ### `tools/rawcarve.py`
 
@@ -1038,7 +1066,8 @@ are left out.
 
 `bdf --chars ks-*` places each KS X 1001 code by `--dense` (glyph i = the i-th code of the set: a 2,350-syllable dump)
 or `--grid L0,T0,PITCH` (glyph = (lead - L0) x PITCH + (trail - T0): `0xA1,0xA1,94` a full table, `0x80,0x80,128` the
-Korean VGA ROMs). The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
+Korean VGA ROMs; a code before the grid or a trail past a row is refused). Negative offsets, a `--length` below 1 and
+`--top` + `--height` past 16 rows are refused; `cut` seeks and reads only the bytes it cuts. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
 `x`, `y`, `width`, `height`, `order`), the initial set per vowel without and with a final, the medial (set, piece) per
 vowel (optionally another table for ㄱ / ㅋ, the 8x4x4 rule), the final set per vowel or one set, and the font's own
 vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). Exit 1 with a message on
@@ -1055,8 +1084,11 @@ format) into its glyph table.
 **Status.** General-purpose. The format was read from the bytes and from OS/2's 16-bit FNTCALLS.DLL; the notes are in the
 johab-fonts research.
 
-**Inputs.** A System DBCS file (header "System DBCS NN"): 512-byte blocks of records, each a Huffman-coded nibble stream
-undone through a context table of the two rows above.
+**Inputs.** A System DBCS file (header "System DBCS NN"): 512-byte blocks of records from 0x1A00, each a Huffman-coded
+nibble stream undone through a context table of the two rows above. A record never crosses its block, and the rest of a
+block is 0xFF padding (glyph number 0xFFFF). Refused with a message: a file shorter than its tables, a cell outside
+1..64 or bytes a glyph other than ceil(w / 8) x h, a record running past its block or the file, glyph numbers out of
+order, a code running past its record's payload.
 
 **Outputs.** `info`: the header (cell, bytes a glyph, lead bytes, glyph number ranges, records, syllables present).
 `table`: every glyph number 256..8997 in order (8,742 slots, absent ones blank), row-major: the KS X 1001 94 x 94 table

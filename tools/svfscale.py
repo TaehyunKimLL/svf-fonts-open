@@ -7,8 +7,9 @@ SRC is an SVF face (precomposed or a jamo set: every glyph is drawn through svfl
 composed first) or a BDF (any encoding bdfface.py reads). Each glyph is drawn in its source cell and box-filtered to the
 new cell: an output pixel is the exact share of the source area it covers that is inked (cell height H to `--size` h,
 the width by the same factor, rounded). 1 bpp keeps a pixel whose share is at least `--threshold` (0.5); 2 bpp stores
-the share as four levels, (share x 255 x 3 + 127) // 255, mkfont.py's rule. The ascent and every advance are scaled
-and rounded; the output is a precomposed SVFN v3 face (flag 5, variable width), in `--profile` (default).
+the share as four levels, (share x 255 x 3 + 127) // 255, mkfont.py's rule. The ascent, every advance and every
+per-glyph dy are scaled and rounded (round(v * h / H)); a glyph is resampled from its own cell, so ink a dy shifts
+below the cell is kept, not clipped; the output is a precomposed SVFN v3 face (flag 5, variable width), in `--profile` (default).
 
 --chars: `ks` (the default) = ASCII 0x20-0x7E, the KS X 1001 2,350 syllables and whatever else the source has outside
 U+AC00-D7A3 and outside plane 15 (where a jamo set keeps its pieces); `face` = the code points the source lists
@@ -16,7 +17,7 @@ U+AC00-D7A3 and outside plane 15 (where a jamo set keeps its pieces); `face` = t
 syllables; or a file of characters (mkfont.py --chars-from rules: any text).
 
 --compare FACE.SVF prints, after writing a 1 bpp result, its overlap with another 1 bpp face: the mean IoU of the KS
-X 1001 syllables both draw, at the best common shift within 2 pixels (how far a resample is from a face drawn at that
+X 1001 syllables both draw, both faces on one baseline, at the best common shift within 2 pixels (how far a resample is from a face drawn at that
 size; not a quality score).
 
 This is a resampling, not a redrawing: thin strokes of a large face become grey or vanish at 1 bpp, and a 16 px face
@@ -40,7 +41,8 @@ class ScaleError(Exception):
 
 
 class Source:
-    """cell_w, cell_h, ascent, cps, draw(cp) -> (rows of 0/1 over the cell, advance) or None."""
+    """cell_w, cell_h, ascent, cps, draw(cp) -> (rows of 0/1 over the glyph's own cell, advance, dy) or None. The cell
+    is drawn without its dy (the per-glyph shift at draw time); the dy is scaled and kept."""
 
 
 def svf_source(path):
@@ -58,10 +60,11 @@ def svf_source(path):
         face = chain[0]
         if not face.has(cp):
             return None
-        pl = list(svfline.placements(chain, chr(cp), 0, f.ascent))
+        adv, _, _, dy = face.metrics(cp)
+        # the baseline at ascent - dy puts the cell's top row at row 0, whatever the glyph's dy
+        pl = list(svfline.placements(chain, chr(cp), 0, f.ascent - dy))
         buf = svfline.draw_gray8(pl, w, h, None)
-        adv = face.metrics(cp)[0]
-        return [[1 if buf[y * w + x] else 0 for x in range(w)] for y in range(h)], adv
+        return [[1 if buf[y * w + x] else 0 for x in range(w)] for y in range(h)], adv, dy
     s.draw = draw
     return s
 
@@ -86,7 +89,7 @@ def bdf_source(path):
                     cx, cy = bx + x, top + y
                     if 0 <= cx < s.cell_w and 0 <= cy < s.cell_h:
                         cell[cy][cx] = 1
-        return cell, adv
+        return cell, adv, 0
     s.draw = draw
     return s
 
@@ -152,17 +155,20 @@ def chars_of(spec, src):
 
 
 def scale(src, size, bpp=1, threshold=0.5, chars="ks"):
-    """[(cp, packed, advance, ink_x, ink_w)], cell_w, cell_h, ascent of the scaled face."""
+    """[(cp, packed, advance, ink_x, ink_w)], cell_w, cell_h, ascent, {cp: dy} of the scaled face. Lengths (ascent,
+    advance, dy) scale as round(v * h / H)."""
     H, W = src.cell_h, src.cell_w
     h = size
     w = max(1, round(W * h / H))
     asc = round(src.ascent * h / H)
-    out = []
+    out, dys = [], {}
     for cp in chars_of(chars, src):
         got = src.draw(cp)
         if got is None:
             continue
-        rows, adv = got
+        rows, adv, dy = got
+        if dy:
+            dys[cp] = round(dy * h / H)
         sh = shares(rows, W, H, w, h)
         if bpp == 1:
             lv = [[1 if v >= threshold - 1e-9 else 0 for v in r] for r in sh]
@@ -174,23 +180,26 @@ def scale(src, size, bpp=1, threshold=0.5, chars="ks"):
         if cp == 0x20 and a == 0:
             a = max(1, w // 2)
         out.append((cp, pack(lv, w, bpp), a, ink_x, ink_w))
-    return out, w, h, asc
+    return out, w, h, asc, dys
 
 
 def overlap(path_a, path_b, reach=2):
-    """(mean IoU, dx, dy, exact) of the KS X 1001 syllables two 1 bpp faces both draw, at the best common shift of
-    face a within @p reach pixels (the faces' cells placed on their own baselines)."""
+    """(mean IoU, dx, dy, exact, syllables) of the KS X 1001 syllables two 1 bpp faces both draw, both on one baseline,
+    at the best common shift of face a within @p reach pixels."""
     ca, cb = svfline.load_chain([path_a]), svfline.load_chain([path_b])
     fa, fb = ca[0], cb[0]
     m = reach
-    w, h = max(fa.cell_w, fb.cell_w) + 2 * m, max(fa.cell_h, fb.cell_h) + 2 * m
+    up = max(fa.ascent, fb.ascent)
+    down = max(fa.cell_h - fa.ascent, fb.cell_h - fb.ascent)
+    w, h = max(fa.cell_w, fb.cell_w) + 2 * m, up + down + 2 * m
+    base = m + up
     pairs = []
     for s in jamoset.ks_x_1001_syllables():
         cp = 0xAC00 + s
         if not (fa.has(cp) and fb.has(cp)):
             continue
-        ga = svfline.draw_gray8(list(svfline.placements(ca, chr(cp), m, m + fa.ascent)), w, h)
-        gb = svfline.draw_gray8(list(svfline.placements(cb, chr(cp), m, m + fb.ascent)), w, h)
+        ga = svfline.draw_gray8(list(svfline.placements(ca, chr(cp), m, base)), w, h)
+        gb = svfline.draw_gray8(list(svfline.placements(cb, chr(cp), m, base)), w, h)
         pairs.append(([(i // w, i % w) for i, v in enumerate(ga) if v], {(i // w, i % w) for i, v in enumerate(gb) if v}))
     if not pairs:
         raise ScaleError("the two faces draw no common KS X 1001 syllable")
@@ -222,27 +231,29 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         src = bdf_source(a.source) if a.source.lower().endswith(".bdf") else svf_source(a.source)
+        if a.size < 1:
+            raise ScaleError(f"--size {a.size}: the new cell height must be at least 1")
+        if a.compare and a.bpp != 1:
+            raise ScaleError("--compare needs --bpp 1")
         if a.size >= src.cell_h:
             raise ScaleError(f"--size {a.size} is not below the source's cell height {src.cell_h}")
-        glyphs, w, h, asc = scale(src, a.size, a.bpp, a.threshold, a.chars)
+        glyphs, w, h, asc, dys = scale(src, a.size, a.bpp, a.threshold, a.chars)
         if not glyphs:
             raise ScaleError("no glyph to write")
-        data = jamoset.write_svfn(w, h, asc, glyphs, b"", jamoset.FLAG_MARKS_AT_ORIGIN, bpp=a.bpp,
+        data = jamoset.write_svfn(w, h, asc, glyphs, b"", jamoset.FLAG_MARKS_AT_ORIGIN, bpp=a.bpp, dy=dys,
                                   profile=jamoset.profile_arg(ap, a))
+        with open(a.output, "wb") as fh:
+            fh.write(data)
+        syl = sum(1 for g in glyphs if 0xAC00 <= g[0] <= 0xD7A3)
+        print(f"{a.output}: {len(data)} bytes, {len(glyphs)} glyphs ({syl} syllables), {src.cell_w}x{src.cell_h} -> "
+              f"{w}x{h}, ascent {asc}, {a.bpp} bpp")
+        if a.compare:
+            iou, dx, dy, exact, n = overlap(a.output, a.compare)
+            print(f"overlap with {a.compare}: {n} syllables, mean IoU {iou:.3f} at shift dx={dx} dy={dy}, "
+                  f"exact {exact}")
     except (ScaleError, ValueError, OSError) as e:
         print(f"svfscale.py: {e}", file=sys.stderr)
         sys.exit(1)
-    with open(a.output, "wb") as fh:
-        fh.write(data)
-    syl = sum(1 for g in glyphs if 0xAC00 <= g[0] <= 0xD7A3)
-    print(f"{a.output}: {len(data)} bytes, {len(glyphs)} glyphs ({syl} syllables), {src.cell_w}x{src.cell_h} -> "
-          f"{w}x{h}, ascent {asc}, {a.bpp} bpp")
-    if a.compare:
-        if a.bpp != 1:
-            print("svfscale.py: --compare needs --bpp 1", file=sys.stderr)
-            sys.exit(1)
-        iou, dx, dy, exact, n = overlap(a.output, a.compare)
-        print(f"overlap with {a.compare}: {n} syllables, mean IoU {iou:.3f} at shift dx={dx} dy={dy}, exact {exact}")
 
 
 if __name__ == "__main__":

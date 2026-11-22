@@ -107,19 +107,26 @@ def default_ascent(h):
 
 
 def cmd_cut(a):
-    d = read(a.file)
-    if a.offset + a.length > len(d):
-        raise CarveError(f"{a.offset:#x} + {a.length} is past the end of the file ({len(d)} bytes)")
+    if a.offset < 0 or a.length < 1:
+        raise CarveError("--offset must be 0 or more and --length 1 or more")
+    size = os.path.getsize(a.file)
+    if a.offset + a.length > size:
+        raise CarveError(f"{a.offset:#x} + {a.length} is past the end of the file ({size} bytes)")
+    with open(a.file, "rb") as fh:
+        fh.seek(a.offset)
+        part = fh.read(a.length)
     with open(a.output, "wb") as fh:
-        fh.write(d[a.offset:a.offset + a.length])
+        fh.write(part)
     print(f"wrote {a.output}: {a.length} bytes from {a.offset:#x}")
 
 
 def cmd_eng(a):
-    d = read(a.file)
     h = a.height
-    if not 1 <= h <= 16 or a.top + h > 16:
-        raise CarveError("--height and --top must fit 16 rows")
+    if a.offset < 0:
+        raise CarveError("--offset must be 0 or more")
+    if not 1 <= h <= 16 or a.top < 0 or a.top + h > 16:
+        raise CarveError("--height (1..16) and --top (0 or more) must fit 16 rows")
+    d = read(a.file)
     out = bytearray(4096)
     n = 0
     for c in range(256):
@@ -134,6 +141,10 @@ def cmd_eng(a):
 
 
 def cmd_bdf(a):
+    if a.offset < 0:
+        raise CarveError("--offset must be 0 or more")
+    if a.grid and (len(a.grid) != 3 or a.grid[2] < 1):
+        raise CarveError("--grid is L0,T0,PITCH with PITCH 1 or more")
     d = read(a.file)
     w, h = a.glyph
     gb = a.stride or binscan.glyph_bytes(w, h, a.order)
@@ -157,7 +168,11 @@ def cmd_bdf(a):
                 idx = i
             else:
                 l0, t0, pitch = a.grid
+                if trail - t0 >= pitch:
+                    raise CarveError(f"--grid {l0:#x},{t0:#x},{pitch}: trail {trail:#x} falls past a row of {pitch}")
                 idx = (lead - l0) * pitch + (trail - t0)
+                if idx < 0:
+                    raise CarveError(f"--grid {l0:#x},{t0:#x},{pitch}: code {lead:02X}{trail:02X} comes before the grid")
             off = a.offset + idx * gb
             if off + gb > len(d):
                 continue
@@ -185,6 +200,10 @@ class Composer:
             for k in ("offset", "stride"):
                 if k not in s:
                     raise CarveError(f"set {name}: no {k}")
+            if s["offset"] < 0 or s["stride"] < 1:
+                raise CarveError(f"set {name}: offset must be 0 or more and stride 1 or more")
+            if not (1 <= s.get("width", self.w) <= 256 and 1 <= s.get("height", self.h) <= 256):
+                raise CarveError(f"set {name}: width and height are 1..256")
         self._cache = {}
 
     def piece(self, name, k):
@@ -217,6 +236,8 @@ class Composer:
 
 
 def cmd_compose(a):
+    if a.eng_offset < 0 or not 1 <= a.eng_height <= 64 or a.eng_top < 0:
+        raise CarveError("--eng-offset and --eng-top must be 0 or more, --eng-height 1..64")
     d = read(a.file)
     with open(a.spec, encoding="utf-8") as fh:
         spec = json.load(fh)

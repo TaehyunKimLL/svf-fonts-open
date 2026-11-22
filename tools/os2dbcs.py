@@ -33,19 +33,35 @@ class DbcsError(Exception):
     pass
 
 
+HEADER_END = 0x1A00
+MAX_GLYPH = 8997
+
+
 def header(d):
     if d[:11] != b"System DBCS":
         raise DbcsError("not an OS/2 System DBCS font (no 'System DBCS' at 0)")
+    if len(d) < HEADER_END:
+        raise DbcsError(f"truncated: {len(d)} bytes, the header and tables take {HEADER_END}")
     w, h, _, bpg = struct.unpack_from("<HHHH", d, 0x12)
+    if not (1 <= w <= 64 and 1 <= h <= 64):
+        raise DbcsError(f"cell {w}x{h} is outside 1..64")
+    if bpg != (w + 7) // 8 * h:
+        raise DbcsError(f"{bpg} bytes a glyph does not match a {w}x{h} cell ({(w + 7) // 8 * h})")
     n = struct.unpack_from("<H", d, 0x80)[0]
+    if n > 15:
+        raise DbcsError(f"{n} lead-byte ranges: the table holds at most 15")
     leads = [struct.unpack_from("<BB", d, 0x82 + 2 * i) for i in range(n)]
     n = struct.unpack_from("<H", d, 0xA0)[0]
+    if n > 7:
+        raise DbcsError(f"{n} glyph-number ranges: the table holds at most 7")
     ranges = [struct.unpack_from("<HH", d, 0xA2 + 4 * i) for i in range(n)]
     return w, h, bpg, leads, ranges
 
 
 def decode(d):
-    """{glyph number: bytes} of every record."""
+    """{glyph number: bytes} of every record. The records fill 512-byte blocks from 0x1A00: a record never crosses a
+    block, and the rest of a block a record does not fit in is 0xFF (a glyph number 0xFFFF). A record's Huffman stream
+    must end within its own payload."""
     w, h, bpg, _, _ = header(d)
     rb = (w + 7) // 8
     tab, ext, ctx = d[0xC0:0x1C0], d[0x1C0:0x1C8], d[0x200:0xA00]
@@ -54,13 +70,20 @@ def decode(d):
         b = ctx[c >> 1]
         return (b & 15) if c & 1 else (b >> 4)
 
-    def bits(bp, n):
-        return int.from_bytes(d[bp >> 3:(bp >> 3) + 3].ljust(3, b"\0"), "big") >> (24 - n - (bp & 7)) & ((1 << n) - 1)
+    def glyph(pos, end, g):
+        """The glyph whose payload is d[pos:end]."""
+        limit = end * 8
 
-    def glyph(pos):
+        def bits(bp, n):
+            # a peek may look past the payload (the next record's bytes, as the OS/2 reader does); a code may not
+            if (bp + n + 7) >> 3 > len(d):
+                raise DbcsError(f"glyph {g}: the code runs past the end of the file")
+            return int.from_bytes(d[bp >> 3:(bp >> 3) + 3].ljust(3, b"\0"), "big") >> (24 - n - (bp & 7)) & ((1 << n) - 1)
         bp, nibs = pos * 8, []
         while len(nibs) < 2 * bpg:
-            v = bits(bp, 8)
+            if bp >= limit:
+                raise DbcsError(f"glyph {g}: the code runs past its {end - pos}-byte payload")
+            v = bits(bp, min(8, len(d) * 8 - bp)) << max(0, 8 - (len(d) * 8 - bp))
             if v == 0:
                 e = ext[bits(bp + 8, 3)]
                 length = 8 + (e >> 4)
@@ -68,7 +91,11 @@ def decode(d):
                 e = tab[v]
                 length = e >> 4
             if length == 0:
-                raise DbcsError(f"code of length 0 at bit {bp}")
+                if bp + 8 > limit:
+                    raise DbcsError(f"glyph {g}: the code runs past its {end - pos}-byte payload")
+                raise DbcsError(f"glyph {g}: code of length 0 at bit {bp}")
+            if bp + length > limit:
+                raise DbcsError(f"glyph {g}: the code runs past its {end - pos}-byte payload")
             nibs.append(e & 15)
             bp += length
         res = bytes((nibs[2 * k] << 4) | nibs[2 * k + 1] for k in range(bpg))
@@ -81,18 +108,20 @@ def decode(d):
                 ((c & 15) << 8) | ((a & 15) << 4) | (r & 15))
         return bytes(out)
 
-    glyphs, p, prev = {}, 0x1A00, 255
-    while p + 3 <= len(d):
-        g, ln = d[p] | d[p + 1] << 8, d[p + 2]
-        if g <= prev or g - prev > 300 or g > 8997:
-            q = (p + 0x1FF) & ~0x1FF
-            if q == p or q >= len(d):
-                break
-            p = q
-            continue
-        glyphs[g] = glyph(p + 3)
-        prev = g
-        p += 3 + ln
+    glyphs, prev = {}, -1
+    for block in range(HEADER_END, len(d), 512):
+        p, end = block, min(block + 512, len(d))
+        while p + 3 <= end:
+            g, ln = d[p] | d[p + 1] << 8, d[p + 2]
+            if g == 0xFFFF:
+                break  # the rest of the block is padding
+            if p + 3 + ln > end:
+                raise DbcsError(f"record of glyph {g} at {p:#x} runs past its block or the file")
+            if g > MAX_GLYPH or g <= prev:
+                raise DbcsError(f"record at {p:#x}: glyph number {g} after {prev}")
+            glyphs[g] = glyph(p + 3, p + 3 + ln, g)
+            prev = g
+            p += 3 + ln
     return glyphs
 
 
@@ -123,7 +152,7 @@ def main(argv=None):
             fh.write(b"".join(g.get(i, blank) for i in range(256, 8998)))
         print(f"wrote {a.output}: {8998 - 256} slots of {bpg} bytes ({w}x{h}), {len(g)} glyphs present; "
               f"glyph number 256 + n is KS X 1001 code (0xA1 + n // 94, 0xA1 + n % 94)")
-    except (DbcsError, struct.error) as e:
+    except (DbcsError, struct.error, OSError) as e:
         print(f"os2dbcs.py: {e}", file=sys.stderr)
         sys.exit(1)
 

@@ -243,8 +243,8 @@ a poor fit.
 
 Some Korean fonts carry jamo glyphs besides their syllables. Whether a tool can use them depends on how the font links
 them to the syllables. Survey a folder first (`fontTools`: the cmap entries in U+1100-11FF, in the Private Use Area
-U+E000-F8FF, the composite syllables, the GSUB features `ljmo` / `vjmo` / `tjmo`); run here over the fonts of
-`~/work/fonts-download` (korean-web, incoming, johab-fonts/ttf; 375 fonts with 50 or more conjoining jamo or 100 or more
+U+E000-F8FF, the composite syllables, the GSUB features `ljmo` / `vjmo` / `tjmo`); run here over the maintainer's
+download collection (Korean web fonts, Debian font packages, the johab-fonts research set; 375 fonts with 50 or more conjoining jamo or 100 or more
 PUA glyphs), three kinds turned up:
 
 | What the font holds | Example (here) | Route | Section |
@@ -709,7 +709,7 @@ cuts it into a Unicode BDF (`binscan.py info` names the size: "KS X 1001 syllabl
 [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) goes on from there; with Sony Fixed 12x24 for ASCII:
 
     python3 -I tools/rawcarve.py bdf GHAN24.PFT --glyph 24x24 --chars ks-hangul --dense --ascent 22 -o $OUT/ghan24.bdf
-    python3 tools/bdfface.py --hangul ghan24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/GHAN24.SVF
+    python3 tools/bdfface.py --hangul $OUT/ghan24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/GHAN24.SVF
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/GHAN24.SVF --mask-font none --check -o $OUT/GHAN24J.SVF
 
 The face is `216,448 bytes`, 2,350 syllables, `width=216 ascent=22 descent=2`, ink 1,074; the jamo set `33,684 bytes`, 344 pieces, IoU
@@ -765,8 +765,11 @@ program on the host; disassembly with objdump -D -b binary -m i8086 is fine). Wo
 
 1. `binscan.py info FILE`: kind, entropy (near 8 = packed: unpack first), size signatures.
 2. Candidates: `binscan.py sets FILE` (8x4x4; other set counts with --sets NI,NM,NF and --slots), `binscan.py ascii FILE`
-   (--height 16, 14, 8), `binscan.py runs FILE --glyph 16x16` (and 8x16, 24x24). Glyph sizes to try: 16x16 = 32 B,
-   24x24 = 72 B; 8x4x4 = 11,520 B, KS X 1001 = 2,350 x the glyph, a 94x94 table = 8,836 x the glyph.
+   (--height 16, 14, 8), `binscan.py runs FILE --glyph 16x16` (and 8x16, 24x24; --order strips for a VGA font ROM).
+   Glyph sizes to try: 16x16 = 32 B, 24x24 = 72 B; 8x4x4 = 11,520 B, KS X 1001 = 2,350 x the glyph, a 94x94 table =
+   8,836 x the glyph. When `sets` lists tied offsets (the same font read a whole row apart), decide which is right from
+   the driver's code (the address its drawing routine reads) or by `cmp` with a loose copy of the font; the bytes alone
+   cannot tell, and a wrong pick moves every syllable by a row.
 3. Look at every candidate: `binscan.py render FILE --offset O --glyph WxH --count 64 [--order rows|strips|cols]
    --png $OUT/o.png` and read the PNG; when nothing lines up, draw long strips (--glyph 16x512, 8x512) to see where
    glyphs are and how high they are stored.
@@ -775,12 +778,18 @@ program on the host; disassembly with objdump -D -b binary -m i8086 is fine). Wo
    rawcarve.py compose spec; say which code you read.
 5. Cut: `rawcarve.py cut` (a raw layout the tools read), `rawcarve.py eng` (English), `rawcarve.py bdf` (ASCII, KS
    syllables: --dense or --grid L0,T0,PITCH) or `rawcarve.py compose --spec`.
-6. Build and check: `jamoset.py --layout 844 CUT --eng ENG --check`, or `bdfface.py --hangul H.bdf --ascii A.bdf`
-   then `jamoset.py --layout 844 --from-svf FACE --mask-font none --check` (also --layout adaptive); report size, glyph
+6. Build and check: `jamoset.py --layout 844 CUT --eng ENG --check`, or `bdfface.py --hangul H.bdf --ascii A.bdf
+   --cell WxH --chars-from $OUT/ks.txt` ($OUT/ks.txt: the 2,350 KS X 1001 syllables as text, written with mkfont.py's
+   NAMED_RANGES['ksx1001-hangul'] as in docs/recipes.md, KS C 5601 BDF and PCF; WxH = the font's cell) then
+   `jamoset.py --layout 844 --from-svf FACE --mask-font none --check` (also --layout adaptive); report size, glyph
    count, `svfline.py measure` and ink of "안녕하세요 ABC 123" (docs/recipes.md, Checking a face) and the fit IoU, and
    show the line drawn.
 Report the offsets, the commands and the numbers; say what you could not resolve.
 ```
+
+`$OUT/ks.txt`, the syllable list every `bdfface.py` line below reads, is written once:
+
+    python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-hangul']()))" $OUT/ks.txt
 
 The three examples below were worked with this prompt (2026-11-22). Their sources are proprietary programs and ROM dumps
 the maintainer holds; no byte of them is in this repository.
@@ -799,26 +808,34 @@ extracted files are byte for byte the copies already on disk. Then:
 
 The English font is at 0x39a0 (128 glyphs of 8x16). No raw 8x4x4 font is there: the strip shows the pieces from 0x41a0
 on, 16 pixels wide but only 5 to 14 rows high each, packed one after another (the inventory's "8/2/1 sets, row-cropped").
-The rule is in the code: `objdump -D -b binary -m i8086 --adjust-vma=0x100 NKP.COM` shows the ASCII routine loading
-`mov ax,0x3aa0` (memory 0x3aa0 = file 0x39a0), and the Hangul routine (at 0x1ea9) splitting the Johab code with three
-tables (initial at 0x1bd6, vowel at 0x1bf6, final at 0x1c14: 5-bit code to the driver's own jamo number), picking the
-initial set from a 42-byte table at 0x1c34 (21 vowels without a final, 21 with one), the medial piece and set from an
-84-byte table of pairs at 0x1c5e, and drawing each piece through a 17-entry table of 6-byte records at 0x1b0c (`u16`
-address, `u8` stride, `u8` first and end byte in the 32-byte cell, `u8` flags: bit 0 set = 16 pixels wide, clear = the
-right 8 pixels only, one byte a row). So NKP has 8 initial sets (no final: ㅏ-type vowels, ㅗㅛㅡ, ㅜㅠ, compound vowels;
-the same four with a final), 2 medial sets (without / with a final; each split into four crops by vowel shape) and one
-final set, and numbers its vowels in its own order (ㅏㅑㅓㅕㅣㅐㅒㅔㅖㅗㅛㅡㅜㅠㅘㅚㅝㅟㅢㅙㅞ). A 25-line script
-turned the tables into a compose spec (`sets` from the 17 records: offset = address - 0x100, `y` = first byte / 2,
-`height` = (end - first) / 2, `x` = 8 and `width` 8 for the right-half records; `initial`, `medial` and `final` from the
-three selection tables; `vowel_order` from the vowel table), and then:
+The rule is in the code: `objdump -D -b binary -m i8086 --adjust-vma=0x100 NKP.COM` (a .COM loads at 0x100, so the
+addresses the code names are memory addresses: file offset = address - 0x100). It shows the ASCII routine loading
+`mov ax,0x3aa0` (file 0x39a0), and the Hangul routine (at 0x1ea9) splitting the Johab code with three 32-byte tables
+(initial at 0x1bd6, vowel at 0x1bf6, final at 0x1c14: 5-bit code to the driver's own jamo number, 31 = none), picking the
+initial set from a 42-byte table at 0x1c34 (21 vowels without a final, then 21 with one; each value is the byte offset
+of a piece-set record, record = value / 6), the medial piece from an 84-byte table at 0x1c5e of (`u8` piece, `u8`
+record byte offset) pairs (21 without a final, 21 with), the final from record 96, and drawing each piece through the
+17 six-byte records at 0x1b0c: `u16` address of the set's first piece, `u8` stride, `u8` first and `u8` end byte of the
+32-byte cell (2 bytes a row) it is ORed into, `u8` flags. Flag bit 0 set: 16 pixels wide, cell bytes first .. end - 1,
+so (end - first) / 2 = stride / 2 rows from row first / 2. Bit 0 clear: one byte a row into every other cell byte
+(first, first + 2, ... below end; the right 8 pixels when first is odd), so stride = (end - first + 1) / 2 rows of 8
+pixels from row first // 2. NKP thus has 8 initial sets (no final: ㅏ-type vowels, ㅗㅛㅡ, ㅜㅠ, compound vowels; the
+same four with a final), 2 medial sets (without / with a final; each split into four crops by vowel shape) and one final
+set, and numbers its vowels in its own order (ㅏㅑㅓㅕㅣㅐㅒㅔㅖㅗㅛㅡㅜㅠㅘㅚㅝㅟㅢㅙㅞ). `tools/nkpspec.py` reads these
+tables (found by the instruction bytes that use them; `find` prints the addresses) and writes the compose spec:
 
+    python3 -I tools/nkpspec.py find NKP.COM                   # desc 0x1b0c, cho 0x1bd6, jung 0x1bf6, jong 0x1c14, iset 0x1c34, med 0x1c5e, ascii 0x3aa0
+    python3 -I tools/nkpspec.py spec NKP.COM -o $OUT/NKP.json  # 17 piece sets; the English font at file 0x39a0
     python3 -I tools/rawcarve.py compose NKP.COM --spec $OUT/NKP.json --syllables all \
         --eng NKP.COM --eng-offset 0x39a0 --ascent 12 -o $OUT/nkp-all.bdf
     python3 tools/bdfface.py --hangul $OUT/nkp-all.bdf --ascii $OUT/nkp-all.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/NKP16.SVF
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/NKP16.SVF --mask-font none --check -o $OUT/NKP16J.SVF
     python3 tools/jamoset.py --layout adaptive --from-svf $OUT/NKP16.SVF --mask-font none --check -o $OUT/NKP16JA.SVF
 
-(`$OUT/ks.txt` is the 2,350 syllables, written as in [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf).) Results:
+The spec is offsets and rules only (its first set: `"d0": {"offset": 16800, "stride": 18, "x": 0, "y": 3, "width": 16,
+"height": 9}`; the right-half one `"d48": {..., "stride": 14, "x": 8, "y": 1, "width": 8, "height": 14}`). A spec
+that gives the right-half records (end - first) / 2 rows draws a wrong face without an error (121,680 bytes, ink 464):
+check the numbers. Results:
 precomposed `122,276 bytes`, 2,447 glyphs (2,350 syllables, ASCII, U+2026, U+25A1), `width=144 ascent=12 descent=4`, ink
 467; the 8x4x4 jamo set `16,452 bytes`, 441 glyphs, 344 pieces, IoU 0.998 over the 2,350 syllables (2,324 exact), 0.2 s;
 the adaptive set `28,204 bytes`, 11/5/4 sets and 12 x 12 classes, IoU 1.000 (all 2,350 exact), 2 s; both ink 467, and
@@ -827,29 +844,30 @@ of them: a 573,076-byte precomposed face): 8x4x4 IoU 0.997 (10,848 exact), adapt
 exact, 9 s. The 8x4x4 set misses a few syllables because NKP picks a with-final initial set by vowel shape (four sets)
 where 8x4x4 has three.
 
-NKP3.COM is another build of the same driver: the same instruction bytes find its tables (descriptors 0x193e, initial
-0x1a08, vowel 0x1a28, final 0x1a46, initial sets 0x1a66, medial 0x1a90; `binscan.py ascii` gives 0x5f70), and the same
-commands give `122,344 bytes`, ink 494 (a Myeongjo-like face); 8x4x4 `16,432 bytes`, IoU 0.997 (2,282 exact);
+NKP3.COM is another build of the same driver: `nkpspec.py find` locates its tables (records 0x193e, initial 0x1a08,
+vowel 0x1a28, final 0x1a46, initial sets 0x1a66, medial 0x1a90, English 0x6070 = file 0x5f70, as `binscan.py ascii`
+finds too), and the same commands (`--eng-offset 0x5f70`) give `122,344 bytes`, ink 494 (a Myeongjo-like face); 8x4x4 `16,432 bytes`, IoU 0.997 (2,282 exact);
 adaptive `26,688 bytes`, 9/5/4 sets, IoU 1.000.
 
 ### Dokkaebi: the font inside the driver
 
-Source: the Hangul Dokkaebi B drivers DKBB.COM (22,035 bytes) and DKBII.COM (20,355 bytes) of the user's Dokkaebi set
-(`dkbb.rar`; proprietary). The loose DKBBG.FNT is read in [Other DOS-era Korean fonts](#other-dos-era-korean-fonts); here
+Source: the Hangul Dokkaebi B drivers DKBB.COM (22,035 bytes) and DKBII.COM (20,355 bytes) of a Hangul Dokkaebi B
+distribution (`dkbb.rar`, with the driver source DKBB.ASM and DKBBG.FNT / DKBBM.FNT; proprietary). The loose DKBBG.FNT is read in [Other DOS-era Korean fonts](#other-dos-era-korean-fonts); here
 the font comes out of the drivers themselves.
 
     python3 -I tools/binscan.py sets DKBB.COM
-    #   offset 0x5e (94): 344 of 344 pieces inked, seam 0.66, ends 0x2d5e; 4 nearby reads pass; the same seams at 0x60 (...)
+    #   offsets 0x5e, 0x60 tie (seam 0.66, 4 nearby reads pass): the same font read a whole row apart; ...
     python3 -I tools/binscan.py ascii DKBB.COM       # offset 0x4cce (19662), edge 0 (fewer than 256 glyphs left in the file)
-    python3 -I tools/binscan.py sets DKBII.COM       # offset 0x105c; the same seams at 0x105e, 0x1060
+    python3 -I tools/binscan.py sets DKBII.COM       # offsets 0x105c, 0x105e, 0x1060 tie (seam 0.67, ...)
     python3 -I tools/binscan.py ascii DKBII.COM      # offset 0x5f
 
 `sets` finds an 8x4x4 font in each, but a read shifted by whole rows passes as well when the bytes before the font are
-zero; it keeps the reads whose 16-bit rows hold together (the "seam": strokes crossing x = 7 / 8) and names the
-row-shifted ones. The right one was the last of them in both drivers: 0x60 in DKBB.COM (where DKBB.ASM puts `han1`, and
-`cmp` finds DKBBG.FNT there, all 15,584 bytes) and 0x1060 in DKBII.COM (its 11,520 bytes differ from DKBBG.FNT in 71: a
-revised face). Render both and keep the one whose pieces sit where the driver draws them; a wrong one shifts every
-syllable by a row.
+zero. It keeps the reads whose 16-bit rows hold together (the "seam": strokes crossing x = 7 / 8) and lists the ones a
+whole row apart together, unranked: the bytes cannot tell them apart. Decide from outside the bytes: in DKBB.COM the
+driver source DKBB.ASM puts `han1` at 0x60 (`cmp` finds DKBBG.FNT there, all 15,584 bytes); for DKBII.COM, whose 11,520
+bytes at 0x1060 differ from DKBBG.FNT in only 71 (a revised face), the same-layout loose file decides it (0x105c and
+0x105e differ from it in 3,372 and 2,768 bytes). Without a source or a loose copy, read the address the drawing routine
+uses in the disassembly; a wrong pick moves every syllable by a row.
 
     python3 -I tools/rawcarve.py cut DKBII.COM --offset 0x1060 --length 11520 -o $OUT/dkbii.fnt
     python3 -I tools/rawcarve.py eng DKBII.COM --offset 0x5f -o $OUT/dkbii-eng.raw
@@ -865,8 +883,8 @@ with the CP437 symbols, in a code order not resolved here).
 
 ### Korean VGA font ROMs (86Box)
 
-Source: the 86Box ROM set (https://github.com/86Box/roms, commit 1ac40f2 of 2026-11-14), downloaded file by file into
-`~/work/fonts-download/86box-roms/` with url, bytes and sha256 in its `downloads.tsv`. Its tree lists three Korean VGA
+Source: the 86Box ROM set (https://github.com/86Box/roms, commit 1ac40f2 of 2026-11-14), downloaded file by file (url,
+bytes and sha256 recorded beside the files). Its tree lists three Korean VGA
 cards, each a 32 KB VGA BIOS and a 512 KB KS C 5601 font ROM: Trigem Korean VGA (ET4000, `video/et4000/tgkorvga.bin`,
 `tg_ksc5601.rom`), Kasan ET4000 (`et4000_kasan16.bin`, `kasan_ksc5601.rom`) and ATI 28800 Korean (`video/ati28800/
 atikorvga.bin`, `ati_ksc5601.rom`); the other Korean entries are machine BIOSes (Samsung Deskmaster 286, Hyundai Super-16T,
@@ -900,11 +918,11 @@ The ROMs hold the whole KS X 1001 table: `--chars ks-nonhanja` adds the symbols 
 `mkfont.py` on the BDF, which keeps them; `bdfface.py` keeps only syllables and ASCII). `rawcarve.py eng tgkorvga.bin
 --offset 0x4a2d` gives the same English font as a raw `--eng` file.
 
-Other ROM sets on this host: the openMSX system ROMs of `johab-fonts/emu/romdb` (1,241 files) hold one Korean font,
+Other ROM sets checked: the openMSX system ROM set (file-hunter's RomDB, 1,241 files) holds one Korean font,
 the Daewoo CPC-400S `400skfn.rom` (131,072 bytes: 16x16, 32 bytes a glyph, the first half of a 256 KB font, KS symbols
 and 1,316 syllables in the machine's own order; johab-fonts `notes/msx.md`); the other Korean MSX ROMs (`cpc-300_hangul`,
 `dpc-200_hangul`, `cpc-400s_hangul`) are Hangul BASIC code, and the MSX1 jamo font is the BIOS's 8x8 character table.
-`~/work/88emuplayer-roms.zip` holds Roland sound-module ROMs (SC-55, SC-88, SC-8850, CM-300) and no font. No MAME-style
+An 88emuplayer ROM pack (`88emuplayer-roms.zip`) holds Roland sound-module ROMs (SC-55, SC-88, SC-8850, CM-300) and no font. No MAME-style
 set with a Korean font was found.
 
 ## OS/2 Korean fonts (완성형) to a precomposed face and a jamo set
@@ -974,11 +992,12 @@ fitted only to the 1 bpp result: `jamoset.py --bpp 2` takes outline fonts only (
 
 Run here (2026-11-22) on three sources, each against a 16 px face of the same family or maker drawn by hand. "Overlap"
 is what `--compare` prints: the mean IoU of the 2,350 syllables of the 1 bpp result against that face, at the best
-common shift within 2 pixels (how far a resampled face is from a drawn one, not a quality score):
+common shift within 2 pixels, both faces on one baseline (how far a resampled face is from a drawn one, not a quality
+score):
 
 | Source | 1 bpp result | Ink | 2 bpp result | Ink | 8x4x4 fit of the 1 bpp result | Overlap with the drawn 16 px face |
 |---|---|---:|---|---:|---|---|
-| Baekmuk Dotum 24 (`dotum24.bdf` of Baekmuk BDF 2.2 + Misc Fixed 12x24, through `bdfface.py`, `216,196 bytes`) | `122,016 bytes`, 2,447 glyphs, `width=144 ascent=15 descent=1` | 330 | `194,208 bytes` | 612 | `18,292 bytes`, IoU 0.597 | 0.520 against `dotum16.bdf` (`122,804 bytes`, ink 411), shift 1 row |
+| Baekmuk Dotum 24 (`dotum24.bdf` of Baekmuk BDF 2.2 + Misc Fixed 12x24, through `bdfface.py`, `216,196 bytes`) | `122,016 bytes`, 2,447 glyphs, `width=144 ascent=15 descent=1` | 330 | `194,208 bytes` | 612 | `18,292 bytes`, IoU 0.597 | 0.520 against `dotum16.bdf` (`122,804 bytes`, ink 411) |
 | OS/2 `$korZN24.FNT` ([OS/2 Korean fonts](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set), `220,164 bytes`) | `125,084 bytes`, 2,447 glyphs, `width=144 ascent=15 descent=1` | 410 | `200,760 bytes` | 691 | `18,596 bytes`, IoU 0.710 | 0.387 against `$korZN16.FNT` |
 | Taebaek 3.5.1 Gothic 40 (`GHANC40.PFT`, the 8x4x4 face of [Other DOS-era Korean fonts](#other-dos-era-korean-fonts), `33,944 bytes`) | `121,772 bytes`, 2,350 syllables (no ASCII: `--eng` reads the 40 px English font GASCII40.PFT only once card t_262e222d merges), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | 0.471 against GOTHIC16.FNT |
 
@@ -1147,7 +1166,7 @@ sample line (the precomposed faces: 677 and 469):
 
 Each fit took 0.3-0.5 s (fixed layouts) or 2-7 s (adaptive). The precomposed faces are 125,520 and 123,328 bytes.
 
-**Reading it.** The fixed layouts cost what their piece count costs (621: 279 glyphs, 844: 440, 10x4x4: about 470),
+**Reading it.** The fixed layouts cost what their piece count costs (621: 279 / 280 glyphs on the two faces, 844: 440 / 441, the 10x4x4 layouts: 464-479),
 and they gain little over each other. `adaptive:8,4,4` has the 844 counts but 12 x 12 classes: its tables cost 8.8 KB
 more (a 9,921-byte JSET block against 1,101; 2,844 as JSET v2: `--jset-version 2` or `auto`, every adaptive
 face above shrinks by 6-7 KB that way) for a better choice of which syllables share a piece (OS/2: 2,171 exact against

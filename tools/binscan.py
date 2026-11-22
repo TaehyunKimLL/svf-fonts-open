@@ -60,10 +60,55 @@ def parse_int(s):
 
 def parse_glyph(s):
     try:
-        w, h = s.lower().split("x")
-        return int(w), int(h)
+        w, h = (int(v) for v in s.lower().split("x"))
     except ValueError:
         raise argparse.ArgumentTypeError("glyph is WxH, e.g. 16x16")
+    if not (1 <= w <= 1024 and 1 <= h <= 1024):
+        raise argparse.ArgumentTypeError("glyph width and height are 1..1024")
+    return w, h
+
+
+def counts(s):
+    try:
+        v = tuple(int(x) for x in s.split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{s}: three numbers, e.g. 8,4,4")
+    if len(v) != 3 or min(v) < 1:
+        raise argparse.ArgumentTypeError(f"{s}: three numbers of 1 or more")
+    return v
+
+
+def positive(s):
+    v = parse_int(s)
+    if v < 1:
+        raise argparse.ArgumentTypeError(f"{s}: must be 1 or more")
+    return v
+
+
+def nonneg(s):
+    v = parse_int(s)
+    if v < 0:
+        raise argparse.ArgumentTypeError(f"{s}: must be 0 or more")
+    return v
+
+
+MAX_SCAN = 16 << 20  # runs / sets / ascii scan every offset: past this, name a window with --start / --length
+
+
+def window(a):
+    """(bytes, base): the scanned window of the file and its file offset."""
+    size = os.path.getsize(a.file)
+    start = a.start
+    length = a.length if a.length is not None else size - start
+    if start > size:
+        raise SystemExit(f"binscan.py: --start {start:#x} is past the end of the file ({size} bytes)")
+    length = min(length, size - start)
+    if length > MAX_SCAN:
+        raise SystemExit(f"binscan.py: {length} bytes to scan; more than {MAX_SCAN}: give --start and --length "
+                         f"(windows overlap by a font's size to be safe)")
+    with open(a.file, "rb") as fh:
+        fh.seek(start)
+        return fh.read(length), start
 
 
 def glyph_bytes(w, h, order):
@@ -178,7 +223,7 @@ def glyph_like(rows):
 
 
 def cmd_runs(a):
-    data = open(a.file, "rb").read()
+    data, base = window(a)
     w, h = a.glyph
     gb = a.stride or glyph_bytes(w, h, a.order)
     found = []
@@ -209,13 +254,13 @@ def cmd_runs(a):
     kept.sort()
     print(f"{a.file}: {len(data)} bytes; glyph {w}x{h} {a.order}, {gb} B a glyph; runs of >= {a.min} inked glyphs")
     for s, n, b in kept:
-        print(f"  offset {s:#x} ({s}): {n} glyphs ({b} blank), ends {s + n * gb:#x}")
+        print(f"  offset {base + s:#x} ({base + s}): {n} glyphs ({b} blank), ends {base + s + n * gb:#x}")
     if not kept:
         print("  none")
 
 
 def cmd_sets(a):
-    data = open(a.file, "rb").read()
+    data, base = window(a)
     ni, nm, nf = a.sets
     si, sm, sf = a.slots
     w, h = a.glyph
@@ -234,8 +279,9 @@ def cmd_sets(a):
         if inked >= a.min_inked * (total - len(fill)):
             hits.append((off, inked))
     # a font shifted by a byte passes too (its blank slots stay blank): of each cluster of nearby hits keep the
-    # offset whose strokes run across the byte seams of a row (x = 7 and 8, 15 and 16 ...) most often; a misaligned
-    # read pairs the right half of one row with the left half of the next, and its seams rarely meet
+    # offsets whose strokes run across the byte seams of a row (x = 7 and 8, 15 and 16 ...) most often (a misaligned
+    # read pairs the right half of one row with the left half of the next, and its seams rarely meet); reads a whole
+    # row apart score the same and are listed together, unranked
     def seam(off):
         both = either = 0
         for i in range(total):
@@ -257,18 +303,19 @@ def cmd_sets(a):
     for c in clusters:
         scored = [(round(seam(off), 3), off, inked) for off, inked in c]
         top = max(r for r, _, _ in scored)
-        ties = [off for r, off, _ in scored if r == top]
-        best.append((ties, c[[o for o, _ in c].index(ties[0])][1], top, len(c)))
+        ties = [(off, inked) for r, off, inked in scored if r == top]
+        best.append((ties, top, len(c)))
     print(f"{a.file}: {ni}x{nm}x{nf} sets of {si}/{sm}/{sf} slots, {gb} B a glyph, {total} glyphs = {span} B; "
           f"offsets whose {len(fill)} fill slots are blank and >= {a.min_inked:.0%} of the others inked:")
-    for ties, inked, r, n in best[:a.limit]:
-        off = ties[0]
-        alt = ""
-        if len(ties) > 1:
-            alt = ("; the same seams at " + ", ".join(f"{t:#x}" for t in ties[1:])
-                   + " (a whole-row shift: render both and keep the one whose pieces sit as the driver draws them)")
-        print(f"  offset {off:#x} ({off}): {inked} of {total - len(fill)} pieces inked, seam {r:.2f}, "
-              f"ends {off + span:#x}; {n} nearby reads pass{alt}")
+    for ties, r, n in best[:a.limit]:
+        if len(ties) == 1:
+            off, inked = ties[0]
+            print(f"  offset {base + off:#x} ({base + off}): {inked} of {total - len(fill)} pieces inked, seam {r:.2f}, "
+                  f"ends {base + off + span:#x}; {n} nearby reads pass")
+        else:
+            print(f"  offsets {', '.join(f'{base + o:#x}' for o, _ in ties)} tie (seam {r:.2f}, {n} nearby reads pass): "
+                  f"the same font read a whole row apart; the bytes cannot tell which is right: decide from the "
+                  f"driver's code (the address it draws from) or by cmp with a loose copy of the font")
     if not best:
         print("  none")
     elif len(best) > a.limit:
@@ -276,41 +323,41 @@ def cmd_sets(a):
 
 
 def cmd_ascii(a):
-    data = open(a.file, "rb").read()
+    data, base = window(a)
     h = a.height
     hits = []
-    for base in range(0, len(data) - 128 * h + 1):
-        sp = data[base + 0x20 * h:base + 0x21 * h]
+    for at in range(0, len(data) - 128 * h + 1):
+        sp = data[at + 0x20 * h:at + 0x21 * h]
         if any(sp):
             continue
-        under = data[base + 0x5F * h:base + 0x60 * h]
-        dash = data[base + 0x2D * h:base + 0x2E * h]
+        under = data[at + 0x5F * h:at + 0x60 * h]
+        dash = data[at + 0x2D * h:at + 0x2E * h]
         if not any(under) or not any(dash):
             continue
         uy = [y for y in range(h) if under[y]]
         dy = [y for y in range(h) if dash[y]]
         if min(uy) < h * 2 // 3 or max(dy) > h * 3 // 4 or min(dy) < h // 4:
             continue
-        if not all(any(data[base + c * h:base + (c + 1) * h]) for c in range(0x21, 0x7F)):
+        if not all(any(data[at + c * h:at + (c + 1) * h]) for c in range(0x21, 0x7F)):
             continue
-        hits.append(base)
+        hits.append(at)
     # a font shifted by a byte or two passes the tests too: keep, of each cluster of nearby hits, the alignment whose
     # glyphs least often have ink in their first or last row (a real font keeps those rows for spacing)
     best = []
-    for base in hits:
-        edge = sum(1 for c in range(0x21, 0x7F) if data[base + c * h] or data[base + c * h + h - 1])
-        if best and base - best[-1][2] <= h:
+    for at in hits:
+        edge = sum(1 for c in range(0x21, 0x7F) if data[at + c * h] or data[at + c * h + h - 1])
+        if best and at - best[-1][2] <= h:
             if edge < best[-1][1]:
-                best[-1] = [base, edge, base]
+                best[-1] = [at, edge, at]
             else:
-                best[-1][2] = base
+                best[-1][2] = at
         else:
-            best.append([base, edge, base])
+            best.append([at, edge, at])
     print(f"{a.file}: 8x{h} ASCII candidates (glyph 0 at the offset; 0x41 'A' is at offset + {0x41 * h:#x}; "
           f"edge = glyphs with ink in the first or last row):")
-    for base, edge, _ in best[:a.limit]:
-        n256 = base + 256 * h <= len(data)
-        print(f"  offset {base:#x} ({base}), edge {edge}{'' if n256 else ' (fewer than 256 glyphs left in the file)'}")
+    for at, edge, _ in best[:a.limit]:
+        n256 = at + 256 * h <= len(data)
+        print(f"  offset {at + base:#x} ({at + base}), edge {edge}{'' if n256 else ' (fewer than 256 glyphs left in the file)'}")
     if not best:
         print("  none")
 
@@ -366,50 +413,58 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    def scan_window(p):
+        p.add_argument("--start", type=nonneg, default=0, help="scan from this file offset (0)")
+        p.add_argument("--length", type=positive, default=None,
+                       help=f"scan this many bytes (default: to the end; at most {MAX_SCAN})")
+
     def geometry(p, need_glyph=True):
         p.add_argument("--glyph", type=parse_glyph, required=need_glyph, default=(16, 16), metavar="WxH")
-        p.add_argument("--stride", type=parse_int, default=None, metavar="B")
+        p.add_argument("--stride", type=positive, default=None, metavar="B")
         p.add_argument("--order", choices=("rows", "strips", "cols", "bytecols"), default="rows")
         p.add_argument("--lsb", action="store_true", help="bit 0 is the left (or top) pixel")
 
     p = sub.add_parser("info", help="size, kind, entropy, size signatures")
     p.add_argument("file")
-    p.add_argument("--block", type=parse_int, default=4096)
+    p.add_argument("--block", type=positive, default=4096)
     p.set_defaults(fn=cmd_info)
 
-    p = sub.add_parser("runs", help="runs of glyph-like windows")
+    p = sub.add_parser("runs", help="runs of glyph-like windows (--order strips for the Korean VGA font ROMs)")
     p.add_argument("file")
     geometry(p)
-    p.add_argument("--min", type=int, default=32, help="inked glyphs a run needs (32)")
-    p.add_argument("--step", type=int, default=None, help="phases tried within a glyph (default: one a row)")
+    p.add_argument("--min", type=positive, default=32, help="inked glyphs a run needs (32)")
+    p.add_argument("--step", type=positive, default=None, help="phases tried within a glyph (default: one a row)")
     p.add_argument("--max-change", type=float, default=2.5,
                    help="mean pixels that change from row to row, per 8 columns (2.5)")
+    scan_window(p)
     p.set_defaults(fn=cmd_runs)
 
     p = sub.add_parser("sets", help="raw jamo-piece fonts: offsets with blank fill slots")
     p.add_argument("file")
-    p.add_argument("--sets", type=lambda s: tuple(int(x) for x in s.split(",")), default=(8, 4, 4), metavar="NI,NM,NF")
-    p.add_argument("--slots", type=lambda s: tuple(int(x) for x in s.split(",")), default=(20, 22, 28),
+    p.add_argument("--sets", type=counts, default=(8, 4, 4), metavar="NI,NM,NF")
+    p.add_argument("--slots", type=counts, default=(20, 22, 28),
                    metavar="SI,SM,SF", help="slots a set (20,22,28: slot 0 blank, then the 19/21/27 jamo)")
     geometry(p, need_glyph=False)
     p.add_argument("--min-inked", type=float, default=0.8)
-    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--limit", type=positive, default=20)
+    scan_window(p)
     p.set_defaults(fn=cmd_sets)
 
     p = sub.add_parser("ascii", help="8xH ASCII fonts")
     p.add_argument("file")
-    p.add_argument("--height", type=int, default=16)
-    p.add_argument("--limit", type=int, default=20)
+    p.add_argument("--height", type=positive, default=16)
+    p.add_argument("--limit", type=positive, default=20)
+    scan_window(p)
     p.set_defaults(fn=cmd_ascii)
 
     p = sub.add_parser("render", help="draw glyphs at an offset")
     p.add_argument("file")
-    p.add_argument("--offset", type=parse_int, default=0)
+    p.add_argument("--offset", type=nonneg, default=0)
     geometry(p)
-    p.add_argument("--count", type=int, default=None)
-    p.add_argument("--cols", type=int, default=None)
+    p.add_argument("--count", type=positive, default=None)
+    p.add_argument("--cols", type=positive, default=None)
     p.add_argument("--png", default=None)
-    p.add_argument("--scale", type=int, default=3)
+    p.add_argument("--scale", type=positive, default=3)
     p.set_defaults(fn=cmd_render)
 
     a = ap.parse_args(argv)
