@@ -15,7 +15,7 @@ t_f04f1355(셸)와 t_e64a56a7(패키징). 설계: `docs/superpowers/specs/2026-1
 - 사이드카는 각 도구를 `svf-maker-sidecar run-tool <name> ...`로 자기 세션에서 실행하고, `<data root>/tools.pids`에 등록하며, 시작할
   때 죽은 실행이 남긴 것을 정리한다(`maker/toolreg.py`). 데이터 루트당 서버는 하나이다(`instance.lock`). 데이터 루트는
   `~/.config/svf-maker/maker`(`<userData>/maker`)이고, 개발 실행은 `<userData>/maker-dev`를 쓴다.
-- 선택적 부품은 밖에 둔다. 신원 점검은 `SVF_RECOG_DIR`와 함께 `SVF_RECOG_PYTHON` 아래에서 실행되고, 마스크 맞춤 라이브러리는
+- 선택적 부품은 밖에 둔다. 정체성 검사는 `SVF_RECOG_DIR`와 함께 `SVF_RECOG_PYTHON` 아래에서 실행되고, 마스크 맞춤 라이브러리는
   `JAMOSET_PYLIB`에서 온다. 패키지는 그 인터프리터를 위해 `maker/*.py`와 `tools/*.py`를 소스로 싣는다.
 
 ## 빌드 (Linux)

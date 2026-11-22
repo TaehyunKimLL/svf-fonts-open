@@ -485,8 +485,9 @@ The faces already written in your output folders are yours and stay.
   POSIX). The macOS plan (signing, notarisation) is written in [maker-desktop.md](maker-desktop.md).
 - The `mask fit` route has never run a job on the author's host (the libraries are not installed there); the identity
   check has only been tested with a stub; `vector fit` takes minutes per font.
-- Native dialogs, the file manager integration, starting through a real FUSE mount with a window, the GPU path and a
-  sandboxed renderer are checked by hand only; the automated tests stub the dialogs and run with the GPU off.
+- Not verified, pending manual checks on a real desktop: native dialogs with a display, the file manager integration,
+  starting through a real FUSE mount with a window manager, the GPU path and a sandboxed renderer. What has been run is the
+  Xvfb start above; the automated tests stub the dialogs and run with the GPU off.
 - Real Mac, HWP and Johab files are tested only where an environment variable points at your own copy; the repository's
   tests use synthetic inputs.
 - The AppImage is not bit-reproducible, and there is no automatic update; a new version is a new file.

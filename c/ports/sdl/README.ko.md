@@ -49,7 +49,7 @@ rBits, gBits, bBits, aBits, rShift, gShift, bShift, aShift)`이다.
 
     cc -std=c99 -O2 -DSVFSDL=2 -Ic/include -Ic/ports/dos c/ports/sdl/svfsdl.c c/ports/dos/vesa_lines.c \
         c/ports/dos/vbe_select.c c/src/*.c $(pkg-config --cflags --libs sdl2) -o svfsdl2
-    export PKG_CONFIG_PATH=~/opt/sdl3/lib/pkgconfig      # set first: the $(pkg-config ...) below are expanded by the 셸
+    export PKG_CONFIG_PATH=~/opt/sdl3/lib/pkgconfig      # set first: the $(pkg-config ...) below are expanded by the shell
     cc -std=c99 -O2 -DSVFSDL=3 -Ic/include -Ic/ports/dos c/ports/sdl/svfsdl.c c/ports/dos/vesa_lines.c \
         c/ports/dos/vbe_select.c c/src/*.c $(pkg-config --cflags --libs sdl3) \
         -Wl,-rpath,$(pkg-config --variable=libdir sdl3) -o svfsdl3

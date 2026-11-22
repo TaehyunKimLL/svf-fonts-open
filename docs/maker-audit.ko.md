@@ -128,7 +128,7 @@ listen 소켓이 127.0.0.1 전용이고 출력 폴더와 임시 디렉터리 밖
 
 계획 `docs/superpowers/plans/2026-10-21-svf-maker.md`(16개 작업). 체크박스는 모두 비어 있고(`- [ ]` 82개, `- [x]` 0개)
 "Implemented" 노트도 없다; 아래 상태는 파일과 `docs/STATUS.md:29, 120`에서 얻었다
-("대부분 done, systemd unit·문서·end-to-end 테스트와 web UI v1 남음"; 10-23에 837f525로 병합, LIST 지원은 10-28에 0d73568; 두 커밋 모두 이 선별된 이력에는 없다).
+("대부분 done, systemd unit·문서·end-to-end 시험과 web UI v1 남음"; 10-23에 837f525로 병합, LIST 지원은 10-28에 0d73568; 두 커밋 모두 이 선별된 이력에는 없다).
 
 | 계획 작업 | 이 트리에서의 상태 |
 |---|---|

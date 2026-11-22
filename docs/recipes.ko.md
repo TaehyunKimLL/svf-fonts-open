@@ -406,7 +406,7 @@ pixel size`). 여기서는 실행하지 않았다(`ttf/`에 그런 폰트가 없
     python3 tools/svfline.py measure "안녕하세요 ABC 123" FACE.SVF       # width, ascent, descent
     python3 tools/svfline.py line 200 24 0 16 "안녕하세요 ABC 123" FACE.SVF > out.gray
     python3 tools/fontmetrics.py FACE.SVF                                 # ink past the advance
-    python3 tools/svf2to3.py FACE.SVF /tmp/x.SVF --check                  # re-layout and compare every 글리프
+    python3 tools/svf2to3.py FACE.SVF /tmp/x.SVF --check                  # re-layout and compare every glyph
     python3 tools/facecheck.py manifest --git . --rev HEAD --path svf -o /tmp/m.tsv
 
 `svf/`에 추가하는 페이스에는 그 옆의 라이선스 텍스트, `web/LICENCES.tsv`와 `web/FAMILIES.tsv`의 행, `tools/build/faces.tsv`의 행

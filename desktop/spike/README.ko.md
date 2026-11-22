@@ -110,7 +110,7 @@
     ../node_modules/.bin/electron-builder --linux AppImage --publish never --config.electronVersion=45.2.3
     # bare app: real 0m6.853s, downloads appimage-12.0.1.7z + 7zip-linux-x64.tar.gz (GitHub) into ~/.cache/electron-builder
     # -> out/svf-maker-probe-0.0.1.AppImage 125,839,701 bytes
-    # with extraResources (사이드카 47M + svf 12M + web): real 0m6.110s -> 150,621,923 bytes; linux-unpacked 334M
+    # with extraResources (sidecar 47M + svf 12M + web): real 0m6.110s -> 150,621,923 bytes; linux-unpacked 334M
     ./out/x.AppImage                 # no FUSE here: "...run it with the --appimage-extract option"
     ./out/x.AppImage --appimage-extract && xvfb-run -a ./squashfs-root/AppRun          # "probe ok"
     grep -n "no-sandbox\|unshare" squashfs-root/AppRun; grep Exec squashfs-root/*.desktop
