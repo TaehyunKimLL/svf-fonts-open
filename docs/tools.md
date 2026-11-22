@@ -1048,7 +1048,8 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
 - **No metadata or coverage report for an arbitrary font.** No tool prints an input font's family or style, its
   available sizes, or how many of the 11,172 syllables (or the 2,350 KS X 1001 ones) it covers; `mkfont.py` counts
   the requested code points it dropped, and `web/mkindex.py` reports coverage of a baked face.
-- **No automatic cell size.** `mkfont.py --fit-cell` shrinks the size to fit a cell the caller gives; nothing picks
-  the cell from a font.
+- **No design-quality cell size.** `mkfont.py --probe` bakes in the tall cell that cuts nothing at a size (the cell and
+  ascent come from the ink boxes) and `--fit-cell` shrinks the size to fit a cell the caller gives; nothing picks the
+  cell a target (a game's line pitch, a display) wants.
 - **No library API.** The bakes are command-line programs that write a path; nothing exposes them as a call with a
   return value (the maker runs them as subprocesses, `maker/toolrun.py`).

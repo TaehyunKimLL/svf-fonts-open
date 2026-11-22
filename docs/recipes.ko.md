@@ -3,7 +3,7 @@
 # 레시피: 폰트에서 SVF 페이스(face)까지
 
 `svf/`의 페이스를 업스트림 폰트에서 만든 방법과, 이 저장소의 도구가 읽을 수 있는 모든 종류의 한글 폰트 원본에서 페이스를 만드는
-방법을 설명한다. 모든 도구는 [tools.md](tools.ko.md)에 설명되어 있고, 포맷은 `spec/SVF.md`이다.
+방법을 설명한다. 모든 도구는 [tools.ko.md](tools.ko.md)에 설명되어 있고, 포맷은 `spec/SVF.md`이다.
 
 `ttf/`의 OFL 폰트와 `svf/`의 페이스 외에는 어떤 폰트 데이터도 이 저장소에 없다. 독점 폰트(클래식 Mac, HWP, 그 밖의 DOS 시대
 폰트)의 사용법은 방법과 명령만 설명하며, 파일은 직접 마련해야 한다.
@@ -11,6 +11,10 @@
 **규약.** 명령은 저장소 루트에서 실행한다. `$OUT`은 직접 정한 스크래치 폴더이다
 (`OUT=$HOME/work/tmp/recipes; mkdir -p $OUT`). 여기의 어떤 명령도 다른 곳에는 쓰지 않는다. 대문자 이름(`NG16J.SVF`,
 `FACE.SVF`)은 직접 이름 붙이는 출력이다.
+
+**정규 단계.** 아래의 모든 `mkfont.py` 명령은 `svf2to3.py --profile default`가 다시 배치하는 페이스를 쓴다([완성형 페이스](#완성형-페이스-mkfontpy)에
+한 번만 보였다). 다른 명령은 간결함을 위해 이를 생략했다. 보관할 페이스에는 이 단계를 더한다. 여기서 실행: Noto 1 bpp 페이스(125,196 바이트)와 BDF 1
+bpp 페이스(115,684 바이트)의 크기가 그대로이다.
 
 **"verified"의 뜻.** 모든 명령 블록은 셋 중 하나를 말한다. *Verified*(또는 *여기서 실행*): 2026-11-22에 저장소 자체의 폰트나 이
 호스트의 폰트(Debian의 `fonts-noto-cjk`, `xfonts-*`, DOSBox-X)로 적힌 그대로 실행했고, 인용한 수치는 그 실행에서 나온 것이다.
@@ -61,6 +65,8 @@
 고른다.
 
 ## 페이스 점검
+
+<a id="새-페이스-점검"></a>
 
 아래의 모든 레시피는 같은 점검으로 끝난다. 샘플 줄은 `안녕하세요 ABC 123`이고, 따로 적지 않으면 페이스는 16x16 셀의 16 px이다.
 
@@ -123,10 +129,11 @@ bake한다.
     python3 tools/mkfont.py $OUT/NotoSansCJKkr.otf $OUT/noto16-2bpp.svf --size 16 --bpp 2 --unicode ascii,ksx1001-hangul
     python3 tools/jamoset.py --layout 844 --from-ttf $OUT/NotoSansCJKkr.otf --size 16 --binarize threshold \
         --mask-font none --check -o $OUT/noto16-jamo-1bpp.svf
+    python3 tools/jamoset.py --layout 844 --from-ttf $OUT/NotoSansCJKkr.otf --size 16 --bpp 2 --check -o $OUT/noto16-jamo-2bpp.svf
 
 Verified(부분 집합이 아닌 전체 폰트): 페이스 이름은 "Noto Sans CJK KR"; 1 bpp `125,196 바이트`, 글리프 2,446개, `width=141 ascent=11
 descent=5`, 잉크 472; 2 bpp `197,992 바이트`, 잉크 700; 자모 세트 `19,040 바이트`, 글리프 439개, 조각 344개, 음절 11,172개에 대한 IoU
-0.786(6.9 초), `width=146 ascent=14 descent=2`, 잉크 477. ascent는 폰트 자신의 것이므로 폰트마다 기준선이 다르다.
+0.786(6.9 초), `width=146 ascent=14 descent=2`, 잉크 477; 2 bpp 자모 세트 `23,268 바이트`, 글리프 439개, level 오차 0.208, level 2의 IoU 0.781, 62 초, `width=141 ascent=14 descent=2`, 잉크 722(CFF 폰트의 자모 세트는 TrueType 폰트보다 맞춤이 나쁘다. NanumGothic의 0.817과 0.822에 비해 0.786과 0.781). ascent는 폰트 자신의 것이므로 폰트마다 기준선이 다르다.
 [기준선, 세로 이동, 클리핑](#기준선-세로-이동-클리핑)을 참고한다.
 
 ### TrueType와 OpenType 폰트에서 만드는 자모 세트
@@ -154,9 +161,11 @@ Verified: neodgm.ttf에는 합성 음절 11,172개가 있다. `master`는 25 초
 **2. 결합 자모 shaping(GSUB `ljmo` / `vjmo` / `tjmo`).** 이 feature가 있는 폰트는 결합 자모 U+1100..을 위치별 변형으로 그린다.
 `jamoset.py --from-ttf ... --mask-font FONT`는 HarfBuzz로 각 음절을 결합 자모로 shaping하고, 그 변형을 맞춰진 조각을 제한하는
 마스크로 쓴다(`freetype-py`와 `uharfbuzz`가 필요하며, `--pylib DIR`이 그 위치를 가리킨다). 여기서 실행하지 않음: 이 호스트에는 두
-모듈 모두 설치되어 있지 않다. `ttf/`의 neodgm.ttf에는 세 feature가 있어서 마스크 폰트로 쓸 수 있다. `jamoset.py --from-ttf`는 `$JAMOSET_MASK_FONT`가
-폰트를 가리키고(또는 ScummVM 트리 옆에 NotoSansKR이 있고) 두 모듈이 있으면 스스로 마스크 폰트를 쓴다. 모듈이 없으면 stderr에 알림을
-내고 자유롭게 맞춘다. 자유 맞춤을 강제하려면 `--mask-font none`을 준다(maker는 모든 1 bpp 맞춤에 그렇게 한다). 이 장의 1 bpp 명령이 그렇게 한다. 별도의 연구 저장소가 이
+모듈 모두 설치되어 있지 않다. `ttf/`의 neodgm.ttf에는 세 feature가 있어서 마스크 폰트로 쓸 수 있다. `jamoset.py --from-ttf`와 `--from-svf`는 `$JAMOSET_MASK_FONT`가
+폰트를 가리키고(또는 ScummVM 트리 옆에 NotoSansKR이 있고) 두 모듈이 있으면 스스로 마스크 폰트도 쓴다. 자유 맞춤이 먼저이고, 그 평균 IoU가
+0.995 미만일 때만 마스크를 쓴다(`AUTO_EXACT`. 이미 조각의 OR인 페이스는 자유 맞춤을 유지한다). 모듈이 없으면 stderr에 알림을 내고
+자유롭게 맞춘다. 자유 맞춤을 강제하려면 `--mask-font none`을 준다. 이 장의 1 bpp 명령이 그렇게 한다. maker는 `experimental fit` 경로에만
+이를 주고, `from-svf fit`과 `bdfface + from-svf fit` 경로는 자동으로 둔다. 별도의 연구 저장소가 이
 feature가 돌려주는 조각을 12 px, 힌팅 켬으로 측정했다. 맑은 고딕은 5/2/1 세트(조각 164개), Noto Sans CJK KR은 6/2/4(조각 264개;
 Noto TTC에서 KR은 인덱스 1)를 준다. 이것으로 곧바로 만든 페이스는 잘 읽히지만 완성형 글리프와 한두 픽셀씩 다르다(평균 IoU
 약 0.58). 폰트의 결합 조각이 완성형 음절과 다르게 배치되어 있기 때문이다. 그 작업은 같은 바이트 예산에서 LIST 예외로 저장한
@@ -184,7 +193,7 @@ TrueType과 CFF 모두 된다). 맞춤은 근사이다. IoU를 읽고 결과를 
 
 완성형 (verified, [완성형 페이스](#완성형-페이스-mkfontpy)): `mkfont.py FONT OUT --size 16 --bpp 2 --unicode ascii,ksx1001-hangul` (NanumGothic
 Bold: 195,760 바이트, 글리프 2,446개). 커버리지는 4단계로 양자화되고, 리더는 level x 85로 되살린다. 2 bpp 페이스는 같은 1 bpp
-페이스의 약 1.5배이다. `--bpp 8`은 전체 커버리지를 유지한다(8 bpp 페이스는 호스트용).
+페이스의 약 1.5-1.6배이다. `--bpp 8`은 전체 커버리지를 유지한다(8 bpp 페이스는 호스트용).
 
 자모 세트:
 
@@ -226,6 +235,10 @@ Bold: 195,760 바이트, 글리프 2,446개). 커버리지는 4단계로 양자�
 | `--ascent 14 --clip-cell` | 14 | 2,327개 잘림 (위 2,321, 아래 36) |
 | `--fit-cell` | 13, 15 px에서 | 잘림 0, 118,116 바이트 |
 
+`--probe`: 셀을 직접 고르는 대신 아무것도 자르지 않는 키 큰 셀로 bake한다. 셀 높이와 ascent는 요청한 글리프의 잉크 상자에서 나오고, `--report FILE.json`이 그 상자를 쓴다(`--probe-cell H`는 높이 H의 셀이 얻을 `auto_ascent`를 잰다. `--probe`는 `--cell`, `--ascent`, `--clip-cell`, `--fit-cell`과 함께 쓸 수 없다).
+
+Verified: `mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf $OUT/p.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul --probe --report $OUT/probe.json`은 18x18 셀, ascent 15, `123,116 바이트`, 잘린 것 없음(모드 `clip`), `width=146 ascent=15 descent=3`, 잉크 678을 준다. 셀이 폰트의 잉크만큼 크므로 이것은 설계 선택이 아니라 측정이다. 셀은 여전히 게임의 줄 간격이 정한다.
+
 `tools/fontmetrics.py $OUT/c.svf`는 잉크가 advance 밖으로 나가는 글리프를 나열한다(여기서는 하나, `\`). 사후에 디센더를 낮추려면(또는
 글리프를 올리려면) 글리프별 dy를 정한다.
 
@@ -240,10 +253,12 @@ ascent를 바꾸면 모든 줄의 잉크가 놓이는 곳이 바뀐다(MCU 예�
 
 ### TTC와 OTC
 
-`mkfont.py`는 컬렉션의 인덱스 0을 연다(synthetic: Galmuri9 + Galmuri7의 TTC는 Galmuri9와 똑같이 bake된다). 다른 페이스는 먼저 일반
-폰트로 저장해 둔다(maker의 `ttc-face`와 같은 단계. TrueType든 CFF든 페이스에 똑같이 된다).
+<a id="opentype-cff-컬렉션-가변-폰트"></a>
 
-    python3 maker/srcprep.py ttc-face F.ttc F1.ttf --index 1
+`mkfont.py`는 컬렉션의 인덱스 0을 연다(synthetic: Galmuri9 + Galmuri7의 TTC는 Galmuri9와 똑같이 bake된다). 다른 페이스는 먼저 일반
+폰트로 저장해 둔다(maker의 `ttc-face`와 같은 단계. TrueType든 CFF든 페이스에 똑같이 된다. CFF 페이스는 위 OpenType CFF 레시피처럼 출력을 `.otf`로 이름 붙인다).
+
+    python3 maker/srcprep.py ttc-face F.ttc $OUT/F1.ttf --index 1
 
 위치가 아니라 이름으로 고른다. Noto CJK 컬렉션에서 KR은 인덱스 0이 아니다. 이름을 나열한다.
 
@@ -259,7 +274,8 @@ Verified(이 호스트의 Noto Sans CJK Regular 컬렉션): 페이스 열 개, �
     python3 -m fontTools.varLib.instancer ttf/caveat/Caveat-VF.ttf wght=700 -o $OUT/Caveat-Bold.ttf
     python3 tools/mkfont.py $OUT/Caveat-Bold.ttf $OUT/CAVB24.SVF --size 24 --bpp 2 --unicode ascii --latin
     python3 tools/mkfont.py ttf/caveat/Caveat-VF.ttf $OUT/CAV24.SVF --size 24 --bpp 2 --unicode ascii --latin
-    python3 tools/svfline.py measure "Hamburgefonstiv" $OUT/CAVB24.SVF $OUT/CAV24.SVF
+    python3 tools/svfline.py measure "Hamburgefonstiv" $OUT/CAVB24.SVF     # one face per call: several faces are a fallback chain
+    python3 tools/svfline.py measure "Hamburgefonstiv" $OUT/CAV24.SVF
 
 Verified: 기본 인스턴스(Regular 400)는 6,760 바이트로, 700 인스턴스는 7,192 바이트로 bake된다(각각 글리프 95개, "Hamburgefonstiv"의
 폭은 Bold 141 px, Regular 136 px. 요약이 뺀 글자 1개는 요청했지만 폰트에 없는 글자이다). 이름 있는 인스턴스는 `fvar` 표에 있다(`Caveat`: Regular,
@@ -270,7 +286,7 @@ Bold; `EB Garamond`: Regular .. ExtraBold).
 **리소스 포크 폰트** (.dfont, suitcase, HFS에서 복사한 포크): TrueType 데이터는 'sfnt' 리소스이다.
 
     python3 tools/macsfnt.py list Font.dfont                 # type, id, name, bytes of sfnt / NFNT / FOND / fbit
-    python3 tools/macsfnt.py extract Font.dfont Font.ttf [--id N]
+    python3 tools/macsfnt.py extract Font.dfont $OUT/Font.ttf [--id N]
 
 `macsfnt.py`는 AppleDouble(`._Font`)과 MacBinary 파일도 푼다. FreeType도 .dfont를 직접 열 수 있어서, 유니코드에 매핑된 폰트의 첫
 페이스는 `mkfont.py Font.dfont ...`로 된다(합성 .dfont).
@@ -279,8 +295,8 @@ Bold; `EB Garamond`: Regular .. ExtraBold).
 cmap, 즉 두 바이트 KS X 1001 코드만 있다. FreeType과 SVF 도구는 유니코드 cmap을 고르므로, 이런 폰트는 유니코드 cmap이 생기기 전까지
 아무것도 그리지 못한다.
 
-    python3 tools/macsfnt.py cmap Font.ttf                   # platform=1 encoding=3 format=2 entries=... hangul=...
-    python3 tools/macsfnt.py unicode Font.ttf FontU.ttf      # adds (3,1) format 4 [+ (3,10) format 12]
+    python3 tools/macsfnt.py cmap $OUT/Font.ttf                   # platform=1 encoding=3 format=2 entries=... hangul=...
+    python3 tools/macsfnt.py unicode $OUT/Font.ttf $OUT/FontU.ttf      # adds (3,1) format 4 [+ (3,10) format 12]
 
 각 코드는 EUC-KR(KS X 1001)로 디코딩된다. Mac Korean에 대한 Apple 자체의 추가분은 KS X 1001에서 의미가 없으므로 매핑되지 않은 것으로
 센다. Synthetic(`tools/test_macsfnt.py`): (1,3) format 2 cmap만 가진 폰트가 나열되고, 리소스 포크, AppleDouble, MacBinary에서 추출되고,
@@ -288,6 +304,8 @@ cmap, 즉 두 바이트 KS X 1001 코드만 있다. FreeType과 SVF 도구는 �
 클래식 비트맵 폰트는 [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트)에 있다.
 
 ## 비트맵 폰트
+
+<a id="x-window-한글-폰트"></a>
 
 비트맵 폰트는 두 종류가 서로 다른 경로로 도구에 닿는다. 유니코드 인코딩(`CHARSET_REGISTRY "ISO10646"`, 또는 내장 스트라이크가 있는
 TrueType)은 `mkfont.py`와 FreeType을 거치고, KS C 5601 / KS X 1001 인코딩(`ENCODING` = GL 코드, X Window 한글 폰트)은
@@ -309,7 +327,7 @@ Wide, 18 px).
 Verified, shim 없이: BDF `115,684 바이트`, 글리프 2,446개, `width=156 ascent=12 descent=4`, 잉크 348; PCF 1 bpp `116,552 바이트`, 글리프
 2,446개(18x18 셀), `width=234 ascent=15 descent=3`, 잉크 366; PCF 2 bpp `181,108 바이트`. 비트맵에는 커버리지가 없으므로 `--bpp 2`의 level은 0과
 3뿐이다. 같은 모노크롬 픽셀을 2 bpp로 담을 뿐 부드러운 페이스가 아니다. 이 페이스의 자모 세트는 완성형 결과에 대한 맞춤이다:
-`jamoset.py --layout 844 --from-svf $OUT/bdf16-1bpp.svf --check -o ...`(수치는 다음 소절의 bdfface 페이스에 있다).
+`jamoset.py --layout 844 --from-svf $OUT/bdf16-1bpp.svf --mask-font none --check -o ...`(수치는 다음 소절의 bdfface 페이스에 있다).
 
 ### KS C 5601 BDF와 PCF
 
@@ -321,7 +339,7 @@ BDF만 읽는 `bdfface.py`로 간다. PCF는 maker의 `srcprep.py pcf-bdf`(표�
     python3 maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/hanglm16.pcf.gz $OUT/hanglm16.bdf
     python3 tools/bdfface.py --hangul $OUT/hanglm16.bdf --ascii /usr/share/dosbox-x/wqy_12pt.bdf --cell 16x16 \
         --chars-from $OUT/ks.txt -o $OUT/KS16.SVF
-    python3 tools/jamoset.py --layout 844 --from-svf $OUT/KS16.SVF --check -o $OUT/KS16J.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/KS16.SVF --mask-font none --check -o $OUT/KS16J.SVF
 
 Verified: BDF는 `FONTBOUNDINGBOX 16 16 0 -2`, `PIXEL_SIZE 16`, `CHARSET_REGISTRY "KSC5601.1987"`; `bdfface.py`는 `125,096 바이트`,
 음절 2,350개(글리프 2,447개: 음절, ASCII 0x20-0x7E, 자체의 U+2026 / U+25A1), 잘린 글리프 7개, `width=156 ascent=14 descent=2`, 잉크 354를
@@ -338,7 +356,7 @@ U+25A1만 담는다. BDF에서 기호나 자모는 오지 않는다. 셀의 기�
 
 hanterm 폰트(johab-1 인코딩, 글리프 번호는 `ENCODING`, 10x(3|4)x4 세트, 글리프 529개)는 직접 읽는다.
 
-    python3 tools/jamoset.py --layout hanterm-johab johabm16.bdf --check -o HTERM16J.SVF
+    python3 tools/jamoset.py --layout hanterm-johab johabm16.bdf --check -o $OUT/HTERM16J.SVF
 
 여기서 실행하지 않음: 이 호스트에 hanterm BDF가 없다. Synthetic(`tools/test_recipes.py`): 글리프 529개의 hanterm BDF가 음절 11,172개를
 10/4/4 세트로 모두 조합한다.
@@ -402,7 +420,7 @@ DOS 한글 시스템(한글 BIOS, 이야기, 한메, san, 도깨비, 게임)은 
 것은 다음과 같다.
 
 - 12x24 영문 폰트: `jamoset.py ... --eng ASCII.PFT` (12,288 바이트, 48 바이트짜리 글리프 256개)와 HBIOS 12x24 (15,360 바이트);
-- 직접 만든, 한글을 완성형으로 만든 1 bpp 페이스를 조각으로 다시 맞추기: `jamoset.py --layout 844 --from-svf FACE.SVF --check` (HWP 1.20
+- 직접 만든, 한글을 완성형으로 만든 1 bpp 페이스를 조각으로 다시 맞추기: `jamoset.py --layout 844 --from-svf FACE.SVF --mask-font none --check` (HWP 1.20
   24 px 페이스에서는 이 맞춤이 정확했다);
 - 조합된 음절의 BDF: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
 
@@ -437,18 +455,18 @@ Apple의 데이터는 이 저장소에 없다. 도구는 직접 마련한 파일
 **HangulTalk 7.1.x type-3 'fbit' 폰트** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): 평면은 표, InputBackSupport 'HTBL' 1로
 조합되며, KS X 1001 음절 2,350자와 호환 자모 51개만 있다.
 
-    python3 tools/macfbit3.py unpack Seoul12.splt.data Seoul12.rsrc     # the 7.1.2 Installer's 'splt' "JM" archive
-    python3 tools/macfbit3.py fbit Seoul12.rsrc Seoul12.fbit
-    python3 tools/macfbit3.py bdf Seoul12.fbit HTBL1.bin Seoul12 seoul12.bdf          # 2,401 glyphs, Unicode BDF
-    python3 tools/macfbit_svf.py build Seoul12.fbit HTBL1.bin -o $OUT/SEOUL12J.SVF         # direct: the Mac structure (JMAP)
-    python3 tools/macfbit_svf.py build Seoul12.fbit HTBL1.bin --mode derived -o $OUT/SEOUL12D.SVF   # a JSET face, all 11,172
-    python3 tools/macfbit_svf.py verify SEOUL12J.SVF Seoul12.fbit HTBL1.bin
+    python3 tools/macfbit3.py unpack Seoul12.splt.data $OUT/Seoul12.rsrc     # the 7.1.2 Installer's 'splt' "JM" archive
+    python3 tools/macfbit3.py fbit $OUT/Seoul12.rsrc $OUT/Seoul12.fbit
+    python3 tools/macfbit3.py bdf $OUT/Seoul12.fbit HTBL1.bin Seoul12 $OUT/seoul12.bdf          # 2,401 glyphs, Unicode BDF
+    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit HTBL1.bin -o $OUT/SEOUL12J.SVF         # direct: the Mac structure (JMAP)
+    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit HTBL1.bin --mode derived -o $OUT/SEOUL12D.SVF   # a JSET face, all 11,172
+    python3 tools/macfbit_svf.py verify $OUT/SEOUL12J.SVF $OUT/Seoul12.fbit HTBL1.bin
 
 `direct`는 Mac 평면을 조각으로 유지하고 KS 음절만 정확히 조합한다. `derived`는 JSET을 맞추는데, 그 JSET의 추가 음절 8,822개는
 외삽한 것이다(Mac 출력이 아님). BDF 경로는 `bdfface.py --cell 12x12 --chars-from <the 2,350 syllables>`로 이어져 완성형
 페이스가 된다. 변형이 많은 페이스를 MCU 예산에 맞게 줄이려면:
 
-    python3 tools/jamomerge.py merge --face SEOUL12D.SVF --points 8192 7168 --prefix SM -o $OUT/SMALL
+    python3 tools/jamomerge.py merge --face $OUT/SEOUL12D.SVF --points 8192 7168 --prefix SM -o $OUT/SMALL
 
 (모든 조각을 그려진 그대로 유지하고, 픽셀 목적 함수로 변형, 세트, 클래스를 병합한다). 테스트: `tools/test_macfbit3.py`와
 `tools/test_macfbit_svf.py`는 테스트 안에서 만든 합성 fbit / HTBL / NFNT 데이터로 실행된다. `MACFBIT3_CD712=<CD tree>`와
@@ -468,7 +486,7 @@ Verified: `133,720 바이트`(변함 없음), 글리프 2,905개, 글리프 95�
 
 자모 세트로 다시 bake(1 bpp 페이스의 완성형 음절에 대한 맞춤. 조각과 페이스의 나머지 글리프는 유지된다):
 
-    python3 tools/jamoset.py --layout 844 --from-svf svf/dos/NEODG16.SVF -o $OUT/neodg16-from-svf.svf
+    python3 tools/jamoset.py --layout 844 --from-svf svf/dos/NEODG16.SVF --mask-font none -o $OUT/neodg16-from-svf.svf
 
 Verified: `34,332 바이트`, 글리프 892개, 조각 344개. 맞춤: 음절 2,357개, IoU 1.000(Neo Dunggeunmo는 그 자체가 조각의 OR이다). 렌더는
 `width=144 ascent=12 descent=4`, 잉크 559. 기존 SVF는 안티에일리어싱 원본이 아니다. 1 bpp 페이스를 2 bpp로 바꾸는 도구는 없고,
@@ -496,21 +514,21 @@ maker(`maker/`, [desktop-app.md](desktop-app.ko.md)의 데스크톱 앱, [maker/
 
 | 경로 (종류, 레이블) | 원본 종류 | 명령 (`routes.py`의 argv) | 레시피 |
 |---|---|---|---|
-| 완성형, `mkfont` | outline, outline-composite, bitmap, bdf-iso10646 | `mkfont.py SRC mkfont.tmp --size S --bpp B --unicode R` 다음 `svf2to3.py mkfont.tmp OUT --profile default`(비트맵: 스트라이크 크기에서 1 bpp) | [아웃라인 폰트](#아웃라인-폰트), [ISO 10646 BDF와 PCF](#iso-10646-bdf와-pcf) |
-| 자모, `composite` | outline-composite(음절이 합성인 TrueType) | `jamovec.py master SRC -o M.json --components [--adaptive]` 다음 `jamovec.py render M.json --size S --bpp B --binarize threshold --check -o OUT` | [자모 세트](#truetype와-opentype-폰트에서-만드는-자모-세트) 방법 1 |
-| 자모, `experimental fit` | outline(합성 아님) | 1 bpp: `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --check -o OUT [--eng E] --mask-font none`; 2 bpp: `jamoset.py ... --bpp 2 --check -o OUT` | 방법 3 |
-| 자모, `vector fit` | outline | `jamovec.py master SRC -o M.json [--adaptive]`(`--components` 없음) 다음 같은 `render` | 방법 3 |
-| 자모, `mask fit` | GSUB 자모와 쓸 수 있는 마스크가 있는 outline(1 bpp) | `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --mask-font SRC --no-clean --check -o OUT [--pylib DIR]` | 방법 2 |
-| 완성형, `johab844` | dos-raw, 정확히 11,520 바이트(16 px 8x4x4) | `johab844.py SRC dos/NEODG16.SVF OUT [--eng E]` | [DOS 시대 원시 폰트](#dos-시대-원시-폰트) |
-| 자모, `dos raw` | dos-raw | `jamoset.py SRC --layout L --check -o OUT [--eng E] [--face 0\|1]`(`--face`는 도깨비 프린터 레이아웃용) | 그곳의 표 |
+| 완성형, `mkfont` | outline, outline-composite, bitmap, bdf-iso10646 | `mkfont.py SRC mkfont.tmp --size S --bpp B --unicode R` 다음 `svf2to3.py mkfont.tmp OUT --profile default`(비트맵: 스트라이크 크기에서 1 bpp) | [완성형 페이스](#완성형-페이스-mkfontpy), [ISO 10646 BDF와 PCF](#iso-10646-bdf와-pcf) |
+| 자모, `composite` | outline-composite(음절이 합성인 TrueType) | `jamovec.py master SRC -o M.json --components [--adaptive]` 다음 `jamovec.py render M.json --size S --bpp B --binarize threshold --check -o OUT` | [TrueType와 OpenType 폰트에서 만드는 자모 세트, 방법 1: 합성 글리프](#truetype와-opentype-폰트에서-만드는-자모-세트) |
+| 자모, `experimental fit` | outline(합성 아님) | 1 bpp: `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --check -o OUT [--eng E] --mask-font none`; 2 bpp: `jamoset.py ... --bpp 2 --check -o OUT` | [TrueType와 OpenType 폰트에서 만드는 자모 세트, 방법 3: 완성형 음절에 맞추기](#truetype와-opentype-폰트에서-만드는-자모-세트) |
+| 자모, `mask fit` | GSUB 자모와 쓸 수 있는 마스크가 있는 outline 또는 outline-composite(1 bpp) | `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --mask-font SRC --no-clean --check -o OUT [--pylib DIR]` | [TrueType와 OpenType 폰트에서 만드는 자모 세트, 방법 2: 결합 자모 shaping](#truetype와-opentype-폰트에서-만드는-자모-세트) |
+| 자모, `vector fit` | outline, outline-composite | `jamovec.py master SRC -o M.json [--adaptive]`(`--components` 없음) 다음 같은 `render` | [TrueType와 OpenType 폰트에서 만드는 자모 세트, 방법 3: 완성형 음절에 맞추기](#truetype와-opentype-폰트에서-만드는-자모-세트) (`--components` 없는 `jamovec.py master`) |
+| 완성형, `johab844` | dos-raw, 정확히 11,520 바이트(16 px 8x4x4) | `johab844.py SRC dos/NEODG16.SVF OUT [--eng E]` | [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트) |
+| 자모, `dos raw` | dos-raw | `jamoset.py SRC --layout L --check -o OUT [--eng E] [--face 0\|1]`(`--face`는 도깨비 프린터 레이아웃용) | [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트) |
 | 자모, `hanterm` | bdf-johab | `jamoset.py SRC --layout hanterm-johab --check -o OUT [--eng E]` | [hanterm](#hanterm) |
 | 완성형, `bdfface` | bdf-ksc5601(BDF, 또는 `pcf-bdf` 단계를 거친 PCF) | `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST -o OUT`(`WxH` = BDF의 박스) | [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf) |
-| 자모, `bdfface + from-svf fit` | bdf-ksc5601 | `bdfface.py` 페이스 다음 `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | 같음 |
-| 자모, `mac fbit 1.0` | mac-fbit1 | `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT` | [클래식 Mac](#클래식-mac-한글-비트맵-폰트) |
-| 자모, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | 같음 |
-| 완성형, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | 같음 |
+| 자모, `bdfface + from-svf fit` | bdf-ksc5601 | `bdfface.py` 페이스 다음 `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf) |
+| 자모, `mac fbit 1.0` | mac-fbit1 | `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
+| 자모, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
+| 완성형, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형 또는 자모, `copy` | svf-precomposed, svf-jamo | 업로드된 그대로 쓰면 없음. v2 페이스나 요청한 JSET 변경에는 `svf2to3.py SRC OUT --jset-version V --check` | [기존 SVF](#기존-svf) |
-| 자모, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]` 다음 `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | 같음 |
+| 자모, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]` 다음 `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | [기존 SVF](#기존-svf) |
 
 `L`은 맞춤에서는 `844` 또는 `adaptive`이고, 그 밖에는 원본 종류가 지명하는 레이아웃이다. `[--eng E]`는 페이지가 폰트와 짝지은 영문
 동반 폰트이다.
@@ -528,9 +546,11 @@ maker(`maker/`, [desktop-app.md](desktop-app.ko.md)의 데스크톱 앱, [maker/
 | `mac-fbit3` | `macfbit3.py fbit SRC OUT` |
 
 Verified: 이 표의 경로 레이블과 종류는 `routes.py`에서 읽고, 이 호스트 폰트의 사본이 든 폴더에 `detect.scan`과 `routes.routes`를 실행해
-확인했다: NanumGothic Bold, Noto Sans CJK Regular(컬렉션의 페이스 열 개, 인덱스 0-9, 모두 `outline`), Caveat-VF, wqy_12pt.bdf는 위와 같고 `mkfont` 경로를 얻는다(Caveat와 NanumGothic은 `experimental fit`과 `vector fit`도). neodgm.ttf는 `outline-composite`로 `mkfont`, `composite`(native), `vector fit`을 얻는다. `wqy_12pt.bdf`(종류 `bdf-iso10646`)와 `18x18ko.pcf.gz`(`bitmap`, 크기 [18])는 `mkfont`만, `hanglm16.pcf.gz`는 `bdf-ksc5601`로 `bdfface`와 `bdfface + from-svf fit`, NEODG16.SVF(`svf-precomposed`)는 `copy`와 `from-svf fit`, NEODG16A.SVF(`svf-jamo`)는 `copy`를 얻는다.
+확인했다: NanumGothic Bold, Caveat-VF, Noto Sans CJK Regular 컬렉션의 페이스 열 개(인덱스 0-9)는 `outline`이고 `mkfont` 경로를 얻는다(Caveat, NanumGothic, Noto CJK의 각 페이스는 `experimental fit`과 `vector fit`도). neodgm.ttf는 `outline-composite`로 `mkfont`, `composite`(native), `vector fit`을 얻는다. `wqy_12pt.bdf`(종류 `bdf-iso10646`)와 `18x18ko.pcf.gz`(`bitmap`, 크기 [18])는 `mkfont`만, `hanglm16.pcf.gz`는 `bdf-ksc5601`로 `bdfface`와 `bdfface + from-svf fit`, NEODG16.SVF(`svf-precomposed`)는 `copy`와 `from-svf fit`, NEODG16A.SVF(`svf-jamo`)는 `copy`를 얻는다.
 
 ## svf/의 페이스
+
+<a id="svf-페이스-다시-빌드하기"></a>
 
 `tools/build/faces.tsv`에는 `svf/`의 페이스마다 한 행씩(116행) 있고, `tools/build/build_faces.py`가 이를 실행해 각 결과를 배포된
 페이스와 비교한다.
@@ -574,9 +594,9 @@ Verified: 이 표의 경로 레이블과 종류는 `routes.py`에서 읽고, 이
 
 ### 완성형 글리프에서 자모 세트를 만드는 레시피 (`jamoset` 행)
 
-    python3 tools/mkfont.py ttf/neodgm/neodgm.ttf PRE.svf --size 16 --cell 16 --width 16 --bpp 1 --ascent 12 \
+    python3 tools/mkfont.py ttf/neodgm/neodgm.ttf $OUT/PRE.svf --size 16 --cell 16 --width 16 --bpp 1 --ascent 12 \
         --clip-cell --unicode ascii,ksx1001-hangul
-    python3 tools/jamoset.py --from-svf PRE.svf -o NEODG16A.SVF --layout 844
+    python3 tools/jamoset.py --from-svf $OUT/PRE.svf --mask-font none -o $OUT/NEODG16A.SVF --layout 844
 
 `--from-svf`는 1 bpp 페이스의 완성형 음절을 세트 체계(여기서는 8x4x4)의 조각으로 분해하고, 그 밖의 글리프는 그대로 둔다.
 Neo Dunggeunmo는 그 자체가 8x4x4 조각의 OR로 그려져 있어서 맞춤이 정확하고(IoU 1.000) 11,172개 음절이 모두 조합된다.
@@ -654,10 +674,10 @@ EUC-KR / 완성형 바이트 쌍 = GL 코드 + 0x8080 (`가` = B0A1 = GL 3021). 
   않아서(`cannot import freetype`) 레시피는 `--binarize threshold`를 쓰고, `--mask-font none`은 1 bpp 맞춤이 `$JAMOSET_MASK_FONT`에
   좌우되지 않게 한다. [자모 세트](#truetype와-opentype-폰트에서-만드는-자모-세트)를 참고한다.
 - 실행 시간(이 호스트, 코어 하나): 16 px 아웃라인 폰트의 1 bpp `threshold` 맞춤은 약 12초, 2 bpp는 약 73초, Gowun Batang adaptive 20 px는
-  약 90초이다. 2 bpp 페이스는 같은 1 bpp 페이스의 약 1.5배, 자모 세트는 약 6분의 1이다.
+  약 90초이다. 2 bpp 페이스는 같은 1 bpp 페이스의 약 1.5-1.6배, 자모 세트는 약 6분의 1이다.
 - 비트맵이나 1 bpp 페이스에서 2 bpp 페이스를 만드는 도구는 없다.
 - `mkfont.py`는 요약을 한국어로 출력한다. 필드 이름을 찾으려고 그 stdout을 파싱하지 말 것.
-- 도구 전반의 알려진 빈틈: [tools.md](tools.ko.md)의 "도구에 남은 빈틈".
+- 도구 전반의 알려진 빈틈: [tools.ko.md](tools.ko.md#도구에-남은-빈틈)의 "도구에 남은 빈틈".
 
 ## svf/에 페이스 추가하기
 
