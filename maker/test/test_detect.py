@@ -23,6 +23,7 @@ import bdfface
 import detect
 import fixtures
 import jamoset
+import routes
 
 ROOT = None
 F = {}
@@ -515,9 +516,27 @@ class FixRoundOneTest(FixtureCase):
         with open(p, "wb") as f:
             f.write(fon_bytes())
         e = detect.detect_file(p, "fixture.fon")[0]
-        self.assertEqual((e["format"], e["source_kind"], e["label"]), ("fon", "bitmap", "Windows FON face 0"))
+        # FreeType gives a Windows FNT/FON no Unicode charmap (FT_ENCODING_NONE), so mkfont would find no glyph: the
+        # entry says so and offers no route (t_fb1975bf)
+        self.assertEqual((e["format"], e["source_kind"], e["label"]),
+                         ("fon", "other", "Windows FON face 0; no Unicode character map, mkfont cannot read it"))
         self.assertEqual(e["family"], "Fixture")
         self.assertEqual((e["sizes"], e["sizes_fixed"]), ([13], True))
+        self.assertEqual(routes.routes(dict(e, face_index=0)), [])
+
+    def test_a_bare_fnt_without_a_unicode_charmap_gets_no_route(self):
+        p = os.path.join(ROOT, "fixture.fnt")
+        with open(p, "wb") as f:
+            f.write(fon_bytes()[0xA0:])
+        e = detect.detect_file(p, "fixture.fnt")[0]
+        self.assertEqual((e["format"], e["source_kind"], e["label"]),
+                         ("fnt", "other", "Windows FNT; no Unicode character map, mkfont cannot read it"))
+        self.assertEqual(routes.routes(e), [])
+
+    def test_a_bitmap_with_a_unicode_charmap_keeps_its_route(self):
+        e = entry("bdf_iso")
+        self.assertFalse(detect.no_unicode_map(F["bdf_iso"], e["sizes"][0]))
+        self.assertEqual([r.label for r in routes.routes(e)], ["mkfont"])
 
     def test_hbf(self):
         e = entry("hbf")
@@ -1004,6 +1023,31 @@ class Task4FixOneTest(FixtureCase):
         with tempfile.TemporaryDirectory() as d:
             gzip_bytes(os.path.join(d, "x.bin.gz"), b"\xff" * 32)
             self.assertFalse(detect.hbf_refs_safe(hbf_naming(os.path.join(d, "x.hbf"), "x.bin.gz")))
+
+    def test_hbf_refs_safe_accepts_a_bin_with_only_its_gz_beside_it(self):
+        """The ibiblio HBF sets ship `12x24.bin.gz` for an HBF that names `12x24.bin`; bdfface.read_hbf reads it."""
+        with tempfile.TemporaryDirectory() as d:
+            gzip_bytes(os.path.join(d, "x.bin.gz"), b"\xff" * 8192)
+            p = hbf_naming(os.path.join(d, "x.hbf"), "x.bin")
+            self.assertTrue(detect.hbf_refs_safe(p))
+            with mock.patch.object(detect, "MAX_DECOMPRESSED", 4096):     # the cap is on the decompressed length
+                self.assertFalse(detect.hbf_refs_safe(p))
+
+    def test_hbf_refs_safe_refuses_a_gz_symlink_or_a_missing_bin(self):
+        with tempfile.TemporaryDirectory() as d:
+            gzip_bytes(os.path.join(d, "real.gz"), b"\xff" * 32)
+            os.symlink(os.path.join(d, "real.gz"), os.path.join(d, "x.bin.gz"))
+            self.assertFalse(detect.hbf_refs_safe(hbf_naming(os.path.join(d, "x.hbf"), "x.bin")))
+            self.assertFalse(detect.hbf_refs_safe(hbf_naming(os.path.join(d, "y.hbf"), "y.bin")))
+
+    def test_an_hbf_with_only_a_bin_gz_is_listed_and_covered(self):
+        with tempfile.TemporaryDirectory() as d:
+            gzip_bytes(os.path.join(d, "x.bin.gz"), b"\xff" * (0x5A * 16))
+            hbf_naming(os.path.join(d, "x.hbf"), "x.bin")
+            fonts = detect.scan(d)
+        e = {f["path"]: f for f in fonts}["x.hbf"]
+        self.assertEqual((e["source_kind"], e["label"]), ("hbf", "HBF"))
+        self.assertGreater(e["coverage"]["ascii"], 0)
 
     def test_an_unsafe_hbf_is_refused_without_reading_any_bitmap(self):
         with tempfile.TemporaryDirectory() as d:

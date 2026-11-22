@@ -72,22 +72,26 @@ def nfnt_only():
     return test_macfbit_svf._fork({("NFNT", 300): test_macfbit_svf._nfnt(CHARS)})
 
 
-def fbit1_raw():
-    """The 1.0 `fbit` resource alone (no fork, so no `fdef`): 45 glyph sets of one 16x16 glyph each."""
+def fbit1_raw(generation=3):
+    """The 1.0 `fbit` resource alone (no fork, so no `fdef`): 45 glyph sets of one 16x16 glyph each.
+
+    @p generation is the u16 at header 0x0c: real HangulTalk 1.0 fonts (Munjo24, ...) carry 3 there, like the 7.1
+    type-3 fonts, so the 45 sets (not the generation) tell them apart; 0 is the older hand-made form."""
     sets, data = [], b""
     for i in range(45):
         sets.append(struct.pack(">4H", 4, 0, i * 32, 16) + bytes(4))        # width/4, offset (hi, lo), height, pad
         data += bytes([0xFF, 0xFF]) + bytes(30)
     head = bytearray(0x54)
     head[0:6] = b"\x80\x00fbit"
+    head[0x0c:0x0e] = struct.pack(">H", generation)
     return bytes(head) + struct.pack(">H", 45 * 12) + b"".join(sets) + data
 
 
-def fbit1_fork():
+def fbit1_fork(generation=3):
     """A HangulTalk 1.0 font as jamoset.MacFbit reads it: the `fbit` of `fbit1_raw` and an `fdef` 3 resource of zeros
     (empty lookup tables, a degenerate but self-consistent rule). It passes `jamoset.py --layout mac-fbit-45sets
     --check` (composes all 11,172 syllables), which the maker's end-to-end test runs."""
-    return test_macfbit3.resource_fork({("fbit", 1): fbit1_raw(), ("fdef", 3): bytes(0x800)})
+    return test_macfbit3.resource_fork({("fbit", 1): fbit1_raw(generation), ("fdef", 3): bytes(0x800)})
 
 
 def hangul_pft():

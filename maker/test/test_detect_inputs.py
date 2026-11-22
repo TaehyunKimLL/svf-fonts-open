@@ -334,6 +334,15 @@ class LocalKindsTest(DirCase):
         self.assertEqual(by["v1/mb/Munjo16.bin"]["prep"], [{"op": "mac-fork"}])
         self.assertEqual(by["v1/ad/._Munjo16"]["family"], "Munjo16")
 
+    def test_mac10_is_decided_by_its_45_sets_not_by_the_generation_word(self):
+        """Real HangulTalk 1.0 fonts carry generation 3 at 0x0c (like the 7.1 fonts); the fixture carries both."""
+        import macfx, struct
+        self.assertEqual(struct.unpack(">H", macfx.fbit1_raw()[0x0c:0x0e])[0], 3)
+        by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}
+        for rel in ("v1/Munjo16.rsrc", "v1g0/Munjo16.rsrc"):
+            self.assertEqual((by[rel]["source_kind"], by[rel].get("mac")), ("mac-fbit1", {"generation": 1, "id": 1}), rel)
+        self.assertEqual(by["Seoul12.rsrc"]["source_kind"], "mac-fbit3")          # a 7.1 font stays type 3
+
     def test_mac10_raw_resource_is_other(self):
         by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}
         entry = by["v1/raw/Munjo16.fbit"]
