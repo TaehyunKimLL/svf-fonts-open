@@ -17,12 +17,13 @@ once, in [Precomposed faces](#precomposed-faces-mkfontpy)); the other commands l
 keeps the size of the Noto 1 bpp face (125,196 bytes) and of the BDF 1 bpp face (115,684 bytes).
 
 **What "verified" means.** Every command block says one of three things. *Verified* (or *run here*): run as written on
-2026-11-22 with the repository's own fonts or fonts of this host (Debian's `fonts-noto-cjk`, `xfonts-*`, DOSBox-X), and the
-numbers quoted are from that run: the face's size in bytes, its glyph count, the render check of
+2026-11-22 with the repository's own fonts, fonts of this host (Debian's `fonts-noto-cjk`, `xfonts-*`, DOSBox-X) or
+proprietary fonts the maintainer holds (each is named where it is used, with the product it comes from; none of them,
+and no byte of one, is in this repository), and the numbers quoted are from that run: the face's size in bytes, its glyph count, the render check of
 [Checking a face](#checking-a-face) (`svfline.py measure` width / ascent / descent and the count of inked pixels of the
 sample line), or for a jamo set the `--check` IoU. *Synthetic*: run only by the tests (`tools/test_recipes.py`,
-`tools/test_build_faces.py`, `tools/test_macsfnt.py` and the maker's tests), on fonts built in the test. *Not run here:
-reason*: no input exists in this repository or on this host. Sizes drift with the tools' versions: quote them as "about",
+`tools/test_build_faces.py`, `tools/test_macsfnt.py` and the maker's tests), on fonts built in the test. *Not run:
+reason*: no source of that kind was found. Sizes drift with the tools' versions: quote them as "about",
 and trust the run.
 
 Contents:
@@ -55,7 +56,7 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | BDF or PCF in KS C 5601 / KS X 1001 (X Window) | `srcprep.py pcf-bdf` (PCF only), then `bdfface.py` | `jamoset.py --from-svf` | [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) |
 | hanterm johab BDF | no | `jamoset.py --layout hanterm-johab` | [hanterm](#hanterm) |
 | HBF | only as the ASCII half of `bdfface.py` | no | [HBF](#hbf) |
-| Windows `.FNT` / `.FON` | `mkfont.py` at its pixel size (the maker detects it; unverified) | no | [Windows FNT and FON](#windows-fnt-and-fon) |
+| Windows `.FNT` / `.FON` | `mkfont.py` at its pixel size (opens, but FreeType gives it no Unicode map: draws nothing) | no | [Windows FNT and FON](#windows-fnt-and-fon) |
 | DOS raw jamo-piece font (8x4x4 `HANGUL.FNT`, san, Dokkaebi, Kyra...) | `johab844.py` (16 px 8x4x4) | `jamoset.py --layout L` | [DOS-era raw fonts](#dos-era-raw-fonts) |
 | HWP `.PFT` Hangul, KS X 1001 raw dumps | no reader | no reader | [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts), [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
 | Mac HangulTalk 1.0 `fbit` (45 sets + `fdef`) | no | `jamoset.py --layout mac-fbit-45sets` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
@@ -172,8 +173,24 @@ from the next two ways.
 **2. Conjoining-jamo shaping (GSUB `ljmo` / `vjmo` / `tjmo`).** A font with these features draws the conjoining jamo
 U+1100.. in positional variants. `jamoset.py --from-ttf ... --mask-font FONT` shapes each syllable as conjoining jamo with
 HarfBuzz and uses the variants as masks that confine the fitted pieces (needs `freetype-py` and `uharfbuzz`;
-`--pylib DIR` points at them). Not run here: neither module is installed on this host; neodgm.ttf in `ttf/` has the three
-features and can serve as a mask font. `jamoset.py --from-ttf` and `--from-svf` also use a mask font on their own when `$JAMOSET_MASK_FONT`
+`--pylib DIR` points at them). Run here with the two modules installed into a scratch folder
+(`pip install --target $HOME/work/tmp/pylib freetype-py uharfbuzz`, then `--pylib` that folder; nothing is installed into
+the system or the user site):
+
+    python3 tools/jamoset.py --layout 844 --from-ttf ttf/neodgm/neodgm.ttf --size 16 --binarize threshold \
+        --mask-font ttf/neodgm/neodgm.ttf --no-clean --check --pylib $HOME/work/tmp/pylib -o $OUT/NEO16M.SVF
+
+neodgm.ttf (`ttf/`) has the three features and serves as its own mask font: `15,740 bytes`, 439 glyphs, 344 pieces, IoU
+1.000 over 11,172 syllables (3.6 s), 11,008 of them exact, `width=144 ascent=12 descent=4`, ink 559. The free fit of the
+same font (`--mask-font none`) is `16,376 bytes`, 11,172 exact, in 3.6 s too: the mask spends fewer bytes (the pieces
+are confined to their variants) and gives up some exact syllables to do it. On fonts whose conjoining pieces differ
+from their precomposed syllables the mask fits worse than it helps: Noto Sans CJK KR (the OFL font of the
+[OpenType CFF](#opentype-cff-otf) recipe) `16,396 bytes`, IoU 0.752 (free fit 0.786), 6.5 s, ink 450; Malgun Gothic
+(Microsoft, Windows; proprietary) `16,212 bytes`, IoU 0.753 (free fit 0.766, `18,368 bytes`), 5.7 s, ink 413. With the
+modules present the default `--binarize mono` runs too (neodgm: IoU 1.000, 0.8 s, `16,376 bytes`). The maker offers the
+`mask fit` route only when the server finds the two modules (`/api/caps` `mask_libs`); with them the routes of neodgm.ttf,
+Noto Sans CJK KR and Malgun Gothic include it (checked with `routes.routes` on `detect.scan` entries whose `mask_ok` was set).
+`jamoset.py --from-ttf` and `--from-svf` also use a mask font on their own when `$JAMOSET_MASK_FONT`
 names one (or a NotoSansKR sits beside the ScummVM tree) and both modules are present: the free fit comes first, and the
 mask is used only when that fit's mean IoU is below 0.995 (`AUTO_EXACT`; a face that already is an OR of pieces keeps the
 free fit); without the modules it prints a note on stderr and fits freely. Pass `--mask-font none` to force the free fit,
@@ -309,7 +326,9 @@ ExtraBold).
     python3 tools/macsfnt.py extract Font.dfont $OUT/Font.ttf [--id N]
 
 `macsfnt.py` also unwraps AppleDouble (`._Font`) and MacBinary files. FreeType opens a .dfont directly as well, so
-`mkfont.py Font.dfont ...` works for the first face of a Unicode-mapped font (synthetic .dfont).
+`mkfont.py Font.dfont ...` works for the first face of a Unicode-mapped font (synthetic .dfont). Not run: no `.dfont` was
+found; the Korean Mac fonts on hand are classic resource-fork files (`Seoul[FFIL]`), which the `list` / `extract` run
+below read.
 
 **Mac Korean cmaps.** A font for the Korean Mac (and some Windows fonts) has only a platform 1 / script 3 (Mac Korean) or
 platform 3 / encoding 5 (Wansung) cmap: two-byte KS X 1001 codes. FreeType and the SVF tools select a Unicode cmap, so
@@ -320,9 +339,25 @@ such a font draws nothing until it has one:
 
 Each code is decoded as EUC-KR (KS X 1001); Apple's own additions to Mac Korean have no KS X 1001 meaning and are counted
 as unmapped. Synthetic (`tools/test_macsfnt.py`): a font with only a (1,3) format 2 cmap is listed, extracted from a
-resource fork, AppleDouble and MacBinary, gains a Unicode subtable, and `mkfont.py` then draws its syllable. Not run here:
-no Mac TrueType font on this host. The classic bitmap fonts of the Korean Mac are in
-[Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts).
+resource fork, AppleDouble and MacBinary, gains a Unicode subtable, and `mkfont.py` then draws its syllable.
+
+Run on a real font: Seoul from the Mac OS 7.6.1 Korean CD (`Font Folder/Seoul[FFIL]`, Apple Korea / Elex Computer 1994-1995,
+proprietary). `list` shows eight `NFNT`, the `FOND` 17408 "Seoul" and the `sfnt` 17408 (6,159,836 bytes); `extract` writes those
+6,159,836 bytes as `Seoul.ttf`; `cmap` prints `platform=1 encoding=0 format=0 entries=232 hangul=0` and
+`platform=1 encoding=3 format=2 entries=9799 hangul=2350`. `mkfont.py` on `Seoul.ttf` as extracted draws nothing (it writes
+one glyph, 72 bytes: no code point of the set is in the font). `unicode` reports `8329 code points in the Unicode subtable,
+1470 codes not in KS X 1001`, and then
+
+    python3 tools/mkfont.py $OUT/SeoulU.ttf $OUT/seoul16.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/seoul16.svf $OUT/SEOUL16.SVF --profile default --check
+
+gives `124,868 bytes`, 2,446 glyphs, `width=156 ascent=13 descent=3`, ink 346. Seoul carries hand-made `bdat` strikes
+(9 to 24 ppem), so at 16 px FreeType draws the strike, not the outline ([Embedded bitmap
+strikes](#embedded-bitmap-strikes)); at 17 px, which has no strike, the outline is rasterised (`125,164 bytes`, 2,444
+glyphs: two code points the outline lacks are left out, `width=164 ascent=14 descent=3`). The maker reads the resource fork
+directly: `detect.scan` on `Seoul[FFIL]` gives kind `outline`, label "resource fork: sfnt 17408; bitmap strikes 9, 10, 12,
+14, 16, 18, 20, 24; Mac Korean cmap", routes `mkfont`, `experimental fit` and `vector fit`. The classic bitmap fonts of the
+Korean Mac are in [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts).
 
 ## Bitmap fonts
 
@@ -381,21 +416,47 @@ hanterm fonts (johab-1 encoding, glyph numbers as `ENCODING`, 10x(3|4)x4 sets, 5
 
     python3 tools/jamoset.py --layout hanterm-johab johabm16.bdf --check -o $OUT/HTERM16J.SVF
 
-Not run here: no hanterm BDF on this host. Synthetic (`tools/test_recipes.py`): a 529-glyph hanterm BDF composes all
-11,172 syllables in 10/4/4 sets.
+Run on KAIST Myeongjo and KAIST Gothic, the 16 px Johab fonts of the hanterm 3.0.4 font set (`johabm16.bdf`,
+`johabg16.bdf`; 529 glyphs each, `CHARSET_REGISTRY "JOHAB-1"`; KAIST; redistribution terms not stated), with the command above:
+
+Myeongjo: `13,740 bytes`, 368 pieces, `check: composed 11172 syllables from 368 glyphs, JSET 1303 bytes`, `width=80 ascent=14
+descent=2` (the five syllables of the sample; the BDF has no ASCII, give `--eng` a raw 8x16 English font for it), ink 310;
+Gothic: `13,180 bytes`, ink 214. The maker's `detect.scan` gives both kind `bdf-johab`, label "BDF (johab)", sizes [16] and the
+route `hanterm`. The same set's `10-6-6` folder (10x6x6 sets) is another layout and was not run. Synthetic
+(`tools/test_recipes.py`): a 529-glyph hanterm BDF composes all 11,172 syllables in 10/4/4 sets.
 
 ### HBF
 
 `bdfface.py --ascii` reads an HBF (the `.hbf` with its `.bin` or `.bin.gz` beside it), but only as the ASCII half of a
-face; the Hangul half must be a BDF. Not run here: no `.hbf` on this host or in the repository. Synthetic
+face; the Hangul half must be a BDF. Run with Sony Fixed 12x24 (`12x24.hbf` with `12x24.bin.gz`, the X11 Sony font as the
+ibiblio HBF collection holds it; Sony, free to use with its notice) as the ASCII half and Baekmuk Batang 24 (`batang24.bdf`
+of the Baekmuk 2.0 X11 BDF set, KS C 5601) as the Hangul half:
+
+    python3 tools/bdfface.py --hangul batang24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/HBF24.SVF
+
+`206,872 bytes`, 2,350 syllables, ascent 22, step 24, no glyph clipped, `width=216 ascent=22 descent=2` (five 24 px syllables
+and seven 12 px characters), ink 746; with the `.bin` unzipped beside the `.hbf` the face is byte for byte the same. The
+maker lists a bare `12x24.hbf` as kind `hbf` with no route (an HBF is only a companion), and refuses one whose bitmap is
+only `.bin.gz` on disk (label "HBF: unsafe bitmap reference"): unzip the `.bin` first. Synthetic
 (`tools/test_bdfface.py`): a synthetic HBF as the ASCII half.
 
 ### Windows FNT and FON
 
-FreeType has a winfnt driver, so `mkfont.py` should read a Windows `.FNT` (or the `.FON` that holds several) at the
-font's own pixel size, the way it reads a BDF or PCF. The maker detects them (`detect.py`: a bare FNT header, a FON's faces
-with the later faces needing a prepared source) and offers the `mkfont` route at their sizes. Not run here: no Windows FNT or
-FON on this host or in the repository (a search of `/usr/share/fonts` and `~` found only FONTX2 and DOS bitmaps). Unverified.
+FreeType has a winfnt driver and `mkfont.py` opens a Windows `.FNT` (or the `.FON` that holds several) at the font's own
+pixel size, the way it opens a BDF or PCF, but it cannot draw from one: the driver gives these fonts a single charmap of
+`FT_ENCODING_NONE`, no Unicode, so every code point falls on glyph 0. Run on the Windows 95 Korean system fonts (Microsoft,
+proprietary): VGAFIX.FON "Fixedsys" 16 px, VGASYS.FON "System" 13 px, SERIFF.FON "MS Serif" 13 px, 8514FIX.FON:
+
+    python3 tools/mkfont.py VGAFIX.FON $OUT/fon.svf --size 16 --bpp 1 --unicode ascii
+
+exits with `--unicode 의 글자가 글꼴에 하나도 없다` ("no character of --unicode is in the font"), and the same with
+`--unicode ascii,ksx1001-hangul`; Pillow draws "A", "B" and "가" as one and the same notdef glyph. The maker detects them
+(`detect.scan`: kind `bitmap`, label "Windows FON face 0", sizes [16] or [13], route `mkfont`; the later faces `other`,
+"face index 1: not convertible in v1"; MODERN.FON "no openable face"), so the route it offers fails on these files. No
+Windows FNT or FON with Hangul glyphs was found: the Windows 95 Korean disks carry only Latin and OEM ones (Fixedsys,
+System, Terminal, MS Serif, MS Sans Serif, Courier, Small Fonts; 25 FONs), and the Korean glyphs of that system are
+TrueType (`gulim.ttc`, with strikes: [Embedded bitmap strikes](#embedded-bitmap-strikes)). A FON would have to be converted
+to a BDF with an outside tool first; none is in this repository.
 
 Not to be mixed up with DOS Johab `.FNT` files, which are jamo-piece fonts: see [DOS-era raw fonts](#dos-era-raw-fonts).
 
@@ -404,7 +465,28 @@ Not to be mixed up with DOS Johab `.FNT` files, which are jamo-piece fonts: see 
 An outline font with embedded bitmaps (TrueType `bdat`/`bloc`, OpenType `EBDT`/`EBLC`) is used by FreeType only at the
 strike's own pixel size: run `mkfont.py --size N` with the strike's size and `--bpp 1`; at other sizes the outlines are
 used, or the open fails for a bitmap-only font (`OSError: invalid pixel size`). The maker's `detect.bitmap_strikes` lists a
-font's strikes and offers them as sizes. Not run here: no such font in `ttf/` or on this host.
+font's strikes and offers them as sizes. Run on two real fonts.
+
+*Seoul* of the Mac OS 7.6.1 Korean CD (`Font Folder/Seoul[FFIL]`, Apple Korea / Elex, proprietary; strikes 9, 10, 12, 14, 16,
+18, 20, 24 ppem, see [Mac-format TrueType](#mac-format-truetype)): after `macsfnt.py extract` and `unicode`, `mkfont.py --size 16
+--bpp 1 --unicode ascii,ksx1001-hangul` writes the strike's pixels (`124,868 bytes`, ink 346); at `--size 17` it draws the outline.
+The CD's bitmap-only copy of the same family (`CD Extras/Bitmap 서체 설치/Seoul/Seoul[FFIL]`, 2,626,404 bytes, `bdat` + `bloc` +
+`bhed`, no `glyf`, maker kind `bitmap`, sizes [9, 10, 12, 14, 16, 18, 20, 24]) gives the same glyph bytes at 16 px, 12 px
+(`105,972 bytes`) and 24 px (`219,116 bytes`), and `--size 17` stops with `폰트를 17px 로 열 수 없다: invalid pixel size`. But its
+metrics are lost: it has no `head` (Apple's `bhed` instead), `mkfont.py` writes advance 0 for every glyph, `svfline.py measure`
+says `width=0` and `fontmetrics.py` flags 2,445 of 2,446 glyphs as reaching past their advance. Bake the strikes from the
+full font, not from the bitmap-only copy.
+
+*Gulim* (굴림) of Windows (`GULIM.TTC`, Microsoft with HanYang I&C, proprietary; `EBLC` strikes 11 to 25 ppem):
+
+    python3 maker/srcprep.py ttc-face GULIM.TTC $OUT/Gulim.ttf --index 0
+    python3 tools/mkfont.py $OUT/Gulim.ttf $OUT/gu16.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+
+16 px `125,288 bytes`, 2,446 glyphs, `width=149 ascent=14 descent=2`, ink 371; 12 px `106,208 bytes`, `width=114 ascent=10
+descent=2`, ink 298; `svf2to3.py --profile default --check` keeps both sizes. A size with no strike (26) rasterises the outline
+(`202,144 bytes`); `--bpp 2` also takes the outline even at a strike size (16 px: `182,604 bytes`), so only `--bpp 1` gives the
+strike's own pixels. The maker's `detect.scan` on the extracted font gives kind `outline-composite`, label "TTF; bitmap strikes 11, 12,
+13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25", sizes [16], routes `mkfont`, `composite` and `vector fit`.
 
 ## DOS-era raw fonts
 
@@ -431,36 +513,91 @@ is no header to sniff.
 `--eng` takes a raw 8x16 English font (2,048 or 4,096 bytes; scaled by whole numbers to the cell) for ASCII; `--base
 FACE.SVF` keeps another face's non-syllable glyphs. The ascent defaults to 7/8 of the cell (`--ascent N`); 8x16 DOS
 fonts put the baseline at row 13 or 14. `--check` composes all 11,172 syllables. `johab844.py` redraws the syllables of a
-16x16 1 bpp base with the raw pieces and keeps the base's other glyphs. Synthetic (`tools/test_recipes.py`; not run here: no DOS font on this host): a raw 8x4x4 font with an 8x16 English font (가 composed = the OR of raw slots 1 and 161, byte
+16x16 1 bpp base with the raw pieces and keeps the base's other glyphs. Synthetic (`tools/test_recipes.py`): a raw 8x4x4 font with an 8x16 English font (가 composed = the OR of raw slots 1 and 161, byte
 for byte), a 6x2x1 font (1 lead / 2 tail classes, 6/2/1 sets), and a refit of a precomposed face (`--from-svf` over
 NEODG16J, IoU 1.000).
 
+Run on real fonts (2026-11-22; `--symbols --check` on every line, `--eng` where named; the sample line `안녕하세요 ABC 123`; "ink" is the
+count of the render check; ASCII is drawn only when `--eng` is given, so a face without it measures five syllables):
+
+| `--layout` | Source (font, product; proprietary unless noted) | Result |
+|---|---|---|
+| `844` | GOTHIC16.FNT, 11,520 bytes (Taebaek 3.5.1 Gothic 16), `--eng ROMAN16.FNT` of the same package | `15,756 bytes`, 344 pieces, 441 glyphs, identical to `johab844.py`'s syllables; `width=144 ascent=14 descent=2`, ink 566 |
+| `844` | TBG1.FNT, 11,522 bytes with the 2-byte header (T-Hangul, an early Taebaek), `--eng ROMAN16.FNT` | `15,712 bytes`, the same 344 pieces and ink 566 |
+| `844` | DKBBM.FNT, 15,584 bytes (Hangul Dokkaebi B Myeongjo), `--eng ROMAN16.FNT` | `15,744 bytes`, 441 glyphs, identical to `johab844.py`; ink 512 |
+| `844` | MHANC24.PFT, 25,920 bytes (Taebaek 3.5.1 Myeongjo 24 px), `--eng MASCII24.PFT` (12,288 bytes, the 12x24 English font) | `23,088 bytes`, 344 pieces; `width=216 ascent=20 descent=4`, ink 916 |
+| `844` | GHANC40.PFT, 72,000 bytes (Taebaek 3.5.1 Gothic 40 px), no `--eng` | `34,040 bytes`, 346 glyphs; `width=200 ascent=35 descent=5`, ink 1,596 |
+| `844` | MHANC48.PFT, 103,680 bytes (Taebaek 3.5.1 Myeongjo 48 px), no `--eng` | `42,020 bytes`; `width=240 ascent=42 descent=6`, ink 1,482 |
+| `844-hbios24` | GOTHIC24.FNT, 243,900 bytes (Taebaek 3.5.1, the HBIOS 24x30 layout) | `17,776 bytes`, 346 glyphs; `width=120 ascent=21 descent=3`, ink 551 |
+| `844-hbios24` | MY24.FNT, 243,900 bytes (Taebaek 3.5.1 Myeongjo 24), `--eng GASCII24.PFT` | `23,136 bytes`; `width=216 ascent=20 descent=4`, ink 964 |
+| `1044-san` | HANPL.KOR, 12,800 bytes (san 1.0, `font-kor/`; the san project on GitHub) | `13,988 bytes`, 382 pieces, 384 glyphs; `width=80 ascent=14 descent=2`, ink 328 |
+| `621` | han_woori.fnt, 6,144 bytes ("Woori", iolo's 6x2x1-fonts on GitHub, Apple II era) | `6,584 bytes`, 183 pieces, 185 glyphs; ink 204 |
+| `dkb-printer-7x2x2` | HANGUL16.FNT 15,360 bytes and HANGUL24.FNT 34,560 bytes (Hangul Dokkaebi 5.1, printer fonts), `--face 0` / `--face 1` | 16 px `8,852` / `8,792 bytes`, 229 pieces, ink 367 / 363; 24 px `11,968` / `11,772 bytes`, ink 542 / 537 |
+| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 bytes and HANGUL48.FNT 253,440 bytes (the same), `--face 0` / `--face 1` | 40 px `38,608` / `38,528 bytes`, 420 pieces, ink 1,526 / 1,603; 48 px `52,848` / `48,824 bytes`, ink 1,956 / 1,939 |
+| `kyra-lok` | MK15.BIT, 11,550 bytes (The Legend of Kyrandia, Korean release) | `14,036 bytes`, 382 pieces, 15x15; `width=80 ascent=13 descent=2`, ink 344 |
+| `844-ihnm` | none: no SAGA IHNM data was found | not run |
+
+Every face composes all 11,172 syllables (`--check`); the piece counts are the used pieces, below the table's counts
+because unused slots are dropped. `johab844.py` over the same GOTHIC16.FNT (`--eng ROMAN16.FNT`, base `svf/dos/NEODG16.SVF`):
+`133,688 bytes`, 2,357 syllables from the raw font, 94 ASCII glyphs from ROMAN16.FNT, 454 other glyphs from the base,
+`width=144 ascent=12 descent=4`, ink 566, and `svf2to3.py --check` keeps the size. The maker's `detect.scan` on copies of these
+files gives kind `dos-raw` with the sizes 16 / 24 / 40 / 48 / 15 and the route `dos raw` for every one; GOTHIC16.FNT (labelled
+"844, 844-ihnm", the two layouts share the size) also gets `johab844`, the 11,522-byte TBG1.FNT and the 15,584-byte DKBBM.FNT only `dos raw`;
+the Dokkaebi printer files give one entry per face; GASCII24.PFT / MASCII24.PFT and ROMAN16.FNT are listed as "Latin companion".
+
 **Pitfalls.** A file of the right size in another layout passes the size check; `jamoset.py` refuses it when the slot-0
 fill pieces are not blank, but look at the result (`svfline.py line ... "가나다"`). Fonts with a 2-byte header
-(T-Hangul) are read at offset 2. A 24 px or larger source needs a matching English font or `--base`.
+(T-Hangul) are read at offset 2. A 24 px or larger source needs a matching English font or `--base`: the 40 and 48 px lines above have no ASCII, because `--eng` takes only 8x16 and the 12x24 fonts, not the 40 / 48 px English fonts (GASCII40.PFT, 30,720 bytes) of the same package.
 
 ### HWP 1.x and 2.x fonts
 
 Hangul and Computer's DOS word processor shipped printer and screen fonts (`HANGUL*.PFT`, `ASCII.PFT`, `*.FNT`). What
 this repository reads directly:
 
-- the 12x24 English fonts: `jamoset.py ... --eng ASCII.PFT` (12,288 bytes, 256 glyphs of 48 bytes) and HBIOS 12x24
-  (15,360 bytes);
+- the 12x24 English fonts: `jamoset.py ... --eng GASCII24.PFT` or `MASCII24.PFT` (Taebaek 3.5.1; 12,288 bytes, 256 glyphs of
+  48 bytes: used in the table above) and HBIOS 12x24 (15,360 bytes). HWP 1.20's own `ASCII.PFT` is a different file (41,654
+  bytes: a 32-byte "HWP Font Editor v1.0" header and 991 glyphs of 14x24, 42 bytes each, column-major) and is refused:
+  `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), not 41654`;
+- HWP 2.x screen fonts that are plain raw 8x4x4: `HMJ.FNT` (11,520 bytes) of the Hangul 2.1 PRO disks (disk 13), read
+  as any `844` font: `jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF` writes `15,700 bytes`
+  and composes all 11,172 syllables, identical to `johab844.py`;
 - any precomposed 1 bpp face you made of the Hangul, refitted to pieces: `jamoset.py --layout 844 --from-svf
-  FACE.SVF --mask-font none --check` (for the HWP 1.20 24 px faces this fit was exact);
+  FACE.SVF --mask-font none --check`;
 - a BDF of the composed syllables: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
 
-What it does **not** read: the HWP `.PFT` Hangul files themselves. Their glyphs are composed by HWP's own rules, which
-a separate research tool (`kfont.py` of the johab-fonts research notes) decodes; that reader is not part of this
-repository, and its output (a BDF or a precomposed face) is the input of the two routes above. No HWP font is in this
-repository.
+Run on HWP 1.20 for DOS (Hangul and Computer, 1989-1990; `HANGUL1.PFT`, 70,592 bytes, three faces of 24x24 in 7/2/3, 7/2/2 and
+5/2/2 sets, 72 bytes a glyph, column-major; proprietary), face 1 (Gothic by menu order): the research tool `hwp1_fnt.py` of
+the johab-fonts notes composes the syllables; a 30-line script wrote its 2,350 KS X 1001 syllables and its `ASCII.PFT` as two BDFs
+(`ENCODING` = the GL code; 24x24 and 14x24), and then
+
+    python3 tools/bdfface.py --hangul hwp-gothic.bdf --ascii hwp-ascii.bdf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/HWP24.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/HWP24.SVF --mask-font none --check -o $OUT/HWP24J.SVF
+
+`218,848 bytes`, 2,350 syllables, `width=232 ascent=21 descent=3`, ink 886; the jamo set `24,264 bytes`, 344 pieces, IoU 1.000
+over the 2,350 syllables (all exact), ink 886: the fit is exact for these 24 px faces, as the HWP rule composes every syllable
+from three pieces.
+
+What it does **not** read: the HWP `.PFT` Hangul files themselves. `jamoset.py --layout 844 HANGUL1.PFT` stops with `size 70592
+is not an 8x4x4 size`. Their glyphs are composed by HWP's own rules, which a separate research tool (`hwp1_fnt.py` and `kfont.py`
+of the johab-fonts research notes) decodes; that reader is not part of this repository, and its output (a BDF or a
+precomposed face) is the input of the routes above. The maker's `detect.scan` gives these files kind `other`, label
+"unknown".
 
 ### KS X 1001 raw dumps
 
 A raw dump of the 2,350 precomposed KS X 1001 syllables (one bitmap per syllable in code order, as some DOS and embedded
 systems keep them) has no reader in this repository: there is no layout for it in `jamoset.py`, `bdfface.py` or the
-maker, and a file of such a size is not recognised. Convert it elsewhere to a BDF (KS C 5601 encoded, `ENCODING` = the GL
-code) and use [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf). Not run here: there is nothing to run.
+maker, and a file of such a size is not recognised. Run on `GHAN24.PFT` of Taebaek 3.5.1 (Gothic 24 px; 169,200 bytes = 2,350
+x 72, no header, 24x24 row-major with three bytes a row, in KS order from 가): `jamoset.py --layout 844 GHAN24.PFT` stops with
+`size 169200 is not an 8x4x4 size`, and the maker's `detect.scan` calls it `other`, "unknown". Convert it elsewhere to a BDF
+(KS C 5601 encoded, `ENCODING` = the GL code) and use [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf); done here with a 15-line
+script (row `0x30 + i // 94`, column `0x21 + i % 94`, the rows of each glyph as hex), then with Sony Fixed 12x24 for ASCII:
+
+    python3 tools/bdfface.py --hangul ghan24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/GHAN24.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/GHAN24.SVF --mask-font none --check -o $OUT/GHAN24J.SVF
+
+The face is `216,448 bytes`, 2,350 syllables, `width=216 ascent=22 descent=2`, ink 1,074; the jamo set `33,684 bytes`, 344 pieces, IoU
+0.710 over the 2,350 syllables (the face is a whole-syllable design, not an OR of pieces, so the fit is poor).
 
 ## Classic Mac Korean bitmap fonts
 
@@ -480,6 +617,16 @@ cell = the font's size. `--check` composes everything and compares with jamoset'
 file (`tools/testdata/mac-fbit-golden.json`, not shipped: it would hold Apple bitmaps) adds an independent comparison
 when you make one. Tests on the real files run when `JOHAB_FONTS` names a tree holding
 `mac/extracted/kh10_system_disk/System Folder/*.rsrc` and the reference renderer; they skip otherwise.
+
+Run on the System Disk of Korean System 4.1 / HangulTalk 1.0 (Jan 1988, Apple Korea / Elex Computer; proprietary), whose
+`System Folder` holds the four fonts as resource-fork files. `Munjo24` (24 px Myeongjo; `list` shows `fbit` 17409, 47,714
+bytes, and its `fdef` 3, 2,398 bytes): `36,660 bytes`, 653 pieces of 24x24, 8 lead x 4 tail classes, 20/15/4 sets, `check:
+composed 11172 syllables from 655 glyphs`, and the self-consistency line `IoU 1.000, exact 11172` against jamoset's copy of the
+`fdef` rule (no golden file), 1.0 s; `width=120 ascent=24 descent=0` for the sample line (these fonts hold no Latin: only the five
+syllables are drawn), ink 591. `Gotic12` (12 px Gothic): `23,368 bytes`, the same sets, `width=60 ascent=12 descent=0`. The
+maker reads these fonts as "HangulTalk 7.1 type-3 fbit, 24 px, 661 planes (needs HTBL 1)", not as 1.0: a real 1.0 `fbit` header
+carries generation 3 like the 7.1 ones, and `detect.py` tests the generation before the 45 sets (its tests build 1.0 fonts
+with generation 1). The command above is right for them, but the `mac fbit 1.0` route is not offered for a real font.
 
 **HangulTalk 7.1.x type-3 'fbit' fonts** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): the planes are composed by a
 table, InputBackSupport 'HTBL' 1, and only the 2,350 KS X 1001 syllables and 51 compatibility jamo exist.
@@ -501,7 +648,28 @@ extra syllables are extrapolated (not Mac output). The BDF route goes on with `b
 and `tools/test_macfbit_svf.py` run on synthetic fbit / HTBL / NFNT data built in the tests; `MACFBIT3_CD712=<CD tree>`
 and `SVF_MAC71_INPUTS=<dir of Name.fbit and Name.htbl1>` add the checks on your files. Outline Mac TrueType fonts: see
 [Mac-format TrueType](#mac-format-truetype). The maker's routes for these fonts are in the
-[route table](#desktop-app-and-maker-routes). Not run here: no Apple data on this host; everything above is synthetic.
+[route table](#desktop-app-and-maker-routes).
+
+Run on Seoul12 of Korean System 7.1.2 / HangulTalk 7.1.2 (Apple Korea / Elex Computer; proprietary): `Seoul12[splt]` from the
+CD's `More Additions` folder (the HangulTalk 7.5.1 installer's `Seoul12[fbit]` fork gives the same 8,760-byte `fbit`, `cmp`
+identical) and the HTBL 1 of that CD's `InputBackSupport` extension. The HTBL is one more step the commands above did not
+show; the 7.5.1 copy of the extension is compressed and `srcprep.py` answers "not an HTBL 1 table":
+
+    python3 maker/srcprep.py mac-htbl "InputBackSupport[INIT].rsrc" $OUT/HTBL1.bin      # 9,816 bytes
+
+With that `HTBL1.bin` the chapter's commands run as written: `unpack` `JM 1843 -> 9673 bytes`, `fbit` 8,760 bytes, `bdf` 2,401
+glyphs; `direct` `15,016 bytes`, 207 pieces, `verify` ks_bad 0, compat_bad 0, non_ks_present 0; `derived` `9,716 bytes`, 219 pieces,
+8 x 4 classes, 9/6/3 sets (`7,928 bytes` as JSET v2), every syllable verified; both draw the five syllables of the sample line as
+`width=60 ascent=10 descent=2`, ink 142. The BDF route (`macfbit3.py bdf`, then `srcprep.py bdf-pixel-size seoul12.bdf
+seoul12-sized.bdf --size 12`, then `mkfont.py ... --size 12 --bpp 1 --unicode ascii,ksx1001-hangul` and the canonical step) gives
+`103,012 bytes`, 2,350 glyphs, the same `width=60 ascent=10 descent=2` and ink 142. With the family suitcase for the Latin letters
+(`--latin "Seoul[FFIL].rsrc"`: a `FOND` and two `NFNT` strikes, 9 and 12 pt, from the same CD) `direct` is `17,924 bytes` (1,388 of
+Latin) and `derived` `12,624 bytes`, both `width=111 ascent=10 descent=2`, ink 253, `verify` clean. `jamomerge.py merge --points 8192
+7168` (about 2 minutes) writes `SM8K.SVF` `7,964 bytes` and `SM7K.SVF` `7,032 bytes` (191 pieces, 7/6/3 sets), verified. The maker's
+local mode reads the files (`detect.scan(..., local=True)`): the `Seoul12` fork, the `splt` file and a raw fork are "HangulTalk 7.1
+type-3 fbit, 12 px, 482 planes (needs HTBL 1)" with the routes `mac fbit 7.1 direct`, `derived` and `bdf + mkfont`; the extension
+is "HangulTalk 7.1 HTBL 1 (InputBackSupport): the composition table"; `Seoul[FFIL]` is "Mac bitmap suitcase (FOND + NFNT): Latin
+strikes at 9, 12 pt".
 
 ## An existing SVF
 
@@ -581,6 +749,14 @@ step before it wrote):
 
 Verified: the route labels and kinds of this table were read from `routes.py` and checked by running `detect.scan` and
 `routes.routes` on a folder of copies of fonts of this host: NanumGothic Bold, Caveat-VF and each of the ten faces of Noto Sans CJK Regular (index 0-9) are `outline` and get the route `mkfont` (Caveat, NanumGothic and each Noto CJK face also `experimental fit` and `vector fit`); neodgm.ttf is `outline-composite` with `mkfont`, `composite` (native) and `vector fit`; `wqy_12pt.bdf` (kind `bdf-iso10646`) and `18x18ko.pcf.gz` (`bitmap`, sizes [18]) get `mkfont` only; `hanglm16.pcf.gz` is `bdf-ksc5601` with `bdfface` and `bdfface + from-svf fit`; NEODG16.SVF (`svf-precomposed`) gets `copy` and `from-svf fit`, NEODG16A.SVF (`svf-jamo`) `copy`.
+
+The same check on copies of the proprietary sources of the recipes above (2026-11-22; details in each recipe): raw DOS fonts
+are `dos-raw` with `dos raw` (11,520-byte ones also `johab844`); `johabm16.bdf` is `bdf-johab` with `hanterm`; `batang24.bdf`
+is `bdf-ksc5601` with `bdfface` and `bdfface + from-svf fit`; Gulim and Mac Seoul with strikes are `outline-composite` / `outline`
+with `mkfont` (the bitmap-only Seoul `bitmap`, `mkfont` only); Windows FONs `bitmap` with `mkfont` (which fails on them);
+`GHAN24.PFT` and the HWP `.PFT` files `other`, "unknown"; the Mac fonts in local mode as above, where the 1.0 fonts show as
+type 3. The `mask fit` row appears for neodgm.ttf, Noto Sans CJK KR and Malgun Gothic once `mask_ok` is set (the server sets it
+when `freetype-py` and `uharfbuzz` import).
 
 ## Faces of svf/
 
