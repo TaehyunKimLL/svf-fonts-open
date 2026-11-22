@@ -85,6 +85,11 @@ unless stated.
   `mkfont.py` prints it in Korean (`글리프 2446개 ... 125,520 바이트`).
 - The ink is the number of non-zero bytes of the `line` buffer: `python3 -c "import sys;print(sum(1 for b in open(sys.argv[1],'rb').read() if b))" $OUT/out.gray`.
   A face that draws nothing has ink 0.
+  The 200x24 buffer and baseline 16 above fit a 16 px cell. For a face whose cell C is not 16 (12, 15, 24, 40, 48 px) the
+  recipes' ink numbers are from `line 400 C+8 0 C` (a 400-wide buffer, the baseline at the cell height, C+8 rows: the
+  buffer must be at least as wide as the measured width and as tall as the cell plus descent, or the line is clipped):
+  `python3 tools/svfline.py line 400 32 0 24 "안녕하세요 ABC 123" FACE.SVF > $OUT/out.gray` for a 24 px face. Every 16 px
+  number reproduces with the 200x24 command and every other cell with this rule.
 - A jamo set is judged by `--check` (on `jamoset.py` and `jamovec.py`): it composes all 11,172 syllables from the pieces
   and fails on a table error; the fit line before it prints the IoU of the pieces against the source's syllables
   (`fit: 11172 syllables, IoU 0.817`). `--check` does not fail on a poor fit: read the IoU, and look at the result
@@ -174,11 +179,11 @@ from the next two ways.
 U+1100.. in positional variants. `jamoset.py --from-ttf ... --mask-font FONT` shapes each syllable as conjoining jamo with
 HarfBuzz and uses the variants as masks that confine the fitted pieces (needs `freetype-py` and `uharfbuzz`;
 `--pylib DIR` points at them). Run here with the two modules installed into a scratch folder
-(`pip install --target $HOME/work/tmp/pylib freetype-py uharfbuzz`, then `--pylib` that folder; nothing is installed into
+(`pip install --target $OUT/pylib freetype-py uharfbuzz`, then `--pylib` that folder; nothing is installed into
 the system or the user site):
 
     python3 tools/jamoset.py --layout 844 --from-ttf ttf/neodgm/neodgm.ttf --size 16 --binarize threshold \
-        --mask-font ttf/neodgm/neodgm.ttf --no-clean --check --pylib $HOME/work/tmp/pylib -o $OUT/NEO16M.SVF
+        --mask-font ttf/neodgm/neodgm.ttf --no-clean --check --pylib $OUT/pylib -o $OUT/NEO16M.SVF
 
 neodgm.ttf (`ttf/`) has the three features and serves as its own mask font: `15,740 bytes`, 439 glyphs, 344 pieces, IoU
 1.000 over 11,172 syllables (3.6 s), 11,008 of them exact, `width=144 ascent=12 descent=4`, ink 559. The free fit of the
@@ -526,14 +531,14 @@ count of the render check; ASCII is drawn only when `--eng` is given, so a face 
 | `844` | TBG1.FNT, 11,522 bytes with the 2-byte header (T-Hangul, an early Taebaek), `--eng ROMAN16.FNT` | `15,712 bytes`, the same 344 pieces and ink 566 |
 | `844` | DKBBM.FNT, 15,584 bytes (Hangul Dokkaebi B Myeongjo), `--eng ROMAN16.FNT` | `15,744 bytes`, 441 glyphs, identical to `johab844.py`; ink 512 |
 | `844` | MHANC24.PFT, 25,920 bytes (Taebaek 3.5.1 Myeongjo 24 px), `--eng MASCII24.PFT` (12,288 bytes, the 12x24 English font) | `23,088 bytes`, 344 pieces; `width=216 ascent=20 descent=4`, ink 916 |
-| `844` | GHANC40.PFT, 72,000 bytes (Taebaek 3.5.1 Gothic 40 px), no `--eng` | `34,040 bytes`, 346 glyphs; `width=200 ascent=35 descent=5`, ink 1,596 |
-| `844` | MHANC48.PFT, 103,680 bytes (Taebaek 3.5.1 Myeongjo 48 px), no `--eng` | `42,020 bytes`; `width=240 ascent=42 descent=6`, ink 1,482 |
+| `844` | GHANC40.PFT, 72,000 bytes (Taebaek 3.5.1 Gothic 40 px), no `--eng` | `34,040 bytes`, 346 glyphs; `width=200 ascent=35 descent=5`, ink 1,751 |
+| `844` | MHANC48.PFT, 103,680 bytes (Taebaek 3.5.1 Myeongjo 48 px), no `--eng` | `42,020 bytes`; `width=240 ascent=42 descent=6`, ink 1,865 |
 | `844-hbios24` | GOTHIC24.FNT, 243,900 bytes (Taebaek 3.5.1, the HBIOS 24x30 layout) | `17,776 bytes`, 346 glyphs; `width=120 ascent=21 descent=3`, ink 551 |
 | `844-hbios24` | MY24.FNT, 243,900 bytes (Taebaek 3.5.1 Myeongjo 24), `--eng GASCII24.PFT` | `23,136 bytes`; `width=216 ascent=20 descent=4`, ink 964 |
 | `1044-san` | HANPL.KOR, 12,800 bytes (san 1.0, `font-kor/`; the san project on GitHub) | `13,988 bytes`, 382 pieces, 384 glyphs; `width=80 ascent=14 descent=2`, ink 328 |
 | `621` | han_woori.fnt, 6,144 bytes ("Woori", iolo's 6x2x1-fonts on GitHub, Apple II era) | `6,584 bytes`, 183 pieces, 185 glyphs; ink 204 |
 | `dkb-printer-7x2x2` | HANGUL16.FNT 15,360 bytes and HANGUL24.FNT 34,560 bytes (Hangul Dokkaebi 5.1, printer fonts), `--face 0` / `--face 1` | 16 px `8,852` / `8,792 bytes`, 229 pieces, ink 367 / 363; 24 px `11,968` / `11,772 bytes`, ink 542 / 537 |
-| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 bytes and HANGUL48.FNT 253,440 bytes (the same), `--face 0` / `--face 1` | 40 px `38,608` / `38,528 bytes`, 420 pieces, ink 1,526 / 1,603; 48 px `52,848` / `48,824 bytes`, ink 1,956 / 1,939 |
+| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 bytes and HANGUL48.FNT 253,440 bytes (the same), `--face 0` / `--face 1` | 40 px `38,608` / `38,528 bytes`, 420 pieces, ink 1,595 / 1,766; 48 px `52,848` / `48,824 bytes`, ink 2,472 / 2,538 |
 | `kyra-lok` | MK15.BIT, 11,550 bytes (The Legend of Kyrandia, Korean release) | `14,036 bytes`, 382 pieces, 15x15; `width=80 ascent=13 descent=2`, ink 344 |
 | `844-ihnm` | none: no SAGA IHNM data was found | not run |
 
@@ -577,7 +582,7 @@ the johab-fonts notes composes the syllables; a 30-line script wrote its 2,350 K
 over the 2,350 syllables (all exact), ink 886: the fit is exact for these 24 px faces, as the HWP rule composes every syllable
 from three pieces.
 
-What it does **not** read: the HWP `.PFT` Hangul files themselves. `jamoset.py --layout 844 HANGUL1.PFT` stops with `size 70592
+What it does **not** read: the HWP `.PFT` Hangul files themselves. `jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF` stops (exit 1) with `size 70592
 is not an 8x4x4 size`. Their glyphs are composed by HWP's own rules, which a separate research tool (`hwp1_fnt.py` and `kfont.py`
 of the johab-fonts research notes) decodes; that reader is not part of this repository, and its output (a BDF or a
 precomposed face) is the input of the routes above. The maker's `detect.scan` gives these files kind `other`, label
@@ -588,7 +593,7 @@ precomposed face) is the input of the routes above. The maker's `detect.scan` gi
 A raw dump of the 2,350 precomposed KS X 1001 syllables (one bitmap per syllable in code order, as some DOS and embedded
 systems keep them) has no reader in this repository: there is no layout for it in `jamoset.py`, `bdfface.py` or the
 maker, and a file of such a size is not recognised. Run on `GHAN24.PFT` of Taebaek 3.5.1 (Gothic 24 px; 169,200 bytes = 2,350
-x 72, no header, 24x24 row-major with three bytes a row, in KS order from 가): `jamoset.py --layout 844 GHAN24.PFT` stops with
+x 72, no header, 24x24 row-major with three bytes a row, in KS order from 가): `jamoset.py --layout 844 GHAN24.PFT -o $OUT/rejected.SVF` stops (exit 1) with
 `size 169200 is not an 8x4x4 size`, and the maker's `detect.scan` calls it `other`, "unknown". Convert it elsewhere to a BDF
 (KS C 5601 encoded, `ENCODING` = the GL code) and use [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf); done here with a 15-line
 script (row `0x30 + i // 94`, column `0x21 + i % 94`, the rows of each glyph as hex), then with Sony Fixed 12x24 for ASCII:
@@ -626,17 +631,18 @@ composed 11172 syllables from 655 glyphs`, and the self-consistency line `IoU 1.
 syllables are drawn), ink 591. `Gotic12` (12 px Gothic): `23,368 bytes`, the same sets, `width=60 ascent=12 descent=0`. The
 maker reads these fonts as "HangulTalk 7.1 type-3 fbit, 24 px, 661 planes (needs HTBL 1)", not as 1.0: a real 1.0 `fbit` header
 carries generation 3 like the 7.1 ones, and `detect.py` tests the generation before the 45 sets (its tests build 1.0 fonts
-with generation 1). The command above is right for them, but the `mac fbit 1.0` route is not offered for a real font.
+with generation 0). The command above is right for them, but the `mac fbit 1.0` route is not offered for a real font.
 
 **HangulTalk 7.1.x type-3 'fbit' fonts** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): the planes are composed by a
 table, InputBackSupport 'HTBL' 1, and only the 2,350 KS X 1001 syllables and 51 compatibility jamo exist.
 
+    python3 maker/srcprep.py mac-htbl "InputBackSupport[INIT].rsrc" $OUT/HTBL1.bin     # the HTBL 1 of the extension (7.1.2 CD), 9,816 bytes
     python3 tools/macfbit3.py unpack Seoul12.splt.data $OUT/Seoul12.rsrc     # the 7.1.2 Installer's 'splt' "JM" archive
     python3 tools/macfbit3.py fbit $OUT/Seoul12.rsrc $OUT/Seoul12.fbit
-    python3 tools/macfbit3.py bdf $OUT/Seoul12.fbit HTBL1.bin Seoul12 $OUT/seoul12.bdf          # 2,401 glyphs, Unicode BDF
-    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit HTBL1.bin -o $OUT/SEOUL12J.SVF         # direct: the Mac structure (JMAP)
-    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit HTBL1.bin --mode derived -o $OUT/SEOUL12D.SVF   # a JSET face, all 11,172
-    python3 tools/macfbit_svf.py verify $OUT/SEOUL12J.SVF $OUT/Seoul12.fbit HTBL1.bin
+    python3 tools/macfbit3.py bdf $OUT/Seoul12.fbit $OUT/HTBL1.bin Seoul12 $OUT/seoul12.bdf          # 2,401 glyphs, Unicode BDF
+    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit $OUT/HTBL1.bin -o $OUT/SEOUL12J.SVF         # direct: the Mac structure (JMAP)
+    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit $OUT/HTBL1.bin --mode derived -o $OUT/SEOUL12D.SVF   # a JSET face, all 11,172
+    python3 tools/macfbit_svf.py verify $OUT/SEOUL12J.SVF $OUT/Seoul12.fbit $OUT/HTBL1.bin
 
 `direct` keeps the Mac planes as pieces and composes only the KS syllables exactly; `derived` fits a JSET whose 8,822
 extra syllables are extrapolated (not Mac output). The BDF route goes on with `bdfface.py --cell 12x12 --chars-from
@@ -653,11 +659,8 @@ and `SVF_MAC71_INPUTS=<dir of Name.fbit and Name.htbl1>` add the checks on your 
 Run on Seoul12 of Korean System 7.1.2 / HangulTalk 7.1.2 (Apple Korea / Elex Computer; proprietary): `Seoul12[splt]` from the
 CD's `More Additions` folder (the HangulTalk 7.5.1 installer's `Seoul12[fbit]` fork gives the same 8,760-byte `fbit`, `cmp`
 identical) and the HTBL 1 of that CD's `InputBackSupport` extension. The HTBL is one more step the commands above did not
-show; the 7.5.1 copy of the extension is compressed and `srcprep.py` answers "not an HTBL 1 table":
-
-    python3 maker/srcprep.py mac-htbl "InputBackSupport[INIT].rsrc" $OUT/HTBL1.bin      # 9,816 bytes
-
-With that `HTBL1.bin` the chapter's commands run as written: `unpack` `JM 1843 -> 9673 bytes`, `fbit` 8,760 bytes, `bdf` 2,401
+show, now the first line of the block above (`srcprep.py mac-htbl`, 9,816 bytes); the 7.5.1 copy of the extension is compressed
+and `srcprep.py` answers "not an HTBL 1 table". With that `$OUT/HTBL1.bin` the chapter's commands run as written: `unpack` `JM 1843 -> 9673 bytes`, `fbit` 8,760 bytes, `bdf` 2,401
 glyphs; `direct` `15,016 bytes`, 207 pieces, `verify` ks_bad 0, compat_bad 0, non_ks_present 0; `derived` `9,716 bytes`, 219 pieces,
 8 x 4 classes, 9/6/3 sets (`7,928 bytes` as JSET v2), every syllable verified; both draw the five syllables of the sample line as
 `width=60 ascent=10 descent=2`, ink 142. The BDF route (`macfbit3.py bdf`, then `srcprep.py bdf-pixel-size seoul12.bdf

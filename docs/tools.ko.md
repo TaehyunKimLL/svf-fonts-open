@@ -980,7 +980,7 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 - **한국어 stdout.** `mkfont.py`는 요약을 한국어로 출력하므로 래퍼는 필드 이름을 찾으려고 그 stdout을 파싱해서는 안 된다.
 - **기본 `--binarize mono`는 freetype-py가 필요하다(`--mask-font`는 uharfbuzz도).** 이 호스트에는 둘 다 없으며
   (`cannot import freetype`), 그래서 레시피가 `--binarize threshold`를 쓴다. 호출자는 이를 동봉하거나 threshold 경로를 택해야 한다.
-  둘 다 스크래치 폴더에 설치해 실행할 수 있다(`pip install --target DIR freetype-py uharfbuzz`, 그다음 `--pylib DIR`). 마스크 맞춤과 `mono` 맞춤을
+  둘 다 스크래치 폴더에 설치해 실행할 수 있다(`pip install --target $OUT/pylib freetype-py uharfbuzz`, 그다음 `--pylib $OUT/pylib`). 마스크 맞춤과 `mono` 맞춤을
   2026-11-22에 그렇게 실행했다(recipes.ko.md, 2번 방법).
 - **비트맵 폰트는 스트라이크 크기에서만 열린다.** PCF나 BDF는 파일에 내장된 픽셀 크기에서만 열리고 다른 크기에서는 열리지 않는다
   (`OSError: invalid pixel size`). 도구는 스트라이크를 나열하지 않는다(maker의 `detect.bitmap_strikes`는 나열한다).
@@ -990,7 +990,7 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 - **비트맵 전용 Mac TrueType(`bdat` + `bloc` + `bhed`, `head` 없음)은 모든 글리프의 advance가 0으로 구워진다**(`svfline.py measure`가
   `width=0`). 윤곽선이 있는 같은 폰트의 전체 사본은 같은 픽셀과 실제 advance를 준다.
 - **maker는 실제 HangulTalk 1.0 `fbit`를 type 3으로 오인한다.** 실제 1.0 폰트(Munjo24, Gotic12)는 헤더에 세대 3을 담고 있고 `detect.py`가
-  45 세트보다 세대를 먼저 검사하므로 `mac fbit 1.0` 경로가 제공되지 않는다(그 테스트는 세대 1을 쓴다). `jamoset.py --layout
+  45 세트보다 세대를 먼저 검사하므로 `mac fbit 1.0` 경로가 제공되지 않는다(그 테스트 픽스처는 거기에 0을 담는다). `jamoset.py --layout
   mac-fbit-45sets` 자체는 이를 읽는다.
 - **HWP `.PFT` 한글 파일과 KS X 1001 음절 원시 덤프의 리더가 없다**(HWP 1.20의 HANGUL1.PFT와 태백의 GHAN24.PFT로 실행: 둘 다 `is not an 8x4x4
   size`로 거부). DOS Johab 원시 포맷과 도깨비 프린터 FNT가 오늘 어떤 도구든 읽는 유일한 원시 비트맵 포맷이다. `--eng`는 8x16과 12x24 영문

@@ -82,6 +82,10 @@ bpp 페이스(115,684 바이트)의 크기가 그대로이다.
 - 잉크는 `line` 버퍼에서 0이 아닌 바이트의 수이다:
   `python3 -c "import sys;print(sum(1 for b in open(sys.argv[1],'rb').read() if b))" $OUT/out.gray`. 아무것도 그리지 못하는 페이스는
   잉크가 0이다.
+  위의 200x24 버퍼와 기준선 16은 16 px 셀에 맞는다. 셀 C가 16이 아닌 페이스(12, 15, 24, 40, 48 px)의 레시피 잉크 수치는
+  `line 400 C+8 0 C`로 얻은 것이다(너비 400의 버퍼, 기준선은 셀 높이, C+8행. 버퍼는 잰 너비 이상, 셀 + descent 이상의 높이여야 하며
+  아니면 줄이 잘린다): 24 px 페이스라면 `python3 tools/svfline.py line 400 32 0 24 "안녕하세요 ABC 123" FACE.SVF > $OUT/out.gray`.
+  16 px 수치는 모두 200x24 명령으로, 다른 셀은 모두 이 규칙으로 재현된다.
 - 자모 세트는 `--check`(`jamoset.py`와 `jamovec.py`)로 판정한다. 조각에서 음절 11,172개를 모두 조합하고 표 오류에서 실패한다. 그
   앞의 맞춤 줄은 조각과 원본 음절의 IoU를 출력한다(`fit: 11172 syllables, IoU 0.817`). `--check`는 맞춤이 나쁘다고 실패하지는 않는다.
   IoU를 읽고 결과를 직접 보라(`svfline.py line`, 또는 `web/` 선택기).
@@ -162,10 +166,10 @@ Verified: neodgm.ttf에는 합성 음절 11,172개가 있다. `master`는 25 초
 **2. 결합 자모 shaping(GSUB `ljmo` / `vjmo` / `tjmo`).** 이 feature가 있는 폰트는 결합 자모 U+1100..을 위치별 변형으로 그린다.
 `jamoset.py --from-ttf ... --mask-font FONT`는 HarfBuzz로 각 음절을 결합 자모로 shaping하고, 그 변형을 맞춰진 조각을 제한하는
 마스크로 쓴다(`freetype-py`와 `uharfbuzz`가 필요하며, `--pylib DIR`이 그 위치를 가리킨다). 두 모듈을 스크래치 폴더에 설치해 여기서 실행했다
-(`pip install --target $HOME/work/tmp/pylib freetype-py uharfbuzz`, 그다음 `--pylib`에 그 폴더. 시스템이나 사용자 site에는 아무것도 설치하지 않는다):
+(`pip install --target $OUT/pylib freetype-py uharfbuzz`, 그다음 `--pylib`에 그 폴더. 시스템이나 사용자 site에는 아무것도 설치하지 않는다):
 
     python3 tools/jamoset.py --layout 844 --from-ttf ttf/neodgm/neodgm.ttf --size 16 --binarize threshold \
-        --mask-font ttf/neodgm/neodgm.ttf --no-clean --check --pylib $HOME/work/tmp/pylib -o $OUT/NEO16M.SVF
+        --mask-font ttf/neodgm/neodgm.ttf --no-clean --check --pylib $OUT/pylib -o $OUT/NEO16M.SVF
 
 `ttf/`의 neodgm.ttf에는 세 feature가 있어서 스스로 마스크 폰트가 된다. `15,740 바이트`, 글리프 439개, 조각 344개, 음절 11,172개에 대한 IoU
 1.000(3.6초), 그중 11,008개가 정확, `width=144 ascent=12 descent=4`, 잉크 559. 같은 폰트의 자유 맞춤(`--mask-font none`)은
@@ -491,14 +495,14 @@ DOS 한글 시스템(한글 BIOS, 이야기, 한메, san, 도깨비, 게임)은 
 | `844` | TBG1.FNT, 2 바이트 헤더가 붙은 11,522 바이트(T-Hangul, 초기 태백), `--eng ROMAN16.FNT` | `15,712 바이트`, 같은 조각 344개, 잉크 566 |
 | `844` | DKBBM.FNT, 15,584 바이트(한글 도깨비 B 명조), `--eng ROMAN16.FNT` | `15,744 바이트`, 글리프 441개, `johab844.py`와 동일. 잉크 512 |
 | `844` | MHANC24.PFT, 25,920 바이트(태백 3.5.1 명조 24 px), `--eng MASCII24.PFT`(12,288 바이트, 12x24 영문 폰트) | `23,088 바이트`, 조각 344개. `width=216 ascent=20 descent=4`, 잉크 916 |
-| `844` | GHANC40.PFT, 72,000 바이트(태백 3.5.1 고딕 40 px), `--eng` 없음 | `34,040 바이트`, 글리프 346개. `width=200 ascent=35 descent=5`, 잉크 1,596 |
-| `844` | MHANC48.PFT, 103,680 바이트(태백 3.5.1 명조 48 px), `--eng` 없음 | `42,020 바이트`. `width=240 ascent=42 descent=6`, 잉크 1,482 |
+| `844` | GHANC40.PFT, 72,000 바이트(태백 3.5.1 고딕 40 px), `--eng` 없음 | `34,040 바이트`, 글리프 346개. `width=200 ascent=35 descent=5`, 잉크 1,751 |
+| `844` | MHANC48.PFT, 103,680 바이트(태백 3.5.1 명조 48 px), `--eng` 없음 | `42,020 바이트`. `width=240 ascent=42 descent=6`, 잉크 1,865 |
 | `844-hbios24` | GOTHIC24.FNT, 243,900 바이트(태백 3.5.1, HBIOS 24x30 레이아웃) | `17,776 바이트`, 글리프 346개. `width=120 ascent=21 descent=3`, 잉크 551 |
 | `844-hbios24` | MY24.FNT, 243,900 바이트(태백 3.5.1 명조 24), `--eng GASCII24.PFT` | `23,136 바이트`. `width=216 ascent=20 descent=4`, 잉크 964 |
 | `1044-san` | HANPL.KOR, 12,800 바이트(san 1.0의 `font-kor/`. GitHub의 san 프로젝트) | `13,988 바이트`, 조각 382개, 글리프 384개. `width=80 ascent=14 descent=2`, 잉크 328 |
 | `621` | han_woori.fnt, 6,144 바이트("우리", GitHub의 iolo 6x2x1-fonts, Apple II 시대) | `6,584 바이트`, 조각 183개, 글리프 185개. 잉크 204 |
 | `dkb-printer-7x2x2` | HANGUL16.FNT 15,360 바이트와 HANGUL24.FNT 34,560 바이트(한글 도깨비 5.1 프린터 폰트), `--face 0` / `--face 1` | 16 px `8,852` / `8,792 바이트`, 조각 229개, 잉크 367 / 363. 24 px `11,968` / `11,772 바이트`, 잉크 542 / 537 |
-| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 바이트와 HANGUL48.FNT 253,440 바이트(같은 제품), `--face 0` / `--face 1` | 40 px `38,608` / `38,528 바이트`, 조각 420개, 잉크 1,526 / 1,603. 48 px `52,848` / `48,824 바이트`, 잉크 1,956 / 1,939 |
+| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 바이트와 HANGUL48.FNT 253,440 바이트(같은 제품), `--face 0` / `--face 1` | 40 px `38,608` / `38,528 바이트`, 조각 420개, 잉크 1,595 / 1,766. 48 px `52,848` / `48,824 바이트`, 잉크 2,472 / 2,538 |
 | `kyra-lok` | MK15.BIT, 11,550 바이트(The Legend of Kyrandia 한글판) | `14,036 바이트`, 조각 382개, 15x15. `width=80 ascent=13 descent=2`, 잉크 344 |
 | `844-ihnm` | 없음: SAGA IHNM 데이터를 찾지 못했다 | 실행하지 않음 |
 
@@ -538,7 +542,7 @@ DOS용 HWP 1.20(한글과컴퓨터, 1989-1990; `HANGUL1.PFT`, 70,592 바이트, 
 `218,848 바이트`, 음절 2,350자, `width=232 ascent=21 descent=3`, 잉크 886. 자모 세트는 `24,264 바이트`, 조각 344개, 음절 2,350자에 대한 IoU 1.000
 (모두 정확), 잉크 886: HWP 규칙이 모든 음절을 조각 셋으로 조합하므로 이 24 px 페이스들에서는 맞춤이 정확하다.
 
-읽지 **않는** 것: HWP의 `.PFT` 한글 파일 자체. `jamoset.py --layout 844 HANGUL1.PFT`는 `size 70592 is not an 8x4x4 size`로 멈춘다. 그 글리프는
+읽지 **않는** 것: HWP의 `.PFT` 한글 파일 자체. `jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF`는 `size 70592 is not an 8x4x4 size`로 멈춘다(종료 코드 1). 그 글리프는
 HWP 자체의 규칙으로 조합되며, 별도의 연구 도구(johab-fonts 연구 노트의 `hwp1_fnt.py`와 `kfont.py`)가 이를 해독한다. 그 리더는 이 저장소에
 속하지 않으며, 그 출력(BDF 또는 완성형 페이스)이 위 경로들의 입력이다. maker의 `detect.scan`은 이 파일을 종류 `other`, 레이블 "unknown"으로 준다.
 
@@ -547,7 +551,7 @@ HWP 자체의 규칙으로 조합되며, 별도의 연구 도구(johab-fonts 연
 KS X 1001 완성형 음절 2,350자의 원시 덤프(코드 순서로 음절마다 비트맵 하나. 일부 DOS와 임베디드 시스템이 이렇게 보관한다)는 이 저장소에
 리더가 없다. `jamoset.py`, `bdfface.py`, maker 어디에도 이를 위한 레이아웃이 없고, 그런 크기의 파일은 알아보지 못한다. 태백 3.5.1의
 `GHAN24.PFT`(고딕 24 px; 169,200 바이트 = 2,350 x 72, 헤더 없음, 한 줄이 3 바이트인 24x24 행 우선, KS 순서로 가부터)로 실행: `jamoset.py --layout 844
-GHAN24.PFT`는 `size 169200 is not an 8x4x4 size`로 멈추고, maker의 `detect.scan`은 `other`, "unknown"이라 부른다. 다른 곳에서 BDF(KS C 5601
+GHAN24.PFT -o $OUT/rejected.SVF`는 `size 169200 is not an 8x4x4 size`로 멈추고(종료 코드 1), maker의 `detect.scan`은 `other`, "unknown"이라 부른다. 다른 곳에서 BDF(KS C 5601
 인코딩, `ENCODING` = GL 코드)로 변환한 뒤 [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf)를 쓴다. 여기서는 15줄짜리 스크립트(행 `0x30 + i // 94`,
 열 `0x21 + i % 94`, 글리프의 각 줄을 16진수로)로 변환하고 ASCII는 Sony Fixed 12x24로 했다.
 
@@ -580,18 +584,19 @@ Apple의 데이터는 이 저장소에 없다. 도구는 직접 마련한 파일
 일관성 줄 `IoU 1.000, exact 11172`(골든 파일 없음), 1.0초. 샘플 줄은 `width=120 ascent=24 descent=0`(이 폰트들에는 라틴이 없어 음절 다섯 개만
 그려진다), 잉크 591. `Gotic12`(12 px 고딕): `23,368 바이트`, 같은 세트, `width=60 ascent=12 descent=0`. maker는 이 폰트들을 1.0이 아니라
 "HangulTalk 7.1 type-3 fbit, 24 px, 661 planes (needs HTBL 1)"로 읽는다. 실제 1.0 `fbit` 헤더가 7.1 폰트처럼 세대 3을 담고 있는데 `detect.py`가
-45 세트보다 세대를 먼저 검사하기 때문이다(그 테스트는 세대 1로 1.0 폰트를 만든다). 위 명령은 이 폰트들에 맞지만 실제 폰트에는 `mac fbit 1.0`
+45 세트보다 세대를 먼저 검사하기 때문이다(그 테스트는 세대 0으로 1.0 폰트를 만든다). 위 명령은 이 폰트들에 맞지만 실제 폰트에는 `mac fbit 1.0`
 경로가 제공되지 않는다.
 
 **HangulTalk 7.1.x type-3 'fbit' 폰트** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): 평면은 표, InputBackSupport 'HTBL' 1로
 조합되며, KS X 1001 음절 2,350자와 호환 자모 51개만 있다.
 
+    python3 maker/srcprep.py mac-htbl "InputBackSupport[INIT].rsrc" $OUT/HTBL1.bin     # the HTBL 1 of the extension (7.1.2 CD), 9,816 bytes
     python3 tools/macfbit3.py unpack Seoul12.splt.data $OUT/Seoul12.rsrc     # the 7.1.2 Installer's 'splt' "JM" archive
     python3 tools/macfbit3.py fbit $OUT/Seoul12.rsrc $OUT/Seoul12.fbit
-    python3 tools/macfbit3.py bdf $OUT/Seoul12.fbit HTBL1.bin Seoul12 $OUT/seoul12.bdf          # 2,401 glyphs, Unicode BDF
-    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit HTBL1.bin -o $OUT/SEOUL12J.SVF         # direct: the Mac structure (JMAP)
-    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit HTBL1.bin --mode derived -o $OUT/SEOUL12D.SVF   # a JSET face, all 11,172
-    python3 tools/macfbit_svf.py verify $OUT/SEOUL12J.SVF $OUT/Seoul12.fbit HTBL1.bin
+    python3 tools/macfbit3.py bdf $OUT/Seoul12.fbit $OUT/HTBL1.bin Seoul12 $OUT/seoul12.bdf          # 2,401 glyphs, Unicode BDF
+    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit $OUT/HTBL1.bin -o $OUT/SEOUL12J.SVF         # direct: the Mac structure (JMAP)
+    python3 tools/macfbit_svf.py build $OUT/Seoul12.fbit $OUT/HTBL1.bin --mode derived -o $OUT/SEOUL12D.SVF   # a JSET face, all 11,172
+    python3 tools/macfbit_svf.py verify $OUT/SEOUL12J.SVF $OUT/Seoul12.fbit $OUT/HTBL1.bin
 
 `direct`는 Mac 평면을 조각으로 유지하고 KS 음절만 정확히 조합한다. `derived`는 JSET을 맞추는데, 그 JSET의 추가 음절 8,822개는
 외삽한 것이다(Mac 출력이 아님). BDF 경로는 `bdfface.py --cell 12x12 --chars-from <the 2,350 syllables>`로 이어져 완성형
@@ -606,12 +611,8 @@ Apple의 데이터는 이 저장소에 없다. 도구는 직접 마련한 파일
 
 한글 시스템 7.1.2 / HangulTalk 7.1.2(Apple Korea / Elex Computer; 독점)의 Seoul12로 실행했다. CD의 `More Additions` 폴더에 있는
 `Seoul12[splt]`(HangulTalk 7.5.1 설치 디스크의 `Seoul12[fbit]` 포크도 같은 8,760 바이트 `fbit`를 주며 `cmp`로 동일하다)와, 그 CD의
-`InputBackSupport` 확장의 HTBL 1이다. HTBL은 위 명령이 보여 주지 않은 단계 하나이다. 확장의 7.5.1 사본은 압축되어 있어 `srcprep.py`가 "not an HTBL 1
-table"이라고 답한다.
-
-    python3 maker/srcprep.py mac-htbl "InputBackSupport[INIT].rsrc" $OUT/HTBL1.bin      # 9,816 bytes
-
-이 `HTBL1.bin`으로 위 명령은 적힌 그대로 돈다. `unpack`은 `JM 1843 -> 9673 bytes`, `fbit`는 8,760 바이트, `bdf`는 글리프 2,401개. `direct`는 `15,016 바이트`,
+`InputBackSupport` 확장의 HTBL 1이다. HTBL은 위 명령이 보여 주지 않았던 단계로, 이제 위 블록의 첫 줄이다(`srcprep.py mac-htbl`, 9,816 바이트). 확장의 7.5.1 사본은 압축되어 있어 `srcprep.py`가 "not an HTBL 1
+table"이라고 답한다. 이 `$OUT/HTBL1.bin`으로 위 명령은 적힌 그대로 돈다. `unpack`은 `JM 1843 -> 9673 bytes`, `fbit`는 8,760 바이트, `bdf`는 글리프 2,401개. `direct`는 `15,016 바이트`,
 조각 207개, `verify`는 ks_bad 0, compat_bad 0, non_ks_present 0. `derived`는 `9,716 바이트`, 조각 219개, 8 x 4 클래스, 세트 9/6/3(JSET v2로는 `7,928 바이트`),
 모든 음절 검증. 둘 다 샘플 줄의 음절 다섯 개를 `width=60 ascent=10 descent=2`, 잉크 142로 그린다. BDF 경로(`macfbit3.py bdf`, 그다음 `srcprep.py bdf-pixel-size
 seoul12.bdf seoul12-sized.bdf --size 12`, 그다음 `mkfont.py ... --size 12 --bpp 1 --unicode ascii,ksx1001-hangul`과 정규 단계)는 `103,012 바이트`,

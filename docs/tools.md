@@ -1036,8 +1036,8 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
 - **Korean stdout.** `mkfont.py` prints its summary in Korean, so a wrapper must not parse its stdout for field names.
 - **The default `--binarize mono` needs freetype-py (and `--mask-font` uharfbuzz).** Neither is installed on this host
   (`cannot import freetype`), which is why the recipes use `--binarize threshold`; a caller must ship them or take the
-  threshold path. Both install and run from a scratch folder (`pip install --target DIR freetype-py uharfbuzz`, then
-  `--pylib DIR`): the mask fit and the `mono` fit were run that way on 2026-11-22 (recipes.md, way 2).
+  threshold path. Both install and run from a scratch folder (`pip install --target $OUT/pylib freetype-py uharfbuzz`, then
+  `--pylib $OUT/pylib`): the mask fit and the `mono` fit were run that way on 2026-11-22 (recipes.md, way 2).
 - **Bitmap fonts open only at their strike size.** A PCF or BDF opens at the pixel size built into the file and at no
   other (`OSError: invalid pixel size`); the tools do not list the strikes (the maker's `detect.bitmap_strikes` does).
 - **Windows `.FNT` / `.FON` draw nothing.** FreeType opens them (the maker routes such a file through `mkfont.py`) but
@@ -1047,7 +1047,7 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
   (`svfline.py measure` says `width=0`); the same font's full copy with outlines gives the same pixels and real advances.
 - **The maker mistakes a real HangulTalk 1.0 `fbit` for type 3.** Real 1.0 fonts (Munjo24, Gotic12) carry generation 3
   in the header, and `detect.py` tests the generation before the 45 sets, so the `mac fbit 1.0` route is not offered
-  (its tests use generation 1). `jamoset.py --layout mac-fbit-45sets` itself reads them.
+  (its test fixtures carry 0 there). `jamoset.py --layout mac-fbit-45sets` itself reads them.
 - **No reader** for the HWP `.PFT` Hangul files or for raw KS X 1001 syllable dumps (run on HWP 1.20's HANGUL1.PFT and
   Taebaek's GHAN24.PFT: both refused, `is not an 8x4x4 size`); the DOS Johab raw formats and the Dokkaebi printer FNTs are
   the only raw bitmap formats any tool reads. `--eng` takes only 8x16 and 12x24 English fonts, not the 40 / 48 px ones.
