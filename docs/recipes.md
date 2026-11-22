@@ -2,43 +2,581 @@
 
 # Recipes: from a font to an SVF face
 
-How the faces of `svf/` are made from their upstream fonts, and how to make faces from other kinds of Korean fonts with
-the tools of this repository. Every tool is described in [tools.md](tools.md); the format is `spec/SVF.md`.
+How the faces of `svf/` are made from their upstream fonts, and how to make faces from every kind of Korean font source
+the tools of this repository can read. Every tool is described in [tools.md](tools.md); the format is `spec/SVF.md`.
 
 No font data other than the OFL fonts in `ttf/` and the faces in `svf/` is in this repository. The how-tos for
 proprietary fonts (classic Mac, HWP, other DOS-era fonts) describe the method and the commands; you supply the files.
-The how-tos marked **verified** were run as written; their tests are `tools/test_recipes.py`, `tools/test_build_faces.py`
-and `tools/test_macsfnt.py` (synthetic fonts built in the test, and OFL fonts from `ttf/`). Numbers quoted below come
-from real runs on 2026-11-03 (outputs in `/tmp`); anything not run says so.
+
+**Conventions.** Commands run from the repository root. `$OUT` is a scratch folder of your own
+(`OUT=$HOME/work/tmp/recipes; mkdir -p $OUT`); no command here writes anywhere else. Names in capitals (`NG16J.SVF`,
+`FACE.SVF`) are outputs you name yourself.
+
+**What "verified" means.** Every command block says one of three things. *Verified* (or *run here*): run as written on
+2026-11-22 with the repository's own fonts or fonts of this host (Debian's `fonts-noto-cjk`, `xfonts-*`, DOSBox-X), and the
+numbers quoted are from that run: the face's size in bytes, its glyph count, the render check of
+[Checking a face](#checking-a-face) (`svfline.py measure` width / ascent / descent and the count of inked pixels of the
+sample line), or for a jamo set the `--check` IoU. *Synthetic*: run only by the tests (`tools/test_recipes.py`,
+`tools/test_build_faces.py`, `tools/test_macsfnt.py` and the maker's tests), on fonts built in the test. *Not run here:
+reason*: no input exists in this repository or on this host. Sizes drift with the tools' versions: quote them as "about",
+and trust the run.
 
 Contents:
 
-- [Rebuilding the faces of svf/](#rebuilding-the-faces-of-svf)
-- [Jamo sets from TrueType and OpenType fonts](#jamo-sets-from-truetype-and-opentype-fonts)
-- [Anti-aliased (2 bpp) faces](#anti-aliased-2-bpp-faces)
-- [Baseline, vertical shift and clipping](#baseline-vertical-shift-and-clipping)
+- [Quick start: by input kind](#quick-start-by-input-kind)
+- [Checking a face](#checking-a-face)
+- [Outline fonts](#outline-fonts)
+- [Bitmap fonts](#bitmap-fonts)
+- [DOS-era raw fonts](#dos-era-raw-fonts)
 - [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts)
-- [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts)
-- [Other DOS-era Korean fonts](#other-dos-era-korean-fonts)
-- [X Window Korean fonts](#x-window-korean-fonts)
-- [KS X 1001](#ks-x-1001)
-- [Mac-format TrueType](#mac-format-truetype)
-- [OpenType CFF, collections and variable fonts](#opentype-cff-collections-and-variable-fonts)
-- [Checks for a new face](#checks-for-a-new-face)
+- [An existing SVF](#an-existing-svf)
+- [Desktop app and maker routes](#desktop-app-and-maker-routes)
+- [Faces of svf/](#faces-of-svf)
+- [Reference](#reference)
+- [Adding a face to svf/](#adding-a-face-to-svf)
 
-## Rebuilding the faces of svf/
+## Quick start: by input kind
+
+Find what you hold; the row names the way and the section with the commands. "Pre" is a precomposed face (every
+syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2 bpp; about a sixth of the size).
+
+| You hold | Pre | Jamo | Section |
+|---|---|---|---|
+| TTF, or OTF (CFF) with a Unicode cmap | `mkfont.py` (1, 2 bpp), then `svf2to3.py --profile default` | `jamoset.py --from-ttf` (1 bpp: `--binarize threshold --mask-font none`; 2 bpp: `--bpp 2`); `jamovec.py` for a font of composite syllables | [Outline fonts](#outline-fonts) |
+| TTC / OTC (Noto CJK) | `srcprep.py ttc-face` to a plain font, then as above | as above | [TTC and OTC](#ttc-and-otc) |
+| Variable font | `fontTools.varLib.instancer`, then as above | as above | [Variable fonts](#variable-fonts) |
+| Mac TrueType (`.dfont`, suitcase, a Korean-only cmap) | `macsfnt.py extract` / `unicode`, then as above | as above | [Mac-format TrueType](#mac-format-truetype) |
+| Outline font with embedded strikes (`EBDT`, `bdat`) | `mkfont.py --size` the strike's size, 1 bpp | no | [Embedded bitmap strikes](#embedded-bitmap-strikes) |
+| BDF or PCF in Unicode (`ISO10646`) | `mkfont.py` at the file's own pixel size, 1 bpp | fit with `jamoset.py --from-svf` | [ISO 10646 BDF and PCF](#iso-10646-bdf-and-pcf) |
+| BDF or PCF in KS C 5601 / KS X 1001 (X Window) | `srcprep.py pcf-bdf` (PCF only), then `bdfface.py` | `jamoset.py --from-svf` | [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) |
+| hanterm johab BDF | no | `jamoset.py --layout hanterm-johab` | [hanterm](#hanterm) |
+| HBF | only as the ASCII half of `bdfface.py` | no | [HBF](#hbf) |
+| Windows `.FNT` / `.FON` | `mkfont.py` at its pixel size (the maker detects it; unverified) | no | [Windows FNT and FON](#windows-fnt-and-fon) |
+| DOS raw jamo-piece font (8x4x4 `HANGUL.FNT`, san, Dokkaebi, Kyra...) | `johab844.py` (16 px 8x4x4) | `jamoset.py --layout L` | [DOS-era raw fonts](#dos-era-raw-fonts) |
+| HWP `.PFT` Hangul, KS X 1001 raw dumps | no reader | no reader | [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts), [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
+| Mac HangulTalk 1.0 `fbit` (45 sets + `fdef`) | no | `jamoset.py --layout mac-fbit-45sets` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
+| Mac HangulTalk 7.1 type-3 `fbit` + HTBL 1 | `macfbit3.py bdf` + `mkfont.py` | `macfbit_svf.py build` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
+| An SVF face | `svfdy.py`, `svf2to3.py` | `jamoset.py --from-svf` (1 bpp source) | [An existing SVF](#an-existing-svf) |
+
+The check for every row is the same: [Checking a face](#checking-a-face) (sample-line measure and ink, `--check` IoU for
+a jamo set). A 1 bpp face from a bitmap source stays 1 bpp: no tool makes anti-aliasing from a bitmap. Choose the jamo set when the
+target has little memory (a 2,350-syllable 16 px face is about 115 KB, its jamo set about 20 KB), the precomposed face
+when every syllable must be exactly the source's.
+
+## Checking a face
+
+Every recipe below ends with the same checks. The sample line is `안녕하세요 ABC 123`; the faces are 16 px in a 16x16 cell
+unless stated.
+
+    python3 tools/svfline.py measure "안녕하세요 ABC 123" FACE.SVF       # width=W ascent=A descent=D
+    python3 tools/svfline.py line 200 24 0 16 "안녕하세요 ABC 123" FACE.SVF > $OUT/out.gray   # a 200x24 GRAY8 buffer
+    python3 tools/fontmetrics.py FACE.SVF                                 # glyphs whose ink reaches past the advance
+    python3 tools/svf2to3.py FACE.SVF $OUT/x.SVF --check                  # re-layout and compare every glyph
+    python3 tools/facecheck.py manifest --git . --rev HEAD --path svf -o $OUT/m.tsv
+
+- The size of the file and the glyph count (the code point table's entries) come from the tool's own summary line;
+  `mkfont.py` prints it in Korean (`글리프 2446개 ... 125,520 바이트`).
+- The ink is the number of non-zero bytes of the `line` buffer: `python3 -c "import sys;print(sum(1 for b in open(sys.argv[1],'rb').read() if b))" $OUT/out.gray`.
+  A face that draws nothing has ink 0.
+- A jamo set is judged by `--check` (on `jamoset.py` and `jamovec.py`): it composes all 11,172 syllables from the pieces
+  and fails on a table error; the fit line before it prints the IoU of the pieces against the source's syllables
+  (`fit: 11172 syllables, IoU 0.817`). `--check` does not fail on a poor fit: read the IoU, and look at the result
+  (`svfline.py line`, or the `web/` picker).
+- `svf2to3.py --check` compares glyph by glyph through `svfline`; `facecheck.py` checks faces against a manifest.
+  `tools/build/build_faces.py` rebuilds the faces of `svf/` (see [Faces of svf/](#faces-of-svf)).
+
+Reference run (verified), NanumGothic Bold at 16 px (below): 1 bpp `125,520` bytes, 2,446 glyphs, `width=146 ascent=14
+descent=2`, ink 677.
+
+## Outline fonts
+
+FreeType reads TrueType and CFF (OpenType `.otf`) alike, so a static TTF or OTF with a Unicode cmap goes straight into
+the tools; `jamoset.py --from-ttf`, `jamoaa.py`, `jamovec.py` and `--binarize threshold|ridge` flatten the outlines
+themselves (fontTools pen, exact-area coverage), the same for both. Collections, variable fonts and Mac-format fonts need
+one step first (below).
+
+### Precomposed faces (`mkfont.py`)
+
+Source: `ttf/nanumgothic/NanumGothic-Bold.ttf`. Precomposed, 1 bpp, then the canonical layout step:
+
+    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf $OUT/ng16-1bpp.svf \
+        --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/ng16-1bpp.svf $OUT/NG16.SVF --profile default --check
+
+Verified: `125,520 bytes` (the tmp from `mkfont.py`), 2,446 glyphs (2,350 Hangul syllables); renders `width=146 ascent=14
+descent=2`, ink 677. `svf2to3.py ... --profile default --check` writes 125,520 bytes again (the same glyphs; only the record order differs, byte 813 is the first byte that does) and reports `data_in=86332 data_out=86332`.
+
+`mkfont.py` writes the records in its own order; `svf2to3.py --profile default` re-lays them out in the canonical order of
+the `default` profile (the shipped faces, `tools/build/build_faces.py` and the maker all end with this step), proving
+pixel equality with `--check`. Use `--profile` of another target (`mcu-strict`, `dos`, `wasm`, `full`, `simd16`) to lay
+the face out for it.
+
+Anti-aliased (2 bpp): the same command with `--bpp 2` (`195,760 bytes`, 2,446 glyphs, `width=146 ascent=14 descent=2`,
+ink 847; coverage is quantised to four levels). The canonical step again keeps the size (195,760 bytes) and proves the pixels equal. `--bpp 8` keeps full coverage (8 bpp faces are for hosts). The
+`mkfont.py` options that choose size, cell, ascent and clipping are in
+[Baseline, vertical shift and clipping](#baseline-vertical-shift-and-clipping); the full row recipe of `svf/` is in
+[The precomposed recipe](#the-precomposed-recipe-mkfont-rows).
+
+**A character set is required** (`--unicode SET`, or `--chars-from FILE`): without either, `mkfont.py` exits 2. The names
+are in [Reference](#reference).
+
+### OpenType CFF (`.otf`)
+
+Noto Sans CJK KR is a CFF font a reader can get (SIL OFL 1.1; Debian's `fonts-noto-cjk` ships it as
+`/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`, a collection of the KR, JP, SC, TC and HK faces: see
+[TTC and OTC](#ttc-and-otc)). Save the KR face as a plain `.otf` and bake it:
+
+    python3 maker/srcprep.py ttc-face /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc $OUT/NotoSansCJKkr.otf --index 1
+    python3 tools/mkfont.py $OUT/NotoSansCJKkr.otf $OUT/noto16-1bpp.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/mkfont.py $OUT/NotoSansCJKkr.otf $OUT/noto16-2bpp.svf --size 16 --bpp 2 --unicode ascii,ksx1001-hangul
+    python3 tools/jamoset.py --layout 844 --from-ttf $OUT/NotoSansCJKkr.otf --size 16 --binarize threshold \
+        --mask-font none --check -o $OUT/noto16-jamo-1bpp.svf
+
+Verified (the full font, not a subset): the face is named "Noto Sans CJK KR"; 1 bpp `125,196 bytes`, 2,446 glyphs, `width=141
+ascent=11 descent=5`, ink 472; 2 bpp `197,992 bytes`, ink 700; the jamo set `19,040 bytes`, 439 glyphs, 344 pieces,
+IoU 0.786 over 11,172 syllables (6.9 s), `width=146 ascent=14 descent=2`, ink 477. The ascent is the font's own, so
+another font's faces differ in baseline: see [Baseline, vertical shift and clipping](#baseline-vertical-shift-and-clipping).
+
+### Jamo sets from TrueType and OpenType fonts
+
+A jamo set (조합형) holds pieces and a table; every syllable is the OR of two or three pieces. From an outline font there
+are three ways to get the pieces, by what the font holds.
+
+**1. Composite glyphs (TrueType `glyf`).** Some fonts store a syllable as a composite of its jamo glyphs. Then the
+components *are* the pieces:
+
+    python3 tools/jamovec.py master ttf/neodgm/neodgm.ttf -o $OUT/neodgm.json --components
+    python3 tools/jamovec.py render $OUT/neodgm.json --size 16 --bpp 1 --check -o $OUT/NEOVEC16.SVF
+    python3 tools/jamovec.py render $OUT/neodgm.json --size 16 --bpp 2 --check -o $OUT/NEOVEC16A.SVF
+
+Verified: neodgm.ttf has 11,172 composite syllables; `master` took 25 s (344 pieces, 0 bad shapes), the 1 bpp render
+15,724 bytes and the 2 bpp render 19,452 bytes, both 11,172 syllables composed. The vector render differs from the
+raster fit NEODG16A in 2,633 of 11,172 syllables (counted on 2026-11-03, not re-counted; FreeType's pixel snapping of a pixel font against `jamovec`'s exact-area
+rasteriser). Check a font first:
+
+    python3 -c "from fontTools.ttLib import TTFont; f=TTFont('FONT.ttf'); c=f.getBestCmap(); g=f['glyf']; print(sum(g[c[x]].isComposite() for x in c if 0xAC00<=x<=0xD7A3))"
+
+In `ttf/`: neodgm 11,172 composite syllables; NanumGothic Regular/Bold and NanumMyeongjo Bold 8,822 (the syllables
+outside KS X 1001 are composites, the 2,350 are not); NanumPenScript 8,693; the others none. `--components` with a
+partly composite font uses the composites only ("auto" picks components when most syllables are composite).
+**CFF / CFF2 (OpenType `.otf`) has no composite glyphs**: every syllable is a flat outline there, so the pieces must come
+from the next two ways.
+
+**2. Conjoining-jamo shaping (GSUB `ljmo` / `vjmo` / `tjmo`).** A font with these features draws the conjoining jamo
+U+1100.. in positional variants. `jamoset.py --from-ttf ... --mask-font FONT` shapes each syllable as conjoining jamo with
+HarfBuzz and uses the variants as masks that confine the fitted pieces (needs `freetype-py` and `uharfbuzz`;
+`--pylib DIR` points at them). Not run here: neither module is installed on this host; neodgm.ttf in `ttf/` has the three
+features and can serve as a mask font. `jamoset.py --from-ttf` also uses a mask font on its own when `$JAMOSET_MASK_FONT`
+names one (or a NotoSansKR sits beside the ScummVM tree) and both modules are present; without them it prints a note on
+stderr and fits freely. Pass `--mask-font none` to force the free fit (the maker does for every 1 bpp fit), as the 1 bpp
+commands of this chapter do. A separate research repository measured the pieces those features return, at
+12 px with hinting: Malgun Gothic gives 5/2/1 sets (164 pieces), Noto Sans CJK KR 6/2/4 (264 pieces; in the Noto TTC,
+KR is index 1); faces made straight from them read well but differ from the precomposed glyphs by a pixel or two (mean
+IoU about 0.58), because the font's conjoining pieces are laid out differently from its precomposed syllables. That work
+also found that in the same byte budget a few dozen frequent syllables stored as LIST exceptions (`jamoexc.py`) improve
+more than more sets do. No data of those fonts is in this repository.
+
+**3. Fitting to the precomposed syllables** (any font, TrueType or CFF):
+
+    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf --size 16 \
+        --binarize threshold --mask-font none --check -o $OUT/NG16J.SVF
+    python3 tools/jamoset.py --layout adaptive --from-ttf ttf/gowunbatang/GowunBatang-Bold.ttf --size 20 \
+        --binarize threshold --mask-font none --check -o $OUT/GB20J.SVF
+
+Verified (2026-11-22): NanumGothic Bold 16 px into 8x4x4 took 12 s, 20,064 bytes, 344 pieces, IoU 0.817 over 11,172 syllables;
+Gowun Batang Bold 20 px adaptive took 89 s, 73,220 bytes, 32/24/12 sets and 12 x 12 classes, IoU 0.934. `jamofit.py`
+fits the pieces (coordinate descent over the 1 bpp syllables), `jamoadapt.py` splits sets where the syllables sharing a
+piece disagree (`--layout adaptive[:NI,NM,NF]`), `jamoseg.py` separates a syllable's outline into its jamo as outlines
+(used by `jamoaa.py` and `jamovec.py`), and `jamovec.py master` without `--components` separates once at a decision size
+and renders every size from the same pieces. `--binarize mono` (the default) needs freetype-py; `threshold` and `ridge`
+use the repository's own exact-area rasteriser (fontTools pen, so TrueType and CFF alike). A fit is an approximation:
+read the IoU, and look at the result (`web/` picker, or `svfline.py line`).
+
+**Pitfalls.** A font that draws few syllables (Black Han Sans: 2,581) fits only those (`--present-only`, the default);
+the rest compose from the nearest pieces. `--check` composes all 11,172 syllables and fails on a table error, not on
+a poor fit.
+
+### Anti-aliased (2 bpp) faces
+
+Precomposed (verified, [Precomposed faces](#precomposed-faces-mkfontpy)): `mkfont.py FONT OUT --size 16 --bpp 2 --unicode
+ascii,ksx1001-hangul` (NanumGothic Bold: 195,760 bytes, 2,446 glyphs). Coverage is quantised to 4 levels; the reader expands level x 85. A
+2 bpp face is about 1.5x its 1 bpp face. `--bpp 8` keeps full coverage (8 bpp faces are for hosts).
+
+Jamo sets:
+
+    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf --size 16 --bpp 2 \
+        --check -o $OUT/NG16JA.SVF                     # verified: 73 s, 24,960 bytes, level error 0.233, IoU at level 2 0.822
+    python3 tools/jamovec.py render $OUT/MASTER.json --size 16 --bpp 2 -o $OUT/OUT.SVF      # from a vector master
+
+`--bpp 2` runs `jamoaa.py`: the syllables are rasterised with exact-area coverage, the regions of the 1 bpp fit decide
+which piece owns each pixel, and each piece's levels are the median over the syllables sharing it, then refined
+(`--aa-refine N`, 2 passes) against the level error. `--clean` (on for 2 bpp) removes isolated noise. The pieces OR as
+the per-pixel maximum. 2 bpp needs fontTools only.
+
+**Pitfalls.** An anti-aliased piece over another piece takes the maximum, not the sum: thin crossing strokes look lighter
+than in the precomposed glyph. A 1 bpp target (MONO_PAGE) thresholds 2 bpp faces at draw time (`threshold` of the
+target); give a mono display a 1 bpp face.
+
+### Baseline, vertical shift and clipping
+
+The ascent field of a face is the baseline row from the cell top; the renderer puts a line's baseline at the pen y and
+draws each glyph `dy` rows lower (per-glyph dy, `spec/SVF.md`).
+
+How `mkfont.py` chooses it: `--ascent N` sets it. Without it, when the font's ascent + descent fit the cell it is the
+font's ascent; when they do not, the ink of a probe ("한글AQg", or "AQgjy" with `--latin`) is centred in the cell; with
+`--latin` the cap height goes to the top. Then, per glyph:
+
+- default: a glyph whose ink would leave the cell at the top or the sides is moved into it (a per-glyph shift: that glyph
+  then sits off the baseline); ink below the cell is cut;
+- `--clip-cell`: every glyph stays on the one baseline and ink outside the cell is cut; stdout counts the glyphs cut
+  above and below;
+- `--fit-cell`: the size is lowered 1 px at a time until every glyph's ink fits the cell on one baseline.
+
+Worked example (verified), NanumGothic Bold drawn at 18 px into a 16x16 cell, ASCII and the 2,350 syllables:
+
+    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf $OUT/c.svf --size 18 --cell 16 --bpp 1 \
+        --unicode ascii,ksx1001-hangul [--clip-cell | --fit-cell | --ascent 14 --clip-cell]
+
+| Options | Ascent | Result |
+|---|---|---|
+| none | 13 (ink centred) | glyphs moved into the cell one by one, 126,048 bytes |
+| `--clip-cell` | 15 (fewest glyphs cut) | 2,300 of 2,445 glyphs cut (368 at the top, 2,299 at the bottom) |
+| `--ascent 14 --clip-cell` | 14 | 2,327 cut (2,321 top, 36 bottom) |
+| `--fit-cell` | 13, at 15 px | 0 cut, 118,116 bytes |
+
+`tools/fontmetrics.py $OUT/c.svf` lists glyphs whose ink reaches past their advance (here one, `\`). To lower descenders
+(or raise a glyph) after the fact, set a per-glyph dy:
+
+    python3 tools/svfdy.py $OUT/c.svf $OUT/c-dy.svf --range 0x67,0x6a,0x70,0x71,0x79 --dy 1    # g j p q y one row lower
+    python3 tools/svfdy.py $OUT/c-dy.svf --show
+
+`--dy` moves the glyph at draw time; the face's dy range (header bytes 17/18) widens, and a line's descent grows by it.
+An engine without dy support draws those glyphs at their cell position.
+
+**Pitfalls.** A cell smaller than the font's line pitch always cuts something: prefer `--fit-cell`, or a larger cell
+with a fixed advance. Changing the ascent of a face changes where every line's ink lands (the MCU examples place a
+line's baseline at its top row + the face's ascent).
+
+### TTC and OTC
+
+`mkfont.py` opens index 0 of a collection (synthetic: a TTC of Galmuri9 + Galmuri7 bakes exactly as Galmuri9). For
+another face, save it out as a plain font first (the same step the maker's `ttc-face` does; TrueType or CFF faces alike):
+
+    python3 maker/srcprep.py ttc-face F.ttc F1.ttf --index 1
+
+Pick by name, not by position: in the Noto CJK collections KR is not index 0. List the names:
+
+    python3 -c "from fontTools.ttLib.ttCollection import TTCollection as C; [print(i, f['name'].getDebugName(4)) for i, f in enumerate(C('/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc').fonts)]"
+
+Verified on the host's Noto Sans CJK Regular collection: ten faces, index 0 Noto Sans CJK JP, 1 KR, 2 SC, 3 TC, 4 HK, then 5-9 Noto Sans Mono CJK JP, KR, SC, TC, HK. The face then goes into the recipes as any static font
+([OpenType CFF](#opentype-cff-otf) above is exactly this).
+
+### Variable fonts
+
+`mkfont.py` draws the default instance. For another, cut a static instance first (fontTools, the maker's `instance`
+step):
+
+    python3 -m fontTools.varLib.instancer ttf/caveat/Caveat-VF.ttf wght=700 -o $OUT/Caveat-Bold.ttf
+    python3 tools/mkfont.py $OUT/Caveat-Bold.ttf $OUT/CAVB24.SVF --size 24 --bpp 2 --unicode ascii --latin
+    python3 tools/mkfont.py ttf/caveat/Caveat-VF.ttf $OUT/CAV24.SVF --size 24 --bpp 2 --unicode ascii --latin
+    python3 tools/svfline.py measure "Hamburgefonstiv" $OUT/CAVB24.SVF $OUT/CAV24.SVF
+
+Verified: the default instance (Regular 400) bakes to 6,760 bytes and the 700 instance to 7,192 bytes (95 glyphs each,
+"Hamburgefonstiv" 141 px wide in the Bold, 136 in the Regular; the summary's one omitted code point is a requested one the font lacks). Named instances are in the `fvar` table (`Caveat`: Regular, Bold; `EB Garamond`: Regular ..
+ExtraBold).
+
+### Mac-format TrueType
+
+**Resource-fork fonts** (.dfont, suitcases, a fork copied out of HFS): the TrueType data is an 'sfnt' resource.
+
+    python3 tools/macsfnt.py list Font.dfont                 # type, id, name, bytes of sfnt / NFNT / FOND / fbit
+    python3 tools/macsfnt.py extract Font.dfont Font.ttf [--id N]
+
+`macsfnt.py` also unwraps AppleDouble (`._Font`) and MacBinary files. FreeType opens a .dfont directly as well, so
+`mkfont.py Font.dfont ...` works for the first face of a Unicode-mapped font (synthetic .dfont).
+
+**Mac Korean cmaps.** A font for the Korean Mac (and some Windows fonts) has only a platform 1 / script 3 (Mac Korean) or
+platform 3 / encoding 5 (Wansung) cmap: two-byte KS X 1001 codes. FreeType and the SVF tools select a Unicode cmap, so
+such a font draws nothing until it has one:
+
+    python3 tools/macsfnt.py cmap Font.ttf                   # platform=1 encoding=3 format=2 entries=... hangul=...
+    python3 tools/macsfnt.py unicode Font.ttf FontU.ttf      # adds (3,1) format 4 [+ (3,10) format 12]
+
+Each code is decoded as EUC-KR (KS X 1001); Apple's own additions to Mac Korean have no KS X 1001 meaning and are counted
+as unmapped. Synthetic (`tools/test_macsfnt.py`): a font with only a (1,3) format 2 cmap is listed, extracted from a
+resource fork, AppleDouble and MacBinary, gains a Unicode subtable, and `mkfont.py` then draws its syllable. Not run here:
+no Mac TrueType font on this host. The classic bitmap fonts of the Korean Mac are in
+[Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts).
+
+## Bitmap fonts
+
+Two kinds of bitmap fonts reach the tools by different paths: Unicode-encoded ones (`CHARSET_REGISTRY "ISO10646"`, or a
+TrueType with embedded strikes) go through `mkfont.py` and FreeType; KS C 5601 / KS X 1001 encoded ones (`ENCODING` = the
+GL code, the X Window Korean fonts) go through `bdfface.py`.
+
+### ISO 10646 BDF and PCF
+
+`mkfont.py` reads a BDF or PCF through Pillow's FreeType, at the file's built-in pixel size only (its strike); any other
+size is `OSError: invalid pixel size`, and the maker's `detect.bitmap_strikes` names the sizes a font offers. There is no
+shim or workaround: `mkfont.py` asks fontTools whether a code point is in the cmap and treats a non-sfnt file (BDF, PCF,
+FNT) as unknown, not as an error (`cmap_has` returns None; since ec5c6b3). No BDF or PCF is in this repository; the runs below use fonts of
+this host (not in the repository): `/usr/share/dosbox-x/wqy_12pt.bdf` (WenQuanYi Bitmap Song, 16 px, Unicode) and
+`/usr/share/fonts/X11/misc/18x18ko.pcf.gz` (Misc Fixed Wide, 18 px).
+
+    python3 tools/mkfont.py /usr/share/dosbox-x/wqy_12pt.bdf $OUT/bdf16-1bpp.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/mkfont.py /usr/share/fonts/X11/misc/18x18ko.pcf.gz $OUT/pcf18-1bpp.svf --size 18 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/mkfont.py /usr/share/fonts/X11/misc/18x18ko.pcf.gz $OUT/pcf18-2bpp.svf --size 18 --bpp 2 --unicode ascii,ksx1001-hangul
+
+Verified, without any shim: BDF `115,684 bytes`, 2,446 glyphs, `width=156 ascent=12 descent=4`, ink 348; PCF 1 bpp
+`116,552 bytes`, 2,446 glyphs (18x18 cell), `width=234 ascent=15 descent=3`, ink 366; PCF 2 bpp `181,108 bytes`. A bitmap carries
+no coverage, so `--bpp 2` only has levels 0 and 3: the same monochrome pixels at 2 bpp, not a smooth face. A jamo set from
+these faces is a fit to the precomposed result: `jamoset.py --layout 844 --from-svf $OUT/bdf16-1bpp.svf --check -o ...`
+(the next subsection shows the numbers for a bdfface face).
+
+### KS C 5601 BDF and PCF
+
+An X Window Korean font (`CHARSET_REGISTRY "KSC5601.1987"` or `"KSX1001"`, `ENCODING` = the GL code: `-baekmuk-*`,
+`-daewoo-*`, `hanglm16`) goes through `bdfface.py`, which reads BDF only. A PCF is converted by the maker's
+`srcprep.py pcf-bdf` (stdlib only, gz accepted; no external `pcf2bdf` is needed), then the precomposed face is made, then
+a jamo set is fitted to it:
+
+    python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-hangul']()))" $OUT/ks.txt
+    python3 maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/hanglm16.pcf.gz $OUT/hanglm16.bdf
+    python3 tools/bdfface.py --hangul $OUT/hanglm16.bdf --ascii /usr/share/dosbox-x/wqy_12pt.bdf --cell 16x16 \
+        --chars-from $OUT/ks.txt -o $OUT/KS16.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/KS16.SVF --check -o $OUT/KS16J.SVF
+
+Verified: the BDF has `FONTBOUNDINGBOX 16 16 0 -2`, `PIXEL_SIZE 16`, `CHARSET_REGISTRY "KSC5601.1987"`; `bdfface.py` writes
+`125,096 bytes`, 2,350 syllables (2,447 glyphs: the syllables, ASCII 0x20-0x7E and its own U+2026 / U+25A1), 7 glyphs
+clipped, `width=156 ascent=14 descent=2`, ink 354; the jamo set `18,436 bytes`, 441 glyphs, 344 pieces, IoU 0.826 over the
+2,350 syllables (p5 0.511), `--check` composes all 11,172 syllables, ink 361. The same chain with the Unicode BDF as both
+halves (`--hangul wqy_12pt.bdf --ascii wqy_12pt.bdf`): face `115,700 bytes`, jamo set `16,272 bytes`, IoU 1.000.
+
+`bdfface.py` keeps only the Hangul syllables `--chars-from` names (any text; `mkfont.py`'s rules), ASCII 0x20-0x7E from
+`--ascii`, and its own U+2026 / U+25A1: no symbols or jamo come from the BDF. The cell defaults to 24x24 whatever the BDF's
+box is, so give `--cell`; `--ascent` / `--hangul-ascent` place the baselines. Synthetic (`tools/test_recipes.py`): a KS C
+5601 BDF of 10 syllables and an ISO 10646 ASCII BDF give a face with exactly those syllables, rows in place.
+
+### hanterm
+
+hanterm fonts (johab-1 encoding, glyph numbers as `ENCODING`, 10x(3|4)x4 sets, 529 glyphs) are read directly:
+
+    python3 tools/jamoset.py --layout hanterm-johab johabm16.bdf --check -o HTERM16J.SVF
+
+Not run here: no hanterm BDF on this host. Synthetic (`tools/test_recipes.py`): a 529-glyph hanterm BDF composes all
+11,172 syllables in 10/4/4 sets.
+
+### HBF
+
+`bdfface.py --ascii` reads an HBF (the `.hbf` with its `.bin` or `.bin.gz` beside it), but only as the ASCII half of a
+face; the Hangul half must be a BDF. Not run here: no `.hbf` on this host or in the repository. Synthetic
+(`tools/test_bdfface.py`): a synthetic HBF as the ASCII half.
+
+### Windows FNT and FON
+
+FreeType has a winfnt driver, so `mkfont.py` should read a Windows `.FNT` (or the `.FON` that holds several) at the
+font's own pixel size, the way it reads a BDF or PCF. The maker detects them (`detect.py`: a bare FNT header, a FON's faces
+with the later faces needing a prepared source) and offers the `mkfont` route at their sizes. Not run here: no Windows FNT or
+FON on this host or in the repository (a search of `/usr/share/fonts` and `~` found only FONTX2 and DOS bitmaps). Unverified.
+
+Not to be mixed up with DOS Johab `.FNT` files, which are jamo-piece fonts: see [DOS-era raw fonts](#dos-era-raw-fonts).
+
+### Embedded bitmap strikes
+
+An outline font with embedded bitmaps (TrueType `bdat`/`bloc`, OpenType `EBDT`/`EBLC`) is used by FreeType only at the
+strike's own pixel size: run `mkfont.py --size N` with the strike's size and `--bpp 1`; at other sizes the outlines are
+used, or the open fails for a bitmap-only font (`OSError: invalid pixel size`). The maker's `detect.bitmap_strikes` lists a
+font's strikes and offers them as sizes. Not run here: no such font in `ttf/` or on this host.
+
+## DOS-era raw fonts
+
+DOS Hangul systems (Hangul BIOS, 이야기, 한메, san, Dokkaebi, games) stored jamo pieces, not syllables; a syllable was the
+OR of an initial, a medial and an optional final, the set chosen by the other jamo. The tools read these raw files **by
+exact byte size** (the maker's `detect.py` does the same, and a file of an unlisted size is "unknown") and by layout; there
+is no header to sniff.
+
+### Other DOS-era Korean fonts
+
+| `--layout` | File | Bytes | Pieces |
+|---|---|---|---|
+| `844` | raw 8x4x4 (`HANGUL.FNT`, `*.KOR`, `$K*ZN16`), 16/24/40/48 px | 11,520 (or 11,522 with a 2-byte header), 25,920, 72,000, 103,680; 15,584 (DKB2, read as 16 px) | 360: 8 initial sets of 20, 4 medial of 22, 4 final of 28; slot 0 of each set blank |
+| `844-ihnm` | SAGA IHNM 8x4x4 (medial sets swapped for ㄱ ㅋ) | 11,520+ | 360 |
+| `844-hbios24` | HBIOS / Taebaek 3.5 24x30 (`GOTHIC24.FNT`, `MY24.FNT`) | 243,900 | the first 360 |
+| `1044-san` | san 1.0 10x4x4 | 12,800 | 400 |
+| `621` | 6x2x1 (Apple II era), byte-column glyphs | 6,144 | 192 |
+| `dkb-printer-7x2x2` / `dkb-printer-12x4x4` | Dokkaebi printer `HANGUL16/24.FNT` / `HANGUL40/48.FNT` (`--face 0|1`) | 15,360 / 34,560; 176,000 / 253,440 | 240 / 440 a face |
+| `kyra-lok` | Kyra LoK `MK15.BIT`, 15x15 | 11,550 | 385 |
+
+    python3 tools/jamoset.py --layout 844 HANGUL.FNT --eng ENGLISH.FNT --symbols --check -o $OUT/MYFONT16J.SVF
+    python3 tools/johab844.py HANGUL.FNT svf/dos/NEODG16.SVF $OUT/MYFONT16.SVF --eng ENGLISH.FNT     # precomposed instead
+
+`--eng` takes a raw 8x16 English font (2,048 or 4,096 bytes; scaled by whole numbers to the cell) for ASCII; `--base
+FACE.SVF` keeps another face's non-syllable glyphs. The ascent defaults to 7/8 of the cell (`--ascent N`); 8x16 DOS
+fonts put the baseline at row 13 or 14. `--check` composes all 11,172 syllables. `johab844.py` redraws the syllables of a
+16x16 1 bpp base with the raw pieces and keeps the base's other glyphs. Synthetic (`tools/test_recipes.py`; not run here: no DOS font on this host): a raw 8x4x4 font with an 8x16 English font (가 composed = the OR of raw slots 1 and 161, byte
+for byte), a 6x2x1 font (1 lead / 2 tail classes, 6/2/1 sets), and a refit of a precomposed face (`--from-svf` over
+NEODG16J, IoU 1.000).
+
+**Pitfalls.** A file of the right size in another layout passes the size check; `jamoset.py` refuses it when the slot-0
+fill pieces are not blank, but look at the result (`svfline.py line ... "가나다"`). Fonts with a 2-byte header
+(T-Hangul) are read at offset 2. A 24 px or larger source needs a matching English font or `--base`.
+
+### HWP 1.x and 2.x fonts
+
+Hangul and Computer's DOS word processor shipped printer and screen fonts (`HANGUL*.PFT`, `ASCII.PFT`, `*.FNT`). What
+this repository reads directly:
+
+- the 12x24 English fonts: `jamoset.py ... --eng ASCII.PFT` (12,288 bytes, 256 glyphs of 48 bytes) and HBIOS 12x24
+  (15,360 bytes);
+- any precomposed 1 bpp face you made of the Hangul, refitted to pieces: `jamoset.py --layout 844 --from-svf
+  FACE.SVF --check` (for the HWP 1.20 24 px faces this fit was exact);
+- a BDF of the composed syllables: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
+
+What it does **not** read: the HWP `.PFT` Hangul files themselves. Their glyphs are composed by HWP's own rules, which
+a separate research tool (`kfont.py` of the johab-fonts research notes) decodes; that reader is not part of this
+repository, and its output (a BDF or a precomposed face) is the input of the two routes above. No HWP font is in this
+repository.
+
+### KS X 1001 raw dumps
+
+A raw dump of the 2,350 precomposed KS X 1001 syllables (one bitmap per syllable in code order, as some DOS and embedded
+systems keep them) has no reader in this repository: there is no layout for it in `jamoset.py`, `bdfface.py` or the
+maker, and a file of such a size is not recognised. Convert it elsewhere to a BDF (KS C 5601 encoded, `ENCODING` = the GL
+code) and use [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf). Not run here: there is nothing to run.
+
+## Classic Mac Korean bitmap fonts
+
+No Apple data is in this repository; the tools read your own files. The maker's local mode (`maker/README.md`, "Local
+mode") reads these fonts in place from your disk, through the same tools, and writes the faces only into a folder you
+choose.
+
+**HangulTalk 1.0 'fbit' fonts** (Korean System 4.1: Gotic12/16, Munjo12/16/24). Input: the font's resource fork as a
+file (copied out of a Mac volume, or the fork of an archive; `tools/macsfnt.py list` shows its 'fbit' resource). The
+fork holds an 'fbit' resource of 45 glyph sets and the 'fdef' driver resource with its 18 lookup tables. The set system is
+derived from the font's own rule, so every syllable composes as the Mac draws it:
+
+    python3 tools/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o $OUT/MUNJO24J.SVF
+
+Output: a 1 bpp jamo set of all 11,172 syllables (8 lead classes, 4 tail classes, 20 initial sets for these fonts),
+cell = the font's size. `--check` composes everything and compares with jamoset's own copy of the 'fdef' rule; a golden
+file (`tools/testdata/mac-fbit-golden.json`, not shipped: it would hold Apple bitmaps) adds an independent comparison
+when you make one. Tests on the real files run when `JOHAB_FONTS` names a tree holding
+`mac/extracted/kh10_system_disk/System Folder/*.rsrc` and the reference renderer; they skip otherwise.
+
+**HangulTalk 7.1.x type-3 'fbit' fonts** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): the planes are composed by a
+table, InputBackSupport 'HTBL' 1, and only the 2,350 KS X 1001 syllables and 51 compatibility jamo exist.
+
+    python3 tools/macfbit3.py unpack Seoul12.splt.data Seoul12.rsrc     # the 7.1.2 Installer's 'splt' "JM" archive
+    python3 tools/macfbit3.py fbit Seoul12.rsrc Seoul12.fbit
+    python3 tools/macfbit3.py bdf Seoul12.fbit HTBL1.bin Seoul12 seoul12.bdf          # 2,401 glyphs, Unicode BDF
+    python3 tools/macfbit_svf.py build Seoul12.fbit HTBL1.bin -o $OUT/SEOUL12J.SVF         # direct: the Mac structure (JMAP)
+    python3 tools/macfbit_svf.py build Seoul12.fbit HTBL1.bin --mode derived -o $OUT/SEOUL12D.SVF   # a JSET face, all 11,172
+    python3 tools/macfbit_svf.py verify SEOUL12J.SVF Seoul12.fbit HTBL1.bin
+
+`direct` keeps the Mac planes as pieces and composes only the KS syllables exactly; `derived` fits a JSET whose 8,822
+extra syllables are extrapolated (not Mac output). The BDF route goes on with `bdfface.py --cell 12x12 --chars-from
+<the 2,350 syllables>` to a precomposed face. To shrink a many-variant face for an MCU budget:
+
+    python3 tools/jamomerge.py merge --face SEOUL12D.SVF --points 8192 7168 --prefix SM -o $OUT/SMALL
+
+(keeps every piece as drawn and merges variants, sets and classes by a pixel objective). Tests: `tools/test_macfbit3.py`
+and `tools/test_macfbit_svf.py` run on synthetic fbit / HTBL / NFNT data built in the tests; `MACFBIT3_CD712=<CD tree>`
+and `SVF_MAC71_INPUTS=<dir of Name.fbit and Name.htbl1>` add the checks on your files. Outline Mac TrueType fonts: see
+[Mac-format TrueType](#mac-format-truetype). The maker's routes for these fonts are in the
+[route table](#desktop-app-and-maker-routes). Not run here: no Apple data on this host; everything above is synthetic.
+
+## An existing SVF
+
+Source: `svf/dos/NEODG16.SVF` (a precomposed 1 bpp face, 16x16, 2,905 glyphs, with a metrics table).
+
+Set a dy (no other byte changes):
+
+    python3 tools/svfdy.py svf/dos/NEODG16.SVF $OUT/neodg16-dy.svf --range 0x20-0x7e --dy 3
+
+Verified: `133,720 bytes` (unchanged), 2,905 glyphs, dy set on 95 glyphs, range 0..3; renders `width=144 ascent=12 descent=7`
+(the descent grew by the dy), ink 559.
+
+Re-bake as a jamo set (a fit to the precomposed syllables of a 1 bpp face; the pieces and the face's other glyphs are kept):
+
+    python3 tools/jamoset.py --layout 844 --from-svf svf/dos/NEODG16.SVF -o $OUT/neodg16-from-svf.svf
+
+Verified: `34,332 bytes`, 892 glyphs, 344 pieces; fit: 2,357 syllables, IoU 1.000 (Neo Dunggeunmo is itself an OR of
+pieces); renders `width=144 ascent=12 descent=4`, ink 559. An existing SVF is not a source for anti-aliasing: no tool converts a 1 bpp face
+to 2 bpp, and `svfdy.py` changes only the dy.
+
+**Version and profile.** SVFN v2 is retired; `svf2to3.py` reads v2 and re-lays a v3 face out. The maker's "copy" route
+does this for an uploaded SVF (`svf2to3.py SRC OUT --jset-version V --check`: a v2 face packed as v3, or a v3 face whose JSET
+block is rewritten). A jamo set holds its tables as JSET v1 (the default) or v2 (smaller for a memory-limited target;
+`--jset-version auto` picks v2 when the v1 block is at least 1,024 bytes larger); a JMAP block (JSET version 3) is copied
+verbatim and the flag does nothing there.
+
+    python3 tools/svf2to3.py $OUT/NG16J.SVF $OUT/NG16J-v2.SVF --jset-version 2 --check
+    python3 tools/svf2to3.py svf/dos/NEODG16A.SVF $OUT/NEODG16A-v2.SVF --jset-version 2 --check
+    python3 tools/svf2to3.py svf/dos/NEODG16.SVF $OUT/NEODG16-canon.SVF --profile default --check
+
+Verified: NanumGothic Bold's 1 bpp jamo set `20,064` -> `19,232 bytes` with `--jset-version 2` (JSET block 1,101 -> 272 bytes, glyph data 11,884 unchanged, every glyph compared equal); the shipped NEODG16A `16,408` -> `15,576 bytes`; with `--jset-version auto` NEODG16A stays v1 (`jset=1`, the v1 block is only 829 bytes larger than v2, under the 1,024 threshold). The last command re-lays out a shipped face with the `default` profile and the bytes are identical:
+133,720 bytes in and out (`cmp` reports no difference). `--profile` picks the layout for a target (`mcu-strict`, `default`, `dos`, `wasm`, `full`, `simd16`); `--check` proves the
+pixels did not change.
+
+## Desktop app and maker routes
+
+The maker (`maker/`, the desktop app of [desktop-app.md](desktop-app.md), the server of [maker/README.md](../maker/README.md))
+detects each file's kind (`maker/detect.py`) and offers the routes of `maker/routes.py` for it; every route is a command
+line made of the tools above. A run writes `svf/<dest>/<NAME>.SVF` and `build-<id>/BUILD.md` in the output folder:
+BUILD.md lists, for every face, the source steps and the commands that were run, with the real paths, so any result can
+be reproduced by hand from this chapter. The routes, by the labels the page shows (`native` = the source is exactly
+what the route makes; the others are fits and are marked experimental):
+
+| Route (kind, label) | Source kind | Commands (argv of `routes.py`) | Recipe |
+|---|---|---|---|
+| precomposed, `mkfont` | outline, outline-composite, bitmap, bdf-iso10646 | `mkfont.py SRC mkfont.tmp --size S --bpp B --unicode R`, then `svf2to3.py mkfont.tmp OUT --profile default` (bitmaps: 1 bpp at their strike sizes) | [Outline fonts](#outline-fonts), [ISO 10646 BDF and PCF](#iso-10646-bdf-and-pcf) |
+| jamo, `composite` | outline-composite (a TrueType whose syllables are composites) | `jamovec.py master SRC -o M.json --components [--adaptive]`, then `jamovec.py render M.json --size S --bpp B --binarize threshold --check -o OUT` | [Jamo sets](#jamo-sets-from-truetype-and-opentype-fonts) way 1 |
+| jamo, `experimental fit` | outline (not composite) | 1 bpp: `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --check -o OUT [--eng E] --mask-font none`; 2 bpp: `jamoset.py ... --bpp 2 --check -o OUT` | way 3 |
+| jamo, `vector fit` | outline | `jamovec.py master SRC -o M.json [--adaptive]` (no `--components`), then the same `render` | way 3 |
+| jamo, `mask fit` | outline with GSUB jamo and a usable mask (1 bpp) | `jamoset.py --layout L --from-ttf SRC --size S --binarize threshold --mask-font SRC --no-clean --check -o OUT [--pylib DIR]` | way 2 |
+| precomposed, `johab844` | dos-raw, exactly 11,520 bytes (16 px 8x4x4) | `johab844.py SRC dos/NEODG16.SVF OUT [--eng E]` | [DOS-era raw fonts](#dos-era-raw-fonts) |
+| jamo, `dos raw` | dos-raw | `jamoset.py SRC --layout L --check -o OUT [--eng E] [--face 0\|1]` (`--face` for the Dokkaebi printer layouts) | the table there |
+| jamo, `hanterm` | bdf-johab | `jamoset.py SRC --layout hanterm-johab --check -o OUT [--eng E]` | [hanterm](#hanterm) |
+| precomposed, `bdfface` | bdf-ksc5601 (a BDF, or a PCF through the `pcf-bdf` step) | `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST -o OUT` (`WxH` = the BDF's box) | [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) |
+| jamo, `bdfface + from-svf fit` | bdf-ksc5601 | the `bdfface.py` face, then `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | same |
+| jamo, `mac fbit 1.0` | mac-fbit1 | `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT` | [Classic Mac](#classic-mac-korean-bitmap-fonts) |
+| jamo, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | same |
+| precomposed, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | same |
+| precomposed or jamo, `copy` | svf-precomposed, svf-jamo | none when used as uploaded; `svf2to3.py SRC OUT --jset-version V --check` for a v2 face or a requested JSET change | [An existing SVF](#an-existing-svf) |
+| jamo, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]`, then `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | same |
+
+`L` is `844` or `adaptive` for the fits and the layout the source kind names otherwise; `[--eng E]` is the English
+companion the page paired with the font.
+
+Some sources need a conversion first; BUILD.md lists these steps before the route's commands (each reads the file the
+step before it wrote):
+
+| Step | Command |
+|---|---|
+| `rsrc-sfnt` | `macsfnt.py extract SRC OUT --id N` |
+| `mac-cmap` | `macsfnt.py unicode SRC OUT` |
+| `ttc-face` | `srcprep.py ttc-face SRC OUT --index N` |
+| `instance` | `python3 -m fontTools.varLib.instancer SRC AXIS=VALUE ... -o OUT` |
+| `pcf-bdf` | `srcprep.py pcf-bdf SRC OUT` |
+| `mac-fork`, `mac-fork-named` (macOS only), `mac-htbl` | `srcprep.py mac-fork SRC OUT` etc.: the resource fork of an AppleDouble / MacBinary file, the native fork, the HTBL 1 table |
+| `mac-fbit3` | `macfbit3.py fbit SRC OUT` |
+
+Verified: the route labels and kinds of this table were read from `routes.py` and checked by running `detect.scan` and
+`routes.routes` on a folder of copies of fonts of this host: a face of NanumGothic Bold, Noto Sans CJK Regular (ten faces of the collection, index 0-9, each `outline`), Caveat-VF and wqy_12pt.bdf as above gets the route `mkfont` (Caveat and NanumGothic also `experimental fit` and `vector fit`); neodgm.ttf is `outline-composite` with `mkfont`, `composite` (native) and `vector fit`; `wqy_12pt.bdf` (kind `bdf-iso10646`) and `18x18ko.pcf.gz` (`bitmap`, sizes [18]) get `mkfont` only; `hanglm16.pcf.gz` is `bdf-ksc5601` with `bdfface` and `bdfface + from-svf fit`; NEODG16.SVF (`svf-precomposed`) gets `copy` and `from-svf fit`, NEODG16A.SVF (`svf-jamo`) `copy`.
+
+## Faces of svf/
 
 `tools/build/faces.tsv` holds one row for every face of `svf/` (116 rows); `tools/build/build_faces.py` runs them and
 compares each result with the shipped face:
 
-    python3 tools/build/build_faces.py --out /tmp/rebuild                      # every row with a recipe
-    python3 tools/build/build_faces.py --out /tmp/rebuild NGOTB15 GBATB23      # some faces
-    python3 tools/build/build_faces.py --out /tmp/rebuild --ext nanumgothic-nhn=/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf
+    python3 tools/build/build_faces.py --out $OUT/rebuild                      # every row with a recipe
+    python3 tools/build/build_faces.py --out $OUT/rebuild NGOTB15 GBATB23      # some faces
+    python3 tools/build/build_faces.py --out $OUT/rebuild --ext nanumgothic-nhn=/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf
 
 Each line of the output is `FACE identical`, `FACE pixels` (same glyphs and header values, another byte order) or
 `FACE differs: ...`; the run exits 1 when a row marked `identical` is not.
 
-**Coverage (verified, 2026-11-03).** 116 faces:
+**Coverage (verified, 2026-11-22).** 116 faces:
 
 | Status | Faces | Count |
 |---|---|---:|
@@ -123,238 +661,9 @@ the source fonts are OFL, only the making step is not in this repository or not 
   --unicode ascii,2026,2122,3131-318e --only-listed --space-advance 6 --punct-extra 1` on Paperlogy 1.000; the 1.001
   release draws 81 of the 149 glyphs otherwise, and neither is in `ttf/`.
 
-## Jamo sets from TrueType and OpenType fonts
+## Reference
 
-A jamo set (조합형) holds pieces and a table; every syllable is the OR of two or three pieces. From an outline font there
-are three ways to get the pieces, by what the font holds.
-
-**1. Composite glyphs (TrueType `glyf`).** Some fonts store a syllable as a composite of its jamo glyphs. Then the
-components *are* the pieces:
-
-    python3 tools/jamovec.py master ttf/neodgm/neodgm.ttf -o neodgm.json --components
-    python3 tools/jamovec.py render neodgm.json --size 16 --bpp 1 --check -o NEOVEC16.SVF
-    python3 tools/jamovec.py render neodgm.json --size 16 --bpp 2 --check -o NEOVEC16A.SVF
-
-Verified: neodgm.ttf has 11,172 composite syllables; `master` took 25 s (344 pieces, 0 bad shapes), the 1 bpp render
-15,724 bytes and the 2 bpp render 19,452 bytes, both 11,172 syllables composed. The vector render differs from the
-raster fit NEODG16A in 2,633 of 11,172 syllables (FreeType's pixel snapping of a pixel font against `jamovec`'s exact-area
-rasteriser). Check a font first:
-
-    python3 -c "from fontTools.ttLib import TTFont; f=TTFont('FONT.ttf'); c=f.getBestCmap(); g=f['glyf']; print(sum(g[c[x]].isComposite() for x in c if 0xAC00<=x<=0xD7A3))"
-
-In `ttf/`: neodgm 11,172 composite syllables; NanumGothic Regular/Bold and NanumMyeongjo Bold 8,822 (the syllables
-outside KS X 1001 are composites, the 2,350 are not); NanumPenScript 8,693; the others none. `--components` with a
-partly composite font uses the composites only ("auto" picks components when most syllables are composite).
-**CFF / CFF2 (OpenType `.otf`) has no composite glyphs**: every syllable is a flat outline there, so the pieces must come
-from the next two ways.
-
-**2. Conjoining-jamo shaping (GSUB `ljmo` / `vjmo` / `tjmo`).** A font with these features draws the conjoining jamo
-U+1100.. in positional variants. `jamoset.py --from-ttf ... --mask-font FONT` shapes each syllable as conjoining jamo with
-HarfBuzz and uses the variants as masks that confine the fitted pieces (needs `freetype-py` and `uharfbuzz`;
-`--pylib DIR` points at them). Not run here (neither module is installed on this host); neodgm.ttf in `ttf/` has the three
-features and can serve as a mask font. A separate research repository measured the pieces those features return, at
-12 px with hinting: Malgun Gothic gives 5/2/1 sets (164 pieces), Noto Sans CJK KR 6/2/4 (264 pieces; in the Noto TTC,
-KR is index 1); faces made straight from them read well but differ from the precomposed glyphs by a pixel or two (mean
-IoU about 0.58), because the font's conjoining pieces are laid out differently from its precomposed syllables. That work
-also found that in the same byte budget a few dozen frequent syllables stored as LIST exceptions (`jamoexc.py`) improve
-more than more sets do. No data of those fonts is in this repository.
-
-**3. Fitting to the precomposed syllables** (any font, TrueType or CFF):
-
-    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf --size 16 \
-        --binarize threshold --check -o NG16J.SVF
-    python3 tools/jamoset.py --layout adaptive --from-ttf ttf/gowunbatang/GowunBatang-Bold.ttf --size 20 \
-        --binarize threshold --check -o GB20J.SVF
-
-Verified: NanumGothic Bold 16 px into 8x4x4 took 12 s, 20,064 bytes, 344 pieces, IoU 0.817 over 11,172 syllables;
-Gowun Batang Bold 20 px adaptive took 92 s, 73,220 bytes, 32/24/12 sets and 12 x 12 classes, IoU 0.934. `jamofit.py`
-fits the pieces (coordinate descent over the 1 bpp syllables), `jamoadapt.py` splits sets where the syllables sharing a
-piece disagree (`--layout adaptive[:NI,NM,NF]`), `jamoseg.py` separates a syllable's outline into its jamo as outlines
-(used by `jamoaa.py` and `jamovec.py`), and `jamovec.py master` without `--components` separates once at a decision size
-and renders every size from the same pieces. `--binarize mono` (the default) needs freetype-py; `threshold` and `ridge`
-use the repository's own exact-area rasteriser (fontTools pen, so TrueType and CFF alike). A fit is an approximation:
-read the IoU, and look at the result (`web/` picker, or `svfline.py line`).
-
-**Pitfalls.** A font that draws few syllables (Black Han Sans: 2,581) fits only those (`--present-only`, the default);
-the rest compose from the nearest pieces. `--check` composes all 11,172 syllables and fails on a table error, not on
-a poor fit.
-
-## Anti-aliased (2 bpp) faces
-
-Precomposed (verified, `tools.md` "Recipes"): `mkfont.py FONT OUT --size 16 --bpp 2 --unicode ascii,ksx1001-hangul`
-(NanumGothic Bold: 185,932 bytes, 2,446 glyphs). Coverage is quantised to 4 levels; the reader expands level x 85. A
-2 bpp face is about 1.7x its 1 bpp face. `--bpp 8` keeps full coverage (8 bpp faces are for hosts).
-
-Jamo sets:
-
-    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf --size 16 --bpp 2 \
-        --check -o NG16JA.SVF                     # verified: 73 s, 24,960 bytes, level error 0.233, IoU at level 2 0.822
-    python3 tools/jamovec.py render MASTER.json --size 16 --bpp 2 -o OUT.SVF      # from a vector master
-
-`--bpp 2` runs `jamoaa.py`: the syllables are rasterised with exact-area coverage, the regions of the 1 bpp fit decide
-which piece owns each pixel, and each piece's levels are the median over the syllables sharing it, then refined
-(`--aa-refine N`, 2 passes) against the level error. `--clean` (on for 2 bpp) removes isolated noise. The pieces OR as
-the per-pixel maximum. 2 bpp needs fontTools only.
-
-**Pitfalls.** An anti-aliased piece over another piece takes the maximum, not the sum: thin crossing strokes look lighter
-than in the precomposed glyph. A 1 bpp target (MONO_PAGE) thresholds 2 bpp faces at draw time (`threshold` of the
-target); give a mono display a 1 bpp face.
-
-## Baseline, vertical shift and clipping
-
-The ascent field of a face is the baseline row from the cell top; the renderer puts a line's baseline at the pen y and
-draws each glyph `dy` rows lower (per-glyph dy, `spec/SVF.md`).
-
-How `mkfont.py` chooses it: `--ascent N` sets it. Without it, when the font's ascent + descent fit the cell it is the
-font's ascent; when they do not, the ink of a probe ("한글AQg", or "AQgjy" with `--latin`) is centred in the cell; with
-`--latin` the cap height goes to the top. Then, per glyph:
-
-- default: a glyph whose ink would leave the cell at the top or the sides is moved into it (a per-glyph shift: that glyph
-  then sits off the baseline); ink below the cell is cut;
-- `--clip-cell`: every glyph stays on the one baseline and ink outside the cell is cut; stdout counts the glyphs cut
-  above and below;
-- `--fit-cell`: the size is lowered 1 px at a time until every glyph's ink fits the cell on one baseline.
-
-Worked example (verified), NanumGothic Bold drawn at 18 px into a 16x16 cell, ASCII and the 2,350 syllables:
-
-    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf c.svf --size 18 --cell 16 --bpp 1 \
-        --unicode ascii,ksx1001-hangul [--clip-cell | --fit-cell | --ascent 14 --clip-cell]
-
-| Options | Ascent | Result |
-|---|---|---|
-| none | 13 (ink centred) | glyphs moved into the cell one by one, 126,048 bytes |
-| `--clip-cell` | 15 (fewest glyphs cut) | 2,300 of 2,445 glyphs cut (368 at the top, 2,299 at the bottom) |
-| `--ascent 14 --clip-cell` | 14 | 2,327 cut (2,321 top, 36 bottom) |
-| `--fit-cell` | 13, at 15 px | 0 cut, 118,116 bytes |
-
-`tools/fontmetrics.py FACE.SVF` lists glyphs whose ink reaches past their advance (here one, `\`). To lower descenders
-(or raise a glyph) after the fact, set a per-glyph dy:
-
-    python3 tools/svfdy.py IN.SVF OUT.SVF --range 0x67,0x6a,0x70,0x71,0x79 --dy 1    # g j p q y one row lower
-    python3 tools/svfdy.py OUT.SVF --show
-
-`--dy` moves the glyph at draw time; the face's dy range (header bytes 17/18) widens, and a line's descent grows by it.
-An engine without dy support draws those glyphs at their cell position.
-
-**Pitfalls.** A cell smaller than the font's line pitch always cuts something: prefer `--fit-cell`, or a larger cell
-with a fixed advance. Changing the ascent of a face changes where every line's ink lands (the MCU examples place a
-line's baseline at its top row + the face's ascent).
-
-## Classic Mac Korean bitmap fonts
-
-No Apple data is in this repository; the tools read your own files. The maker's local mode (`maker/README.md`, "Local
-mode") reads these fonts in place from your disk, through the same tools, and writes the faces only into a folder you
-choose.
-
-**HangulTalk 1.0 'fbit' fonts** (Korean System 4.1: Gotic12/16, Munjo12/16/24). Input: the font's resource fork as a
-file (copied out of a Mac volume, or the fork of an archive; `tools/macsfnt.py list` shows its 'fbit' resource). The
-fork holds an 'fbit' resource of 45 glyph sets and the 'fdef' driver resource with its 18 lookup tables. The set system is
-derived from the font's own rule, so every syllable composes as the Mac draws it:
-
-    python3 tools/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check -o MUNJO24J.SVF
-
-Output: a 1 bpp jamo set of all 11,172 syllables (8 lead classes, 4 tail classes, 20 initial sets for these fonts),
-cell = the font's size. `--check` composes everything and compares with jamoset's own copy of the 'fdef' rule; a golden
-file (`tools/testdata/mac-fbit-golden.json`, not shipped: it would hold Apple bitmaps) adds an independent comparison
-when you make one. Tests on the real files run when `JOHAB_FONTS` names a tree holding
-`mac/extracted/kh10_system_disk/System Folder/*.rsrc` and the reference renderer; they skip otherwise.
-
-**HangulTalk 7.1.x type-3 'fbit' fonts** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): the planes are composed by a
-table, InputBackSupport 'HTBL' 1, and only the 2,350 KS X 1001 syllables and 51 compatibility jamo exist.
-
-    python3 tools/macfbit3.py unpack Seoul12.splt.data Seoul12.rsrc     # the 7.1.2 Installer's 'splt' "JM" archive
-    python3 tools/macfbit3.py fbit Seoul12.rsrc Seoul12.fbit
-    python3 tools/macfbit3.py bdf Seoul12.fbit HTBL1.bin Seoul12 seoul12.bdf          # 2,401 glyphs, Unicode BDF
-    python3 tools/macfbit_svf.py build Seoul12.fbit HTBL1.bin -o SEOUL12J.SVF         # direct: the Mac structure (JMAP)
-    python3 tools/macfbit_svf.py build Seoul12.fbit HTBL1.bin --mode derived -o SEOUL12D.SVF   # a JSET face, all 11,172
-    python3 tools/macfbit_svf.py verify SEOUL12J.SVF Seoul12.fbit HTBL1.bin
-
-`direct` keeps the Mac planes as pieces and composes only the KS syllables exactly; `derived` fits a JSET whose 8,822
-extra syllables are extrapolated (not Mac output). The BDF route goes on with `bdfface.py --cell 12x12 --chars-from
-<the 2,350 syllables>` to a precomposed face. To shrink a many-variant face for an MCU budget:
-
-    python3 tools/jamomerge.py merge --face SEOUL12D.SVF --points 8192 7168 --prefix SM -o OUTDIR
-
-(keeps every piece as drawn and merges variants, sets and classes by a pixel objective). Tests: `tools/test_macfbit3.py`
-and `tools/test_macfbit_svf.py` run on synthetic fbit / HTBL / NFNT data built in the tests; `MACFBIT3_CD712=<CD tree>`
-and `SVF_MAC71_INPUTS=<dir of Name.fbit and Name.htbl1>` add the checks on your files. Outline Mac TrueType fonts: see
-[Mac-format TrueType](#mac-format-truetype).
-
-## HWP 1.x and 2.x fonts
-
-Hangul and Computer's DOS word processor shipped printer and screen fonts (`HANGUL*.PFT`, `ASCII.PFT`, `*.FNT`). What
-this repository reads directly:
-
-- the 12x24 English fonts: `jamoset.py ... --eng ASCII.PFT` (12,288 bytes, 256 glyphs of 48 bytes) and HBIOS 12x24
-  (15,360 bytes);
-- any precomposed 1 bpp face you made of the Hangul, refitted to pieces: `jamoset.py --layout 844 --from-svf
-  FACE.SVF --check` (for the HWP 1.20 24 px faces this fit was exact);
-- a BDF of the composed syllables: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
-
-What it does **not** read: the HWP `.PFT` Hangul files themselves. Their glyphs are composed by HWP's own rules, which
-a separate research tool (`kfont.py` of the johab-fonts research notes) decodes; that reader is not part of this
-repository, and its output (a BDF or a precomposed face) is the input of the two routes above. No HWP font is in this
-repository.
-
-## Other DOS-era Korean fonts
-
-DOS Hangul systems (Hangul BIOS, 이야기, 한메, san, Dokkaebi, games) stored jamo pieces, not syllables; a syllable was the
-OR of an initial, a medial and an optional final, the set chosen by the other jamo. `jamoset.py` reads these raw files
-by size and layout and writes a jamo set whose tables reproduce the original selection rules:
-
-| `--layout` | File | Bytes | Pieces |
-|---|---|---|---|
-| `844` | raw 8x4x4 (`HANGUL.FNT`, `*.KOR`, `$K*ZN16`), 16/24/40/48 px | 11,520 (or 11,522 with a 2-byte header), 25,920, 72,000, 103,680 | 360: 8 initial sets of 20, 4 medial of 22, 4 final of 28; slot 0 of each set blank |
-| `844-ihnm` | SAGA IHNM 8x4x4 (medial sets swapped for ㄱ ㅋ) | 11,520+ | 360 |
-| `844-hbios24` | HBIOS / Taebaek 3.5 24x30 (`GOTHIC24.FNT`, `MY24.FNT`) | 243,900 | the first 360 |
-| `1044-san` | san 1.0 10x4x4 | 12,800 | 400 |
-| `621` | 6x2x1 (Apple II era), byte-column glyphs | 6,144 | 192 |
-| `dkb-printer-7x2x2` / `dkb-printer-12x4x4` | Dokkaebi printer `HANGUL16/24.FNT` / `HANGUL40/48.FNT` (`--face 0|1`) | 15,360 / 34,560; 176,000 / 253,440 | 240 / 440 a face |
-| `kyra-lok` | Kyra LoK `MK15.BIT`, 15x15 | 11,550 | 385 |
-
-    python3 tools/jamoset.py --layout 844 HANGUL.FNT --eng ENGLISH.FNT --symbols --check -o MYFONT16J.SVF
-    python3 tools/johab844.py HANGUL.FNT svf/dos/NEODG16.SVF MYFONT16.SVF --eng ENGLISH.FNT     # precomposed instead
-
-`--eng` takes a raw 8x16 English font (2,048 or 4,096 bytes; scaled by whole numbers to the cell) for ASCII; `--base
-FACE.SVF` keeps another face's non-syllable glyphs. The ascent defaults to 7/8 of the cell (`--ascent N`); 8x16 DOS
-fonts put the baseline at row 13 or 14. `--check` composes all 11,172 syllables. `johab844.py` redraws the syllables of a
-16x16 1 bpp base with the raw pieces and keeps the base's other glyphs. Verified on synthetic files built in
-`tools/test_recipes.py`: a raw 8x4x4 font with an 8x16 English font (가 composed = the OR of raw slots 1 and 161, byte
-for byte), a 6x2x1 font (1 lead / 2 tail classes, 6/2/1 sets), and a refit of a precomposed face (`--from-svf` over
-NEODG16J, IoU 1.000).
-
-**Pitfalls.** A file of the right size in another layout passes the size check; `jamoset.py` refuses it when the slot-0
-fill pieces are not blank, but look at the result (`svfline.py line ... "가나다"`). Fonts with a 2-byte header
-(T-Hangul) are read at offset 2. A 24 px or larger source needs a matching English font or `--base`.
-
-## X Window Korean fonts
-
-**hanterm** (johab-1 encoding, glyph numbers as `ENCODING`, 10x(3|4)x4 sets, 529 glyphs):
-
-    python3 tools/jamoset.py --layout hanterm-johab johabm16.bdf --check -o HTERM16J.SVF
-
-**KS X 1001 (wansung) BDF/PCF** (`CHARSET_REGISTRY "KSC5601.1987"` or `"KSX1001"`, `ENCODING` = the GL code,
-e.g. `-baekmuk-*`, `-daewoo-*`, `hanglm16.bdf`) or Unicode BDF (`ISO10646`): precomposed through `bdfface.py`, then a
-jamo set through `--from-svf`:
-
-    python3 tools/bdfface.py --hangul hanglm16.bdf --ascii 8x16.bdf --cell 16x16 --chars-from CHARS.txt -o KS16.SVF
-    python3 tools/jamoset.py --layout 844 --from-svf KS16.SVF --check -o KS16J.SVF
-
-`--chars-from` names the syllables to take (any text; `mkfont.py`'s rules), `--ascent` / `--hangul-ascent` place the
-baselines. Verified on synthetic BDFs (`tools/test_recipes.py`): a KS C 5601 BDF of 10 syllables and an ISO 10646 ASCII
-BDF give a face with exactly those syllables, rows in place; a synthetic hanterm BDF of 529 glyphs composes all 11,172
-syllables in 10/4/4 sets.
-
-**PCF.** `bdfface.py` and the hanterm reader read BDF only. Convert with an external tool, e.g. `pcf2bdf` (Debian package
-`pcf2bdf`): `pcf2bdf -o font.bdf font.pcf.gz` (not run here: not installed on this host). `mkfont.py` reads a PCF or BDF
-directly through FreeType, at its built-in pixel size only (tools.md "Recipes", PCF).
-
-**Encodings.** EUC-KR / wansung byte pair = GL code + 0x8080 (`가` = B0A1 = GL 3021); Python: `bytes((0xB0,0xA1)).decode
-("euc_kr")`. Johab (KS X 1001 annex 3, `johab` codec): a 16-bit code `1 iiiii mmmmm fffff` with fill values (initial 2 =
-ㄱ, medial 3 = ㅏ, final 1 = none), `가` = 8861; `bytes((0x88,0x61)).decode("johab")`. Unicode syllable =
-0xAC00 + (initial x 21 + medial) x 28 + final with 0-based jamo indices. Verified in `tools/test_recipes.py`.
-
-## KS X 1001
+### KS X 1001
 
 KS X 1001 (formerly KS C 5601) has 2,350 precomposed Hangul syllables (rows 0xB0-0xC8, 94 each), 51 compatibility jamo
 (row 0xA4: U+3131..U+3163), symbols and Hanja. Tools:
@@ -370,68 +679,31 @@ KS X 1001 (formerly KS C 5601) has 2,350 precomposed Hangul syllables (rows 0xB0
 - `facecheck.py` checks faces against a manifest (`verify`) and maps (`mapfaces`); coverage per face is in the web
   index (`web/mkindex.py`: `hangul` = KS syllables drawn, `subset` = fewer than the 2,350).
 
-## Mac-format TrueType
+### Encodings
 
-**Resource-fork fonts** (.dfont, suitcases, a fork copied out of HFS): the TrueType data is an 'sfnt' resource.
+EUC-KR / wansung byte pair = GL code + 0x8080 (`가` = B0A1 = GL 3021); Python: `bytes((0xB0,0xA1)).decode("euc_kr")`.
+Johab (KS X 1001 annex 3, `johab` codec): a 16-bit code `1 iiiii mmmmm fffff` with fill values (initial 2 = ㄱ, medial 3 =
+ㅏ, final 1 = none), `가` = 8861; `bytes((0x88,0x61)).decode("johab")`. Unicode syllable = 0xAC00 + (initial x 21 + medial)
+x 28 + final with 0-based jamo indices. Synthetic (`tools/test_recipes.py`).
 
-    python3 tools/macsfnt.py list Font.dfont                 # type, id, name, bytes of sfnt / NFNT / FOND / fbit
-    python3 tools/macsfnt.py extract Font.dfont Font.ttf [--id N]
+### Known limits
 
-`macsfnt.py` also unwraps AppleDouble (`._Font`) and MacBinary files. FreeType opens a .dfont directly as well, so
-`mkfont.py Font.dfont ...` works for the first face of a Unicode-mapped font (verified on a synthetic .dfont).
+- The default `--binarize mono` of `jamoset.py` needs `freetype-py` (and `--mask-font` also `uharfbuzz`): neither is
+  installed on this host (`cannot import freetype`), so the recipes use `--binarize threshold`, and `--mask-font none`
+  keeps a 1 bpp fit independent of `$JAMOSET_MASK_FONT`; see [Jamo sets](#jamo-sets-from-truetype-and-opentype-fonts).
+- Run time (this host, one core): a 1 bpp `threshold` fit of a 16 px outline font about 12 s, a 2 bpp one about 73 s,
+  Gowun Batang adaptive at 20 px about 90 s. A 2 bpp face is about 1.6-1.7x its 1 bpp face; a jamo set about a sixth.
+- No tool makes a 2 bpp face from a bitmap or from a 1 bpp face.
+- `mkfont.py` prints its summary in Korean: do not parse its stdout for field names.
+- Known gaps of the tools in general: [tools.md](tools.md), "Remaining gaps of the tools".
 
-**Mac Korean cmaps.** A font for the Korean Mac (and some Windows fonts) has only a platform 1 / script 3 (Mac Korean) or
-platform 3 / encoding 5 (Wansung) cmap: two-byte KS X 1001 codes. FreeType and the SVF tools select a Unicode cmap, so
-such a font draws nothing until it has one:
+## Adding a face to svf/
 
-    python3 tools/macsfnt.py cmap Font.ttf                   # platform=1 encoding=3 format=2 entries=... hangul=...
-    python3 tools/macsfnt.py unicode Font.ttf FontU.ttf      # adds (3,1) format 4 [+ (3,10) format 12]
+Make the face with a recipe above, check it ([Checking a face](#checking-a-face)), and add:
 
-Each code is decoded as EUC-KR (KS X 1001); Apple's own additions to Mac Korean have no KS X 1001 meaning and are counted
-as unmapped. Verified (`tools/test_macsfnt.py`): a synthetic font with only a (1,3) format 2 cmap is listed, extracted
-from a resource fork, AppleDouble and MacBinary, gains a Unicode subtable, and `mkfont.py` then draws its syllable.
+- its licence text beside it in `svf/`;
+- a row in `web/LICENCES.tsv` and one in `web/FAMILIES.tsv`;
+- a row in `tools/build/faces.tsv` (with a recipe, or method `none` and the reason).
 
-**TTC.** `mkfont.py` opens index 0 of a collection (verified: a TTC of Galmuri9 + Galmuri7 bakes exactly as Galmuri9).
-For another face, save it out first:
-
-    python3 -c "from fontTools.ttLib.ttCollection import TTCollection as C; C('F.ttc').fonts[1].save('F1.ttf')"
-
-Pick by name (`fonts[i]['name'].getDebugName(4)`), not by position: in the Noto CJK collections KR is not index 0.
-
-**Embedded bitmaps (`bdat`/`bloc`, `EBDT`/`EBLC`).** FreeType uses a strike only at its own pixel size: run `mkfont.py
---size N` with the strike's size and `--bpp 1`; at other sizes the outlines are used, or the open fails for a bitmap-only
-font (`OSError: invalid pixel size`). Not run here (no such font in `ttf/`).
-
-## OpenType CFF, collections and variable fonts
-
-- **Rasterising.** `mkfont.py` draws with Pillow's FreeType binding: anti-aliased coverage (cut at 128 for 1 bpp, or
-  quantised for 2 bpp), or with `--mono-hint` FreeType's monochrome renderer with the font's hinting
-  (`FT_LOAD_TARGET_MONO`). FreeType reads TrueType and CFF/CFF2 alike (OTF needs no conversion). `jamoaa.py` /
-  `jamovec.py` / `--binarize threshold|ridge` flatten the outlines themselves (fontTools pen, curves flattened, exact-area
-  coverage), the same for TrueType and CFF.
-- **CFF has no composite glyphs**, so a jamo set from an OTF comes from GSUB shaping (mask font) or from fitting; see
-  [Jamo sets from TrueType and OpenType fonts](#jamo-sets-from-truetype-and-opentype-fonts).
-- **OTC** collections: as TTC above.
-- **Variable fonts.** `mkfont.py` draws the default instance. For another, cut a static instance first (fontTools, an
-  external step):
-
-      python3 -m fontTools.varLib.instancer ttf/caveat/Caveat-VF.ttf wght=700 -o Caveat-Bold.ttf
-      python3 tools/mkfont.py Caveat-Bold.ttf CAVB24.SVF --size 24 --bpp 2 --unicode ascii --latin
-
-  Verified: the default instance (Regular 400) bakes to 6,760 bytes and the 700 instance to 7,192 bytes (95 glyphs each,
-  "Hamburgefonstiv" 136 vs 141 px wide). Named instances are in the `fvar` table (`Caveat`: Regular, Bold; `EB Garamond`:
-  Regular .. ExtraBold).
-- **Feeding the recipes.** Any of these, once a static TrueType or CFF font with a Unicode cmap, goes into `mkfont.py`
-  (precomposed), `jamoset.py --from-ttf` / `jamovec.py` (jamo sets), or `mkfont.py` then `jamoset.py --from-svf`.
-
-## Checks for a new face
-
-    python3 tools/svfline.py measure "안녕하세요 ABC 123" FACE.SVF       # width, ascent, descent
-    python3 tools/svfline.py line 200 24 0 16 "안녕하세요 ABC 123" FACE.SVF > out.gray
-    python3 tools/fontmetrics.py FACE.SVF                                 # ink past the advance
-    python3 tools/svf2to3.py FACE.SVF /tmp/x.SVF --check                  # re-layout and compare every glyph
-    python3 tools/facecheck.py manifest --git . --rev HEAD --path svf -o /tmp/m.tsv
-
-A face added to `svf/` needs its licence text beside it, a row in `web/LICENCES.tsv` and `web/FAMILIES.tsv`, and a row in
-`tools/build/faces.tsv` (with a recipe, or `none` and the reason); `tools/test_build_faces.py` and
-`tools/test_web_picker.py` fail otherwise.
+`tools/test_build_faces.py` and `tools/test_web_picker.py` fail otherwise. The maker writes ready-made lines for these
+tables (`build-<id>/LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`).

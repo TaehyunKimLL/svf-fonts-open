@@ -7,7 +7,7 @@ It is what the SVF maker's design is planned from, so every option and behaviour
 from running it; none is inferred from a name. The format itself is `spec/SVF.md`; the C renderer is
 `spec/renderer-design.md` and `c/include/svf.h`.
 
-How each face of `svf/` is made, and how-tos for other kinds of Korean fonts: [recipes.md](recipes.md).
+How each face of `svf/` is made, and the recipes from every kind of Korean font source to an SVF, by input kind: [recipes.md](recipes.md).
 
 The tools are written for the command line. One tool can be a library for another: `jamoset.py` is imported by
 `bdfface.py`, `jamoaa.py`, `jamoadapt.py`, `svfdy.py`, `svfline.py`, `svf_synth.py`, `jamovec.py` and
@@ -57,7 +57,7 @@ face's **dy**; and `tools/build/build_faces.py` and the `web/` tools rebuild and
   Kyra `.BIT`, a Mac HangulTalk `fbit` resource fork, or by fitting an outline font (`--from-ttf`) or a precomposed
   1 bpp face (`--from-svf`); `jamovec.py` writes **jamo sets** by separating a font's jamo once and rendering any size.
 - `svfdy.py` edits the **dy** of an existing face; `svf_synth.py` writes synthetic faces for the C tests.
-- `tools/build/build_faces.py` rebuilds the faces of `svf/` from their upstream fonts (`tools/build/faces.tsv`, `docs/recipes.md`).
+- `tools/build/build_faces.py` rebuilds the faces of `svf/` from their upstream fonts (`tools/build/faces.tsv`, [recipes.md](recipes.md)).
 - The `web/` tools index and copy the faces that the WASM picker serves.
 
 ## Core builders
@@ -191,9 +191,8 @@ through FreeType, but only at the pixel size built into the file.
 **Inputs.** A TTF, OTF, BDF or PCF read with Pillow's FreeType (`PIL.ImageFont.truetype`). A bitmap BDF or PCF opens
 only at the pixel size built into the file (its strike); any other size is `OSError: invalid pixel size`. `fontTools`
 is used only to ask whether the font's cmap has a code point (`cmap_has`), for `--fallback-ttf` and for deciding which
-`--unicode` code points to drop; `cmap_has` assumes an sfnt and raises
-`fontTools.ttLib.TTLibError: Not a TrueType or OpenType font (bad sfntVersion)` on a BDF or PCF when fontTools is
-installed (bug; see the BDF and PCF recipes). `--chars-from` reads files written by the games (see below).
+`--unicode` code points to drop; `cmap_has` returns None (unknown) for a file that is not an sfnt (BDF, PCF, FNT), so those
+open without error. `--chars-from` reads files written by the games (see below).
 
 **Outputs.** A precomposed SVFN v3 face, 1, 2 or 8 bpp, variable width (a metrics table), flag bit 2 set, in the
 `--profile` layout. The v1 options `--codepage`, `--count`, `--shadow`, `--center`, `--fixed`, `--fullwidth` and
@@ -309,7 +308,7 @@ into an SVF v3 jamo-set face, with every KS X 1001 syllable exactly as the Mac d
 copies; no Apple byte is in this repository.
 
 **Inputs.** The 'fbit' resource (482 glyph slots, 2 banks x 241) and InputBackSupport 'HTBL' 1 (4 bytes per KS code:
-bank and three glyph bytes; the format is described in `tools/macfbit3.py` and `docs/recipes.md`). `--latin` reads
+bank and three glyph bytes; the format is described in `tools/macfbit3.py` and [recipes.md](recipes.md#classic-mac-korean-bitmap-fonts)). `--latin` reads
 the family suitcase's resource fork ('FOND' + 'NFNT') for ASCII 0x20-0x7E at the cell's point size.
 
 **Method.** The Mac picks its medial (and the ㄱ ㄹ ㅇ finals) by the initial more finely than 12 lead classes allow
@@ -855,7 +854,7 @@ together.
 **Purpose.** Rebuild the faces of `svf/` from their upstream fonts with the repository's own tools, as the recipe table
 `tools/build/faces.tsv` says, and compare each result with the face in `svf/`.
 
-**Status.** General-purpose (the provenance check of the shipped faces; `docs/recipes.md` explains every recipe).
+**Status.** General-purpose (the provenance check of the shipped faces; [recipes.md](recipes.md) explains every recipe).
 
 **Inputs.** `tools/build/faces.tsv` (face, method, source, args, codepoints, expect, note; one row for every face of
 `svf/`), the code point lists under `tools/build/cps/`, and the source fonts in `ttf/`. A row whose source is
@@ -881,7 +880,7 @@ with those after it.
 **Purpose.** The recipe table of `tools/build/build_faces.py`: one row for every face of `svf/` (face, method, source,
 args, codepoints, expect, note). `method` is `mkfont`, `jamoset` or `none` (no recipe with this repository's tools;
 the note says why). `codepoints` names a `mkfont.py --unicode` set or a file under `tools/build/cps/` (one hex code point
-or range a line, the face's own code point list). `docs/recipes.md` explains every row; `tools/test_build_faces.py`
+or range a line, the face's own code point list). [recipes.md](recipes.md) explains every row; `tools/test_build_faces.py`
 keeps the table complete.
 
 ## Web (WASM picker)
@@ -1017,227 +1016,39 @@ own resource reader).
 
 ## Recipes: input format to SVF
 
-Each recipe below was run for real, writing to `/tmp`, except FNT and HBF: no input for those exists in this
-repository or on this host, so their recipes were **not run** and are marked so. The output size, the glyph count (the
-code point table's entry count) and the render check are given. TTF and SVF run on a repository font; OTF, BDF and PCF
-have none in the repository, so those three use a font elsewhere on this host and say so. The render check uses
-`tools/svfline.py` on the sample `안녕하세요 ABC 123` (Hangul and ASCII):
+The recipes from every input format to an SVF (TTF, OTF, TTC, variable and Mac fonts, BDF, PCF, FNT, HBF, DOS raw
+fonts, classic Mac fonts, an existing SVF), re-run with their numbers, and the table of the maker's routes now live in
+one chapter: [recipes.md](recipes.md), starting with its quick-start table by input kind. This section is kept as a pointer.
 
-    python3 tools/svfline.py measure "안녕하세요 ABC 123" FACE.SVF
-    python3 tools/svfline.py line 200 24 0 16 "안녕하세요 ABC 123" FACE.SVF > out.gray
+## Remaining gaps of the tools
 
-`measure` prints `width=W ascent=A descent=D`; `line` writes a 200x24 GRAY8 buffer, and the count of non-zero bytes is
-the ink drawn. The faces are at 16 px in a 16x16 cell unless stated.
+What the tools themselves still do not do. The maker (`maker/`, `maker/README.md`) works around some of these (its
+`detect.py` names a file's format, family, style, sizes and coverage; its routes are tabulated in
+[recipes.md](recipes.md#desktop-app-and-maker-routes)); the rest is true of the tools whoever calls them.
 
-### TTF
-
-Source: `ttf/nanumgothic/NanumGothic-Bold.ttf`.
-
-Precomposed, 1 bpp:
-
-    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf /tmp/svf-tools-doc/ng16-1bpp.svf \
-        --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`107660 bytes`, `2446` glyphs (2350 Hangul syllables). Renders: `width=146 ascent=14 descent=2`, 677 inked pixels.
-
-Precomposed, anti-aliased (2 bpp):
-
-    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf /tmp/svf-tools-doc/ng16-2bpp.svf \
-        --size 16 --bpp 2 --unicode ascii,ksx1001-hangul
-
-`185932 bytes`, `2446` glyphs. Renders: `width=146 ascent=14 descent=2`, 847 inked pixels.
-
-Jamo set, 1 bpp:
-
-    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf \
-        --size 16 --binarize threshold -o /tmp/svf-tools-doc/ng16-jamo-1bpp.svf
-
-`20453 bytes`, `439` cmap glyphs, `344` pieces; fit: 11172 syllables, IoU 0.817. Renders:
-`width=151 ascent=13 descent=3`, 672 inked pixels.
-
-Jamo set, anti-aliased (2 bpp):
-
-    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf \
-        --size 16 --bpp 2 -o /tmp/svf-tools-doc/ng16-jamo-2bpp.svf
-
-`34501 bytes`, `439` cmap glyphs, `344` pieces. Renders: `width=146 ascent=13 descent=3`, 879 inked pixels.
-
-### OTF
-
-The repository has no OTF. The runs below used Noto Sans KR Regular (SIL OFL 1.1, from the Noto CJK project) as
-`/tmp/svf-tools-doc/NotoSansKR-Regular.otf`, a subset cut to KS X 1001 (ASCII, Latin-1, punctuation, the 2,350
-syllables, jamo, symbols and Hanja); a full Noto Sans KR gives the same commands with other counts.
-
-Precomposed, 1 bpp:
-
-    python3 tools/mkfont.py /tmp/svf-tools-doc/NotoSansKR-Regular.otf /tmp/svf-tools-doc/noto16-1bpp.svf \
-        --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`107660 bytes`, `2446` glyphs (2350 Hangul syllables; the subset carries exactly the KS X 1001 ones). Renders:
-`width=141 ascent=10 descent=6`, 464 inked pixels.
-
-Precomposed, anti-aliased (2 bpp): the same command with `--bpp 2` gives `185932 bytes`, `2446` glyphs; renders
-`width=141 ascent=10 descent=6`, 700 inked pixels.
-
-Jamo set, 1 bpp:
-
-    python3 tools/jamoset.py --layout 844 --from-ttf /tmp/svf-tools-doc/NotoSansKR-Regular.otf \
-        --size 16 --binarize threshold -o /tmp/svf-tools-doc/noto16-jamo-1bpp.svf
-
-`20453 bytes`, `439` cmap glyphs, `344` pieces; fit: 2350 syllables, IoU 0.818. Renders:
-`width=146 ascent=14 descent=2`, 462 inked pixels.
-
-Jamo set, anti-aliased (2 bpp): `--bpp 2` gives `34501 bytes`, `439` cmap glyphs, `344` pieces; renders
-`width=141 ascent=14 descent=2`, 704 inked pixels.
-
-### BDF
-
-**Not supported in this repository: no `.bdf` is here** (`ttf/`, `svf/` and `tools/testdata/` hold none), so no BDF
-recipe can be run on a repository font; the readers are exercised with synthetic BDFs by `tools/test_bdfface.py` and
-`tools/test_jamoset.py`. The only Unicode BDF on this host is `/usr/share/dosbox-x/wqy_12pt.bdf` (WenQuanYi Bitmap
-Song); it is **not in the repo**, so the runs below are external.
-
-`tools/bdfface.py` reads a Hangul BDF plus an ASCII BDF/HBF. The external BDF can serve as both halves; `--chars-from`
-needs a text file naming the syllables, which the repo's own `ksx1001-hangul` set supplies:
-
-    python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open('/tmp/svf-tools-doc/ks.txt', 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-hangul']()))"
-    python3 tools/bdfface.py --hangul /usr/share/dosbox-x/wqy_12pt.bdf --ascii /usr/share/dosbox-x/wqy_12pt.bdf \
-        --cell 16x16 --chars-from /tmp/svf-tools-doc/ks.txt -o /tmp/svf-tools-doc/wqy.svf
-
-`107704 bytes`, `2350` syllables (`2447` glyphs: the syllables, ASCII 0x20-0x7E and bdfface's own U+2026/U+25A1),
-7 glyphs clipped. Renders `width=156 ascent=14 descent=2`, 348 inked pixels. Its output feeds `jamoset.py`:
-
-    python3 tools/jamoset.py --layout 844 --from-svf /tmp/svf-tools-doc/wqy.svf -o /tmp/svf-tools-doc/wqy-jamo.svf
-
-`20541 bytes`, `441` cmap glyphs, `344` pieces; fit: 2350 syllables, IoU 1.000. Renders `width=156 ascent=14
-descent=2`, 348 inked pixels. bdfface keeps only the Hangul syllables `--chars-from` names, ASCII 0x20-0x7E from
-`--ascii`, and its own U+2026/U+25A1: no symbols or jamo come from the BDF, and the cell defaults to 24x24 whatever
-the BDF's own box is. `tools/jamoset.py --layout hanterm-johab` reads a hanterm johab-1 BDF directly (no such file
-here).
-
-`mkfont.py` also reads a BDF, through Pillow's FreeType, at the BDF's built-in pixel size only (16 px for this file)
-and only once `cmap_has` is fixed (see PCF); verified with fontTools hidden:
-
-    PYTHONPATH=/tmp/svf-tools-doc/nofonttools python3 tools/mkfont.py /usr/share/dosbox-x/wqy_12pt.bdf \
-        /tmp/svf-tools-doc/bdf16-1bpp.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`107660 bytes`, `2446` glyphs; renders `width=156 ascent=12 descent=4`, 348 inked pixels. Anti-aliased: a bitmap
-BDF carries no coverage, so `--bpp 2` gives `185932 bytes` whose only levels are 0 and 3 — the same monochrome
-pixels at 2 bpp, not a smooth face.
-
-### PCF
-
-**Not supported in this repository: no PCF is here**, so the run below uses
-`/usr/share/fonts/X11/misc/18x18ko.pcf.gz` (Misc Fixed Wide, **not in the repo**).
-
-`mkfont.py` reads PCF through Pillow's FreeType, at the font's built-in pixel size only: 18 px for this file. Any
-other size fails:
-
-    python3 -c "from PIL import ImageFont; ImageFont.truetype('/usr/share/fonts/X11/misc/18x18ko.pcf.gz', 16)"
-    OSError: invalid pixel size
-
-With `--unicode`, `cmap_has` calls `fontTools.TTFont()` on the file and catches only `ImportError`, so with fontTools
-installed the path does not work as checked out:
-
-    python3 tools/mkfont.py /usr/share/fonts/X11/misc/18x18ko.pcf.gz /tmp/svf-tools-doc/pcf18-1bpp.svf \
-        --size 18 --bpp 1 --unicode ascii,ksx1001-hangul
-    fontTools.ttLib.TTLibError: Not a TrueType or OpenType font (bad sfntVersion)
-
-Once `cmap_has` returns None on `TTLibError` (the SVF maker plan's one-line fix; this repository does not fix it) the
-same command works. It was verified with fontTools hidden, by putting a module that raises `ImportError` on
-`PYTHONPATH`:
-
-    mkdir -p /tmp/svf-tools-doc/nofonttools
-    printf 'raise ImportError("fontTools hidden for this run")\n' > /tmp/svf-tools-doc/nofonttools/fontTools.py
-    PYTHONPATH=/tmp/svf-tools-doc/nofonttools python3 tools/mkfont.py /usr/share/fonts/X11/misc/18x18ko.pcf.gz \
-        /tmp/svf-tools-doc/pcf18-1bpp.svf --size 18 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`161472 bytes`, `2446` glyphs; renders `width=234 ascent=15 descent=3`, 366 inked pixels. The BDF run in the previous
-section used the same shim. Anti-aliased: as with the BDF, `--bpp 2` only has levels 0 and 3 (`249528 bytes`).
-
-### FNT
-
-There are two different FNTs:
-
-- **DOS Johab `.fnt`**. `tools/jamoset.py` reads them with `--layout 844`,
-  `844-ihnm`, `844-hbios24`, `1044-san`, `621`, `dkb-printer-7x2x2`, `dkb-printer-12x4x4` or `kyra-lok`, and
-  `tools/johab844.py` reads a raw 8x4x4 file. **Not supported in this repository: no DOS Johab `.fnt` is here**, so no
-  recipe could be run.
-- **Windows `.FNT`.** FreeType has a winfnt driver, so `mkfont.py` (which renders through FreeType) could read a
-  Windows FNT the way it reads a BDF or PCF, at the font's own pixel size. It is untested: **the repository has no
-  sample**, and a search of `/usr/share/fonts` and `~` for `.FNT`/`.FON` found no Windows FNT (the files with those
-  names are FONTX2 fonts or DOS bitmaps, not Windows FNT).
-
-### HBF
-
-**Not supported in this repository: no HBF and no Hangul BDF to pair it with.** `tools/bdfface.py --ascii` reads an
-HBF (with its `.bin` or `.bin.gz` beside it), but only as the ASCII half of a face; the Hangul half must be a BDF, and
-there is no `.hbf` here. The reader is exercised with a synthetic HBF by `tools/test_bdfface.py`.
-
-### An existing SVF
-
-Source: `svf/dos/NEODG16.SVF` (a precomposed 1 bpp face, 16x16, 2905 glyphs, with a metrics table).
-
-Set a dy (no other byte changes):
-
-    python3 tools/svfdy.py svf/dos/NEODG16.SVF /tmp/svf-tools-doc/neodg16-dy.svf --range 0x20-0x7e --dy 3
-
-`127856 bytes` (unchanged), `2905` glyphs, dy set on 95 glyphs, range 0..3. Renders:
-`width=144 ascent=12 descent=7` (the descent grew by the dy), 559 inked pixels.
-
-Re-bake as a jamo set:
-
-    python3 tools/jamoset.py --layout 844 --from-svf svf/dos/NEODG16.SVF -o /tmp/svf-tools-doc/neodg16-from-svf.svf
-
-`40385 bytes`, `892` cmap glyphs, `344` pieces; fit: 2357 syllables, IoU 1.000 (neodgm is itself an OR of pieces).
-Renders: `width=144 ascent=12 descent=4`, 559 inked pixels.
-
-An existing SVF is not a source for an anti-aliased bake: no tool converts a 1 bpp face to 2 bpp, and `svfdy.py`
-changes only the dy.
-
-## Gaps for the SVF maker
-
-What the SVF maker would need that no tool does today. Each line names what is missing.
-
-- **Format detection.** No tool identifies an uploaded file's format; `mkfont.py` hands the bytes to Pillow, and
-  `jamoset.py` needs `--layout` to name the source kind. There is no sniffing of TTF/OTF/BDF/PCF/FNT/HBF/SVF.
-- **`cmap_has` crashes on a non-sfnt file.** `mkfont.py` reads PCF and BDF through Pillow's FreeType, but with
-  `--unicode` `cmap_has` calls `fontTools.TTFont()` and catches only `ImportError`, so a BDF or PCF dies with
-  `fontTools.ttLib.TTLibError: Not a TrueType or OpenType font (bad sfntVersion)` when fontTools is installed. The
-  path does not work as checked out; returning None on `TTLibError` is a one-line fix (the SVF maker plan's, not this
-  repository's).
-- **Bitmap fonts open only at their strike size.** A PCF or BDF opens at the pixel size built into the file and at no
-  other (`OSError: invalid pixel size`), and nothing lists the strikes a bitmap font offers.
-- **Windows `.FNT` reading.** FreeType has a winfnt driver, so `mkfont.py` should read a Windows FNT the way it reads
-  a BDF/PCF, but there is no sample here to test it with, so it is unverified; the DOS Johab raw formats and the
-  Dokkaebi printer FNTs are the only FNTs any tool reads today.
 - **A character set is required.** `mkfont.py` has no code page (version 1) order any more: without `--unicode` or
   `--chars-from` it exits 2 (`mkfont: version 1 (code page order) is gone: pass --unicode SET`).
 - **No fixed-width face.** `mkfont.py` always writes a metrics table; `--fixed`, `--center` and `--variable` are gone.
 - **Mode-dependent jamoset options.** `--embolden`, `--symbols`, `--ascent`, `--eng` and `--base` are ignored in some
-  `jamoset.py` modes (see its Modes column); a maker toggle wired to the wrong mode would silently do nothing.
-- **Run time.** A 2 bpp jamo set from a 16 px outline face took about 84 s and a 1 bpp `threshold` fit about 13 s on
-  this host, which a web request must allow for.
+  `jamoset.py` modes (see its Modes column); a toggle wired to the wrong mode would silently do nothing.
+- **Run time.** A 2 bpp jamo set from a 16 px outline face takes about 73 s and a 1 bpp `threshold` fit about 12 s on
+  this host (2026-11-22), which a web request must allow for.
 - **Korean stdout.** `mkfont.py` prints its summary in Korean, so a wrapper must not parse its stdout for field names.
-- **The default `--binarize mono` needs freetype-py and uharfbuzz.** Those are absent on this host
-  (`cannot import freetype`), which is why the recipes use `--binarize threshold`; a maker must ship them or take the
+- **The default `--binarize mono` needs freetype-py (and `--mask-font` uharfbuzz).** Neither is installed on this host
+  (`cannot import freetype`), which is why the recipes use `--binarize threshold`; a caller must ship them or take the
   threshold path.
-- **Metadata reporting.** No tool prints an input font's family or style (the name table), its available sizes, or its
-  glyph coverage. `web/mkindex.py` reports coverage for SVF faces it indexes, and `mkfont.py` prints how many requested
-  code points it kept, but neither reports on an arbitrary TTF/OTF.
-- **Hangul coverage reporting.** No tool reports how many of the 11,172 syllables (or the 2,350 KS X 1001 ones) and
-  which jamo an input font covers. `mkfont.py` drops absent code points and counts them; `mkindex.py` counts coverage
-  of a baked face.
-- **Automatic cell size.** No tool chooses a cell size from a font. `mkfont.py --fit-cell` shrinks the size to fit a
-  cell the caller gives, but it does not pick a cell.
-- **BDF/PCF/FNT/HBF inputs for the maker.** The BDF and HBF readers exist only inside `bdfface.py` (and the hanterm
-  layout inside `jamoset.py`); PCF and BDF reach `mkfont.py` only through FreeType, at one strike size; the DOS Johab
-  readers exist only in `jamoset.py`/`johab844.py`. There is no single "read any bitmap font" entry point, and Windows
-  FNT has no verified reader.
-- **1 bpp to anti-aliased conversion.** No tool makes a 2 bpp face from a 1 bpp face or from a bitmap source; 2 bpp
+- **Bitmap fonts open only at their strike size.** A PCF or BDF opens at the pixel size built into the file and at no
+  other (`OSError: invalid pixel size`); the tools do not list the strikes (the maker's `detect.bitmap_strikes` does).
+- **Windows `.FNT` / `.FON` are unverified.** FreeType has a winfnt driver and the maker routes such a file through
+  `mkfont.py`, but there is no sample on this host or in the repository to run it with.
+- **No reader** for the HWP `.PFT` Hangul files or for raw KS X 1001 syllable dumps; the DOS Johab raw formats
+  and the Dokkaebi printer FNTs are the only raw bitmap formats any tool reads.
+- **No 1 bpp to anti-aliased conversion.** No tool makes a 2 bpp face from a 1 bpp face or from a bitmap source; 2 bpp
   faces come only from an outline font (`mkfont.py --bpp 2`, `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`).
-- **A page-facing bake API.** The bakes are command-line programs that write a path; nothing exposes them as a library
-  call with a return value, which a server-side SVF maker needs.
-- **The SVF maker exists.** `maker/` (documented in `maker/README.md`, the desktop app in `docs/maker-desktop.md`) fills
-  the gaps above as a page over these tools, run locally (loopback, per-launch token) by the desktop app or by hand; it is
-  outside this document's census.
+- **No metadata or coverage report for an arbitrary font.** No tool prints an input font's family or style, its
+  available sizes, or how many of the 11,172 syllables (or the 2,350 KS X 1001 ones) it covers; `mkfont.py` counts
+  the requested code points it dropped, and `web/mkindex.py` reports coverage of a baked face.
+- **No automatic cell size.** `mkfont.py --fit-cell` shrinks the size to fit a cell the caller gives; nothing picks
+  the cell from a font.
+- **No library API.** The bakes are command-line programs that write a path; nothing exposes them as a call with a
+  return value (the maker runs them as subprocesses, `maker/toolrun.py`).

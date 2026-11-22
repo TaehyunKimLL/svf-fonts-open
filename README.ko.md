@@ -14,7 +14,7 @@ ScummVM 한글 고해상도 텍스트 작업의 폰트 쪽에서 출발했으며
 모두 SIL Open Font License 1.1을 따르며, 각각 라이선스 본문이 곁에 있다. [NOTICE.ko.md](NOTICE.ko.md)가 이들의 목록과
 이 저장소가 Reserved Font Name을 어떻게 해석하는지를 설명한다. [docs/recipes.ko.md](docs/recipes.ko.md)는 모든 페이스를 상류(upstream)
 폰트로부터 어떻게 만드는지, 그리고 다른 종류의 한글 폰트(TrueType/OpenType 아웃라인, X11 BDF/PCF, DOS johab, 클래식
-Mac)를 SVF로 변환하는 방법을 설명한다.
+Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설명한다.
 
 ## 규칙
 
@@ -28,10 +28,10 @@ Mac)를 SVF로 변환하는 방법을 설명한다.
 | --- | --- |
 | `spec/SVF.md` | SVFN v3 형식(헤더, 레이아웃 바이트, 테이블, 글리프 레코드, 프로파일, 자모 세트 JSET v1/v2, BIG, JMAP과 LIST, 글리프별 dy. v1과 v2는 폐기) |
 | `docs/STATUS.md` | 개발 상태: 구성 요소, 연표, 열린 카드, 결정 사항, 알려진 공백 |
-| `docs/tools.md` | 모든 도구: 목적, 입력, 출력, 옵션, 그리고 각 입력 형식에서 SVF로 가는 레시피 |
+| `docs/tools.ko.md` | 모든 도구: 목적, 입력, 출력, 옵션, 그리고 남은 빈틈. 레시피는 `docs/recipes.ko.md`에 있다 |
 | `docs/desktop-app.md` | SVF maker 데스크톱 앱: 빠른 시작(체크아웃에서 빌드, 첫 변환), 사용법, 메시지, 복구와 제거, 프라이버시와 보안, 한계 |
 | `docs/c-renderer-guide.md` | C 렌더러 통합 가이드: 빌드, 페이스 열기, 줄 그리기, 타깃, 스케일, 한글, 메모리, 문제 해결 |
-| `docs/recipes.md` | `svf/`의 각 페이스를 만드는 방법과 모든 종류의 한글 폰트 원본에 대한 사용법 |
+| `docs/recipes.ko.md` | 레시피 장: 입력 종류별 빠른 시작(아웃라인, 비트맵, DOS 원시, 클래식 Mac, 기존 SVF), 다시 실행한 수치가 든 각 레시피, maker의 경로 표(경로 대 명령줄), `svf/`의 각 페이스를 만드는 방법 |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | 설계 문서와 구현 계획. 기능마다 한 쌍이며 날짜로 이름 붙인다. 작업 기록이며, 이 저장소가 제외한 원래 작업 저장소의 페이스, 도구, 경로를 여전히 언급한다 |
 | `svf/dos/` | 완성형 및 자모 세트 페이스(처음에는 ScummVM 한글 맵용으로 만듦)와 그 라이선스 `.TXT` 파일 |
 | `svf/jamo-extra/` | 합성 글리프 폰트에서 만든 추가 자모 세트 페이스(`FACES.TSV`) |

@@ -90,7 +90,7 @@ Later sections write `./svf-maker-0.1.0.AppImage` for the file in the current di
 3. Press **detect**, read the "before you convert" note and press OK. The fonts table fills.
 4. Tick the **use** box of each row you want (a row is pre-ticked only when a licence file was found with its font, and a
    DOS raw font never is), look at the batch settings (the preset `plain` is fine for a first try), and press **run**. The steps table shows each step's state, seconds and stderr (the commands themselves
-   are written to `build-<id>/BUILD.md` in the output folder).
+   are written to `build-<id>/BUILD.md` in the output folder; [recipes.md](recipes.md#desktop-app-and-maker-routes) maps each route to its command line).
 5. When the job is done, press **open folder**: the faces are in `<output>/svf/<dest>/` (section 6).
 
 **Run from the checkout without packaging** (for development; no AppImage, no PyInstaller; it needs the same Python, node,
@@ -256,7 +256,7 @@ One set of settings applies to the whole batch; a row can opt out.
 
 Each job is a list of steps (detect, convert, check, preview...). The columns are id, font, kind, size, bpp, name, state,
 seconds, quality, stderr and result, so you can see which step ran for which font and what it printed. The commands
-themselves are not in this table: `build-<id>/BUILD.md` in the output folder lists what was run, with which commands.
+themselves are not in this table: `build-<id>/BUILD.md` in the output folder lists what was run, with which commands (the route table: [recipes.md](recipes.md#desktop-app-and-maker-routes)).
 Every result face is
 drawn on a canvas by the renderer, so you can see what was made. (That the canvas has ink is something the repository's
 tests assert, not something the app checks.)

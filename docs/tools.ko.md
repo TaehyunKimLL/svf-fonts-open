@@ -7,7 +7,7 @@ SVF maker의 설계가 이 문서를 바탕으로 계획되므로, 아래의 모
 얻은 것이며, 이름만 보고 추정한 것은 없다. 포맷 자체는 `spec/SVF.md`에, C 렌더러는
 `spec/renderer-design.md`와 `c/include/svf.h`에 있다.
 
-`svf/`의 각 페이스를 만드는 방법과 다른 종류의 한글 폰트를 위한 how-to는 [recipes.ko.md](recipes.ko.md)에 있다.
+`svf/`의 각 페이스를 만드는 방법과, 모든 종류의 한글 폰트 원본에서 SVF로 가는 레시피(입력 종류별)는 [recipes.ko.md](recipes.ko.md)에 있다.
 
 도구는 명령줄용으로 작성되었다. 한 도구가 다른 도구의 라이브러리가 될 수 있다. `jamoset.py`는 `bdfface.py`,
 `jamoaa.py`, `jamoadapt.py`, `svfdy.py`, `svfline.py`, `svf_synth.py`, `jamovec.py`, `web/mkindex.py`가 import하며,
@@ -56,7 +56,7 @@ SVF maker의 설계가 이 문서를 바탕으로 계획되므로, 아래의 모
   포크에서, 또는 아웃라인 폰트(`--from-ttf`)나 완성형 1 bpp 페이스(`--from-svf`)를 맞춰서 **자모 세트**(1 또는 2 bpp)를
   쓴다. `jamovec.py`는 폰트의 자모를 한 번 분리해 어떤 크기로든 렌더링하는 방식으로 **자모 세트**를 쓴다.
 - `svfdy.py`는 기존 페이스의 **dy**를 편집한다. `svf_synth.py`는 C 테스트용 합성 페이스를 쓴다.
-- `tools/build/build_faces.py`는 `svf/`의 페이스를 업스트림 폰트에서 다시 빌드한다(`tools/build/faces.tsv`, `docs/recipes.md`).
+- `tools/build/build_faces.py`는 `svf/`의 페이스를 업스트림 폰트에서 다시 빌드한다(`tools/build/faces.tsv`, [recipes.ko.md](recipes.ko.md)).
 - `web/` 도구는 WASM 선택기가 서비스하는 페이스를 인덱싱하고 복사한다.
 
 ## 핵심 빌더
@@ -183,8 +183,8 @@ FreeType을 통해 열리지만, 파일에 내장된 픽셀 크기에서만 열�
 **입력.** Pillow의 FreeType(`PIL.ImageFont.truetype`)으로 읽는 TTF, OTF, BDF, PCF. 비트맵 BDF나 PCF는
 파일에 내장된 픽셀 크기(스트라이크)에서만 열리며, 다른 크기는 `OSError: invalid pixel size`이다. `fontTools`는
 폰트의 cmap에 코드 포인트가 있는지 묻는 데(`cmap_has`), `--fallback-ttf`에, 그리고 어떤
-`--unicode` 코드 포인트를 버릴지 정하는 데에만 쓰인다. `cmap_has`는 sfnt를 가정하므로 fontTools가 설치되어 있을 때 BDF나 PCF에서
-`fontTools.ttLib.TTLibError: Not a TrueType or OpenType font (bad sfntVersion)`를 일으킨다(버그. BDF와 PCF 레시피 참고). `--chars-from`은 게임이 쓴 파일을 읽는다(아래 참고).
+`--unicode` 코드 포인트를 버릴지 정하는 데에만 쓰인다. `cmap_has`는 sfnt가 아닌 파일(BDF, PCF, FNT)에는 None(알 수 없음)을 돌려주므로 그런 파일도
+오류 없이 열린다. `--chars-from`은 게임이 쓴 파일을 읽는다(아래 참고).
 
 **출력.** 완성형 SVFN v3 페이스. 1, 2, 8 bpp이고 가변 폭(메트릭 표), 플래그 비트 2 설정, `--profile` 레이아웃이다.
 v1 옵션 `--codepage`, `--count`, `--shadow`, `--center`, `--fixed`, `--fullwidth`, `--variable`은 없어졌다(argparse가 거부한다).
@@ -297,7 +297,7 @@ SVF v3 자모 세트 페이스로 변환한다. 모든 KS X 1001 음절이 Mac�
 사본을 읽으며, 이 저장소에는 Apple의 바이트가 하나도 없다.
 
 **입력.** 'fbit' 리소스(글리프 슬롯 482개, 241개씩 2 bank)와 InputBackSupport 'HTBL' 1(KS 코드당 4바이트:
-bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 `docs/recipes.md`에 설명되어 있다). `--latin`은
+bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 [recipes.ko.md](recipes.ko.md#클래식-mac-한글-비트맵-폰트)에 설명되어 있다). `--latin`은
 패밀리 suitcase의 리소스 포크('FOND' + 'NFNT')에서 셀의 포인트 크기로 ASCII 0x20-0x7E를 읽는다.
 
 **방법.** Mac은 모든 Mac 슬롯이 조각 하나일 때(`slot_conflicts`) 중성(그리고 ㄱ ㄹ ㅇ 종성)을 초성에 따라 12개 초성 클래스가 허용하는 것보다 더 세밀하게
@@ -804,7 +804,7 @@ advance, dy, 결합 표시와 함께 한 베이스라인에 셀을 그리고, �
 **목적.** 저장소 자체의 도구로 `svf/`의 페이스를 업스트림 폰트에서 다시 빌드하되, 레시피 표
 `tools/build/faces.tsv`가 정한 대로 하고, 각 결과를 `svf/`의 페이스와 비교한다.
 
-**상태.** 범용(동봉된 페이스의 출처 검사. `docs/recipes.md`가 모든 레시피를 설명한다).
+**상태.** 범용(동봉된 페이스의 출처 검사. [recipes.ko.md](recipes.ko.md)가 모든 레시피를 설명한다).
 
 **입력.** `tools/build/faces.tsv`(face, method, source, args, codepoints, expect, note. `svf/`의 모든 페이스마다 한 행), `tools/build/cps/` 아래의 코드 포인트 목록, `ttf/`의 원본 폰트. source가
 `ext:NAME`인 행은 이 저장소에 없는 폰트를 지명한다. `--ext NAME=PATH`가 그것을 공급하며, 없으면 그 행은
@@ -828,7 +828,7 @@ face(`dos/NGOTB15.SVF`) 또는 그 파일 이름이다. 없으면 레시피가 �
 **목적.** `tools/build/build_faces.py`의 레시피 표. `svf/`의 모든 페이스마다 한 행(face, method, source,
 args, codepoints, expect, note). `method`는 `mkfont`, `jamoset`, `none`(이 저장소의 도구로는 레시피 없음.
 note가 이유를 말한다)이다. `codepoints`는 `mkfont.py --unicode` 세트 또는 `tools/build/cps/` 아래 파일(한 줄에 16진 코드 포인트
-하나 또는 범위. 페이스 자체의 코드 포인트 목록)을 지명한다. `docs/recipes.md`가 모든 행을 설명하며, `tools/test_build_faces.py`가
+하나 또는 범위. 페이스 자체의 코드 포인트 목록)을 지명한다. [recipes.ko.md](recipes.ko.md)가 모든 행을 설명하며, `tools/test_build_faces.py`가
 표를 완전하게 유지한다.
 
 ## 웹(WASM 선택기)
@@ -961,222 +961,36 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 
 ## 레시피: 입력 포맷에서 SVF로
 
-아래의 각 레시피는 FNT와 HBF를 제외하고 `/tmp`에 쓰면서 실제로 실행했다. FNT와 HBF는 이 저장소에도 이 호스트에도 입력이 없어서 그 레시피는 **실행하지 않았으며** 그렇게 표시했다. 출력 크기, 글리프 수(
-코드 포인트 표의 항목 수), 렌더 검사를 제시한다. TTF와 SVF는 저장소의 폰트로 실행했다. OTF, BDF, PCF는
-저장소에 없으므로 이 셋은 이 호스트의 다른 곳에 있는 폰트를 쓰며 그렇게 밝혔다. 렌더 검사는 샘플 `안녕하세요 ABC 123`(한글과 ASCII)에 `tools/svfline.py`를 쓴다.
+모든 입력 포맷(TTF, OTF, TTC, 가변 폰트, Mac 폰트, BDF, PCF, FNT, HBF, DOS 원시 폰트, 클래식 Mac 폰트, 기존 SVF)에서 SVF로 가는 레시피와,
+그것을 다시 실행해 얻은 수치와, maker의 경로 표는 이제 한 장에 있다: [recipes.ko.md](recipes.ko.md). 입력 종류별 빠른 시작 표로
+시작한다. 이 절은 포인터로 남겨 둔다.
 
-    python3 tools/svfline.py measure "안녕하세요 ABC 123" FACE.SVF
-    python3 tools/svfline.py line 200 24 0 16 "안녕하세요 ABC 123" FACE.SVF > out.gray
+## 도구에 남은 빈틈
 
-`measure`는 `width=W ascent=A descent=D`를 출력한다. `line`은 200x24 GRAY8 버퍼를 쓰며 0이 아닌 바이트의 수가
-그려진 잉크이다. 따로 밝히지 않는 한 페이스는 16x16 셀에서 16 px이다.
+도구 자체가 아직 하지 못하는 것. maker(`maker/`, `maker/README.md`)는 이 중 일부를 우회한다(`detect.py`가 파일의 포맷, 패밀리, 스타일, 크기,
+커버리지를 알려 주고, 경로는 [recipes.ko.md](recipes.ko.md#데스크톱-앱과-maker-경로)에 표로 있다). 나머지는 누가 호출하든 도구에 대해 참이다.
 
-### TTF
-
-원본: `ttf/nanumgothic/NanumGothic-Bold.ttf`.
-
-완성형, 1 bpp:
-
-    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf /tmp/svf-tools-doc/ng16-1bpp.svf \
-        --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`107660 bytes`, `2446` 글리프(한글 음절 2350개). 렌더: `width=146 ascent=14 descent=2`, 잉크 픽셀 677개.
-
-완성형, 안티앨리어싱(2 bpp):
-
-    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf /tmp/svf-tools-doc/ng16-2bpp.svf \
-        --size 16 --bpp 2 --unicode ascii,ksx1001-hangul
-
-`185932 bytes`, `2446` 글리프. 렌더: `width=146 ascent=14 descent=2`, 잉크 픽셀 847개.
-
-자모 세트, 1 bpp:
-
-    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf \
-        --size 16 --binarize threshold -o /tmp/svf-tools-doc/ng16-jamo-1bpp.svf
-
-`20453 bytes`, cmap 글리프 `439`개, 조각 `344`개. 맞춤: 음절 11172개, IoU 0.817. 렌더:
-`width=151 ascent=13 descent=3`, 잉크 픽셀 672개.
-
-자모 세트, 안티앨리어싱(2 bpp):
-
-    python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf \
-        --size 16 --bpp 2 -o /tmp/svf-tools-doc/ng16-jamo-2bpp.svf
-
-`34501 bytes`, cmap 글리프 `439`개, 조각 `344`개. 렌더: `width=146 ascent=13 descent=3`, 잉크 픽셀 879개.
-
-### OTF
-
-저장소에는 OTF가 없다. 아래 실행은 Noto Sans KR Regular(SIL OFL 1.1, Noto CJK 프로젝트에서)를
-`/tmp/svf-tools-doc/NotoSansKR-Regular.otf`로 썼다. KS X 1001(ASCII, Latin-1, 문장 부호, 2,350개
-음절, 자모, 기호, 한자)에 맞춰 자른 서브셋이다. 전체 Noto Sans KR로는 같은 명령에 다른 개수가 나온다.
-
-완성형, 1 bpp:
-
-    python3 tools/mkfont.py /tmp/svf-tools-doc/NotoSansKR-Regular.otf /tmp/svf-tools-doc/noto16-1bpp.svf \
-        --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`107660 bytes`, `2446` 글리프(한글 음절 2350개. 서브셋은 정확히 KS X 1001의 것만 담는다). 렌더:
-`width=141 ascent=10 descent=6`, 잉크 픽셀 464개.
-
-완성형, 안티앨리어싱(2 bpp): 같은 명령에 `--bpp 2`를 주면 `185932 bytes`, `2446` 글리프. 렌더
-`width=141 ascent=10 descent=6`, 잉크 픽셀 700개.
-
-자모 세트, 1 bpp:
-
-    python3 tools/jamoset.py --layout 844 --from-ttf /tmp/svf-tools-doc/NotoSansKR-Regular.otf \
-        --size 16 --binarize threshold -o /tmp/svf-tools-doc/noto16-jamo-1bpp.svf
-
-`20453 bytes`, cmap 글리프 `439`개, 조각 `344`개. 맞춤: 음절 2350개, IoU 0.818. 렌더:
-`width=146 ascent=14 descent=2`, 잉크 픽셀 462개.
-
-자모 세트, 안티앨리어싱(2 bpp): `--bpp 2`는 `34501 bytes`, cmap 글리프 `439`개, 조각 `344`개를 준다. 렌더
-`width=141 ascent=14 descent=2`, 잉크 픽셀 704개.
-
-### BDF
-
-**이 저장소에서는 지원하지 않는다. `.bdf`가 없다**(`ttf/`, `svf/`, `tools/testdata/`에 하나도 없다). 따라서 저장소 폰트로 실행할 수 있는 BDF
-레시피는 없다. 리더는 `tools/test_bdfface.py`와
-`tools/test_jamoset.py`가 합성 BDF로 테스트한다. 이 호스트의 유일한 유니코드 BDF는 `/usr/share/dosbox-x/wqy_12pt.bdf`(WenQuanYi Bitmap
-Song)이며 **저장소에 없으므로** 아래 실행은 외부 것이다.
-
-`tools/bdfface.py`는 한글 BDF와 ASCII BDF/HBF를 읽는다. 외부 BDF가 두 쪽 모두를 맡을 수 있다. `--chars-from`은
-음절을 지명하는 텍스트 파일이 필요한데, 저장소 자체의 `ksx1001-hangul` 세트가 이를 공급한다.
-
-    python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open('/tmp/svf-tools-doc/ks.txt', 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-hangul']()))"
-    python3 tools/bdfface.py --hangul /usr/share/dosbox-x/wqy_12pt.bdf --ascii /usr/share/dosbox-x/wqy_12pt.bdf \
-        --cell 16x16 --chars-from /tmp/svf-tools-doc/ks.txt -o /tmp/svf-tools-doc/wqy.svf
-
-`107704 bytes`, 음절 `2350`개(`2447` 글리프: 음절, ASCII 0x20-0x7E, bdfface 자체의 U+2026/U+25A1),
-글리프 7개 잘림. 렌더 `width=156 ascent=14 descent=2`, 잉크 픽셀 348개. 이 출력은 `jamoset.py`에 들어간다.
-
-    python3 tools/jamoset.py --layout 844 --from-svf /tmp/svf-tools-doc/wqy.svf -o /tmp/svf-tools-doc/wqy-jamo.svf
-
-`20541 bytes`, cmap 글리프 `441`개, 조각 `344`개. 맞춤: 음절 2350개, IoU 1.000. 렌더 `width=156 ascent=14
-descent=2`, 잉크 픽셀 348개. bdfface는 `--chars-from`이 지명한 한글 음절, `--ascii`의 ASCII 0x20-0x7E, 그리고
-자체 U+2026/U+25A1만 유지한다. BDF에서 기호나 자모는 가져오지 않으며, 셀은 BDF 자체의 박스와 관계없이 기본 24x24이다.
-`tools/jamoset.py --layout hanterm-johab`은 hanterm johab-1 BDF를 직접 읽는다(여기에는 그런 파일이 없다).
-
-`mkfont.py`도 Pillow의 FreeType을 통해 BDF를 읽지만, BDF에 내장된 픽셀 크기에서만(이 파일은 16 px)
-그리고 `cmap_has`가 고쳐진 뒤에만 가능하다(PCF 참고). fontTools를 숨기고 검증했다.
-
-    PYTHONPATH=/tmp/svf-tools-doc/nofonttools python3 tools/mkfont.py /usr/share/dosbox-x/wqy_12pt.bdf \
-        /tmp/svf-tools-doc/bdf16-1bpp.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`107660 bytes`, `2446` 글리프. 렌더 `width=156 ascent=12 descent=4`, 잉크 픽셀 348개. 안티앨리어싱: 비트맵
-BDF에는 커버리지가 없으므로 `--bpp 2`는 레벨이 0과 3뿐인 `185932 bytes`를 준다. 2 bpp로 표현한 같은 모노크롬
-픽셀이며 부드러운 페이스가 아니다.
-
-### PCF
-
-**이 저장소에서는 지원하지 않는다. PCF가 없다.** 따라서 아래 실행은
-`/usr/share/fonts/X11/misc/18x18ko.pcf.gz`(Misc Fixed Wide, **저장소에 없음**)를 쓴다.
-
-`mkfont.py`는 Pillow의 FreeType을 통해 PCF를 읽으며, 폰트에 내장된 픽셀 크기에서만 가능하다. 이 파일은 18 px이다. 다른
-크기는 실패한다.
-
-    python3 -c "from PIL import ImageFont; ImageFont.truetype('/usr/share/fonts/X11/misc/18x18ko.pcf.gz', 16)"
-    OSError: invalid pixel size
-
-`--unicode`가 있으면 `cmap_has`가 파일에 `fontTools.TTFont()`를 호출하고 `ImportError`만 잡으므로, fontTools가
-설치되어 있으면 체크아웃된 그대로는 이 경로가 동작하지 않는다.
-
-    python3 tools/mkfont.py /usr/share/fonts/X11/misc/18x18ko.pcf.gz /tmp/svf-tools-doc/pcf18-1bpp.svf \
-        --size 18 --bpp 1 --unicode ascii,ksx1001-hangul
-    fontTools.ttLib.TTLibError: Not a TrueType or OpenType font (bad sfntVersion)
-
-`cmap_has`가 `TTLibError`에서 None을 돌려주게 되면(SVF maker 계획의 한 줄 수정. 이 저장소는 고치지 않는다) 같은
-명령이 동작한다. `ImportError`를 일으키는 모듈을
-`PYTHONPATH`에 두어 fontTools를 숨기고 검증했다.
-
-    mkdir -p /tmp/svf-tools-doc/nofonttools
-    printf 'raise ImportError("fontTools hidden for this run")\n' > /tmp/svf-tools-doc/nofonttools/fontTools.py
-    PYTHONPATH=/tmp/svf-tools-doc/nofonttools python3 tools/mkfont.py /usr/share/fonts/X11/misc/18x18ko.pcf.gz \
-        /tmp/svf-tools-doc/pcf18-1bpp.svf --size 18 --bpp 1 --unicode ascii,ksx1001-hangul
-
-`161472 bytes`, `2446` 글리프. 렌더 `width=234 ascent=15 descent=3`, 잉크 픽셀 366개. 앞 절의 BDF 실행도
-같은 shim을 썼다. 안티앨리어싱: BDF와 마찬가지로 `--bpp 2`는 레벨이 0과 3뿐이다(`249528 bytes`).
-
-### FNT
-
-서로 다른 두 가지 FNT가 있다.
-
-- **DOS Johab `.fnt`**. `tools/jamoset.py`는 `--layout 844`,
-  `844-ihnm`, `844-hbios24`, `1044-san`, `621`, `dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`으로 이를 읽고,
-  `tools/johab844.py`는 원시 8x4x4 파일을 읽는다. **이 저장소에서는 지원하지 않는다. DOS Johab `.fnt`가 없으므로** 실행할 수 있는
-  레시피가 없다.
-- **Windows `.FNT`.** FreeType에는 winfnt 드라이버가 있으므로 (FreeType을 통해 렌더링하는) `mkfont.py`가
-  Windows FNT를 BDF나 PCF처럼 폰트 자체의 픽셀 크기에서 읽을 수 있을 것이다. 테스트하지 않았다. **저장소에 샘플이 없고**, `/usr/share/fonts`와 `~`에서 `.FNT`/`.FON`을 찾아봤으나 Windows FNT는 나오지 않았다(그 이름의
-  파일은 FONTX2 폰트나 DOS 비트맵이며 Windows FNT가 아니다).
-
-### HBF
-
-**이 저장소에서는 지원하지 않는다. HBF도, 짝이 될 한글 BDF도 없다.** `tools/bdfface.py --ascii`는
-HBF(옆에 `.bin` 또는 `.bin.gz`가 있어야 한다)를 읽지만 페이스의 ASCII 쪽으로서만 읽는다. 한글 쪽은 BDF여야 하며
-여기에는 `.hbf`가 없다. 리더는 `tools/test_bdfface.py`가 합성 HBF로 테스트한다.
-
-### 기존 SVF
-
-원본: `svf/dos/NEODG16.SVF`(완성형 1 bpp 페이스, 16x16, 글리프 2905개, 메트릭 표 있음).
-
-dy 설정(다른 바이트는 바뀌지 않는다):
-
-    python3 tools/svfdy.py svf/dos/NEODG16.SVF /tmp/svf-tools-doc/neodg16-dy.svf --range 0x20-0x7e --dy 3
-
-`127856 bytes`(변화 없음), `2905` 글리프, 95개 글리프에 dy 설정, 범위 0..3. 렌더:
-`width=144 ascent=12 descent=7`(descent가 dy만큼 늘었다), 잉크 픽셀 559개.
-
-자모 세트로 다시 굽기:
-
-    python3 tools/jamoset.py --layout 844 --from-svf svf/dos/NEODG16.SVF -o /tmp/svf-tools-doc/neodg16-from-svf.svf
-
-`40385 bytes`, cmap 글리프 `892`개, 조각 `344`개. 맞춤: 음절 2357개, IoU 1.000(neodgm 자체가 조각의 OR이다).
-렌더: `width=144 ascent=12 descent=4`, 잉크 픽셀 559개.
-
-기존 SVF는 안티앨리어싱 굽기의 원본이 될 수 없다. 1 bpp 페이스를 2 bpp로 변환하는 도구는 없으며 `svfdy.py`는
-dy만 바꾼다.
-
-## SVF maker를 위한 빈틈
-
-SVF maker가 필요로 하지만 오늘의 어떤 도구도 하지 못하는 것. 각 줄은 무엇이 빠졌는지 말한다.
-
-- **포맷 감지.** 업로드된 파일의 포맷을 식별하는 도구가 없다. `mkfont.py`는 바이트를 Pillow에 넘기고,
-  `jamoset.py`는 원본 종류를 지명하는 `--layout`이 필요하다. TTF/OTF/BDF/PCF/FNT/HBF/SVF를 알아보는 스니핑이 없다.
-- **`cmap_has`가 sfnt가 아닌 파일에서 죽는다.** `mkfont.py`는 Pillow의 FreeType으로 PCF와 BDF를 읽지만,
-  `--unicode`가 있으면 `cmap_has`가 `fontTools.TTFont()`를 호출하고 `ImportError`만 잡으므로, fontTools가 설치되어 있을 때 BDF나 PCF는
-  `fontTools.ttLib.TTLibError: Not a TrueType or OpenType font (bad sfntVersion)`로 죽는다.
-  체크아웃된 그대로는 경로가 동작하지 않는다. `TTLibError`에서 None을 돌려주는 것은 한 줄 수정이다(이 저장소가 아니라
-  SVF maker 계획의 것).
-- **비트맵 폰트는 스트라이크 크기에서만 열린다.** PCF나 BDF는 파일에 내장된 픽셀 크기에서만 열리고
-  다른 크기에서는 열리지 않으며(`OSError: invalid pixel size`), 비트맵 폰트가 제공하는 스트라이크를 나열하는 것도 없다.
-- **Windows `.FNT` 읽기.** FreeType에는 winfnt 드라이버가 있으므로 `mkfont.py`가 Windows FNT를 BDF/PCF처럼 읽어야 하지만,
-  테스트할 샘플이 여기에 없으므로 검증되지 않았다. DOS Johab 원시 포맷과
-  Dokkaebi 프린터 FNT가 오늘 어떤 도구든 읽는 유일한 FNT이다.
 - **문자 집합이 필요하다.** `mkfont.py`에는 더 이상 코드 페이지(버전 1) 순서가 없다. `--unicode`나
   `--chars-from` 없이는 종료 코드 2로 끝난다(`mkfont: version 1 (code page order) is gone: pass --unicode SET`).
 - **고정 폭 페이스가 없다.** `mkfont.py`는 항상 메트릭 표를 쓴다. `--fixed`, `--center`, `--variable`은 없어졌다.
 - **모드에 따라 달라지는 jamoset 옵션.** `--embolden`, `--symbols`, `--ascent`, `--eng`, `--base`는 일부
-  `jamoset.py` 모드에서 무시된다(Modes 열 참고). 잘못된 모드에 연결된 maker 토글은 조용히 아무 일도 하지 않는다.
-- **실행 시간.** 16 px 아웃라인 페이스에서 2 bpp 자모 세트는 이 호스트에서 약 84초, 1 bpp `threshold` 맞춤은 약 13초가 걸렸으며,
-  웹 요청은 이를 감안해야 한다.
+  `jamoset.py` 모드에서 무시된다(Modes 열 참고). 잘못된 모드에 연결된 토글은 조용히 아무 일도 하지 않는다.
+- **실행 시간.** 16 px 아웃라인 페이스에서 2 bpp 자모 세트는 이 호스트에서 약 73초, 1 bpp `threshold` 맞춤은 약 12초가 걸렸으며
+  (2026-11-22), 웹 요청은 이를 감안해야 한다.
 - **한국어 stdout.** `mkfont.py`는 요약을 한국어로 출력하므로 래퍼는 필드 이름을 찾으려고 그 stdout을 파싱해서는 안 된다.
-- **기본 `--binarize mono`는 freetype-py와 uharfbuzz가 필요하다.** 이 호스트에는 없으며
-  (`cannot import freetype`), 그래서 레시피가 `--binarize threshold`를 쓴다. maker는 이를 동봉하거나
-  threshold 경로를 택해야 한다.
-- **메타데이터 보고.** 입력 폰트의 패밀리나 스타일(name 표), 사용 가능한 크기, 글리프 커버리지를 출력하는 도구가 없다. `web/mkindex.py`는 인덱싱하는 SVF 페이스의 커버리지를 보고하고, `mkfont.py`는 요청한
-  코드 포인트 중 몇 개를 유지했는지 출력하지만, 임의의 TTF/OTF에 대해 보고하는 것은 없다.
-- **한글 커버리지 보고.** 입력 폰트가 11,172개 음절(또는 2,350개 KS X 1001 음절) 중 몇 개와
-  어떤 자모를 덮는지 보고하는 도구가 없다. `mkfont.py`는 없는 코드 포인트를 버리고 센다. `mkindex.py`는 구워진 페이스의 커버리지를
-  센다.
-- **자동 셀 크기.** 폰트에서 셀 크기를 고르는 도구가 없다. `mkfont.py --fit-cell`은 호출자가 준 셀에 맞도록 크기를 줄이지만
-  셀을 고르지는 않는다.
-- **maker를 위한 BDF/PCF/FNT/HBF 입력.** BDF와 HBF 리더는 `bdfface.py` 안에만 있고(hanterm
-  레이아웃은 `jamoset.py` 안), PCF와 BDF는 FreeType을 통해서만, 한 스트라이크 크기로 `mkfont.py`에 닿으며, DOS Johab
-  리더는 `jamoset.py`/`johab844.py`에만 있다. "아무 비트맵 폰트나 읽는" 단일 진입점이 없고, Windows
-  FNT에는 검증된 리더가 없다.
-- **1 bpp에서 안티앨리어싱으로의 변환.** 1 bpp 페이스나 비트맵 원본에서 2 bpp 페이스를 만드는 도구가 없다. 2 bpp
+- **기본 `--binarize mono`는 freetype-py가 필요하다(`--mask-font`는 uharfbuzz도).** 이 호스트에는 둘 다 없으며
+  (`cannot import freetype`), 그래서 레시피가 `--binarize threshold`를 쓴다. 호출자는 이를 동봉하거나 threshold 경로를 택해야 한다.
+- **비트맵 폰트는 스트라이크 크기에서만 열린다.** PCF나 BDF는 파일에 내장된 픽셀 크기에서만 열리고 다른 크기에서는 열리지 않는다
+  (`OSError: invalid pixel size`). 도구는 스트라이크를 나열하지 않는다(maker의 `detect.bitmap_strikes`는 나열한다).
+- **Windows `.FNT` / `.FON`은 미검증이다.** FreeType에는 winfnt 드라이버가 있고 maker는 이런 파일을 `mkfont.py`로 보내지만, 이 호스트와
+  저장소에는 실행해 볼 샘플이 없다.
+- **HWP `.PFT` 한글 파일과 KS X 1001 음절 원시 덤프의 리더가 없다.** DOS Johab 원시 포맷과 도깨비 프린터 FNT가 오늘 어떤 도구든 읽는
+  유일한 원시 비트맵 포맷이다.
+- **1 bpp에서 안티에일리어싱으로의 변환이 없다.** 1 bpp 페이스나 비트맵 원본에서 2 bpp 페이스를 만드는 도구가 없다. 2 bpp
   페이스는 아웃라인 폰트에서만 나온다(`mkfont.py --bpp 2`, `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`).
-- **페이지 대상 굽기 API.** 굽기는 경로에 쓰는 명령줄 프로그램이며, 반환값이 있는 라이브러리
-  호출로 노출하는 것은 없다. 서버 측 SVF maker에는 이것이 필요하다.
-- **SVF maker가 존재한다.** `maker/`(`maker/README.md`에 문서화되어 있고, 데스크톱 앱은 `docs/maker-desktop.md`에 있다)가
-  위의 빈틈을 이 도구들 위의 페이지로 메우며, 데스크톱 앱이나 직접 로컬에서(루프백, 실행마다의 토큰) 실행된다.
-  이 문서의 조사 범위 밖이다.
+- **임의의 폰트에 대한 메타데이터와 커버리지 보고가 없다.** 입력 폰트의 패밀리나 스타일, 사용 가능한 크기, 11,172개 음절(또는 2,350개
+  KS X 1001 음절) 중 몇 개를 덮는지 출력하는 도구가 없다. `mkfont.py`는 버린 코드 포인트를 세고, `web/mkindex.py`는 구워진 페이스의
+  커버리지를 보고한다.
+- **자동 셀 크기가 없다.** `mkfont.py --fit-cell`은 호출자가 준 셀에 맞도록 크기를 줄이지만 폰트에서 셀을 고르는 것은 없다.
+- **라이브러리 API가 없다.** 굽기는 경로에 쓰는 명령줄 프로그램이며, 반환값이 있는 호출로 노출하는 것은 없다(maker는 이를 하위
+  프로세스로 실행한다. `maker/toolrun.py`).

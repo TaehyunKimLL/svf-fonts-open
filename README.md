@@ -14,7 +14,7 @@ The code, the specification and the documentation are MIT ([LICENSE](LICENSE)). 
 are all under the SIL Open Font License 1.1, each with its licence text beside it; [NOTICE.md](NOTICE.md) lists them
 and how this repository reads their Reserved Font Names. [docs/recipes.md](docs/recipes.md) says how every face is made from its
 upstream font, and how to convert other kinds of Korean fonts (TrueType/OpenType outlines, X11 BDF/PCF, DOS johab, classic
-Mac) to SVF.
+Mac) to SVF, by input kind.
 
 ## Rules
 
@@ -28,10 +28,10 @@ Mac) to SVF.
 | --- | --- |
 | `spec/SVF.md` | the SVFN v3 format (header, layout bytes, tables, glyph records, profiles, jamo sets JSET v1/v2, BIG, JMAP and LIST, per-glyph dy; v1 and v2 retired) |
 | `docs/STATUS.md` | development status: components, timeline, open cards, decisions, known gaps |
-| `docs/tools.md` | every tool: its purpose, inputs, outputs and options, and the recipes from each input format to an SVF |
+| `docs/tools.md` | every tool: its purpose, inputs, outputs and options, and the gaps that remain; the recipes are in `docs/recipes.md` |
 | `docs/desktop-app.md` | the SVF maker desktop app: Quick start (build from a checkout, first conversion), how to use it, messages, recovery and uninstall, privacy and security, limits |
 | `docs/c-renderer-guide.md` | integration guide for the C renderer: build, open faces, draw lines, targets, scaling, Hangul, memory, troubleshooting |
-| `docs/recipes.md` | how each face of `svf/` is made, and how-tos for every kind of Korean font source |
+| `docs/recipes.md` | the recipes chapter: a quick start by input kind (outline, bitmap, DOS raw, classic Mac, existing SVF), each recipe re-run with its numbers, the maker's route table (route to command line), and how each face of `svf/` is made |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | design documents and implementation plans, one pair per feature, named by date; they are the working record and still name faces, tools and paths of the original working repository that this one leaves out |
 | `svf/dos/` | precomposed and jamo-set faces (first made for the ScummVM Korean maps), with their licence `.TXT` files |
 | `svf/jamo-extra/` | extra jamo-set faces from composite-glyph fonts (`FACES.TSV`) |
