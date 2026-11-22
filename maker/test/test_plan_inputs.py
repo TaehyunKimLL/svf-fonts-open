@@ -503,6 +503,36 @@ class Eng40x48Test(Case):
         s = settings.defaults(fonts)
         self.assertEqual(s["fonts"][fid]["latin_companion"], fid_of(fonts, path="GASCII48.PFT"))
 
+    def test_a_48px_face_picks_24x48_with_a_12x24_also_present(self):
+        fonts = self.scan_files(**{"GHANC48.PFT": bytes(103680), "ASCII.PFT": inputfx.pft_eng(),
+                                   "GASCII48.PFT": bytes(49152)})
+        fid = fid_of(fonts, kind="dos-raw")
+        self.assertEqual(settings.defaults(fonts)["fonts"][fid]["latin_companion"], fid_of(fonts, path="GASCII48.PFT"))
+
+    def test_the_family_prefix_breaks_a_tie(self):
+        fonts = self.scan_files(**{"MHANC40.PFT": bytes(72000), "GASCII40.PFT": bytes(30720), "MASCII40.PFT": bytes(30720)})
+        fid = fid_of(fonts, kind="dos-raw")
+        self.assertEqual(settings.defaults(fonts)["fonts"][fid]["latin_companion"], fid_of(fonts, path="MASCII40.PFT"))
+
+    def test_the_size_check_is_at_the_face_px(self):
+        for face, size, cell, px in ((72000, 49152, "24x48", 48), (25920, 30720, "20x40", 40)):
+            fonts = self.scan_files(**{"HAN.FNT": bytes(face), "GASCII.PFT": bytes(size)})
+            fid = fid_of(fonts, kind="dos-raw")
+            s = settings.defaults(fonts)
+            s["fonts"][fid].update(selected=True, dos_layout="844", latin_companion=fid_of(fonts, path="GASCII.PFT"))
+            for fake in (px - 1, px):               # the face px is what the check reads
+                fonts[[f["id"] for f in fonts].index(fid)]["sizes"] = [fake]
+                errs = [e for e in settings.validate(fonts, s) if "English font needs a face" in e]
+                self.assertEqual(bool(errs), fake < px, (cell, fake))
+
+    def test_a_16px_johab844_job_refuses_a_20x40_companion(self):
+        fonts = self.scan_files(**{"HAN.FNT": bytes(11520), "GASCII.PFT": bytes(30720)})
+        fid = fid_of(fonts, kind="dos-raw")
+        s = settings.defaults(fonts)
+        s["fonts"][fid].update(selected=True, kinds=["precomposed"], dos_layout="844",
+                               latin_companion=fid_of(fonts, path="GASCII.PFT"))
+        self.assertIn("%s: johab844 takes an 8x16 English font" % fid, settings.validate(fonts, s))
+
     def test_a_smaller_face_refuses_the_bigger_companion(self):
         for face, size, cell, px in ((25920, 30720, "20x40", 40), (72000, 49152, "24x48", 48)):
             with self.subTest(cell=cell):

@@ -26,6 +26,7 @@ import mkfont
 import naming
 import presets
 import routes
+from detect import eng_cell_h
 import toolrun
 from sources import Sources
 
@@ -171,15 +172,6 @@ def _licence_name(family, licence):
     return naming.suggest_licence_name(family or "", text)
 
 
-def eng_cell_h(cell):
-    """The row count of a companion's cell label ("12x24" -> 24, "20x40" -> 40); 0 for the 8x16 DOS fonts and for none."""
-    try:
-        h = int(str(cell).split("x")[1])
-    except (IndexError, ValueError):
-        return 0
-    return h if h > 16 else 0
-
-
 def _default_companion(font, fmap):
     """The default English companion: the first one the face can take. A 12x24 font needs a face of 24 px or more (20x40: 40, 24x48: 48),
     so a smaller DOS face skips it when another companion sits beside it (the defaults must validate). A 40 or 48 px
@@ -188,13 +180,18 @@ def _default_companion(font, fmap):
         return None                             # an HTBL is not a Latin companion; the suitcase is optional
     companions = font.get("companions") or []
     px = (font.get("sizes") or [None])[0]
-    if font.get("source_kind") == "dos-raw" and isinstance(px, int) and px in (40, 48) and fmap:
-        for fid in companions:
-            if eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell")) == px:
-                return fid
     if font.get("source_kind") == "dos-raw" and isinstance(px, int) and fmap:
+        def h_of(fid):
+            return eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell"))
+
+        def family(path):                       # Taebaek's G / M prefix: GHANC40 goes with GASCII40, MHANC40 with MASCII40
+            return os.path.basename(path or "")[:1].upper()
+
+        exact = [f for f in companions if px in (40, 48) and h_of(f) == px]
+        if exact:
+            return ([f for f in exact if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))] or exact)[0]
         for fid in companions:
-            if eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell")) <= px:
+            if h_of(fid) <= px:
                 return fid
     return companions[0] if companions else None
 

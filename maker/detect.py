@@ -36,8 +36,8 @@ DOS_SIZES = {11520: ["844", "844-ihnm"], 11522: ["844"], 25920: ["844"], 72000: 
              15360: ["dkb-printer-7x2x2", "none"], 34560: ["dkb-printer-7x2x2"], 176000: ["dkb-printer-12x4x4"],
              253440: ["dkb-printer-12x4x4"]}
 
-# A Latin companion (`--eng`) is recognised by its byte size: the 8x16 DOS fonts and the 12x24 ones (HWP `ASCII.PFT`;
-# the HBIOS 15,360-byte file is told from a Dokkaebi face by `hbios_eng_like`).
+# A Latin companion (`--eng`) is recognised by its byte size: the 8x16 DOS fonts, the 12x24 ones (HWP `ASCII.PFT`; the HBIOS
+# 15,360-byte file is told from a Dokkaebi face by `hbios_eng_like`) and Taebaek 3.5.1's 20x40 / 24x48 GASCII / MASCII .PFT.
 ENG_SIZES = {2048: "8x16", 4096: "8x16", 12288: "12x24", 15360: "12x24", 30720: "20x40", 49152: "24x48"}
 
 def eng_cell_h(cell):
@@ -558,8 +558,8 @@ def _detect_file(abs_path, rel, local=False):
         fmt = classify_txt(abs_path, rel)
         return [_entry(rel, 0, fmt, "licence text" if fmt == "licence" else "list file", "other", family=_stem(rel))]
     size = os.path.getsize(abs_path)
-    if local and base.lower().endswith(".pft") and size not in ENG_SIZES:
-        # an HWP Hangul font: no tool here reads it (there is no byte rule, so it is named by its extension)
+    if local and base.lower().endswith(".pft") and size not in ENG_SIZES and size not in DOS_SIZES:
+        # an HWP Hangul font (Taebaek GHANC/MHANC .PFT, in DOS_SIZES, is a DOS face): no tool here reads it (there is no byte rule, so it is named by its extension)
         return [_entry(rel, 0, "hwp-pft", HWP_PFT_LABEL, "other", family=_stem(rel))]
     with open(abs_path, "rb") as f:
         head = f.read(_HEAD)
