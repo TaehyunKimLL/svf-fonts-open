@@ -425,9 +425,11 @@ dy에 대응시킨 JSON 객체를 읽는다.
 **입력.** 1 bpp SVFN v3 페이스(완성형 또는 자모 세트: 모든 글리프를 `svfline.py`로 그리므로 자모 세트의 음절은 먼저 조합된다) 또는
 BDF(`bdfface.read_bdf`: KS X 1001 또는 유니코드 인코딩).
 
-**출력.** 셀이 `round(W x h / H)` x `h`인 완성형 SVFN v3 페이스(플래그 5). ascent, 진행 폭, 글리프별 dy는 비례해 반올림한다(글리프마다 자기 셀에서 다시 샘플링하므로 dy가 셀 아래로 미는 잉크도 남는다). 출력 픽셀은 원본
-영역 중 잉크가 차지한 정확한 비율이다. 1 bpp는 비율 >= `--threshold`를 남기고, 2 bpp는 `(share x 255 x 3 + 127) // 255`를 저장한다
-(mkfont의 규칙).
+**출력.** 셀이 `round(W x h / H)` x `h`인 완성형 SVFN v3 페이스(플래그 5). 높이(ascent, 글리프별 dy)는 h / H, 너비(진행 폭, 결합 부호의 음수
+bearing_x)는 w / W로 비례해 반올림한다(w = `round(W x h / H)`). 글리프마다 자기 비트맵(`svfline.Face.coverage`: dy 이동도 부호 원점도
+없고 잘리지도 않는다)에서 다시 샘플링한다. 출력 픽셀은 원본 영역 중 잉크가 차지한 정확한 비율이다. 1 bpp는 비율 >= `--threshold`
+(0 < threshold <= 1)를 남기고, 2 bpp는 비율을 0..255의 커버리지 c로 반올림한 뒤 `(c x 3 + 127) // 255`를 저장한다(mkfont의 규칙).
+64 MiB를 넘는 원본은 거부한다. `--compare`는 두 페이스를 한 기준선에, 모든 글리프의 dy까지 담는 화면에 그린다.
 
 **개요(Synopsis).** `python3 tools/svfscale.py SRC --size H [--bpp 1|2] [--threshold 0.5] [--chars ks|face|all|FILE] [--compare FACE.SVF] [--profile NAME] -o OUT.SVF`
 
@@ -440,9 +442,10 @@ BDF(`bdfface.read_bdf`: KS X 1001 또는 유니코드 인코딩).
 | `--compare FACE.SVF` | 없음 | 1 bpp 결과를 쓴 뒤, 다른 1 bpp 페이스와의 겹침(둘 다 그리는 KS 음절의 평균 IoU, 두 페이스를 한 기준선에, 2 px 안의 가장 좋은 이동)을 출력 |
 | `--profile NAME`, `--box` | `default` | v3 레이아웃 프로파일 |
 
-메시지와 함께 종료 코드 1(1 bpp가 아님, `--size`가 1보다 작거나 원본보다 작지 않음, `--bpp 2`와 `--compare`). **import하는 저장소 모듈.** `jamoset.py`, `svfline.py`,
+메시지와 함께 종료 코드 1(1 bpp가 아님, `--size`가 1보다 작거나 원본보다 작지 않음, (0, 1] 밖의 임계값, `--bpp 2`와 `--compare`,
+`bdfface.py`가 읽지 못하는 BDF). **import하는 저장소 모듈.** `jamoset.py`, `svfline.py`,
 `bdfface.py`. **서드파티.** 없음. **테스트.** `tools/test_extract.py`(합성 32 px BDF를 16 px로 줄인 박스 필터 단계, 48에서 16 px로의 2 bpp 단계 규칙, 반올림한 ascent와 비례한 진행 폭과 dy가 있는
-24에서 16 px, ascent가 다른 페이스의 겹침).
+24에서 16 px, 너비 29 셀에서 w / W로 줄인 진행 폭과 부호의 bearing_x, ascent가 다른 페이스와 dy가 셀 아래로 미는 잉크의 겹침).
 
 ### `tools/svf2to3.py`
 
@@ -934,8 +937,10 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 **상태.** 범용이다.
 
 **입력.** 아무 파일. 글리프 기하: `--glyph WxH`, `--stride B`(기본은 글리프의 바이트 수), `--order rows`(행 우선, 한 행이 ceil(W/8)
-바이트), `strips`(H 바이트짜리 8 픽셀 너비 스트립이 차례로: 한글 VGA 폰트 ROM), `cols`(열 우선, 프린터 배치), `bytecols`(열 바이트의
-8행 띠, 6x2x1 배치), `--lsb`(비트 0 = 왼쪽).
+바이트), `strips`(H 바이트짜리 8 픽셀 너비 스트립이 차례로: 한글 VGA 폰트 ROM과 6x2x1 폰트, jamoset의 `g_bytecols`), `cols`(열 우선, MSB가
+위: 도깨비 프린터 배치), `bytecols`(W 바이트짜리 8행 띠, 바이트 하나가 한 열, 비트 7이 띠의 맨 위 행), `--lsb`(비트 0 = 왼쪽 픽셀,
+`cols` / `bytecols`에서는 맨 위). `render`는 그리는 바이트만 읽고(`--count` 1..4096, `--cols` 1..64, `--scale` 1..32), `info`는
+블록씩 읽는다.
 
 **출력.** stdout의 텍스트. `render --png`는 회색조 PNG를 쓴다(zlib, Pillow 없음).
 
@@ -975,7 +980,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 표와 중성 표는 레코드를 바이트 오프셋으로 가리킨다(레코드 = 값 / 6). 종성 세트는 레코드 96.
 
 **개요(Synopsis).** `python3 tools/nkpspec.py find FILE`, `python3 tools/nkpspec.py spec FILE [--desc A ...] -o SPEC.json`. 표가 없거나
-파일 밖이거나 NKP 모양이 아니면(자모 표가 유니코드 순서가 아님, 레코드 오프셋이 6의 배수가 아님) 메시지와 함께 종료 코드 1.
+파일 밖이거나 NKP 모양이 아니면(자모 표가 유니코드 순서가 아님, 레코드 오프셋이 6의 배수가 아님, 0x100보다 작은 조각 주소, 행이 없는 16 픽셀 레코드) 메시지와 함께 종료 코드 1.
 
 **import하는 저장소 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`(명령어 패턴과 표를 가진 합성 .COM. 명세의
 기하와 조합한 음절).
@@ -1003,8 +1008,10 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
         [--eng FILE2 --eng-offset O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
 
 `bdf --chars ks-*`는 각 KS X 1001 코드를 `--dense`(글리프 i = 그 집합의 i번째 코드: 2,350 음절 덤프) 또는 `--grid L0,T0,PITCH`(글리프 =
-(lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(격자 앞의 코드나 행을 넘는 trail은 거부한다). 음수 오프셋, 1보다 작은 `--length`,
-16행을 넘는 `--top` + `--height`는 거부한다. `cut`은 자르는 바이트만 찾아 읽는다. compose 명세는 조각 세트(`offset`,
+(lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). 음수 오프셋,
+1보다 작은 `--length` / `--stride` / `--count`, 음수 `--first`, 16행을 넘는 `--top` + `--height`는 거부한다. `cut`, `eng`, `bdf`는
+쓰는 바이트만 읽고, `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 세트, 셀을 넘는 `--eng-top` +
+`--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 세트(`offset`,
 `stride`, 저장된 조각이 셀의 어디로 가는지: `x`, `y`, `width`, `height`, `order`), 종성 없을 때와 있을 때 모음별 초성 세트, 모음별 중성
 (세트, 조각)(ㄱ / ㅋ용 다른 표를 둘 수 있다: 8x4x4 규칙), 모음별 종성 세트 또는 세트 하나, 그리고 폰트 자신의 모음 순서를 적는다.
 자모 번호는 유니코드의 번호다(형식은 모듈 docstring). 잘못된 오프셋, 명세, 빈 결과에는 메시지와 함께 종료 코드 1.
@@ -1019,9 +1026,11 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 **상태.** 범용이다. 형식은 바이트와 OS/2의 16비트 FNTCALLS.DLL에서 읽었다. 노트는 johab-fonts 연구에 있다.
 
 **입력.** System DBCS 파일(헤더 "System DBCS NN"): 0x1A00부터 512 바이트 블록의 레코드. 각 레코드는 허프만 부호의 니블 열이며,
-위 두 행의 문맥 표를 거쳐 되돌린다. 레코드는 블록을 넘지 않고 블록의 나머지는 0xFF 채움(글리프 번호 0xFFFF)이다. 메시지와 함께
-거부: 표보다 짧은 파일, 1..64 밖의 셀이나 ceil(w / 8) x h가 아닌 글리프당 바이트, 블록이나 파일을 넘는 레코드, 순서가 틀린 글리프
-번호, 레코드 페이로드를 넘는 부호.
+위 두 행의 문맥 표를 거쳐 되돌린다. 레코드는 블록을 넘지 않고 블록의 나머지는 0xFF 채움(글리프 번호 0xFFFF)이다. 헤더는 처음 0x1A00
+바이트로 먼저 확인하고 나머지를 읽는다(16 MiB를 넘는 파일은 거부). 메시지와 함께 거부: 표보다 짧은 파일, 1..64 밖의 셀이나
+ceil(w / 8) x h가 아닌 글리프당 바이트, 블록이나 파일을 넘는 레코드, 순서가 틀린 글리프 번호, 레코드 페이로드를 넘거나 마지막 바이트
+전에 끝나는 부호(데이터와 맞지 않는 레코드 길이: OS/2 Warp 4 두 폰트의 모든 레코드 길이는 맞는다), 블록의 채움 표시 뒤의 0xFF 아닌
+바이트나 블록 끝에서 잘린 레코드 헤더. 어떤 유효한 부호 열과 우연히 맞는 손상된 길이는 진짜와 가려낼 수 없다.
 
 **출력.** `info`: 헤더(셀, 글리프당 바이트, 리드 바이트, 글리프 번호 범위, 레코드, 있는 음절). `table`: 글리프 번호 256..8997 전부를 차례로
 (슬롯 8,742개, 없는 것은 빈 칸), 행 우선: A1A1부터의 KS X 1001 94 x 94 표로, `rawcarve.py bdf --grid 0xA1,0xA1,94`용.
@@ -1029,7 +1038,8 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 **개요(Synopsis).** `python3 tools/os2dbcs.py info FILE`, `python3 tools/os2dbcs.py table FILE -o OUT.bin`. 헤더가 없는 파일에는
 메시지와 함께 종료 코드 1.
 
-**import하는 저장소 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`(자체 부호표를 가진 합성 폰트).
+**import하는 저장소 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`(자체 부호표를 가진 합성 폰트: 이스케이프 부호 니블, 항등이 아닌 문맥 표, 여러 블록에 걸친 드문 글리프 번호, 잘못된 파일의 거부.
+`JOHAB_FONTS`가 연구 트리를 가리키면 풀어 낸 진짜 `$korZN16.FNT`와 가, 각, 힝의 해시, 그리고 그 노트의 렌더와 가 / 힝 비교).
 
 ## 레거시 포맷 리더
 

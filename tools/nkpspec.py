@@ -69,8 +69,10 @@ def table(d, addr, n, what):
 
 def piece_set(d, rec, addr):
     base, stride, first, end, flags = struct.unpack("<HBBBB", table(d, addr + rec, 6, f"record {rec}"))
-    if stride < 1 or end <= first or end > 32:
+    if stride < 1 or end <= first or end > 32 or (flags & 1 and end - first < 2):
         raise SpecError(f"record {rec}: stride {stride}, bytes {first}..{end} is not a piece of a 32-byte cell")
+    if base < 0x100:
+        raise SpecError(f"record {rec}: piece address {base:#x} is below the .COM image (0x100)")
     if flags & 1:
         return {"offset": base - 0x100, "stride": stride, "x": 0, "y": first // 2, "width": 16,
                 "height": (end - first) // 2}

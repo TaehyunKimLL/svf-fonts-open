@@ -7,9 +7,10 @@ SRC is an SVF face (precomposed or a jamo set: every glyph is drawn through svfl
 composed first) or a BDF (any encoding bdfface.py reads). Each glyph is drawn in its source cell and box-filtered to the
 new cell: an output pixel is the exact share of the source area it covers that is inked (cell height H to `--size` h,
 the width by the same factor, rounded). 1 bpp keeps a pixel whose share is at least `--threshold` (0.5); 2 bpp stores
-the share as four levels, (share x 255 x 3 + 127) // 255, mkfont.py's rule. The ascent, every advance and every
-per-glyph dy are scaled and rounded (round(v * h / H)); a glyph is resampled from its own cell, so ink a dy shifts
-below the cell is kept, not clipped; the output is a precomposed SVFN v3 face (flag 5, variable width), in `--profile` (default).
+the share as four levels: the share rounded to a coverage c of 0..255, then (c x 3 + 127) // 255, mkfont.py's rule.
+The ascent, every advance and every per-glyph dy are scaled and rounded (heights by h / H, widths by w / W: the advance and a combining mark's negative
+bearing_x); a glyph is resampled from its own bitmap, so ink a dy shifts below the cell or a mark draws left of the pen
+is kept, not clipped; the output is a precomposed SVFN v3 face (flag 5, variable width), in `--profile` (default).
 
 --chars: `ks` (the default) = ASCII 0x20-0x7E, the KS X 1001 2,350 syllables and whatever else the source has outside
 U+AC00-D7A3 and outside plane 15 (where a jamo set keeps its pieces); `face` = the code points the source lists
@@ -32,6 +33,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:  # python -I drops the script's directory
     sys.path.insert(0, HERE)
+import bdfface  # noqa: E402
 import jamoset  # noqa: E402
 import svfline  # noqa: E402
 
@@ -41,36 +43,44 @@ class ScaleError(Exception):
 
 
 class Source:
-    """cell_w, cell_h, ascent, cps, draw(cp) -> (rows of 0/1 over the glyph's own cell, advance, dy) or None. The cell
-    is drawn without its dy (the per-glyph shift at draw time); the dy is scaled and kept."""
+    """cell_w, cell_h, ascent, cps, draw(cp) -> (rows of 0/1 over the glyph's own cell, advance, bearing_x, dy) or None.
+    The cell is the glyph's own bitmap: no dy shift, no mark origin, nothing clipped; dy and bearing_x are scaled and
+    kept."""
+
+
+MAX_SOURCE = 64 << 20
+
+
+def read_source(path):
+    import os
+    if os.path.getsize(path) > MAX_SOURCE:
+        raise ScaleError(f"{path}: larger than {MAX_SOURCE} bytes")
+    with open(path, "rb") as fh:
+        return fh.read()
 
 
 def svf_source(path):
-    with open(path, "rb") as fh:
-        f = jamoset.parse_svfn(fh.read())
+    data = read_source(path)
+    f = jamoset.parse_svfn(data)
     if f.bpp != 1:
         raise ScaleError(f"{path}: {f.bpp} bpp; the source must be 1 bpp")
+    face = svfline.Face(data)  # not Face.load: its cache is keyed by path
     s = Source()
     s.cell_w, s.cell_h, s.ascent = f.cell_w, f.cell_h, f.ascent
     s.cps = sorted(f.glyphs)
-    chain = svfline.load_chain([path])
-    w, h = f.cell_w, f.cell_h
 
     def draw(cp):
-        face = chain[0]
         if not face.has(cp):
             return None
-        adv, _, _, dy = face.metrics(cp)
-        # the baseline at ascent - dy puts the cell's top row at row 0, whatever the glyph's dy
-        pl = list(svfline.placements(chain, chr(cp), 0, f.ascent - dy))
-        buf = svfline.draw_gray8(pl, w, h, None)
-        return [[1 if buf[y * w + x] else 0 for x in range(w)] for y in range(h)], adv, dy
+        adv, bx, _, dy = face.metrics(cp)
+        rows = [[1 if v else 0 for v in r] for r in face.coverage(cp)]
+        return rows, adv, bx, dy
     s.draw = draw
     return s
 
 
 def bdf_source(path):
-    import bdfface
+    read_source(path)  # the size bound
     face, glyphs = bdfface.read_bdf(path)
     s = Source()
     s.cell_w, s.cell_h, s.ascent = face.box_w, face.box_h, face.ascent
@@ -89,7 +99,7 @@ def bdf_source(path):
                     cx, cy = bx + x, top + y
                     if 0 <= cx < s.cell_w and 0 <= cy < s.cell_h:
                         cell[cy][cx] = 1
-        return cell, adv, 0
+        return cell, adv, 0, 0
     s.draw = draw
     return s
 
@@ -155,8 +165,8 @@ def chars_of(spec, src):
 
 
 def scale(src, size, bpp=1, threshold=0.5, chars="ks"):
-    """[(cp, packed, advance, ink_x, ink_w)], cell_w, cell_h, ascent, {cp: dy} of the scaled face. Lengths (ascent,
-    advance, dy) scale as round(v * h / H)."""
+    """[(cp, packed, advance, bearing_x, ink_w)], cell_w, cell_h, ascent, {cp: dy} of the scaled face. Vertical lengths
+    (ascent, dy) scale as round(v * h / H), horizontal ones (advance, a mark's negative bearing_x) as round(v * w / W)."""
     H, W = src.cell_h, src.cell_w
     h = size
     w = max(1, round(W * h / H))
@@ -166,7 +176,7 @@ def scale(src, size, bpp=1, threshold=0.5, chars="ks"):
         got = src.draw(cp)
         if got is None:
             continue
-        rows, adv, dy = got
+        rows, adv, bx, dy = got
         if dy:
             dys[cp] = round(dy * h / H)
         sh = shares(rows, W, H, w, h)
@@ -176,7 +186,9 @@ def scale(src, size, bpp=1, threshold=0.5, chars="ks"):
             lv = [[(int(round(v * 255)) * 3 + 127) // 255 for v in r] for r in sh]
         cols = [x for x in range(w) if any(r[x] for r in lv)]
         ink_x, ink_w = (cols[0], cols[-1] - cols[0] + 1) if cols else (0, 0)
-        a = max(0, min(255, round(adv * h / H)))
+        if bx < 0:  # a combining mark drawn left of the pen: keep its origin
+            ink_x = max(-128, round(bx * w / W))
+        a = max(0, min(255, round(adv * w / W)))
         if cp == 0x20 and a == 0:
             a = max(1, w // 2)
         out.append((cp, pack(lv, w, bpp), a, ink_x, ink_w))
@@ -185,19 +197,19 @@ def scale(src, size, bpp=1, threshold=0.5, chars="ks"):
 
 def overlap(path_a, path_b, reach=2):
     """(mean IoU, dx, dy, exact, syllables) of the KS X 1001 syllables two 1 bpp faces both draw, both on one baseline,
-    at the best common shift of face a within @p reach pixels."""
-    ca, cb = svfline.load_chain([path_a]), svfline.load_chain([path_b])
-    fa, fb = ca[0], cb[0]
+    at the best common shift of face a within @p reach pixels. The canvas holds every cell with its dy."""
+    fa, fb = svfline.Face(read_source(path_a)), svfline.Face(read_source(path_b))
+    ca, cb = [fa], [fb]
+    cps = [0xAC00 + s for s in jamoset.ks_x_1001_syllables()]
+    cps = [cp for cp in cps if fa.has(cp) and fb.has(cp)]
+    dys = [f.metrics(cp)[3] for f in (fa, fb) for cp in cps] or [0]
     m = reach
-    up = max(fa.ascent, fb.ascent)
-    down = max(fa.cell_h - fa.ascent, fb.cell_h - fb.ascent)
+    up = max(fa.ascent, fb.ascent) + max(0, -min(dys))
+    down = max(fa.cell_h - fa.ascent, fb.cell_h - fb.ascent) + max(0, max(dys))
     w, h = max(fa.cell_w, fb.cell_w) + 2 * m, up + down + 2 * m
     base = m + up
     pairs = []
-    for s in jamoset.ks_x_1001_syllables():
-        cp = 0xAC00 + s
-        if not (fa.has(cp) and fb.has(cp)):
-            continue
+    for cp in cps:
         ga = svfline.draw_gray8(list(svfline.placements(ca, chr(cp), m, base)), w, h)
         gb = svfline.draw_gray8(list(svfline.placements(cb, chr(cp), m, base)), w, h)
         pairs.append(([(i // w, i % w) for i, v in enumerate(ga) if v], {(i // w, i % w) for i, v in enumerate(gb) if v}))
@@ -231,6 +243,10 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         src = bdf_source(a.source) if a.source.lower().endswith(".bdf") else svf_source(a.source)
+        if src.cell_w < 1 or src.cell_h < 1:
+            raise ScaleError(f"{a.source}: cell {src.cell_w}x{src.cell_h}")
+        if not 0 < a.threshold <= 1:
+            raise ScaleError(f"--threshold {a.threshold}: must be above 0 and at most 1")
         if a.size < 1:
             raise ScaleError(f"--size {a.size}: the new cell height must be at least 1")
         if a.compare and a.bpp != 1:
@@ -251,7 +267,7 @@ def main(argv=None):
             iou, dx, dy, exact, n = overlap(a.output, a.compare)
             print(f"overlap with {a.compare}: {n} syllables, mean IoU {iou:.3f} at shift dx={dx} dy={dy}, "
                   f"exact {exact}")
-    except (ScaleError, ValueError, OSError) as e:
+    except (ScaleError, ValueError, OSError, bdfface.FaceError) as e:
         print(f"svfscale.py: {e}", file=sys.stderr)
         sys.exit(1)
 

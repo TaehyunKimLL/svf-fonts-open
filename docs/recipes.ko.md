@@ -224,7 +224,7 @@ TrueType과 CFF 모두 된다). 맞춤은 근사이다. IoU를 읽고 결과를 
 어떤 한글 폰트는 음절 말고도 자모 글리프를 가진다. 도구가 그것을 쓸 수 있는지는 폰트가 그것을 음절과 어떻게 잇는지에 달렸다.
 먼저 폴더를 훑어라(`fontTools`: U+1100-11FF와 사용 영역 U+E000-F8FF의 cmap 항목, 합성 음절, GSUB 기능 `ljmo` / `vjmo` / `tjmo`).
 여기서 관리자가 내려받아 모은 폰트(한글 웹 폰트, Debian 폰트 패키지, johab-fonts 연구 묶음. 첫가끝 자모 50개 이상이나 PUA 글리프
-100개 이상인 폰트 375개)를 훑었더니 이런 종류가 나왔다:
+100개 이상인 폰트 375개)를 훑었더니 네 종류가 나왔다:
 
 | 폰트가 가진 것 | 예(여기) | 길 | 절 |
 |---|---|---|---|
@@ -863,7 +863,7 @@ OS/2의 한글 "System DBCS" 폰트(`$korZN16.FNT`, `$korZN24.FNT`)는 완성형
     python3 -I tools/os2dbcs.py info '$korZN16.FNT'
     python3 -I tools/os2dbcs.py table '$korZN16.FNT' -o $OUT/zn16.bin
     python3 -I tools/rawcarve.py bdf $OUT/zn16.bin --glyph 16x16 --chars ks-hangul --grid 0xA1,0xA1,94 -o $OUT/zn16.bdf
-    python3 maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/8x16.pcf.gz $OUT/8x16.bdf
+    python3 maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/8x16.pcf.gz $OUT/8x16.bdf   # Misc Fixed 8x16, Debian xfonts-base
     python3 tools/bdfface.py --hangul $OUT/zn16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/OS2ZN16.SVF
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/OS2ZN16.SVF --mask-font none --check -o $OUT/OS2ZN16J.SVF
     python3 tools/jamoset.py --layout adaptive --from-svf $OUT/OS2ZN16.SVF --mask-font none --check -o $OUT/OS2ZN16JA.SVF
@@ -921,7 +921,7 @@ from an outline font (--from-ttf)`) 비트맵 원본에서 2 bpp 자모 세트�
 |---|---|---:|---|---:|---|---|
 | 백묵 돋움 24 (Baekmuk BDF 2.2의 `dotum24.bdf` + Misc Fixed 12x24, `bdfface.py`를 거쳐 `216,196 bytes`) | `122,016 bytes`, 글리프 2,447개, `width=144 ascent=15 descent=1` | 330 | `194,208 bytes` | 612 | `18,292 bytes`, IoU 0.597 | `dotum16.bdf`(`122,804 bytes`, 잉크 411)와 0.520 |
 | OS/2 `$korZN24.FNT` ([OS/2 한글 폰트](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기), `220,164 bytes`) | `125,084 bytes`, 글리프 2,447개, `width=144 ascent=15 descent=1` | 410 | `200,760 bytes` | 691 | `18,596 bytes`, IoU 0.710 | `$korZN16.FNT`와 0.387 |
-| 태백 3.5.1 고딕 40 (`GHANC40.PFT`, [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트)의 8x4x4 페이스, `33,944 bytes`) | `121,772 bytes`, 음절 2,350개(ASCII 없음: 40 px 영문 GASCII40.PFT는 카드 t_262e222d가 병합된 뒤에 `--eng`로 읽힌다), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | GOTHIC16.FNT와 0.471 |
+| 태백 3.5.1 고딕 40 (`GHANC40.PFT`, [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트)의 8x4x4 페이스, `33,944 bytes`) | `121,772 bytes`, 음절 2,350개(ASCII 없음: `--eng`는 8x16과 12x24 영문 폰트만 받고 40 px GASCII40.PFT는 받지 않는다), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | GOTHIC16.FNT와 0.471 |
 
 40 px 원본은 그 자체가 8x4x4 조각의 OR이라 16 px로 다시 샘플링해도 거의 그대로다(IoU 0.990). 음절마다 그린 두 디자인은 8x4x4에 잘
 맞지 않는다. 임계값은 획과 뭉침을 맞바꾼다: OS/2 페이스를 `--threshold 0.25`로 하면 잉크 615(`0.5`는 410), 그린 16 px 페이스와 겹침

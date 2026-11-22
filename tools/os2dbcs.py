@@ -98,6 +98,9 @@ def decode(d):
                 raise DbcsError(f"glyph {g}: the code runs past its {end - pos}-byte payload")
             nibs.append(e & 15)
             bp += length
+        if (bp + 7) >> 3 != end:
+            raise DbcsError(f"glyph {g}: its code ends in byte {((bp + 7) >> 3) - pos} of a {end - pos}-byte payload "
+                            f"(a record length that does not match its data)")
         res = bytes((nibs[2 * k] << 4) | nibs[2 * k + 1] for k in range(bpg))
         out = bytearray(bpg)
         for i in range(bpg):
@@ -114,7 +117,10 @@ def decode(d):
         while p + 3 <= end:
             g, ln = d[p] | d[p + 1] << 8, d[p + 2]
             if g == 0xFFFF:
-                break  # the rest of the block is padding
+                if any(b != 0xFF for b in d[p:end]):
+                    raise DbcsError(f"block at {block:#x}: bytes other than 0xFF after the padding mark at {p:#x}")
+                p = end
+                break
             if p + 3 + ln > end:
                 raise DbcsError(f"record of glyph {g} at {p:#x} runs past its block or the file")
             if g > MAX_GLYPH or g <= prev:
@@ -122,7 +128,24 @@ def decode(d):
             glyphs[g] = glyph(p + 3, p + 3 + ln, g)
             prev = g
             p += 3 + ln
+        if p < end and any(b != 0xFF for b in d[p:end]):
+            raise DbcsError(f"block at {block:#x}: a record header cut off at {p:#x}")
     return glyphs
+
+
+MAX_FILE = 16 << 20
+
+
+def read_font(path):
+    """The file, after checking its header from the first bytes and its size."""
+    import os
+    with open(path, "rb") as fh:
+        head = fh.read(HEADER_END)
+        header(head)
+        size = os.path.getsize(path)
+        if size > MAX_FILE:
+            raise DbcsError(f"{size} bytes: larger than {MAX_FILE}, not a DBCS font")
+        return head + fh.read()
 
 
 def main(argv=None):
@@ -135,8 +158,7 @@ def main(argv=None):
     p.add_argument("-o", "--output", required=True)
     a = ap.parse_args(argv)
     try:
-        with open(a.file, "rb") as fh:
-            d = fh.read()
+        d = read_font(a.file)
         w, h, bpg, leads, ranges = header(d)
         if a.cmd == "info":
             print(f"{a.file}: {d[:16].decode('ascii', 'replace').strip()!r}, {w}x{h}, {bpg} bytes a glyph")

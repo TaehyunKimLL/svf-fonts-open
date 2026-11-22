@@ -442,10 +442,12 @@ A dy on a jamo piece (`U+F0000..`) is refused. Code points the font lacks are co
 **Inputs.** A 1 bpp SVFN v3 face (precomposed or a jamo set: every glyph is drawn through `svfline.py`, so a jamo set's
 syllables are composed first) or a BDF (`bdfface.read_bdf`: KS X 1001 or Unicode encoding).
 
-**Outputs.** A precomposed SVFN v3 face (flag 5) of cell `round(W x h / H)` x `h`, ascent and advances scaled and
-rounded, and so is every per-glyph dy (each glyph is resampled from its own cell, so ink a dy moves below the cell
-is kept); an output pixel is the exact share of its source footprint that is inked; 1 bpp keeps share >= `--threshold`,
-2 bpp stores `(share x 255 x 3 + 127) // 255` (mkfont's rule).
+**Outputs.** A precomposed SVFN v3 face (flag 5) of cell w x h, w = `round(W x h / H)`. Heights (ascent, per-glyph dy)
+scale by h / H, widths (advances, a combining mark's negative bearing_x) by w / W, each rounded. Each glyph is resampled
+from its own bitmap (`svfline.Face.coverage`: no dy shift, no mark origin, nothing clipped). An output pixel is the
+exact share of its source footprint that is inked; 1 bpp keeps share >= `--threshold` (0 < threshold <= 1), 2 bpp
+rounds the share to a coverage c of 0..255 and stores `(c x 3 + 127) // 255` (mkfont's rule). Sources over 64 MiB are
+refused. `--compare` draws both faces on one baseline on a canvas that also holds every glyph's dy.
 
 **Synopsis.** `python3 tools/svfscale.py SRC --size H [--bpp 1|2] [--threshold 0.5] [--chars ks|face|all|FILE] [--compare FACE.SVF] [--profile NAME] -o OUT.SVF`
 
@@ -458,10 +460,12 @@ is kept); an output pixel is the exact share of its source footprint that is ink
 | `--compare FACE.SVF` | none | after writing a 1 bpp result, print its overlap with another 1 bpp face (mean IoU of the KS syllables both draw, both faces on one baseline, at the best shift within 2 px) |
 | `--profile NAME`, `--box` | `default` | the v3 layout profile |
 
-Exit 1 with a message (not 1 bpp, `--size` below 1 or not below the source, `--compare` with `--bpp 2`). **Repository modules imported.** `jamoset.py`,
+Exit 1 with a message (not 1 bpp, `--size` below 1 or not below the source, a threshold outside (0, 1], `--compare`
+with `--bpp 2`, a BDF `bdfface.py` cannot read). **Repository modules imported.** `jamoset.py`,
 `svfline.py`, `bdfface.py`. **Third-party.** None. **Test.** `tools/test_extract.py` (box-filter levels of a synthetic
 32 px BDF at 16 px, the 2 bpp level rule at 48 to 16 px, 24 to 16 px with a rounded ascent, scaled advances and a
-dy, the overlap of faces of different ascent).
+dy, advances by w / W and a mark's bearing_x on a 29-wide cell, the overlap of faces of different ascent and of ink a
+dy moves below the cell).
 
 ### `tools/svf2to3.py`
 
@@ -990,8 +994,11 @@ offset, so a person or an assistant can see where a font starts and how it is st
 **Status.** General-purpose.
 
 **Inputs.** Any file. Glyph geometry: `--glyph WxH`, `--stride B` (default the glyph's bytes), `--order rows` (row-major,
-ceil(W/8) bytes a row), `strips` (8-pixel-wide strips of H bytes one after another: the Korean VGA font ROMs), `cols`
-(column-major, the printer layout), `bytecols` (8-row bands of column bytes, the 6x2x1 layout), `--lsb` (bit 0 = left).
+ceil(W/8) bytes a row), `strips` (8-pixel-wide strips of H bytes one after another: the Korean VGA font ROMs and the
+6x2x1 fonts, jamoset's `g_bytecols`), `cols` (column-major, MSB at the top: the Dokkaebi printer layout), `bytecols`
+(8-row bands of W bytes, one byte a column, bit 7 the band's top row), `--lsb` (bit 0 = the left pixel, or the top one
+in `cols` / `bytecols`). `render` reads only the bytes it draws (`--count` 1..4096, `--cols` 1..64, `--scale` 1..32),
+`info` a block at a time.
 
 **Outputs.** Text on stdout; `render --png` writes a grey PNG (zlib, no Pillow).
 
@@ -1035,7 +1042,7 @@ by byte offset (record = value / 6); the final set is record 96.
 
 **Synopsis.** `python3 tools/nkpspec.py find FILE`, `python3 tools/nkpspec.py spec FILE [--desc A ...] -o SPEC.json`. Exit
 1 with a message when a table is missing, outside the file, or not in the NKP shape (jamo tables not in Unicode order,
-a record offset not a multiple of 6).
+a record offset not a multiple of 6, a piece address below 0x100, a 16-pixel record of no row).
 
 **Repository modules imported.** None. **Third-party.** None. **Test.** `tools/test_extract.py` (a synthetic .COM with the
 instruction patterns and tables; the spec's geometry and a composed syllable).
@@ -1066,8 +1073,11 @@ are left out.
 
 `bdf --chars ks-*` places each KS X 1001 code by `--dense` (glyph i = the i-th code of the set: a 2,350-syllable dump)
 or `--grid L0,T0,PITCH` (glyph = (lead - L0) x PITCH + (trail - T0): `0xA1,0xA1,94` a full table, `0x80,0x80,128` the
-Korean VGA ROMs; a code before the grid or a trail past a row is refused). Negative offsets, a `--length` below 1 and
-`--top` + `--height` past 16 rows are refused; `cut` seeks and reads only the bytes it cuts. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
+Korean VGA ROMs; a code whose lead is below L0 or whose trail is outside T0 .. T0 + PITCH - 1 is refused). Negative
+offsets, a `--length` / `--stride` / `--count` below 1, a negative `--first` and `--top` + `--height` past 16 rows are
+refused; `cut`, `eng` and `bdf` read only the bytes they use, `compose` reads the whole file (up to 64 MiB). A compose
+spec with a cell outside 1..256, a negative piece, an unknown set or `--eng-top` + `--eng-height` past the cell is
+refused with a message. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
 `x`, `y`, `width`, `height`, `order`), the initial set per vowel without and with a final, the medial (set, piece) per
 vowel (optionally another table for ㄱ / ㅋ, the 8x4x4 rule), the final set per vowel or one set, and the font's own
 vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). Exit 1 with a message on
@@ -1086,9 +1096,13 @@ johab-fonts research.
 
 **Inputs.** A System DBCS file (header "System DBCS NN"): 512-byte blocks of records from 0x1A00, each a Huffman-coded
 nibble stream undone through a context table of the two rows above. A record never crosses its block, and the rest of a
-block is 0xFF padding (glyph number 0xFFFF). Refused with a message: a file shorter than its tables, a cell outside
-1..64 or bytes a glyph other than ceil(w / 8) x h, a record running past its block or the file, glyph numbers out of
-order, a code running past its record's payload.
+block is 0xFF padding (glyph number 0xFFFF). The header is checked from the first 0x1A00 bytes before the rest is read
+(files over 16 MiB are refused). Refused with a message: a file shorter than its tables, a cell outside 1..64 or bytes
+a glyph other than ceil(w / 8) x h, a record running past its block or the file, glyph numbers out of order, a code
+running past its record's payload or ending before its last byte (a record length that does not match its data:
+the length of every record of the two OS/2 Warp 4 fonts matches), bytes other than 0xFF after a block's padding mark
+or a record header cut off by the block end. A corrupted length that still matches some valid code stream cannot be
+told from a real one.
 
 **Outputs.** `info`: the header (cell, bytes a glyph, lead bytes, glyph number ranges, records, syllables present).
 `table`: every glyph number 256..8997 in order (8,742 slots, absent ones blank), row-major: the KS X 1001 94 x 94 table
@@ -1098,7 +1112,9 @@ from A1A1, for `rawcarve.py bdf --grid 0xA1,0xA1,94`.
 message for a file without the header.
 
 **Repository modules imported.** None. **Third-party.** None. **Test.** `tools/test_extract.py` (a synthetic font with
-its own code table).
+its own code table: escape-coded nibbles, a context table that is not the identity, sparse glyph numbers over several
+blocks, and the bad-file refusals; with `JOHAB_FONTS` naming the research tree, hashes of the decoded real
+`$korZN16.FNT` and of 가, 각, 힝, and 가 / 힝 against the renders in its notes).
 
 ## Legacy format readers
 

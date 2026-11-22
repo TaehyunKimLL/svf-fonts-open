@@ -12,9 +12,11 @@ Nothing here runs or decodes the file's code: it reads bytes. Run it with `pytho
 
 Glyph geometry (render, runs): `--glyph WxH`; `--stride B` bytes from one glyph to the next (default: the glyph's
 bytes); `--order rows` (row-major, ceil(W/8) bytes a row; the default), `strips` (8-pixel-wide strips one after
-the other, H bytes each: the left half's rows, then the right half's, as the Korean VGA font ROMs), `cols` (column-major: H/8 bytes a column, the
-printer and Dokkaebi layout), `bytecols` (8-row bands of column bytes, the Apple II / 6x2x1 layout); `--lsb` puts bit 0
-at the left. Offsets accept 0x hex. `render --cols N` sets glyphs per row of the picture, `--scale S` the PNG pixel
+the other, H bytes each: the left half's rows, then the right half's; the Korean VGA font ROMs, and the 6x2x1 fonts,
+jamoset.py's g_bytecols), `cols` (column-major: H/8 bytes a column, MSB at the top: the Dokkaebi printer layout),
+`bytecols` (8-row bands, each W bytes, one byte a column of 8 rows; bit 7 is the band's top row, or bit 0 with
+--lsb: the layout of 8-dot-column printer and some character-ROM dumps); `--lsb` puts bit 0 at the left (rows,
+strips) or the top (cols, bytecols). Offsets accept 0x hex. `render --cols N` sets glyphs per row of the picture, `--scale S` the PNG pixel
 size; the text form marks ink `#` and paper `.`, and labels every glyph with its index and file offset.
 
 The size signatures (`info`) are the byte counts of the layouts the repository reads (docs/recipes.md, "Other DOS-era
@@ -76,6 +78,15 @@ def counts(s):
     if len(v) != 3 or min(v) < 1:
         raise argparse.ArgumentTypeError(f"{s}: three numbers of 1 or more")
     return v
+
+
+def bounded(top):
+    def f(s):
+        v = parse_int(s)
+        if not 1 <= v <= top:
+            raise argparse.ArgumentTypeError(f"{s}: must be 1..{top}")
+        return v
+    return f
 
 
 def positive(s):
@@ -163,6 +174,7 @@ def entropy(block):
 
 
 def kind_of(data, path):
+    """The file's kind from its first bytes (@p data: the first 0x60, or all of a shorter file)."""
     if data[:2] in (b"MZ", b"ZM"):
         if len(data) >= 0x1C:
             last, pages, _, hdr = struct.unpack_from("<HHHH", data, 2)
@@ -180,16 +192,17 @@ def kind_of(data, path):
     if data[:4] == b"PK\x03\x04":
         return "ZIP archive"
     if data[:2] == b"\x55\xaa":
-        return f"option ROM (55 AA), {data[2] * 512} B declared"
+        return f"option ROM (55 AA), {data[2] * 512} B declared" if len(data) > 2 else "option ROM (55 AA), no size byte"
     if path.lower().endswith(".com"):
         return "DOS .COM image (loads at offset 0x100: a file offset F is address F + 0x100)"
     return "raw data"
 
 
 def cmd_info(a):
-    data = open(a.file, "rb").read()
-    n = len(data)
-    print(f"{a.file}: {n} bytes; {kind_of(data, a.file)}")
+    n = os.path.getsize(a.file)
+    with open(a.file, "rb") as fh:
+        head = fh.read(0x60)
+    print(f"{a.file}: {n} bytes; {kind_of(head, a.file)}")
     for size, what in SIGNATURES:
         if n == size:
             print(f"  size matches: {what}")
@@ -204,12 +217,13 @@ def cmd_info(a):
     blk = a.block
     print(f"  entropy per {blk} B (bits a byte; packed or compressed data stays near 8, fonts and tables lower):")
     line = []
-    for off in range(0, n, blk):
-        e = entropy(data[off:off + blk])
-        line.append(f"{off:#07x}:{e:4.2f}")
-        if len(line) == 6:
-            print("   ", "  ".join(line))
-            line = []
+    with open(a.file, "rb") as fh:  # a block at a time
+        for off in range(0, n, blk):
+            e = entropy(fh.read(blk))
+            line.append(f"{off:#07x}:{e:4.2f}")
+            if len(line) == 6:
+                print("   ", "  ".join(line))
+                line = []
     if line:
         print("   ", "  ".join(line))
 
@@ -373,13 +387,16 @@ def png_bytes(pixels, width, height):
 
 
 def cmd_render(a):
-    data = open(a.file, "rb").read()
     w, h = a.glyph
     gb = a.stride or glyph_bytes(w, h, a.order)
+    size = os.path.getsize(a.file)
     count = a.count
     if count is None:
-        count = max(0, min(64, (len(data) - a.offset) // gb))
-    glyphs = [decode(data, a.offset + i * gb, w, h, a.order, a.lsb) for i in range(count)]
+        count = max(0, min(64, (size - a.offset) // gb))
+    with open(a.file, "rb") as fh:  # only the bytes drawn
+        fh.seek(a.offset)
+        data = fh.read(count * gb)
+    glyphs = [decode(data, i * gb, w, h, a.order, a.lsb) for i in range(count)]
     cols = a.cols or (8 if w > 12 else 16)
     if a.png:
         s, gap = a.scale, 1
@@ -461,10 +478,10 @@ def main(argv=None):
     p.add_argument("file")
     p.add_argument("--offset", type=nonneg, default=0)
     geometry(p)
-    p.add_argument("--count", type=positive, default=None)
-    p.add_argument("--cols", type=positive, default=None)
+    p.add_argument("--count", type=bounded(4096), default=None, help="glyphs to draw (1..4096; default up to 64)")
+    p.add_argument("--cols", type=bounded(64), default=None, help="glyphs a row of the picture (1..64)")
     p.add_argument("--png", default=None)
-    p.add_argument("--scale", type=positive, default=3)
+    p.add_argument("--scale", type=bounded(32), default=3, help="PNG pixels a glyph pixel (1..32)")
     p.set_defaults(fn=cmd_render)
 
     a = ap.parse_args(argv)

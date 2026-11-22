@@ -245,7 +245,7 @@ Some Korean fonts carry jamo glyphs besides their syllables. Whether a tool can 
 them to the syllables. Survey a folder first (`fontTools`: the cmap entries in U+1100-11FF, in the Private Use Area
 U+E000-F8FF, the composite syllables, the GSUB features `ljmo` / `vjmo` / `tjmo`); run here over the maintainer's
 download collection (Korean web fonts, Debian font packages, the johab-fonts research set; 375 fonts with 50 or more conjoining jamo or 100 or more
-PUA glyphs), three kinds turned up:
+PUA glyphs), four kinds turned up:
 
 | What the font holds | Example (here) | Route | Section |
 |---|---|---|---|
@@ -935,7 +935,7 @@ from there the route is the one of any KS X 1001 dump: a BDF, `bdfface.py`, and 
     python3 -I tools/os2dbcs.py info '$korZN16.FNT'
     python3 -I tools/os2dbcs.py table '$korZN16.FNT' -o $OUT/zn16.bin
     python3 -I tools/rawcarve.py bdf $OUT/zn16.bin --glyph 16x16 --chars ks-hangul --grid 0xA1,0xA1,94 -o $OUT/zn16.bdf
-    python3 maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/8x16.pcf.gz $OUT/8x16.bdf
+    python3 maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/8x16.pcf.gz $OUT/8x16.bdf   # Misc Fixed 8x16, Debian xfonts-base
     python3 tools/bdfface.py --hangul $OUT/zn16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/OS2ZN16.SVF
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/OS2ZN16.SVF --mask-font none --check -o $OUT/OS2ZN16J.SVF
     python3 tools/jamoset.py --layout adaptive --from-svf $OUT/OS2ZN16.SVF --mask-font none --check -o $OUT/OS2ZN16JA.SVF
@@ -999,7 +999,7 @@ score):
 |---|---|---:|---|---:|---|---|
 | Baekmuk Dotum 24 (`dotum24.bdf` of Baekmuk BDF 2.2 + Misc Fixed 12x24, through `bdfface.py`, `216,196 bytes`) | `122,016 bytes`, 2,447 glyphs, `width=144 ascent=15 descent=1` | 330 | `194,208 bytes` | 612 | `18,292 bytes`, IoU 0.597 | 0.520 against `dotum16.bdf` (`122,804 bytes`, ink 411) |
 | OS/2 `$korZN24.FNT` ([OS/2 Korean fonts](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set), `220,164 bytes`) | `125,084 bytes`, 2,447 glyphs, `width=144 ascent=15 descent=1` | 410 | `200,760 bytes` | 691 | `18,596 bytes`, IoU 0.710 | 0.387 against `$korZN16.FNT` |
-| Taebaek 3.5.1 Gothic 40 (`GHANC40.PFT`, the 8x4x4 face of [Other DOS-era Korean fonts](#other-dos-era-korean-fonts), `33,944 bytes`) | `121,772 bytes`, 2,350 syllables (no ASCII: `--eng` reads the 40 px English font GASCII40.PFT only once card t_262e222d merges), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | 0.471 against GOTHIC16.FNT |
+| Taebaek 3.5.1 Gothic 40 (`GHANC40.PFT`, the 8x4x4 face of [Other DOS-era Korean fonts](#other-dos-era-korean-fonts), `33,944 bytes`) | `121,772 bytes`, 2,350 syllables (no ASCII: `--eng` takes only 8x16 and 12x24 English fonts, not the 40 px GASCII40.PFT), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | 0.471 against GOTHIC16.FNT |
 
 The 40 px source is itself an OR of 8x4x4 pieces, so its 16 px resample still nearly is (IoU 0.990); the two whole-
 syllable designs fit 8x4x4 poorly. The threshold trades strokes for blobs: the OS/2 face at `--threshold 0.25` has ink

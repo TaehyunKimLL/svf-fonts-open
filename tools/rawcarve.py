@@ -55,9 +55,21 @@ class CarveError(Exception):
     pass
 
 
+MAX_FILE = 64 << 20  # compose reads the whole file (piece sets may sit anywhere); larger files are refused
+
+
 def read(path):
+    if os.path.getsize(path) > MAX_FILE:
+        raise CarveError(f"{path}: larger than {MAX_FILE} bytes")
     with open(path, "rb") as fh:
         return fh.read()
+
+
+def read_range(path, start, length):
+    """The bytes [start, start + length) of the file, as far as it has them: no more is read."""
+    with open(path, "rb") as fh:
+        fh.seek(start)
+        return fh.read(max(0, length))
 
 
 def ks_codes(which):
@@ -126,7 +138,7 @@ def cmd_eng(a):
         raise CarveError("--offset must be 0 or more")
     if not 1 <= h <= 16 or a.top < 0 or a.top + h > 16:
         raise CarveError("--height (1..16) and --top (0 or more) must fit 16 rows")
-    d = read(a.file)
+    d = read_range(a.file, 0, a.offset + 256 * h)
     out = bytearray(4096)
     n = 0
     for c in range(256):
@@ -141,42 +153,40 @@ def cmd_eng(a):
 
 
 def cmd_bdf(a):
-    if a.offset < 0:
-        raise CarveError("--offset must be 0 or more")
     if a.grid and (len(a.grid) != 3 or a.grid[2] < 1):
         raise CarveError("--grid is L0,T0,PITCH with PITCH 1 or more")
-    d = read(a.file)
     w, h = a.glyph
     gb = a.stride or binscan.glyph_bytes(w, h, a.order)
     glyphs = {}
     if a.chars == "ascii":
-        for i in range(a.count or 256):
+        n = a.count or 256
+        d = read_range(a.file, a.offset, n * gb)
+        for i in range(n):
             cp = a.first + i
-            off = a.offset + i * gb
-            if off + gb > len(d) or cp > 0x7E:
+            if (i + 1) * gb > len(d) or cp > 0x7E:
                 break
             if cp < 0x20:
                 continue
-            rows = binscan.decode(d, off, w, h, a.order, a.lsb)
-            glyphs[cp] = rows
+            glyphs[cp] = binscan.decode(d, i * gb, w, h, a.order, a.lsb)
     else:
-        codes = ks_codes(a.chars)
         if not a.dense and not a.grid:
             raise CarveError("ks-* needs --dense or --grid L0,T0,PITCH")
-        for i, (lead, trail, cp) in enumerate(codes):
+        places = []
+        for i, (lead, trail, cp) in enumerate(ks_codes(a.chars)):
             if a.dense:
                 idx = i
             else:
                 l0, t0, pitch = a.grid
-                if trail - t0 >= pitch:
-                    raise CarveError(f"--grid {l0:#x},{t0:#x},{pitch}: trail {trail:#x} falls past a row of {pitch}")
+                if lead < l0 or not t0 <= trail < t0 + pitch:
+                    raise CarveError(f"--grid {l0:#x},{t0:#x},{pitch}: code {lead:02X}{trail:02X} is outside the grid "
+                                     f"(lead below {l0:#x}, or trail outside {t0:#x}..{t0 + pitch - 1:#x})")
                 idx = (lead - l0) * pitch + (trail - t0)
-                if idx < 0:
-                    raise CarveError(f"--grid {l0:#x},{t0:#x},{pitch}: code {lead:02X}{trail:02X} comes before the grid")
-            off = a.offset + idx * gb
-            if off + gb > len(d):
+            places.append((idx, cp))
+        d = read_range(a.file, a.offset, (max(i for i, _ in places) + 1) * gb)
+        for idx, cp in places:
+            if (idx + 1) * gb > len(d):
                 continue
-            rows = binscan.decode(d, off, w, h, a.order, a.lsb)
+            rows = binscan.decode(d, idx * gb, w, h, a.order, a.lsb)
             if any(map(any, rows)):
                 glyphs[cp] = rows
     if not glyphs:
@@ -192,6 +202,8 @@ class Composer:
     def __init__(self, data, spec):
         self.d, self.spec = data, spec
         self.w, self.h = spec.get("cell", [16, 16])
+        if not (1 <= self.w <= 256 and 1 <= self.h <= 256):
+            raise CarveError(f"cell {self.w}x{self.h}: width and height are 1..256")
         self.vorder = spec.get("vowel_order") or list(range(21))
         if sorted(self.vorder) != list(range(21)):
             raise CarveError("vowel_order must be a permutation of 0..20")
@@ -207,6 +219,10 @@ class Composer:
         self._cache = {}
 
     def piece(self, name, k):
+        if not isinstance(k, int) or k < 0:
+            raise CarveError(f"set {name}: piece number {k!r} (must be 0 or more)")
+        if name not in self.sets:
+            raise CarveError(f"no set named {name!r}")
         key = (name, k)
         if key not in self._cache:
             s = self.sets[name]
@@ -242,6 +258,8 @@ def cmd_compose(a):
     with open(a.spec, encoding="utf-8") as fh:
         spec = json.load(fh)
     c = Composer(d, spec)
+    if a.eng and a.eng_top + a.eng_height > c.h:
+        raise CarveError(f"--eng-top {a.eng_top} + --eng-height {a.eng_height} is past the {c.h}-row cell")
     if a.syllables == "ks":
         cps = [cp for _, _, cp in ks_codes("ks-hangul")]
     else:
@@ -252,10 +270,10 @@ def cmd_compose(a):
         glyphs[cp] = c.syllable(s // 588, (s // 28) % 21, s % 28)
     advance = {}
     if a.eng:
-        e = read(a.eng)
         eh = a.eng_height
+        e = read_range(a.eng, a.eng_offset, 0x7F * eh)
         for cp in range(0x20, 0x7F):
-            off = a.eng_offset + cp * eh
+            off = cp * eh
             rows = binscan.decode(e, off, 8, eh, "rows")
             pad = c.h - eh
             rows = [[0] * 8 for _ in range(a.eng_top)] + rows + [[0] * 8 for _ in range(max(0, pad - a.eng_top))]
@@ -274,14 +292,14 @@ def main(argv=None):
 
     p = sub.add_parser("cut")
     p.add_argument("file")
-    p.add_argument("--offset", type=pi, required=True)
+    p.add_argument("--offset", type=binscan.nonneg, required=True)
     p.add_argument("--length", type=pi, required=True)
     p.add_argument("-o", "--output", required=True)
     p.set_defaults(fn=cmd_cut)
 
     p = sub.add_parser("eng")
     p.add_argument("file")
-    p.add_argument("--offset", type=pi, required=True)
+    p.add_argument("--offset", type=binscan.nonneg, required=True)
     p.add_argument("--height", type=int, default=16)
     p.add_argument("--top", type=int, default=0)
     p.add_argument("-o", "--output", required=True)
@@ -289,14 +307,14 @@ def main(argv=None):
 
     p = sub.add_parser("bdf")
     p.add_argument("file")
-    p.add_argument("--offset", type=pi, default=0)
+    p.add_argument("--offset", type=binscan.nonneg, default=0)
     p.add_argument("--glyph", type=binscan.parse_glyph, required=True, metavar="WxH")
-    p.add_argument("--stride", type=pi, default=None)
+    p.add_argument("--stride", type=binscan.positive, default=None)
     p.add_argument("--order", choices=("rows", "strips", "cols", "bytecols"), default="rows")
     p.add_argument("--lsb", action="store_true")
     p.add_argument("--chars", choices=("ascii", "ks-hangul", "ks-nonhanja", "ks-all"), required=True)
-    p.add_argument("--first", type=pi, default=0, help="ascii: the code of the glyph at the offset (0)")
-    p.add_argument("--count", type=int, default=None, help="ascii: glyphs to read (256)")
+    p.add_argument("--first", type=binscan.nonneg, default=0, help="ascii: the code of the glyph at the offset (0)")
+    p.add_argument("--count", type=binscan.positive, default=None, help="ascii: glyphs to read (256)")
     p.add_argument("--dense", action="store_true")
     p.add_argument("--grid", type=lambda s: tuple(int(x, 0) for x in s.split(",")), default=None,
                    metavar="L0,T0,PITCH")
@@ -321,7 +339,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         a.fn(a)
-    except (CarveError, KeyError, IndexError, ValueError) as e:
+    except (CarveError, KeyError, IndexError, ValueError, TypeError, AttributeError, OSError) as e:
         print(f"rawcarve.py: {e}", file=sys.stderr)
         sys.exit(1)
 

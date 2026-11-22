@@ -100,6 +100,32 @@ class Binscan(unittest.TestCase):
                 "--count", "20", "--png", png)
             self.assertEqual(rd(png, 8), b"\x89PNG\r\n\x1a\n")
 
+    def test_row_shift_ties_are_listed_unranked(self):
+        """A font after zero bytes passes a whole row earlier as well: both reads are listed as a tie, in file order."""
+        font = raw844()
+        data = bytes(range(1, 200)) + bytes(2) + font + bytes(range(1, 200))
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "PROG.COM")
+            wr(p, data)
+            out = run(os.path.join(HERE, "binscan.py"), "sets", p)
+            true = 199 + 2
+            self.assertIn(f"offsets {true - 2:#x}, {true:#x} tie", out)
+            self.assertIn("driver's code", out)
+
+    def test_strips_is_jamoset_bytecols_and_bytecols_lsb(self):
+        rnd = random.Random(5)
+        data = bytes(rnd.randrange(256) for _ in range(64))
+        g = jamoset.g_bytecols(data, 0, 16, 16)
+        rows = binscan.decode(data, 0, 16, 16, "strips")
+        self.assertEqual([int("".join(map(str, r)), 2) for r in rows], g.rows)
+        # bytecols: band 0 is bytes 0..W-1, one column each; with --lsb bit 0 is the top row
+        d = bytearray(16)
+        d[3] = 0x01
+        self.assertEqual([(x, y) for y, r in enumerate(binscan.decode(bytes(d), 0, 8, 16, "bytecols", lsb=True))
+                          for x, v in enumerate(r) if v], [(3, 0)])
+        self.assertEqual([(x, y) for y, r in enumerate(binscan.decode(bytes(d), 0, 8, 16, "bytecols"))
+                          for x, v in enumerate(r) if v], [(3, 7)])
+
     def test_decode_orders(self):
         # one 16x16 glyph with pixel (x=9, y=3) set, in each storage order
         rows = bytearray(32)
@@ -121,6 +147,11 @@ class Rawcarve(unittest.TestCase):
             out = os.path.join(d, "f.fnt")
             run(os.path.join(HERE, "rawcarve.py"), "cut", p, "--offset", "3", "--length", "11520", "-o", out)
             self.assertEqual(rd(out), raw844())
+            e14 = os.path.join(d, "e14.raw")
+            wr(os.path.join(d, "f14.bin"), bytes(range(1, 15)) * 128)
+            run(os.path.join(HERE, "rawcarve.py"), "eng", os.path.join(d, "f14.bin"), "--offset", "0", "--height",
+                "14", "--top", "1", "-o", e14)
+            self.assertEqual(rd(e14)[:16], bytes([0]) + bytes(range(1, 15)) + bytes([0]))  # one row above, one below
             eng = os.path.join(d, "e.raw")
             run(os.path.join(HERE, "rawcarve.py"), "eng", p, "--offset", str(3 + 11520), "-o", eng)
             e = rd(eng)
@@ -140,9 +171,13 @@ class Rawcarve(unittest.TestCase):
                          ("cut", p, "--offset", "611998", "--length", "4"), ("eng", p, "--offset", "0", "--top", "-1"),
                          ("eng", p, "--offset", "0", "--height", "14", "--top", "3"),
                          ("bdf", p, "--glyph", "16x16", "--chars", "ks-hangul", "--grid", "0xB1,0xA1,94"),
-                         ("bdf", p, "--glyph", "16x16", "--chars", "ks-hangul", "--grid", "0xA1,0xA1,10")):
+                         ("bdf", p, "--glyph", "16x16", "--chars", "ks-hangul", "--grid", "0xA1,0xA1,10"),
+                         ("bdf", p, "--glyph", "16x16", "--chars", "ks-hangul", "--grid", "0xA1,0xA2,94"),
+                         ("bdf", p, "--glyph", "16x16", "--chars", "ascii", "--count", "0"),
+                         ("bdf", p, "--glyph", "16x16", "--chars", "ascii", "--first", "-1")):
                 r = subprocess.run([sys.executable, rc] + list(argv) + ["-o", o], capture_output=True, text=True)
-                self.assertEqual(r.returncode, 1, argv)
+                self.assertIn(r.returncode, (1, 2), argv)  # 2: refused by argparse (a negative offset)
+                self.assertFalse(os.path.exists(o), argv)
             bs = os.path.join(HERE, "binscan.py")
             for argv in (("info", p, "--block", "0"), ("render", p, "--glyph", "0x16"), ("runs", p, "--step", "0")):
                 r = subprocess.run([sys.executable, bs] + list(argv), capture_output=True, text=True)
@@ -203,6 +238,20 @@ class Rawcarve(unittest.TestCase):
             wr(sp, json.dumps(spec))
             run(os.path.join(HERE, "rawcarve.py"), "compose", p, "--spec", sp, "--syllables", "all", "-o", b)
             self.assertEqual(len(bdfface.read_bdf(b)[1]), 11172)
+            # a spec naming a negative piece, an unknown set, a bad cell; --eng-top past the cell: clean refusals
+            bad_specs = [dict(spec, final={"set": "nope"}), dict(spec, cell=[0, 16]),
+                         dict(spec, medial=dict(spec["medial"], nofinal=[["m1", -1]] * 21))]
+            for i, bs in enumerate(bad_specs):
+                bp = os.path.join(d, f"bad{i}.json")
+                wr(bp, json.dumps(bs))
+                r = subprocess.run([sys.executable, os.path.join(HERE, "rawcarve.py"), "compose", p, "--spec", bp,
+                                    "-o", b + str(i)], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 1, (i, r.stderr))
+                self.assertIn("rawcarve.py:", r.stderr)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "rawcarve.py"), "compose", p, "--spec", sp,
+                                "--eng", p, "--eng-height", "16", "--eng-top", "1", "-o", b + "x"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1)
 
 
 def nkp_like():
@@ -318,9 +367,61 @@ class NkpSpec(unittest.TestCase):
         bad[0x1260 - 0x100] = 5  # a record offset that is not a multiple of 6
         with self.assertRaises(nkpspec.SpecError):
             nkpspec.spec(bytes(bad), found)
+        bad = bytearray(d)
+        struct.pack_into("<H", bad, 0x1100 - 0x100, 0x80)  # record 0's pieces below the .COM image
+        with self.assertRaisesRegex(nkpspec.SpecError, "below the .COM image"):
+            nkpspec.spec(bytes(bad), found)
+
+
+JOHAB_FONTS = os.environ.get("JOHAB_FONTS", os.path.join(HERE, "no-johab-fonts"))
+ZN16 = os.path.join(JOHAB_FONTS, "os/extracted/os2warp4_ko_ftcomp/D28REQ.004.OS2_SYSDATA_$korZN16.FNT")
+ZN16_NOTES = os.path.join(JOHAB_FONTS, "notes/os2-dbcs.md")
 
 
 class Os2Dbcs(unittest.TestCase):
+    @unittest.skipUnless(os.path.exists(ZN16), "JOHAB_FONTS does not name the research tree with OS/2 $korZN16.FNT")
+    def test_real_zn16(self):
+        """The real OS/2 Warp 4 $korZN16.FNT (proprietary, not in this repository): hashes of the decoded table and of
+        가 (B0A1), 각 (B0A2) and 힝 (C8FE), and 가 / 힝 against the renders written by hand-checked research notes."""
+        import hashlib
+        g = os2dbcs.decode(os2dbcs.read_font(ZN16))
+        self.assertEqual(len(g), 8224)
+        table = b"".join(g.get(i, bytes(32)) for i in range(256, 8998))
+        self.assertEqual(hashlib.sha256(table).hexdigest(),
+                         "6961b08325d580f23b32b2fd2eec9e4c5f8d80bd0896741505eca0846ee851e8")
+        for num, want in ((1666, "6ce9162d7c710631acba9b54141f28f6da5deb2da80f39e9934f5699e6b3a32a"),
+                          (1667, "b5d170d884b3d0168769e0151d1109981e46a7f23f91a94173bbcf4ef08eaf1e"),
+                          (4015, "2fb22f7a1c1e25dcf4632c67f68ba6f1f4adae97d4eb44b6f07adc1230ee5b06")):
+            self.assertEqual(hashlib.sha256(g[num]).hexdigest(), want, num)
+        if os.path.exists(ZN16_NOTES):
+            with open(ZN16_NOTES, encoding="utf-8") as fh:
+                notes = fh.read()
+            for label, num in (("가 (B0A1", 1666), ("힝 (C8FE", 4015)):
+                rows = notes.split(label, 1)[1].split("\n")[1:17]
+                drawn = b"".join(int(r.strip().replace("#", "1").replace(".", "0"), 2).to_bytes(2, "big") for r in rows)
+                self.assertEqual(g[num], drawn, label)
+
+    def test_record_structure(self):
+        g = {1666: bytes(range(32)), 1667: bytes(range(32, 64))}
+        d = bytearray(os2_font(g))
+        first_len = d[0x1A02]
+        # a record length one byte too long (the record still fits its block): the code no longer ends with it
+        bad = bytearray(d)
+        bad[0x1A02] = first_len + 1
+        with self.assertRaisesRegex(os2dbcs.DbcsError, "does not match"):
+            os2dbcs.decode(bytes(bad))
+        # one or two bytes other than 0xFF at the end of a block's padding (a record header cut off by the block end)
+        for k in (1, 2):
+            bad = bytearray(d)
+            bad[0x1A00 + 512 - k:0x1A00 + 512] = bytes([0x12] * k)
+            with self.assertRaisesRegex(os2dbcs.DbcsError, "after the padding|cut off"):
+                os2dbcs.decode(bytes(bad))
+        with tempfile.TemporaryDirectory() as t:
+            p = os.path.join(t, "x.fnt")
+            wr(p, b"not a font" + bytes(100))
+            with self.assertRaisesRegex(os2dbcs.DbcsError, "System DBCS"):
+                os2dbcs.read_font(p)
+
     def test_decode_and_table(self):
         rnd = random.Random(3)
         # a sparse set with large gaps (256 .. 8997), random bitmaps (zero nibbles take the escape code), several blocks
@@ -416,8 +517,30 @@ class Svfscale(unittest.TestCase):
                 first = g[0] >> (8 - bpp), (g[0] >> (8 - 2 * bpp)) & ((1 << bpp) - 1)
                 self.assertEqual(first, want, bpp)
 
+    def test_marks_widths_and_dy_canvas(self):
+        """A 29x24 face at 16 px: cell 19 wide, an advance of 22 -> 14 (by w / W, not 14.67 by h / H); a combining mark
+        with bearing_x -12 keeps its ink (drawn left of the pen, not clipped) and gets bearing_x round(-12 x 19 / 29) =
+        -8; --compare sees ink a dy moves below the cell."""
+        dot = [[1 if 2 <= x < 8 and 2 <= y < 6 else 0 for x in range(29)] for y in range(24)]
+        with tempfile.TemporaryDirectory() as d:
+            src, out = os.path.join(d, "s.svf"), os.path.join(d, "o.svf")
+            self.face(src, 29, 24, 20, {0x41: (dot, 22), 0x301: (dot, 0)}, bx={0x301: -12})
+            run(os.path.join(HERE, "svfscale.py"), src, "--size", "16", "--chars", "face", "-o", out)
+            f = jamoset.parse_svfn(rd(out))
+            self.assertEqual((f.cell_w, f.metrics[0x41][0]), (19, 14))
+            self.assertEqual(f.metrics[0x301][1], -8)
+            self.assertTrue(any(f.glyphs[0x301]))
+            # two faces equal in the cell, different in the rows a dy of 4 pushes below it
+            low_a = [[1 if 2 <= x < 10 and 8 <= y < 16 else 0 for x in range(16)] for y in range(16)]
+            low_b = [[1 if 2 <= x < 10 and (8 <= y < 14 or y == 15) else 0 for x in range(16)] for y in range(16)]
+            a, b = os.path.join(d, "a.svf"), os.path.join(d, "b.svf")
+            self.face(a, 16, 16, 12, {0xAC00: (low_a, 16)}, dy={0xAC00: 4})
+            self.face(b, 16, 16, 12, {0xAC00: (low_b, 16)}, dy={0xAC00: 4})
+            iou = svfscale.overlap(a, b)[0]
+            self.assertAlmostEqual(iou, 56 / 64)
+
     @staticmethod
-    def face(path, w, h, ascent, glyphs, dy=None):
+    def face(path, w, h, ascent, glyphs, dy=None, bx=None):
         """An SVF of {cp: (rows of 0/1, advance)}."""
         recs = []
         for cp, (rows, adv) in sorted(glyphs.items()):
@@ -425,7 +548,8 @@ class Svfscale(unittest.TestCase):
             packed = b"".join(int("".join(map(str, r)), 2).to_bytes((w + 7) // 8, "big")
                               if w % 8 == 0 else (int("".join(map(str, r)), 2) << (-w % 8)).to_bytes((w + 7) // 8, "big")
                               for r in rows)
-            recs.append((cp, packed, adv, cols[0] if cols else 0, cols[-1] - cols[0] + 1 if cols else 0))
+            ink_x = (bx or {}).get(cp, cols[0] if cols else 0)
+            recs.append((cp, packed, adv, ink_x, cols[-1] - cols[0] + 1 if cols else 0))
         wr(path, jamoset.write_svfn(w, h, ascent, recs, b"", jamoset.FLAG_MARKS_AT_ORIGIN, bpp=1, dy=dy or {}))
 
     def test_metrics_dy_and_compare(self):
@@ -454,9 +578,10 @@ class Svfscale(unittest.TestCase):
             self.face(a, 16, 16, 12, {0xAC00: (box, 16)})
             self.face(b, 16, 18, 15, {0xAC00: (tall, 16)})
             self.assertEqual(svfscale.overlap(a, b), (1.0, 0, 0, 1, 1))
-            bad = subprocess.run([sys.executable, os.path.join(HERE, "svfscale.py"), src, "--size", "0", "-o", out],
-                                 capture_output=True, text=True)
-            self.assertEqual(bad.returncode, 1)
+            for argv in (("--size", "0"), ("--size", "16", "--threshold", "0"), ("--size", "16", "--threshold", "1.5")):
+                bad = subprocess.run([sys.executable, os.path.join(HERE, "svfscale.py"), src] + list(argv) + ["-o", out + "x"],
+                                     capture_output=True, text=True)
+                self.assertEqual(bad.returncode, 1, argv)
 
 
 if __name__ == "__main__":
