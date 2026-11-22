@@ -29,7 +29,7 @@ Mac) to SVF.
 | `spec/SVF.md` | the SVFN v3 format (header, layout bytes, tables, glyph records, profiles, jamo sets JSET v1/v2, BIG, JMAP and LIST, per-glyph dy; v1 and v2 retired) |
 | `docs/STATUS.md` | development status: components, timeline, open cards, decisions, known gaps |
 | `docs/tools.md` | every tool: its purpose, inputs, outputs and options, and the recipes from each input format to an SVF |
-| `docs/desktop-app.md` | the SVF maker desktop app: what it is, how to use it, privacy and security, limits |
+| `docs/desktop-app.md` | the SVF maker desktop app: Quick start (build from a checkout, first conversion), how to use it, messages, recovery and uninstall, privacy and security, limits |
 | `docs/c-renderer-guide.md` | integration guide for the C renderer: build, open faces, draw lines, targets, scaling, Hangul, memory, troubleshooting |
 | `docs/recipes.md` | how each face of `svf/` is made, and how-tos for every kind of Korean font source |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | design documents and implementation plans, one pair per feature, named by date; they are the working record and still name faces, tools and paths of the original working repository that this one leaves out |
@@ -38,6 +38,7 @@ Mac) to SVF.
 | `ttf/<family>/` | TrueType faces the maps use (`FONTS.md`) |
 | `c/` | the portable C renderer ([c/README.md](c/README.md): API, switches, gates), its tests (`make -C c check`), the port examples `c/ports/{pico,esp32,arduino,ch582,dos,web,sdl}` with their host checks `c/ports/check`, and the emulated benches `c/bench` |
 | `maker/` | the SVF maker: a small web service that bakes faces from an uploaded font with the tools below (`maker/server.py`) |
+| `desktop/` | the SVF maker desktop app: an Electron shell around the maker and the build of its Linux AppImage (`docs/desktop-app.md`, `docs/maker-desktop.md`) |
 | `web/` | the WASM font picker page, its face index and tests ([web/README.md](web/README.md)) |
 | `tools/` | font tools and their tests (`python3 -m unittest discover -s tools -p 'test_*.py'`); the SVF maker's tests: `python3 -m unittest discover -s maker/test -p 'test_*.py'`; `facecheck.py` checks faces against a manifest and maps; `macfbit3.py`, `macfbit_svf.py` and `macsfnt.py` convert classic Mac fonts the user supplies (no such font is distributed) |
 | `tools/build/` | `build_faces.py` and its recipe table `faces.tsv`: rebuild the faces of `svf/` from the fonts in `ttf/` and compare |

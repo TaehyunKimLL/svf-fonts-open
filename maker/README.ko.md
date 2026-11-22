@@ -81,15 +81,23 @@ argv를 만들며, 소스 모드는 여전히 `python3 -P tools/<name>.py`를 �
 인터프리터에서 `SVF_RECOG_DIR`과 함께 실행되고, mask-fit 라이브러리는 `JAMOSET_PYLIB`에서 가져온다. 패키징된 저장소 트리는
 그 인터프리터를 위해 `maker/*.py`와 `tools/*.py`를 소스로 담고 있다.
 
-Linux에서의 빌드(전체 순서, 버전, 수치: `docs/maker-desktop.md`): `~/.local/bin/heavy bash
-desktop/build/build-appimage.sh`는 emsdk(WASM 모듈), pip가 있는 Python 3.12, npm이 있는 node 22가 필요하다. 동결된
-사이드카를 빌드하고 `THIRD-PARTY.txt`와 AppImage를 생성하며 릴리스 검사를 실행한다. Windows와 macOS 패키지는
+Linux에서 git 체크아웃으로 빌드한다(설치와 첫 실행: `docs/desktop-app.ko.md`의 빠른 시작, 기록, 버전, 수치:
+`docs/maker-desktop.md`). `cd desktop && npm ci && node node_modules/electron/install.js` 다음에 체크아웃 루트에서
+`bash desktop/build/build-appimage.sh`를 실행한다(작성자는 `~/.local/bin/heavy` 아래에서 실행하지만 이는 선택 사항이다).
+emsdk(`$EMSDK`, 기본값 `~/opt/emsdk`, 스크립트가 WASM 모듈을 직접 빌드함), pip가 있는 Python 3.12, npm이 있는 node 22,
+`xvfb-run`(스모크 검사용)이 필요하다. 동결된 사이드카를 빌드하고 `THIRD-PARTY.txt`와
+`desktop/dist/svf-maker-<version>.AppImage`를 생성하며 릴리스 검사를 실행한다. 패키징 없이 체크아웃에서 앱을 실행하려면:
+`cd desktop && npm ci && node node_modules/electron/install.js && bash ../maker/build-wasm.sh &&
+node_modules/.bin/electron --no-sandbox .`(`--no-sandbox`는 사용자 네임스페이스가 막힌 곳에서만). Windows와 macOS 패키지는
 빌드하지도 검증하지도 않았다. 절차는 `docs/maker-desktop.md`에 적혀 있으며 서버는 Windows에 대응하지 않는다.
 
 ## 선택적 환경 변수
 
 - `JAMOSET_PYLIB` - freetype-py와 uharfbuzz가 들어 있는 폴더. `mask fit` 경로와 `binarize mono`용이다
   (없으면 둘은 제공되지 않는다).
+- `JAMOSET_MASK_FONT` - `mask fit`이 쓰는, OpenType `ljmo`/`vjmo`/`tjmo`가 있는 폰트(`jamoset.py --mask-font`). `JAMOSET_PYLIB`처럼
+  도구에 그대로 전달된다.
+- `SVF_MAKER_ROOTS` - 콜론으로 구분한 절대 경로 폴더들. 로컬 모드에서는 이 안의 경로만 소스로 고를 수 있다.
 - `SVF_RECOG_PYTHON` - maker가 동결되었을 때 정체성 검사를 실행하는 인터프리터(데스크톱 앱 참조).
 - `SVF_RECOG_DIR` - 자모 세트의 조각 정체성 검사를 위한 `recog.py`와 그 가중치가 있는 폴더(numpy와 torch 필요).
   채점 전용이다. 인식기나 가중치는 이 저장소에 없으며, 이 폴더가 없으면 페이지는
