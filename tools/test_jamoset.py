@@ -1688,11 +1688,11 @@ class Eng40x48(unittest.TestCase):
 
     def test_48_reads_and_steps_24(self):
         pft = bytearray(49152)
-        pft[ord("H") * 192 + 4 * 40] = 0x30
-        pft[ord("H") * 192 + 4 * 40 + 3] = 0x01
+        pft[ord("H") * 192 + 4 * 39] = 0x30
+        pft[ord("H") * 192 + 4 * 39 + 3] = 0x01
         e = jamoset.read_eng(bytes(pft))
-        self.assertEqual((e.w, e.h, e.adv, e.baseline), (32, 48, 24, 41))
-        self.assertEqual(e.glyph(ord("H"))[40], 0x30000001)
+        self.assertEqual((e.w, e.h, e.adv, e.baseline), (32, 48, 24, 40))
+        self.assertEqual(e.glyph(ord("H"))[39], 0x30000001)
 
     def test_glyph_in_a_40_cell_keeps_rows_and_steps_20(self):
         pft = bytearray(30720)
@@ -1701,6 +1701,33 @@ class Eng40x48(unittest.TestCase):
         g, adv = jamoset.eng_glyph(e, ord("H"), 40, 40)
         self.assertEqual(adv, 20)
         self.assertEqual(g.rows[33], 0x1F << 32)		# 24 bit file row at the left of a 40 bit cell
+
+    def build(self, size, row, nbytes, ncell):
+        pft = bytearray(size)
+        for ch in "AH":
+            pft[ord(ch) * (size // 256) + nbytes * row] = 0xC0
+            pft[ord(ch) * (size // 256) + nbytes * row + nbytes - 1] = 0x01
+        e = jamoset.read_eng(bytes(pft))
+        out, _, _ = jamoset.build_from_source(jamoset.LAYOUTS["844"], jamoset.open_raw844(self.src(ncell)), e)
+        return jamoset.parse_svfn(out), e
+
+    @staticmethod
+    def src(n):
+        return bytes(11520 if n == 16 else {24: 25920, 40: 72000, 48: 103680}[n])
+
+    def test_svf_from_40_carries_ascii(self):
+        f, e = self.build(30720, 33, 3, 40)
+        self.assertEqual((f.cell_w, f.cell_h, f.ascent), (40, 40, 34))
+        self.assertEqual(f.metrics[ord("A")][0], 20)
+        row = int.from_bytes(f.glyphs[ord("H")][33 * 5:34 * 5], "big")
+        self.assertEqual(row, (0xC00001 << 16))
+
+    def test_svf_from_48_carries_ascii(self):
+        f, e = self.build(49152, 39, 4, 48)
+        self.assertEqual((f.cell_w, f.cell_h, f.ascent), (48, 48, 40))
+        self.assertEqual(f.metrics[ord("A")][0], 24)
+        row = int.from_bytes(f.glyphs[ord("H")][39 * 6:40 * 6], "big")
+        self.assertEqual(row, (0xC0000001 << 16))
 
     def test_other_sizes_still_refused(self):
         with self.assertRaises(jamoset.SourceError):

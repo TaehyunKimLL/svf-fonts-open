@@ -38,7 +38,7 @@ DOS_SIZES = {11520: ["844", "844-ihnm"], 11522: ["844"], 25920: ["844"], 72000: 
 
 # A Latin companion (`--eng`) is recognised by its byte size: the 8x16 DOS fonts and the 12x24 ones (HWP `ASCII.PFT`;
 # the HBIOS 15,360-byte file is told from a Dokkaebi face by `hbios_eng_like`).
-ENG_SIZES = {2048: "8x16", 4096: "8x16", 12288: "12x24", 15360: "12x24"}
+ENG_SIZES = {2048: "8x16", 4096: "8x16", 12288: "12x24", 15360: "12x24", 30720: "20x40", 49152: "24x48"}
 
 # The Dokkaebi printer layouts hold two faces in one file (HANGUL16/24.FNT, HANGUL40/48.FNT).
 DKB_LAYOUTS = ("dkb-printer-7x2x2", "dkb-printer-12x4x4")
@@ -132,7 +132,7 @@ def sniff(data, size=None):
         return mac
     if size in DOS_SIZES:
         return "dos-raw"
-    if size in (2048, 4096, 12288):
+    if size in (2048, 4096, 12288, 30720, 49152):
         return "eng"
     if _mac_head(data, size):
         return "mac-rsrc"
@@ -683,7 +683,7 @@ def _detect_file(abs_path, rel, local=False):
 
     if fmt == "eng":
         cell = ENG_SIZES[size]
-        label = "Latin companion (--eng%s)" % (", 12x24" if cell == "12x24" else "")
+        label = "Latin companion (--eng%s)" % (", " + cell if cell != "8x16" else "")
         return [_entry(rel, 0, "eng", label, "other", family=_stem(rel), eng={"bytes": size, "cell": cell},
                        gz=zipped)]
 

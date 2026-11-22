@@ -211,6 +211,12 @@ class EngTest(DirCase):
         self.assertEqual((e["format"], e["label"], e["eng"]), ("eng", "Latin companion (--eng, 12x24)",
                                                                {"bytes": 12288, "cell": "12x24"}))
 
+    def test_taebaek_40_and_48_px_english_are_eng_companions(self):
+        for size, cell in ((30720, "20x40"), (49152, "24x48")):
+            e = detect.detect_file(self.put("GASCII.PFT", bytes(size)), "GASCII.PFT")[0]
+            self.assertEqual((e["format"], e["label"], e["eng"]),
+                             ("eng", "Latin companion (--eng, %s)" % cell, {"bytes": size, "cell": cell}))
+
     def test_the_8x16_eng_label_is_unchanged_and_carries_its_size(self):
         e = detect.detect_file(self.put("ENG.FNT", bytes(2048)), "ENG.FNT")[0]
         self.assertEqual((e["label"], e["eng"]), ("Latin companion (--eng)", {"bytes": 2048, "cell": "8x16"}))
