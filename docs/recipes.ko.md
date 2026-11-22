@@ -501,8 +501,8 @@ DOS 한글 시스템(한글 BIOS, 이야기, 한메, san, 도깨비, 게임)은 
 | `844-hbios24` | MY24.FNT, 243,900 바이트(태백 3.5.1 명조 24), `--eng GASCII24.PFT` | `23,136 바이트`. `width=216 ascent=20 descent=4`, 잉크 964 |
 | `1044-san` | HANPL.KOR, 12,800 바이트(san 1.0의 `font-kor/`. GitHub의 san 프로젝트) | `13,988 바이트`, 조각 382개, 글리프 384개. `width=80 ascent=14 descent=2`, 잉크 328 |
 | `621` | han_woori.fnt, 6,144 바이트("우리", GitHub의 iolo 6x2x1-fonts, Apple II 시대) | `6,584 바이트`, 조각 183개, 글리프 185개. 잉크 204 |
-| `dkb-printer-7x2x2` | HANGUL16.FNT 15,360 바이트와 HANGUL24.FNT 34,560 바이트(한글 도깨비 5.1 프린터 폰트), `--face 0` / `--face 1` | 16 px `8,852` / `8,792 바이트`, 조각 229개, 잉크 367 / 363. 24 px `11,968` / `11,772 바이트`, 잉크 542 / 537 |
-| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 바이트와 HANGUL48.FNT 253,440 바이트(같은 제품), `--face 0` / `--face 1` | 40 px `38,608` / `38,528 바이트`, 조각 420개, 잉크 1,595 / 1,766. 48 px `52,848` / `48,824 바이트`, 잉크 2,472 / 2,538 |
+| `dkb-printer-7x2x2` | HANGUL16.FNT 15,360 바이트와 HANGUL24.FNT 34,560 바이트(한글 도깨비 5.1 프린터 폰트), `--face 0` / `--face 1` | 16 px `8,928` / `8,868 바이트`, 조각 229개, 잉크 367 / 363. 24 px `12,068` / `11,872 바이트`, 잉크 542 / 537 |
+| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 바이트와 HANGUL48.FNT 253,440 바이트(같은 제품), `--face 0` / `--face 1` | 40 px `38,704` / `38,624 바이트`, 조각 420개(글리프 422개), 잉크 1,595 / 1,766. 48 px `52,932` / `48,908 바이트`, 잉크 2,472 / 2,538 |
 | `kyra-lok` | MK15.BIT, 11,550 바이트(The Legend of Kyrandia 한글판) | `14,036 바이트`, 조각 382개, 15x15. `width=80 ascent=13 descent=2`, 잉크 344 |
 | `844-ihnm` | 없음: SAGA IHNM 데이터를 찾지 못했다 | 실행하지 않음 |
 
@@ -527,7 +527,7 @@ GOTHIC16.FNT(레이블 "844, 844-ihnm". 두 레이아웃의 크기가 같다)는
   썼다)와 HBIOS 12x24(15,360 바이트). HWP 1.20 자신의 `ASCII.PFT`는 다른 파일이며(41,654 바이트: 32 바이트 "HWP Font Editor v1.0" 헤더와 14x24
   글리프 991개, 각 42 바이트, 열 우선) 거부된다: `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), not 41654`;
 - 평범한 원시 8x4x4인 HWP 2.x 화면 폰트: 한글 2.1 PRO 디스크(13번)의 `HMJ.FNT`(11,520 바이트)는 다른 `844` 폰트처럼 읽힌다.
-  `jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF`는 `15,700 바이트`를 쓰고 음절 11,172개를 모두 조합하며
+  `python3 tools/jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF`는 `15,700 바이트`를 쓰고 음절 11,172개를 모두 조합하며
   `johab844.py`와 동일하다;
 - 직접 만든, 한글을 완성형으로 만든 1 bpp 페이스를 조각으로 다시 맞추기: `jamoset.py --layout 844 --from-svf FACE.SVF --mask-font none --check`;
 - 조합된 음절의 BDF: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
@@ -542,7 +542,7 @@ DOS용 HWP 1.20(한글과컴퓨터, 1989-1990; `HANGUL1.PFT`, 70,592 바이트, 
 `218,848 바이트`, 음절 2,350자, `width=232 ascent=21 descent=3`, 잉크 886. 자모 세트는 `24,264 바이트`, 조각 344개, 음절 2,350자에 대한 IoU 1.000
 (모두 정확), 잉크 886: HWP 규칙이 모든 음절을 조각 셋으로 조합하므로 이 24 px 페이스들에서는 맞춤이 정확하다.
 
-읽지 **않는** 것: HWP의 `.PFT` 한글 파일 자체. `jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF`는 `size 70592 is not an 8x4x4 size`로 멈춘다(종료 코드 1). 그 글리프는
+읽지 **않는** 것: HWP의 `.PFT` 한글 파일 자체. `python3 tools/jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF`는 `size 70592 is not an 8x4x4 size`로 멈춘다(종료 코드 1). 그 글리프는
 HWP 자체의 규칙으로 조합되며, 별도의 연구 도구(johab-fonts 연구 노트의 `hwp1_fnt.py`와 `kfont.py`)가 이를 해독한다. 그 리더는 이 저장소에
 속하지 않으며, 그 출력(BDF 또는 완성형 페이스)이 위 경로들의 입력이다. maker의 `detect.scan`은 이 파일을 종류 `other`, 레이블 "unknown"으로 준다.
 
@@ -550,7 +550,7 @@ HWP 자체의 규칙으로 조합되며, 별도의 연구 도구(johab-fonts 연
 
 KS X 1001 완성형 음절 2,350자의 원시 덤프(코드 순서로 음절마다 비트맵 하나. 일부 DOS와 임베디드 시스템이 이렇게 보관한다)는 이 저장소에
 리더가 없다. `jamoset.py`, `bdfface.py`, maker 어디에도 이를 위한 레이아웃이 없고, 그런 크기의 파일은 알아보지 못한다. 태백 3.5.1의
-`GHAN24.PFT`(고딕 24 px; 169,200 바이트 = 2,350 x 72, 헤더 없음, 한 줄이 3 바이트인 24x24 행 우선, KS 순서로 가부터)로 실행: `jamoset.py --layout 844
+`GHAN24.PFT`(고딕 24 px; 169,200 바이트 = 2,350 x 72, 헤더 없음, 한 줄이 3 바이트인 24x24 행 우선, KS 순서로 가부터)로 실행: `python3 tools/jamoset.py --layout 844
 GHAN24.PFT -o $OUT/rejected.SVF`는 `size 169200 is not an 8x4x4 size`로 멈추고(종료 코드 1), maker의 `detect.scan`은 `other`, "unknown"이라 부른다. 다른 곳에서 BDF(KS C 5601
 인코딩, `ENCODING` = GL 코드)로 변환한 뒤 [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf)를 쓴다. 여기서는 15줄짜리 스크립트(행 `0x30 + i // 94`,
 열 `0x21 + i % 94`, 글리프의 각 줄을 16진수로)로 변환하고 ASCII는 Sony Fixed 12x24로 했다.

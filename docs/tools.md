@@ -1036,7 +1036,7 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
 - **Korean stdout.** `mkfont.py` prints its summary in Korean, so a wrapper must not parse its stdout for field names.
 - **The default `--binarize mono` needs freetype-py (and `--mask-font` uharfbuzz).** Neither is installed on this host
   (`cannot import freetype`), which is why the recipes use `--binarize threshold`; a caller must ship them or take the
-  threshold path. Both install and run from a scratch folder (`pip install --target $OUT/pylib freetype-py uharfbuzz`, then
+  threshold path. Both install and run from a scratch folder (`pip install --target $OUT/pylib freetype-py uharfbuzz` (`$OUT` as in recipes.md), then
   `--pylib $OUT/pylib`): the mask fit and the `mono` fit were run that way on 2026-11-22 (recipes.md, way 2).
 - **Bitmap fonts open only at their strike size.** A PCF or BDF opens at the pixel size built into the file and at no
   other (`OSError: invalid pixel size`); the tools do not list the strikes (the maker's `detect.bitmap_strikes` does).

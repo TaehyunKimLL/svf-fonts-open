@@ -537,8 +537,8 @@ count of the render check; ASCII is drawn only when `--eng` is given, so a face 
 | `844-hbios24` | MY24.FNT, 243,900 bytes (Taebaek 3.5.1 Myeongjo 24), `--eng GASCII24.PFT` | `23,136 bytes`; `width=216 ascent=20 descent=4`, ink 964 |
 | `1044-san` | HANPL.KOR, 12,800 bytes (san 1.0, `font-kor/`; the san project on GitHub) | `13,988 bytes`, 382 pieces, 384 glyphs; `width=80 ascent=14 descent=2`, ink 328 |
 | `621` | han_woori.fnt, 6,144 bytes ("Woori", iolo's 6x2x1-fonts on GitHub, Apple II era) | `6,584 bytes`, 183 pieces, 185 glyphs; ink 204 |
-| `dkb-printer-7x2x2` | HANGUL16.FNT 15,360 bytes and HANGUL24.FNT 34,560 bytes (Hangul Dokkaebi 5.1, printer fonts), `--face 0` / `--face 1` | 16 px `8,852` / `8,792 bytes`, 229 pieces, ink 367 / 363; 24 px `11,968` / `11,772 bytes`, ink 542 / 537 |
-| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 bytes and HANGUL48.FNT 253,440 bytes (the same), `--face 0` / `--face 1` | 40 px `38,608` / `38,528 bytes`, 420 pieces, ink 1,595 / 1,766; 48 px `52,848` / `48,824 bytes`, ink 2,472 / 2,538 |
+| `dkb-printer-7x2x2` | HANGUL16.FNT 15,360 bytes and HANGUL24.FNT 34,560 bytes (Hangul Dokkaebi 5.1, printer fonts), `--face 0` / `--face 1` | 16 px `8,928` / `8,868 bytes`, 229 pieces, ink 367 / 363; 24 px `12,068` / `11,872 bytes`, ink 542 / 537 |
+| `dkb-printer-12x4x4` | HANGUL40.FNT 176,000 bytes and HANGUL48.FNT 253,440 bytes (the same), `--face 0` / `--face 1` | 40 px `38,704` / `38,624 bytes`, 420 pieces (422 glyphs), ink 1,595 / 1,766; 48 px `52,932` / `48,908 bytes`, ink 2,472 / 2,538 |
 | `kyra-lok` | MK15.BIT, 11,550 bytes (The Legend of Kyrandia, Korean release) | `14,036 bytes`, 382 pieces, 15x15; `width=80 ascent=13 descent=2`, ink 344 |
 | `844-ihnm` | none: no SAGA IHNM data was found | not run |
 
@@ -564,7 +564,7 @@ this repository reads directly:
   bytes: a 32-byte "HWP Font Editor v1.0" header and 991 glyphs of 14x24, 42 bytes each, column-major) and is refused:
   `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), not 41654`;
 - HWP 2.x screen fonts that are plain raw 8x4x4: `HMJ.FNT` (11,520 bytes) of the Hangul 2.1 PRO disks (disk 13), read
-  as any `844` font: `jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF` writes `15,700 bytes`
+  as any `844` font: `python3 tools/jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF` writes `15,700 bytes`
   and composes all 11,172 syllables, identical to `johab844.py`;
 - any precomposed 1 bpp face you made of the Hangul, refitted to pieces: `jamoset.py --layout 844 --from-svf
   FACE.SVF --mask-font none --check`;
@@ -582,7 +582,7 @@ the johab-fonts notes composes the syllables; a 30-line script wrote its 2,350 K
 over the 2,350 syllables (all exact), ink 886: the fit is exact for these 24 px faces, as the HWP rule composes every syllable
 from three pieces.
 
-What it does **not** read: the HWP `.PFT` Hangul files themselves. `jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF` stops (exit 1) with `size 70592
+What it does **not** read: the HWP `.PFT` Hangul files themselves. `python3 tools/jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF` stops (exit 1) with `size 70592
 is not an 8x4x4 size`. Their glyphs are composed by HWP's own rules, which a separate research tool (`hwp1_fnt.py` and `kfont.py`
 of the johab-fonts research notes) decodes; that reader is not part of this repository, and its output (a BDF or a
 precomposed face) is the input of the routes above. The maker's `detect.scan` gives these files kind `other`, label
@@ -593,7 +593,7 @@ precomposed face) is the input of the routes above. The maker's `detect.scan` gi
 A raw dump of the 2,350 precomposed KS X 1001 syllables (one bitmap per syllable in code order, as some DOS and embedded
 systems keep them) has no reader in this repository: there is no layout for it in `jamoset.py`, `bdfface.py` or the
 maker, and a file of such a size is not recognised. Run on `GHAN24.PFT` of Taebaek 3.5.1 (Gothic 24 px; 169,200 bytes = 2,350
-x 72, no header, 24x24 row-major with three bytes a row, in KS order from 가): `jamoset.py --layout 844 GHAN24.PFT -o $OUT/rejected.SVF` stops (exit 1) with
+x 72, no header, 24x24 row-major with three bytes a row, in KS order from 가): `python3 tools/jamoset.py --layout 844 GHAN24.PFT -o $OUT/rejected.SVF` stops (exit 1) with
 `size 169200 is not an 8x4x4 size`, and the maker's `detect.scan` calls it `other`, "unknown". Convert it elsewhere to a BDF
 (KS C 5601 encoded, `ENCODING` = the GL code) and use [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf); done here with a 15-line
 script (row `0x30 + i // 94`, column `0x21 + i % 94`, the rows of each glyph as hex), then with Sony Fixed 12x24 for ASCII:

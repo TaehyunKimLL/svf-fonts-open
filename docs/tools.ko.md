@@ -980,7 +980,7 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 - **한국어 stdout.** `mkfont.py`는 요약을 한국어로 출력하므로 래퍼는 필드 이름을 찾으려고 그 stdout을 파싱해서는 안 된다.
 - **기본 `--binarize mono`는 freetype-py가 필요하다(`--mask-font`는 uharfbuzz도).** 이 호스트에는 둘 다 없으며
   (`cannot import freetype`), 그래서 레시피가 `--binarize threshold`를 쓴다. 호출자는 이를 동봉하거나 threshold 경로를 택해야 한다.
-  둘 다 스크래치 폴더에 설치해 실행할 수 있다(`pip install --target $OUT/pylib freetype-py uharfbuzz`, 그다음 `--pylib $OUT/pylib`). 마스크 맞춤과 `mono` 맞춤을
+  둘 다 스크래치 폴더에 설치해 실행할 수 있다(`pip install --target $OUT/pylib freetype-py uharfbuzz`(`$OUT`은 recipes.ko.md의 것), 그다음 `--pylib $OUT/pylib`). 마스크 맞춤과 `mono` 맞춤을
   2026-11-22에 그렇게 실행했다(recipes.ko.md, 2번 방법).
 - **비트맵 폰트는 스트라이크 크기에서만 열린다.** PCF나 BDF는 파일에 내장된 픽셀 크기에서만 열리고 다른 크기에서는 열리지 않는다
   (`OSError: invalid pixel size`). 도구는 스트라이크를 나열하지 않는다(maker의 `detect.bitmap_strikes`는 나열한다).
