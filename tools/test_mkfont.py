@@ -1039,7 +1039,7 @@ class ReportTest(unittest.TestCase):
 BM_ORDER = [".notdef", "A", "B", "D", "C", "E", "F", "M", "G"]     # glyph order of the synthetic bitmap-only font
 
 
-def bitmap_only_font(path, hmtx_px, strikes, with_g=False):
+def bitmap_only_font(path, hmtx_px, strikes, with_g=False, tables=("bloc", "bdat"), keep_head=False, upem=None):
     """Write a bitmap-only TrueType (bdat + bloc + bhed + hmtx, no head, no glyf) of the glyphs BM_ORDER.
 
     @p hmtx_px {name: advance px at 16 ppem} fills hmtx (1024 units per em), on purpose unlike the strikes.
@@ -1047,7 +1047,9 @@ def bitmap_only_font(path, hmtx_px, strikes, with_g=False):
     distinguishable pictures; a group is ("small", {name: advance}) with per-glyph small metrics
     (bdat format 1), ("big", {name: advance}) with big metrics (format 6) or ("shared", [names], advance) of
     format 5, whose one metrics record sits in the bloc index subtable. Groups cover consecutive glyphs of
-    BM_ORDER from .notdef; a glyph in no group is missing from that strike. Every glyph is an 8x8 block,
+    BM_ORDER from .notdef; a glyph in no group is missing from that strike. @p tables names the strike tables
+    (bloc/bdat, EBLC/EBDT, CBLC/CBDT); @p keep_head keeps `head` instead of renaming it `bhed`; @p upem sets
+    that table's unitsPerEm. Every glyph is an 8x8 block,
     .notdef a narrower one so the letters are not taken for "absent".
     """
     import tempfile
@@ -1068,10 +1070,15 @@ def bitmap_only_font(path, hmtx_px, strikes, with_g=False):
     fb.setupPost()
     fb.save(path)
     f = TTFont(path)
-    bhed = newTable("bhed")
-    bhed.__dict__.update(f["head"].__dict__)
-    del f["head"], f["glyf"], f["loca"]
-    f["bhed"] = bhed
+    if upem is not None:
+        f["head"].unitsPerEm = upem
+    if keep_head:
+        del f["glyf"], f["loca"]
+    else:
+        bhed = newTable("bhed")
+        bhed.__dict__.update(f["head"].__dict__)
+        del f["head"], f["glyf"], f["loca"]
+        f["bhed"] = bhed
     line = ('<sbitLineMetrics direction="%s"><ascender value="13"/><descender value="-3"/>'
             '<widthMax value="16"/><caretSlopeNumerator value="1"/><caretSlopeDenominator value="0"/>'
             '<caretOffset value="0"/><minOriginSB value="0"/><minAdvanceSB value="0"/>'
@@ -1085,8 +1092,8 @@ def bitmap_only_font(path, hmtx_px, strikes, with_g=False):
     def bits(n, rows=8):
         return "<rawimagedata>%s</rawimagedata>" % " ".join(["f0" if n == ".notdef" else "ff"] * rows)
 
-    xml = ['<?xml version="1.0"?><ttFont><bloc><header version="2.0"/>']
-    data = ['<bdat><header version="2.0"/>']
+    xml = ['<?xml version="1.0"?><ttFont><%s><header version="2.0"/>' % tables[0]]
+    data = ['<%s><header version="2.0"/>' % tables[1]]
     for k, (px, py, groups, *rest) in enumerate(strikes):
         rows = rest[0] if rest else 8
         ids = [BM_ORDER.index(n) for g in groups for n in (g[1] if g[0] == "shared" else g[1])]
@@ -1121,8 +1128,8 @@ def bitmap_only_font(path, hmtx_px, strikes, with_g=False):
             xml.append("</eblc_index_sub_table_%d>" % (2 if g[0] == "shared" else 1))
         xml.append("</strike>")
         data.append("</strikedata>")
-    xml.append("</bloc>")
-    data.append("</bdat></ttFont>")
+    xml.append("</%s>" % tables[0])
+    data.append("</%s></ttFont>" % tables[1])
     f.bitmapGlyphDataFormat = "raw"
     with tempfile.NamedTemporaryFile("w", suffix=".ttx", delete=False) as t:
         t.write("".join(xml + data))
@@ -1163,9 +1170,9 @@ class BitmapOnlyAdvanceTest(unittest.TestCase):
             (12, 12, [("small", {**n, "A": 5, "B": 6, "D": 7, "C": 8, "E": 9, "F": 10, "M": 11})], 6),
         ]
 
-    def make(self, d, with_g=False):
+    def make(self, d, with_g=False, **kw):
         src = os.path.join(d, "bm.ttf")
-        bitmap_only_font(src, self.HMTX, self.strikes(), with_g)
+        bitmap_only_font(src, self.HMTX, self.strikes(), with_g, **kw)
         return src
 
     def bake(self, letters, size="16", extra=()):
@@ -1266,6 +1273,65 @@ class BitmapOnlyAdvanceTest(unittest.TestCase):
                 adv, err = self.advance_with_stderr(src)
             self.assertIsNone(adv)
             self.assertIn(src, err)
+
+    def test_other_bitmap_table_pairs_with_bhed(self):
+        with tempfile.TemporaryDirectory() as d:
+            for tables in (("EBLC", "EBDT"), ("CBLC", "CBDT")):
+                with self.subTest(tables=tables):
+                    src = self.make(d, tables=tables)
+                    mkfont._STRIKE_ADVANCES.clear()
+                    self.assertEqual(mkfont.strike_advance(src, 16, "A"), 9)
+                    self.assertEqual(mkfont.strike_advance(src, 16, "E"), 14)
+
+    def test_head_and_ebdt_without_outlines(self):
+        from PIL import ImageFont
+        with tempfile.TemporaryDirectory() as d:
+            src = self.make(d, tables=("EBLC", "EBDT"), keep_head=True)
+            mkfont._STRIKE_ADVANCES.clear()
+            self.assertEqual(mkfont.strike_advance(src, 16, "B"), 11)
+            # Pillow reports the advance itself when it can, and mkfont then keeps it (font_advance asks only at 0)
+            pillow = ImageFont.truetype(src, 16).getlength("B")
+            self.assertEqual(mkfont.font_advance(ImageFont.truetype(src, 16), "B", src, 16),
+                             int(round(pillow)) if pillow else 11)
+
+    def test_truncated_or_empty_directory_is_not_a_font(self):
+        import struct
+        with tempfile.TemporaryDirectory() as d:
+            src = self.make(d)
+            raw = pathlib.Path(src).read_bytes()
+            n = struct.unpack(">H", raw[4:6])[0]
+            tags = [raw[12 + 16 * i:16 + 16 * i].decode() for i in range(n)]
+            # cut right after the strike pair and bhed, before the later tables: still no `head` to see
+            cut = os.path.join(d, "cut.ttf")
+            pathlib.Path(cut).write_bytes(raw[:12 + 16 * (tags.index("bloc") + 1)])
+            self.assertIn("bhed", tags[:tags.index("bloc") + 1])
+            self.assertIsNone(mkfont._sfnt_tags(cut))
+            self.assertEqual(self.advance_with_stderr(cut), (None, ""))
+            ttc = os.path.join(d, "empty.ttc")        # numFonts 0, though an offset and a font follow
+            pathlib.Path(ttc).write_bytes(b"ttcf" + struct.pack(">HHII", 1, 0, 0, 16) + raw)
+            self.assertIsNone(mkfont._sfnt_tags(ttc))
+            ok = os.path.join(d, "one.ttc")           # the same with numFonts 1 reads the face
+            pathlib.Path(ok).write_bytes(b"ttcf" + struct.pack(">HHII", 1, 0, 1, 16) + raw)
+            self.assertIn("bhed", mkfont._sfnt_tags(ok))
+            short = os.path.join(d, "short.ttc")
+            pathlib.Path(short).write_bytes(b"ttcf" + struct.pack(">HHI", 1, 0, 1))      # no offset bytes
+            self.assertIsNone(mkfont._sfnt_tags(short))
+            far = os.path.join(d, "far.ttc")
+            pathlib.Path(far).write_bytes(b"ttcf" + struct.pack(">HHII", 1, 0, 1, 0xFFFFFFFF))
+            self.assertIsNone(mkfont._sfnt_tags(far))
+
+    def test_a_font_with_outlines_is_not_bitmap_only(self):
+        self.assertEqual(mkfont._bitmap_pair({"bloc", "bdat", "bhed"}), ("bloc", "bdat"))
+        for outline in ("glyf", "CFF ", "CFF2"):
+            self.assertIsNone(mkfont._bitmap_pair({outline, "EBLC", "EBDT", "head"}), outline)
+        self.assertIsNone(mkfont._bitmap_pair({"EBLC", "head"}))      # half a pair
+
+    def test_zero_units_per_em_still_reads_the_strike(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = self.make(d, with_g=True, keep_head=True, upem=0, tables=("EBLC", "EBDT"))
+            mkfont._STRIKE_ADVANCES.clear()
+            self.assertEqual(mkfont.strike_advance(src, 16, "A"), 9)
+            self.assertIsNone(mkfont.strike_advance(src, 16, "G"))     # no hmtx scaling without an em
 
     def test_ordinary_inputs_stay_silent(self):
         with tempfile.TemporaryDirectory() as d:
