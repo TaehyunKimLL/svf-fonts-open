@@ -40,6 +40,14 @@ DOS_SIZES = {11520: ["844", "844-ihnm"], 11522: ["844"], 25920: ["844"], 72000: 
 # the HBIOS 15,360-byte file is told from a Dokkaebi face by `hbios_eng_like`).
 ENG_SIZES = {2048: "8x16", 4096: "8x16", 12288: "12x24", 15360: "12x24", 30720: "20x40", 49152: "24x48"}
 
+def eng_cell_h(cell):
+    """The row count of a companion's cell label ("12x24" -> 24, "20x40" -> 40); 0 for the 8x16 DOS fonts and for none."""
+    try:
+        h = int(str(cell).split("x")[1])
+    except (IndexError, ValueError):
+        return 0
+    return h if h > 16 else 0
+
 # The Dokkaebi printer layouts hold two faces in one file (HANGUL16/24.FNT, HANGUL40/48.FNT).
 DKB_LAYOUTS = ("dkb-printer-7x2x2", "dkb-printer-12x4x4")
 
@@ -1623,7 +1631,7 @@ def scan(sources, local=False):
                 reason = hbf_refusal(path)
                 if reason:
                     entry["label"] = "HBF: " + reason
-            batch_dos = local and dos_folders and (entry.get("eng") or {}).get("cell") == "12x24"
+            batch_dos = local and dos_folders and eng_cell_h((entry.get("eng") or {}).get("cell"))
             if entry["format"] == "eng" and folder_of(path) not in dos_folders and not batch_dos:
                 entry["format"] = "unknown"       # a Latin companion needs a DOS Johab font beside it
                 entry["label"] = "unknown (%s; no DOS Johab font beside it)" % _entry_size(path, entry, data)
@@ -1683,7 +1691,8 @@ def scan(sources, local=False):
             px = (entry.get("sizes") or [0])[0]
             if local and isinstance(px, int) and px >= 24:        # an HWP ASCII.PFT may be picked from another folder
                 entry["companions"] += [o["id"] for o in entries if o["format"] == "eng"
-                                        and (o.get("eng") or {}).get("cell") == "12x24" and o["id"] not in entry["companions"]]
+                                        and 0 < eng_cell_h((o.get("eng") or {}).get("cell")) <= px
+                                        and o["id"] not in entry["companions"]]
         elif entry["source_kind"] == "bdf-ksc5601":
             entry["companions"] = list(latin_ids)
         elif entry["source_kind"] == "mac-fbit3":
