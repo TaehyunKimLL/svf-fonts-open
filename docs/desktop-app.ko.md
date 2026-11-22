@@ -68,8 +68,13 @@ SVF maker 데스크톱 앱은 사용자가 가진 폰트를 자신의 컴퓨터�
     chmod +x desktop/dist/svf-maker-0.1.0.AppImage
     desktop/dist/svf-maker-0.1.0.AppImage
 
-또는 먼저 복사한다(`cp desktop/dist/svf-maker-0.1.0.AppImage ~/Apps/`, 그다음 `cd ~/Apps`와 `./svf-maker-0.1.0.AppImage`). 이후 절에서는
-현재 디렉터리의 파일을 `./svf-maker-0.1.0.AppImage`로 적는다.
+또는 먼저 복사한다.
+
+    mkdir -p "$HOME/Apps"
+    cp desktop/dist/svf-maker-0.1.0.AppImage "$HOME/Apps/"
+    cd "$HOME/Apps" && ./svf-maker-0.1.0.AppImage
+
+이후 절에서는 현재 디렉터리의 파일을 `./svf-maker-0.1.0.AppImage`로 적는다.
 
 **첫 변환**
 
@@ -384,7 +389,7 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 - `a run of job <id> is being prepared`: 이 작업의 다른 창이 방금 run을 눌렀을 때 **run**이 받는 답이다. 페이지는 실행을 반복하지 않고(첫
   번째와 경합하게 되므로) **Try again**을 보여 주면서 다른 실행을 **따라간다**. 15초까지 1초마다 작업을 읽어서, 작업이 "detected" 상태를
   벗어나면 그 작업의 진행 상황을 보여 주고 메시지를 지운다. (준비 중에 요청한 미리 보기는 같은 문장에 `; try again`이 붙은 답을 받고
-  조용히 재시도된다.)
+  자동으로 재시도된다.)
 - `the job changed while the run was being prepared: run again`: 저장과 실행 시작 사이에 설정이 바뀌었다(예: 다른 창에서). 페이지는
   작업을 다시 읽어 저장된 상태를 보여 준다. 설정을 확인하고 **run**을 다시 누른다.
 - `job <id> is queued`(또는 running): 다른 곳에서 실행이 시작되어 작업을 더는 편집할 수 없다. 페이지는 그 작업의 상태를 보여 준다.

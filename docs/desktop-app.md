@@ -56,8 +56,8 @@ row).
   it is harmless here, because the app is packaged for Linux only. The same blocking is why Electron's own binary is
   fetched by `node node_modules/electron/install.js`.
 - `build-appimage.sh` changes into the checkout root by itself, so it can be started from anywhere, but all other
-  commands here start in the checkout root. It builds the WebAssembly module, the frozen sidecar (with its tests), the notices file
-  and the AppImage, then prints one `CHECK <name> ok` line per release check. A failing check ends the script with exit
+  commands here start in the checkout root. It builds the WebAssembly module, the frozen sidecar (with its tests), the
+  notices file and the AppImage, then prints one `CHECK <name> ok` line per release check. A failing check ends the script with exit
   status 1.
 - The build keeps its scratch (pip downloads, PyInstaller work directory, extractions) in `$SVF_DESKTOP_TMP`, by default
   `~/work/tmp/svf-desktop-build`; set the variable to another folder if you like. Delete it when no build is running.
@@ -74,7 +74,12 @@ after the build:
     chmod +x desktop/dist/svf-maker-0.1.0.AppImage
     desktop/dist/svf-maker-0.1.0.AppImage
 
-or copy it first (`cp desktop/dist/svf-maker-0.1.0.AppImage ~/Apps/`, then `cd ~/Apps` and `./svf-maker-0.1.0.AppImage`).
+or copy it first:
+
+    mkdir -p "$HOME/Apps"
+    cp desktop/dist/svf-maker-0.1.0.AppImage "$HOME/Apps/"
+    cd "$HOME/Apps" && ./svf-maker-0.1.0.AppImage
+
 Later sections write `./svf-maker-0.1.0.AppImage` for the file in the current directory.
 
 **First conversion**
@@ -84,8 +89,8 @@ Later sections write `./svf-maker-0.1.0.AppImage` for the file in the current di
 2. Press **choose output folder** and pick an empty folder that is not synced by a cloud client.
 3. Press **detect**, read the "before you convert" note and press OK. The fonts table fills.
 4. Tick the **use** box of each row you want (a row is pre-ticked only when a licence file was found with its font, and a
-   DOS raw font never is), look at the batch settings (the preset `plain` is fine for a first try), and press **run**. The steps table shows each step's state, seconds and stderr (the commands themselves are
-   written to `build-<id>/BUILD.md` in the output folder).
+   DOS raw font never is), look at the batch settings (the preset `plain` is fine for a first try), and press **run**. The steps table shows each step's state, seconds and stderr (the commands themselves
+   are written to `build-<id>/BUILD.md` in the output folder).
 5. When the job is done, press **open folder**: the faces are in `<output>/svf/<dest>/` (section 6).
 
 **Run from the checkout without packaging** (for development; no AppImage, no PyInstaller; it needs the same Python, node,
@@ -401,7 +406,7 @@ your settings:
   The page does not repeat the run (that would race the first); it shows **Try again** and also **follows** the other
   run: every second, for up to 15 seconds, it reads the job, and when the job has left the "detected" state it shows that
   job's progress and removes the message. (A preview asked for during the preparation gets the same text with
-  `; try again` appended and is retried silently.)
+  `; try again` appended and is retried automatically.)
 - `the job changed while the run was being prepared: run again`: the settings were changed (for example from another
   window) between your save and the start of the run. The page then reads the job again and shows the saved state. Check
   the settings and press **run** again.
