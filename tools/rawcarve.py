@@ -138,11 +138,11 @@ def cmd_eng(a):
         raise CarveError("--offset must be 0 or more")
     if not 1 <= h <= 16 or a.top < 0 or a.top + h > 16:
         raise CarveError("--height (1..16) and --top (0 or more) must fit 16 rows")
-    d = read_range(a.file, 0, a.offset + 256 * h)
+    d = read_range(a.file, a.offset, 256 * h)
     out = bytearray(4096)
     n = 0
     for c in range(256):
-        src = a.offset + c * h
+        src = c * h
         if src + h > len(d):
             break
         out[c * 16 + a.top:c * 16 + a.top + h] = d[src:src + h]
@@ -156,14 +156,15 @@ def cmd_bdf(a):
     if a.grid and (len(a.grid) != 3 or a.grid[2] < 1):
         raise CarveError("--grid is L0,T0,PITCH with PITCH 1 or more")
     w, h = a.glyph
-    gb = a.stride or binscan.glyph_bytes(w, h, a.order)
+    foot = binscan.glyph_bytes(w, h, a.order)  # the bytes one glyph spans, whatever the stride
+    gb = a.stride or foot
     glyphs = {}
     if a.chars == "ascii":
         n = a.count or 256
-        d = read_range(a.file, a.offset, n * gb)
+        d = read_range(a.file, a.offset, (n - 1) * gb + foot)  # through the last glyph, even with a short stride
         for i in range(n):
             cp = a.first + i
-            if (i + 1) * gb > len(d) or cp > 0x7E:
+            if i * gb + foot > len(d) or cp > 0x7E:
                 break
             if cp < 0x20:
                 continue
@@ -182,9 +183,9 @@ def cmd_bdf(a):
                                      f"(lead below {l0:#x}, or trail outside {t0:#x}..{t0 + pitch - 1:#x})")
                 idx = (lead - l0) * pitch + (trail - t0)
             places.append((idx, cp))
-        d = read_range(a.file, a.offset, (max(i for i, _ in places) + 1) * gb)
+        d = read_range(a.file, a.offset, max(i for i, _ in places) * gb + foot)
         for idx, cp in places:
-            if (idx + 1) * gb > len(d):
+            if idx * gb + foot > len(d):
                 continue
             rows = binscan.decode(d, idx * gb, w, h, a.order, a.lsb)
             if any(map(any, rows)):

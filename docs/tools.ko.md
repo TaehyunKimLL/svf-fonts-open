@@ -425,7 +425,8 @@ dy에 대응시킨 JSON 객체를 읽는다.
 **입력.** 1 bpp SVFN v3 페이스(완성형 또는 자모 세트: 모든 글리프를 `svfline.py`로 그리므로 자모 세트의 음절은 먼저 조합된다) 또는
 BDF(`bdfface.read_bdf`: KS X 1001 또는 유니코드 인코딩).
 
-**출력.** 셀이 `round(W x h / H)` x `h`인 완성형 SVFN v3 페이스(플래그 5). 높이(ascent, 글리프별 dy)는 h / H, 너비(진행 폭, 결합 부호의 음수
+**출력.** 셀이 `round(W x h / H)` x `h`인 완성형 SVFN v3 페이스(가변 폭. 플래그 비트 2, 원점의 표시는 원본 SVF에 있을 때만: 없으면 음수 bearing_x는 표시의 원점이
+아니다). 높이(ascent, 글리프별 dy)는 h / H, 너비(진행 폭, 결합 부호의 음수
 bearing_x)는 w / W로 비례해 반올림한다(w = `round(W x h / H)`). 글리프마다 자기 비트맵(`svfline.Face.coverage`: dy 이동도 부호 원점도
 없고 잘리지도 않는다)에서 다시 샘플링한다. 출력 픽셀은 원본 영역 중 잉크가 차지한 정확한 비율이다. 1 bpp는 비율 >= `--threshold`
 (0 < threshold <= 1)를 남기고, 2 bpp는 비율을 0..255의 커버리지 c로 반올림한 뒤 `(c x 3 + 127) // 255`를 저장한다(mkfont의 규칙).
@@ -1010,7 +1011,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `bdf --chars ks-*`는 각 KS X 1001 코드를 `--dense`(글리프 i = 그 집합의 i번째 코드: 2,350 음절 덤프) 또는 `--grid L0,T0,PITCH`(글리프 =
 (lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). 음수 오프셋,
 1보다 작은 `--length` / `--stride` / `--count`, 음수 `--first`, 16행을 넘는 `--top` + `--height`는 거부한다. `cut`, `eng`, `bdf`는
-쓰는 바이트만 읽고, `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 세트, 셀을 넘는 `--eng-top` +
+쓰는 바이트만 읽고(글리프보다 짧은 `--stride`여도 마지막 글리프의 전체 범위까지), `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 세트, 셀을 넘는 `--eng-top` +
 `--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 세트(`offset`,
 `stride`, 저장된 조각이 셀의 어디로 가는지: `x`, `y`, `width`, `height`, `order`), 종성 없을 때와 있을 때 모음별 초성 세트, 모음별 중성
 (세트, 조각)(ㄱ / ㅋ용 다른 표를 둘 수 있다: 8x4x4 규칙), 모음별 종성 세트 또는 세트 하나, 그리고 폰트 자신의 모음 순서를 적는다.

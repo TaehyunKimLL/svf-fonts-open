@@ -395,7 +395,7 @@ def cmd_render(a):
         count = max(0, min(64, (size - a.offset) // gb))
     with open(a.file, "rb") as fh:  # only the bytes drawn
         fh.seek(a.offset)
-        data = fh.read(count * gb)
+        data = fh.read((count - 1) * gb + glyph_bytes(w, h, a.order) if count else 0)  # through the last glyph
     glyphs = [decode(data, i * gb, w, h, a.order, a.lsb) for i in range(count)]
     cols = a.cols or (8 if w > 12 else 16)
     if a.png:

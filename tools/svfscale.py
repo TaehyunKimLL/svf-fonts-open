@@ -10,7 +10,8 @@ the width by the same factor, rounded). 1 bpp keeps a pixel whose share is at le
 the share as four levels: the share rounded to a coverage c of 0..255, then (c x 3 + 127) // 255, mkfont.py's rule.
 The ascent, every advance and every per-glyph dy are scaled and rounded (heights by h / H, widths by w / W: the advance and a combining mark's negative
 bearing_x); a glyph is resampled from its own bitmap, so ink a dy shifts below the cell or a mark draws left of the pen
-is kept, not clipped; the output is a precomposed SVFN v3 face (flag 5, variable width), in `--profile` (default).
+is kept, not clipped; the output is a precomposed SVFN v3 face (variable width; flag bit 2, marks at origin, only when the source
+face has it: without it a negative bearing_x is no mark origin, spec/SVF.md), in `--profile` (default).
 
 --chars: `ks` (the default) = ASCII 0x20-0x7E, the KS X 1001 2,350 syllables and whatever else the source has outside
 U+AC00-D7A3 and outside plane 15 (where a jamo set keeps its pieces); `face` = the code points the source lists
@@ -68,11 +69,15 @@ def svf_source(path):
     s = Source()
     s.cell_w, s.cell_h, s.ascent = f.cell_w, f.cell_h, f.ascent
     s.cps = sorted(f.glyphs)
+    # a mark's origin is its negative bearing_x only when the face has flag bit 2 (spec/SVF.md); otherwise it is 0
+    s.marks = bool(f.flags & jamoset.FLAG_MARKS_AT_ORIGIN)
 
     def draw(cp):
         if not face.has(cp):
             return None
         adv, bx, _, dy = face.metrics(cp)
+        if not s.marks:
+            bx = 0
         rows = [[1 if v else 0 for v in r] for r in face.coverage(cp)]
         return rows, adv, bx, dy
     s.draw = draw
@@ -84,6 +89,7 @@ def bdf_source(path):
     face, glyphs = bdfface.read_bdf(path)
     s = Source()
     s.cell_w, s.cell_h, s.ascent = face.box_w, face.box_h, face.ascent
+    s.marks = False
     s.cps = sorted(glyphs)
 
     def draw(cp):
@@ -256,7 +262,8 @@ def main(argv=None):
         glyphs, w, h, asc, dys = scale(src, a.size, a.bpp, a.threshold, a.chars)
         if not glyphs:
             raise ScaleError("no glyph to write")
-        data = jamoset.write_svfn(w, h, asc, glyphs, b"", jamoset.FLAG_MARKS_AT_ORIGIN, bpp=a.bpp, dy=dys,
+        flags = jamoset.FLAG_MARKS_AT_ORIGIN if src.marks else 0  # kept only when the source has it
+        data = jamoset.write_svfn(w, h, asc, glyphs, b"", flags, bpp=a.bpp, dy=dys,
                                   profile=jamoset.profile_arg(ap, a))
         with open(a.output, "wb") as fh:
             fh.write(data)

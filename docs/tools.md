@@ -442,7 +442,8 @@ A dy on a jamo piece (`U+F0000..`) is refused. Code points the font lacks are co
 **Inputs.** A 1 bpp SVFN v3 face (precomposed or a jamo set: every glyph is drawn through `svfline.py`, so a jamo set's
 syllables are composed first) or a BDF (`bdfface.read_bdf`: KS X 1001 or Unicode encoding).
 
-**Outputs.** A precomposed SVFN v3 face (flag 5) of cell w x h, w = `round(W x h / H)`. Heights (ascent, per-glyph dy)
+**Outputs.** A precomposed SVFN v3 face (variable width; flag bit 2, marks at origin, only when the source SVF has it,
+since without it a negative bearing_x is no mark origin) of cell w x h, w = `round(W x h / H)`. Heights (ascent, per-glyph dy)
 scale by h / H, widths (advances, a combining mark's negative bearing_x) by w / W, each rounded. Each glyph is resampled
 from its own bitmap (`svfline.Face.coverage`: no dy shift, no mark origin, nothing clipped). An output pixel is the
 exact share of its source footprint that is inked; 1 bpp keeps share >= `--threshold` (0 < threshold <= 1), 2 bpp
@@ -1075,7 +1076,8 @@ are left out.
 or `--grid L0,T0,PITCH` (glyph = (lead - L0) x PITCH + (trail - T0): `0xA1,0xA1,94` a full table, `0x80,0x80,128` the
 Korean VGA ROMs; a code whose lead is below L0 or whose trail is outside T0 .. T0 + PITCH - 1 is refused). Negative
 offsets, a `--length` / `--stride` / `--count` below 1, a negative `--first` and `--top` + `--height` past 16 rows are
-refused; `cut`, `eng` and `bdf` read only the bytes they use, `compose` reads the whole file (up to 64 MiB). A compose
+refused; `cut`, `eng` and `bdf` read only the bytes they use (through the last glyph's whole footprint, also with a
+`--stride` shorter than a glyph), `compose` reads the whole file (up to 64 MiB). A compose
 spec with a cell outside 1..256, a negative piece, an unknown set or `--eng-top` + `--eng-height` past the cell is
 refused with a message. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
 `x`, `y`, `width`, `height`, `order`), the initial set per vowel without and with a final, the medial (set, piece) per

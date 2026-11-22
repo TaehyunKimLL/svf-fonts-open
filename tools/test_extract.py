@@ -126,6 +126,20 @@ class Binscan(unittest.TestCase):
         self.assertEqual([(x, y) for y, r in enumerate(binscan.decode(bytes(d), 0, 8, 16, "bytecols"))
                           for x, v in enumerate(r) if v], [(3, 7)])
 
+    def test_short_stride_reads_the_whole_last_glyph(self):
+        """--stride 8 with 16x16 glyphs (32 bytes each): the last glyph's ink in its trailing bytes is still read."""
+        data = bytearray(48)
+        data[8 + 31] = 0x01  # glyph 1 (bytes 8..39): its last row, last pixel
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "F.BIN")
+            wr(p, bytes(data))
+            out = run(os.path.join(HERE, "binscan.py"), "render", p, "--glyph", "16x16", "--stride", "8", "--count", "2")
+            self.assertEqual(out.splitlines()[-2].split()[1], "...............#")
+            b = os.path.join(d, "a.bdf")
+            run(os.path.join(HERE, "rawcarve.py"), "bdf", p, "--glyph", "16x16", "--stride", "8", "--count", "2",
+                "--first", "0x41", "--chars", "ascii", "-o", b)
+            self.assertEqual(bdfface.read_bdf(b)[1][0x42][4][15], 1)
+
     def test_decode_orders(self):
         # one 16x16 glyph with pixel (x=9, y=3) set, in each storage order
         rows = bytearray(32)
@@ -238,6 +252,13 @@ class Rawcarve(unittest.TestCase):
             wr(sp, json.dumps(spec))
             run(os.path.join(HERE, "rawcarve.py"), "compose", p, "--spec", sp, "--syllables", "all", "-o", b)
             self.assertEqual(len(bdfface.read_bdf(b)[1]), 11172)
+            # an 8x14 English font placed one row down in the 16-row cell
+            e = os.path.join(d, "e14.bin")
+            wr(e, bytes([0xFF] * 14) * 128)
+            run(os.path.join(HERE, "rawcarve.py"), "compose", p, "--spec", sp, "--eng", e, "--eng-height", "14",
+                "--eng-top", "1", "-o", b + "e")
+            rows = bdfface.read_bdf(b + "e")[1][0x41][4]
+            self.assertEqual(rows, [0] + [0xFF] * 14 + [0])
             # a spec naming a negative piece, an unknown set, a bad cell; --eng-top past the cell: clean refusals
             bad_specs = [dict(spec, final={"set": "nope"}), dict(spec, cell=[0, 16]),
                          dict(spec, medial=dict(spec["medial"], nofinal=[["m1", -1]] * 21))]
@@ -517,6 +538,20 @@ class Svfscale(unittest.TestCase):
                 first = g[0] >> (8 - bpp), (g[0] >> (8 - 2 * bpp)) & ((1 << bpp) - 1)
                 self.assertEqual(first, want, bpp)
 
+    def test_mark_origin_only_with_the_flag(self):
+        """A negative bearing_x is a mark origin only when the source has flag bit 2 (spec/SVF.md): with it, the
+        output keeps the flag and a scaled bearing; without it, the origin is 0 and the output has no flag."""
+        dot = [[1 if 2 <= x < 8 and 2 <= y < 6 else 0 for x in range(24)] for y in range(24)]
+        with tempfile.TemporaryDirectory() as d:
+            for flagged in (True, False):
+                src, out = os.path.join(d, f"s{flagged}.svf"), os.path.join(d, f"o{flagged}.svf")
+                self.face(src, 24, 24, 20, {0x301: (dot, 0)}, bx={0x301: -12},
+                          flags=jamoset.FLAG_MARKS_AT_ORIGIN if flagged else 0)
+                run(os.path.join(HERE, "svfscale.py"), src, "--size", "16", "--chars", "face", "-o", out)
+                f = jamoset.parse_svfn(rd(out))
+                self.assertEqual(bool(f.flags & jamoset.FLAG_MARKS_AT_ORIGIN), flagged)
+                self.assertEqual(f.metrics[0x301][1], -8 if flagged else 1)  # ink from column 2 of 24 -> 1 of 16
+
     def test_marks_widths_and_dy_canvas(self):
         """A 29x24 face at 16 px: cell 19 wide, an advance of 22 -> 14 (by w / W, not 14.67 by h / H); a combining mark
         with bearing_x -12 keeps its ink (drawn left of the pen, not clipped) and gets bearing_x round(-12 x 19 / 29) =
@@ -540,7 +575,7 @@ class Svfscale(unittest.TestCase):
             self.assertAlmostEqual(iou, 56 / 64)
 
     @staticmethod
-    def face(path, w, h, ascent, glyphs, dy=None, bx=None):
+    def face(path, w, h, ascent, glyphs, dy=None, bx=None, flags=jamoset.FLAG_MARKS_AT_ORIGIN):
         """An SVF of {cp: (rows of 0/1, advance)}."""
         recs = []
         for cp, (rows, adv) in sorted(glyphs.items()):
@@ -550,7 +585,7 @@ class Svfscale(unittest.TestCase):
                               for r in rows)
             ink_x = (bx or {}).get(cp, cols[0] if cols else 0)
             recs.append((cp, packed, adv, ink_x, cols[-1] - cols[0] + 1 if cols else 0))
-        wr(path, jamoset.write_svfn(w, h, ascent, recs, b"", jamoset.FLAG_MARKS_AT_ORIGIN, bpp=1, dy=dy or {}))
+        wr(path, jamoset.write_svfn(w, h, ascent, recs, b"", flags, bpp=1, dy=dy or {}))
 
     def test_metrics_dy_and_compare(self):
         """24 -> 16: ascent 22 -> 15 (rounded), advance 12 -> 8 and 24 -> 16, a dy of 3 -> 2 with the glyph resampled
