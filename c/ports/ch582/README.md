@@ -83,6 +83,18 @@ the core's handling of unaligned loads is not documented (the library never need
 (WCH has 512); `libISP583.a` (WCH's binary, in the Apache-2.0 EVT repository) is linked because `HardFault_Handler`
 calls into it.
 
+## Using it in your own project
+
+Take, from this repository, `c/include/svf.h` and `c/src/*.c` (compiled `-std=c99`), your face as a C array
+(`python3 c/bench/mkface.py svf/dos/NEODG16G.SVF face.c --name svf_face_data --profile mcu-strict`, a `const` array that the
+linker leaves in CodeFlash), and from the WCH EVT tree the start-up file `startup_CH583.S`, the three driver sources
+`CH58x_gpio.c`, `CH58x_i2c.c`, `CH58x_sys.c`, `libISP583.a` and the linker script (`link.ld` of this port is WCH's with
+`__stack_size = 2048`). Flags for the library and your code: `-march=rv32imac_zicsr_zifencei -mabi=ilp32 -mcmodel=medany
+-msmall-data-limit=8 -mstrict-align -Os` and the library switches of "Why the flags" above; the SDK files get `-DINT_SOFT -w`
+and `-DFREQ_SYS=24000000`. The glue between the renderer and the panel is `display_show(buf, y, rows)` over
+`ch582_i2c_write(addr, buf, n)`; the `MONO_PAGE` target is `svf_target_init(&t, SVF_T_MONO_PAGE, frame, sizeof frame, 128, 64,
+128)`. The Makefile of this directory is the working example of every line above.
+
 ## Flash
 
 Over the Type-C port with [wchisp](https://github.com/ch32-rs/wchisp) v0.3.0 (GPL-2.0; a separate tool that is only run
@@ -168,8 +180,9 @@ sources linked against the no-op stubs of `c/ports/ch582/stub/` (no SDK): text a
 
 ## Licences
 
-`build/licences/` holds `FACES.md` (each face's source, copyright and licence), `LICENSE-OFL.txt`, `LICENSE-MIT.txt` and the
-EVT's Apache-2.0 `LICENSE-ch583-evt.txt` with WCH's "Attention" notice `NOTICE-ch583-evt.txt`. A distributed image must carry them. `link.ld` is WCH's (Apache-2.0) with the one functional change above and a provenance comment at its top.
+`build/licences/` holds `FACES.md` (each face's source, copyright and licence), the face licence texts `OFL.TXT` and
+`NEODGM.TXT`, `LICENSE-MIT.txt` (the repository's `LICENSE`, the code's licence) and the EVT's Apache-2.0
+`LICENSE-ch583-evt.txt` with WCH's "Attention" notice `NOTICE-ch583-evt.txt`. A distributed image must carry them. `link.ld` is WCH's (Apache-2.0) with the one functional change above and a provenance comment at its top.
 
 ## What was checked
 

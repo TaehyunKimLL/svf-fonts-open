@@ -82,6 +82,16 @@ WCH GCC 8용으로 작성되어 있어 `-DINT_SOFT -w`를 받는다. `INT_SOFT`�
 라이브러리 오브젝트에도 적용되는 Makefile의 `SVFDEFS`에서 `-DSVF_JSET_V2=0`을 빼면 되며, 플래시가 약 1.5 KB 늘어난다). `link.ld`는 WCH의 `EVT/EXAM/SRC/Ld/Link.ld`와 바이트 단위로 같고, 기능상 변경 하나인 `__stack_size = 2048`(WCH는 512)과 출처 헤더 주석만 다르다. `libISP583.a`(WCH의 바이너리이며 Apache-2.0 EVT 저장소에 있다)는
 `HardFault_Handler`가 그 안으로 호출하므로 링크된다.
 
+## 자신의 프로젝트에서 쓰기
+
+이 저장소에서는 `c/include/svf.h`와 `c/src/*.c`(`-std=c99`로 컴파일), 페이스를 C 배열로 만든 것(`python3 c/bench/mkface.py svf/dos/NEODG16G.SVF face.c --name
+svf_face_data --profile mcu-strict`. 링커가 CodeFlash에 두는 `const` 배열), 그리고 WCH EVT 트리에서 스타트업 파일 `startup_CH583.S`, 드라이버 소스 세 개
+`CH58x_gpio.c`, `CH58x_i2c.c`, `CH58x_sys.c`, `libISP583.a`, 링커 스크립트를 가져간다(이 포트의 `link.ld`는 `__stack_size = 2048`인 WCH의 것이다).
+라이브러리와 자신의 코드에 줄 플래그는 `-march=rv32imac_zicsr_zifencei -mabi=ilp32 -mcmodel=medany -msmall-data-limit=8 -mstrict-align -Os`와 위
+"플래그의 이유"의 라이브러리 스위치이며, SDK 파일에는 `-DINT_SOFT -w`와 `-DFREQ_SYS=24000000`을 준다. 렌더러와 패널 사이의 접착 코드는
+`ch582_i2c_write(addr, buf, n)` 위의 `display_show(buf, y, rows)`이고, `MONO_PAGE` 타깃은
+`svf_target_init(&t, SVF_T_MONO_PAGE, frame, sizeof frame, 128, 64, 128)`이다. 이 디렉터리의 Makefile이 위 모든 줄의 실제 예제이다.
+
 ## 플래시
 
 Type-C 포트를 통해 [wchisp](https://github.com/ch32-rs/wchisp) v0.3.0(GPL-2.0. 플래시할 때만 실행하는 별도 도구이며 이미지에 링크되지 않는다)으로 한다.
@@ -166,8 +176,8 @@ text와 페이스는 "ch582 mono" 행을 본다
 
 ## 라이선스
 
-`build/licences/`에는 `FACES.md`(각 페이스의 출처, 저작권, 라이선스), `LICENSE-OFL.txt`, `LICENSE-MIT.txt`, 그리고
-EVT의 Apache-2.0 `LICENSE-ch583-evt.txt`와 WCH의 "Attention" 고지 `NOTICE-ch583-evt.txt`가 들어 있다. 배포하는 이미지에는 이들이 함께 있어야 한다. `link.ld`는 WCH의 것(Apache-2.0)이며 위의 기능상 변경 하나와 맨 위의 출처 주석이 더해져 있다.
+`build/licences/`에는 `FACES.md`(각 페이스의 출처, 저작권, 라이선스), 페이스 라이선스 문서 `OFL.TXT`와 `NEODGM.TXT`, `LICENSE-MIT.txt`(저장소의 `LICENSE`,
+코드의 라이선스), 그리고 EVT의 Apache-2.0 `LICENSE-ch583-evt.txt`와 WCH의 "Attention" 고지 `NOTICE-ch583-evt.txt`가 들어 있다. 배포하는 이미지에는 이들이 함께 있어야 한다. `link.ld`는 WCH의 것(Apache-2.0)이며 위의 기능상 변경 하나와 맨 위의 출처 주석이 더해져 있다.
 
 ## 확인한 것
 

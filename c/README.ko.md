@@ -251,13 +251,16 @@ LIST 헤더 규칙(R1', L2, L3, R4)만 적용한다: 통과하는 블록은 폴�
 
 | 포트 | 한 줄 설명 | README |
 |---|---|---|
-| `pico` | Raspberry Pi Pico(pico-sdk 2.3.1): 컬러 ST7789 RGB565, 그레이 SSD1327 GRAY8, 모노 SSD1306 MONO_PAGE | [ports/pico/README.ko.md](ports/pico/README.ko.md) |
-| `esp32` | ESP-IDF, ESP32-C3와 ESP32-S3: 컬러 ILI9341(또는 `esp_rgb`), 그레이 SSD1327, 모노 SSD1306 | [ports/esp32/README.ko.md](ports/esp32/README.ko.md) |
+| `pico` | Raspberry Pi Pico와 `-DPICO_BOARD=pico2`로 Pico 2(pico-sdk 2.3.1, arm-none-eabi-gcc 15.2.1): 컬러 ST7789 RGB565, 그레이 SSD1327 GRAY8, 모노 SSD1306 MONO_PAGE | [ports/pico/README.ko.md](ports/pico/README.ko.md) |
+| `esp32` | ESP-IDF v5.5.6, ESP32-C3와 ESP32-S3: 컬러 ILI9341(또는 `esp_rgb`), 그레이 SSD1327, 모노 SSD1306 | [ports/esp32/README.ko.md](ports/esp32/README.ko.md) |
 | `arduino` | Arduino Uno(와 Mega 크기 행): I2C 위의 SSD1306, PROGMEM의 페이스 | [ports/arduino/README.ko.md](ports/arduino/README.ko.md) |
 | `ch582` | WCH CH582M(YD-CH582M), 하드웨어 I2C의 SH1106 OLED, 베어메탈, 24 MHz | [ports/ch582/README.ko.md](ports/ch582/README.ko.md) |
-| `dos` | DJGPP: 모드 13h의 `SVFDEMO.EXE`와 VBE 2.0 LFB 모드의 `SVFVESA.EXE`, 파일에서 스트리밍하는 페이스 | [ports/dos/README.ko.md](ports/dos/README.ko.md) |
-| `web` | `web/`의 WASM 피커용 emscripten 글루 `svf_web.c` | [ports/web/README.ko.md](ports/web/README.ko.md) |
+| `dos` | DJGPP(gcc 12.2.0, CWSDPMI): 모드 13h의 `SVFDEMO.EXE`와 VBE 2.0 LFB 모드의 `SVFVESA.EXE`, 파일에서 스트리밍하는 페이스 | [ports/dos/README.ko.md](ports/dos/README.ko.md) |
+| `web` | `web/`의 WASM 피커용 emscripten(emsdk 6.0.13) 글루 `svf_web.c` | [ports/web/README.ko.md](ports/web/README.ko.md) |
 | `sdl` | `svfsdl.c`, SDL2와 SDL3를 위한 하나의 소스, 타깃 종류가 다루는 모든 SDL 픽셀 포맷, 헤드리스 바이트 검사 | [ports/sdl/README.ko.md](ports/sdl/README.ko.md) |
+
+포트의 파일과 플래그를 자신의 프로젝트로 가져가는 방법, 페이스를 내장하는 방법(`bench/mkface.py`), 어떤 페이스가 어떤 타깃에 맞는지는
+[docs/c-renderer-guide.ko.md](../docs/c-renderer-guide.ko.md)의 5, 6, 13절에 있다.
 
 원래의 ESP32(Xtensa LX6, Odroid-Go)에는 크기 행(`esp32-xtensa`)이 있지만 포트 이미지는 없다: 자체 드라이버와
 보드 코드가 필요하다. Arduino Mega는 64 KB 아래의 PROGMEM만 읽는다(near `pgm_read_byte`). far 읽기는 지원하지 않는다.

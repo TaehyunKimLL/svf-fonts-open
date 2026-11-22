@@ -13,7 +13,7 @@ Exports:
 | --- | --- |
 | `svfw_open(slot, data, len)` | opens the face at data in slot 0..3, in order (a slot past the last open one is SVF_E_ARG) and closes the slots after it; the chain is the run of open slots from slot 0, so a failed open ends it there |
 | `svfw_target(buf, w, h)` | GRAY8 target over w * h bytes (kept for existing callers; the page uses `svfw_target2`) |
-| `svfw_target2(kind, buf, buf_len, w, h, stride, fg565, bg565, threshold, flags)` | any buffer target: kind 0 GRAY8, 1 MONO_PAGE, 2 MONO_ROW, 3 RGB565 (4, the callback, is SVF_E_ARG); flags 0 or 1 (`SVF_TF_565_BIGENDIAN`) |
+| `svfw_target2(kind, buf, buf_len, w, h, stride, fg565, bg565, threshold, flags)` | any buffer target: kind 0 GRAY8, 1 MONO_PAGE, 2 MONO_ROW, 3 RGB565 (4, the callback, is SVF_E_ARG); flags 0 or 1 (`SVF_TF_565_BIGENDIAN`, the older name of `SVF_TF_RGB16_BIGENDIAN`: the same bit) |
 | `svfw_scale(num, den)` | the line scale, 1..16 each |
 | `svfw_measure(text, len, out)` | int16 out[0..2] = width, ascent, descent |
 | `svfw_draw(text, len, x, baseline)` | draws the line on the target |
@@ -35,7 +35,8 @@ to 14x); a draw that needs more mallocs a buffer of exactly the need before draw
 frees the previous one if it was malloced. A failed malloc returns SVF_E_NOMEM, draws nothing and keeps the previous
 buffer. Only this port allocates: `c/src` never does (`make -C c check`, no-malloc).
 
-Build (emsdk as `c/cross/install-toolchains.sh` installs it; this is the line `web/build.sh` and `maker/build-wasm.sh` run, kept in `emcc-flags.sh`):
+Build (emsdk **6.0.13**, emcc 6.0.13, as `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk` installs it under `~/opt/emsdk`; measured
+`svf.wasm` 39,808 bytes and `svf.js` 6,937 with this line; this is the line `web/build.sh` and `maker/build-wasm.sh` run, kept in `emcc-flags.sh`):
 
     EM_CONFIG=~/opt/emsdk/.emscripten ~/opt/emsdk/upstream/emscripten/emcc -std=c99 -Wall -Wextra -Werror -O2 \
         -Ic/include c/ports/web/svf_web.c c/src/*.c -o svf.js -sMODULARIZE -sEXPORT_ES6 -sEXPORT_NAME=SvfModule \

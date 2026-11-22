@@ -1,0 +1,4 @@
+# idf.py writes these into the project directory
+/sdkconfig
+/sdkconfig.old
+/build-*/

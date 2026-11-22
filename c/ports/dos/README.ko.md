@@ -10,12 +10,21 @@
 그려지고, 팔레트는 그레이 램프이므로 커버리지 바이트가 곧 자기 색 인덱스이며, 버퍼는 비디오 메모리로 복사된다. 키를
 누르면 텍스트 모드로 돌아가고, 프로그램은 각 페이스가 수행한 읽기 호출 수를 출력한다(`svfdemo: 9 reads from PAPLG16, 57 from PAPLG18`).
 
-빌드(저장소 루트에서, `c/cross/SIZES.md`가 설명하는 대로 DJGPP는 `~/opt/djgpp`에):
+툴체인(여기서 빌드함): DJGPP `i586-pc-msdosdjgpp-gcc` 12.2.0, binutils 2.30(build-djgpp v3.4, `~/opt/djgpp`). 프로그램은 DOSBox-X 2026.08.31로 실행한다. 프로그램은 32비트
+보호 모드 `.EXE`이며 DPMI 호스트가 필요하다. 실제 DOS 기계에서는 DJGPP의 `CWSDPMI.EXE`를 프로그램 옆이나 `PATH`에 두라(DOSBox-X에는 내장되어 있다). 긴 파일
+이름이 없는 DOS에서는 8.3 이름만 쓰고(`PAPLG16.SVF`. `svf/dos`의 모든 페이스가 그렇다) 파일은 `O_BINARY`로 연다(DJGPP의 기본은 텍스트 모드이다).
+라이브러리는 `-std=gnu99`로 빌드한다. 엄격한 `-std=c99`에서는 DJGPP 헤더가 `lseek` 같은 POSIX 이름을 숨긴다.
+
+빌드(저장소 루트에서, `c/cross/SIZES.md`가 설명하는 대로 DJGPP는 `~/opt/djgpp`에. 측정: `SVFDEMO.EXE` 266,265바이트):
 
     DJ=~/opt/djgpp/bin/i586-pc-msdosdjgpp
     $DJ-gcc -std=gnu99 -O2 -Ic/include c/ports/dos/svfdemo.c c/src/*.c -o SVFDEMO.EXE
 
 `svf/dos/PAPLG16.SVF`와 `svf/dos/PAPLG18.SVF`가 있는 디렉터리에서 `SVFDEMO.EXE`를 실행한다.
+
+스트리밍인가 매핑인가: 이 프로그램은 큰 페이스가 자기 크기만큼의 RAM을 요구하지 않도록 페이스를 스트리밍한다. RAM에 여유가 있는 프로그램은 대신 페이스 파일을 통째로
+읽고(`O_BINARY`로 `open`, `lseek`, `malloc`, `read`) 그 버퍼에 `svf_open_mapped`를 호출할 수 있다. 버퍼는 계속 보관해야 한다.
+그 코드는 [docs/c-renderer-guide.ko.md](../../../docs/c-renderer-guide.ko.md) 13.3절에 있다.
 
 `c/cross/build-all.sh --ports`가 이를 빌드한다(프로그램 전체, 스텁 없음). `screenshot.png`는 DOSBox-X 2026.08.31(헤드리스,
 xvfb-run)에서 실행한 화면이며, 다음으로 만든다.

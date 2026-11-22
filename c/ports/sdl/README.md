@@ -28,6 +28,15 @@ gBits, bBits, aBits, rShift, gShift, bShift, aShift)` on a little-endian host.
 the name. After the surface is made the program checks that SDL gave the format it asked for (a mismatch is an error,
 never a silent conversion).
 
+## In your own program
+
+The smallest use is a surface, a mapped face and one call; [docs/c-renderer-guide.md](../../../docs/c-renderer-guide.md) section
+13.6 has a complete SDL3 sample (`SDL_LoadFile`, `SDL_CreateSurface(..., SDL_PIXELFORMAT_XRGB8888)`, `SDL_LockSurface`,
+`svf_target_init(&t, SVF_T_XRGB8888, surf->pixels, (size_t)surf->pitch * surf->h, w, h, (uint16_t)surf->pitch)`,
+`svf_draw_utf8`), built and run here against SDL 3.5.0-dev. Compile it with `c/src/*.c`, `-I c/include` and
+`$(pkg-config --cflags --libs sdl3)`; no `-D` switches (the host defaults are the full set). The 32-bit kind is memory order B, G,
+R, X, which as one native `uint32_t` is `0x00RRGGBB` on little-endian hosts only.
+
 ## Build and run
 
 From the repository root (SDL2 2.30.0 or newer, the INDEX2 pixel formats: `libsdl2-dev` and `pkg-config`; `sdl_compat.h` stops an older one with an `#error`; SDL3: below):
@@ -49,7 +58,7 @@ and the example):
 **SDL3 without root.** SDL3 is not packaged on this host; the gate uses the user's fork (a working tree at
 `~/opt/src/SDL3`, commit `7a588ba6beae4b6f6cc45fdbdca6fd1aea5a2f06`, SDL 3.5.0-dev) built into `~/opt/sdl3` by
 
-    c/cross/install-toolchains.sh sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
+    sh c/cross/install-toolchains.sh "$HOME/opt" sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
 
 which configures out of tree with `-DSDL_X11_XTEST=OFF` (no `libxtst-dev` needed) and records the commit in
 `~/opt/sdl3/COMMIT`; `check.sh` refuses an SDL3 build whose commit differs from the fork tree's. Any SDL3 that

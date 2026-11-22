@@ -28,6 +28,14 @@ rBits, gBits, bBits, aBits, rShift, gShift, bShift, aShift)`이다.
 `SVF_T_RGB888`에 매핑하지 말 것. 서피스를 만든 뒤 프로그램은 SDL이 요청한 포맷을 주었는지 검사한다(불일치는 오류이며,
 조용한 변환은 없다).
 
+## 자신의 프로그램에서
+
+가장 작은 사용은 서피스 하나, 매핑한 페이스 하나, 호출 하나이다. [docs/c-renderer-guide.ko.md](../../../docs/c-renderer-guide.ko.md) 13.6절에 완전한 SDL3 샘플이 있다
+(`SDL_LoadFile`, `SDL_CreateSurface(..., SDL_PIXELFORMAT_XRGB8888)`, `SDL_LockSurface`,
+`svf_target_init(&t, SVF_T_XRGB8888, surf->pixels, (size_t)surf->pitch * surf->h, w, h, (uint16_t)surf->pitch)`,
+`svf_draw_utf8`). 여기서 SDL 3.5.0-dev로 빌드하고 실행했다. `c/src/*.c`, `-I c/include`, `$(pkg-config --cflags --libs sdl3)`로 컴파일하며 `-D` 스위치는 없다(호스트
+기본값이 전체 집합이다). 32비트 종류의 메모리 순서는 B, G, R, X이며, 네이티브 `uint32_t` 하나로 보면 `0x00RRGGBB`인 것은 리틀 엔디언 호스트에서만이다.
+
 ## 빌드와 실행
 
 저장소 루트에서(SDL2 2.30.0 이상, INDEX2 픽셀 포맷: `libsdl2-dev`와 `pkg-config`. 더 오래된 것은 `sdl_compat.h`가
@@ -49,7 +57,7 @@ rBits, gBits, bBits, aBits, rShift, gShift, bShift, aShift)`이다.
 **root 없이 SDL3.** 이 호스트에는 SDL3이 패키지로 없다. 게이트는 사용자의 포크(`~/opt/src/SDL3`의 작업 트리,
 커밋 `7a588ba6beae4b6f6cc45fdbdca6fd1aea5a2f06`, SDL 3.5.0-dev)를 쓰며, 이를 다음으로 `~/opt/sdl3`에 빌드한다.
 
-    c/cross/install-toolchains.sh sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
+    sh c/cross/install-toolchains.sh "$HOME/opt" sdl3        # SDL3_SRC=... to name another tree; refuses a tree not at that commit
 
 이 스크립트는 `-DSDL_X11_XTEST=OFF`(`libxtst-dev`가 필요 없음)로 out-of-tree 설정을 하고 커밋을
 `~/opt/sdl3/COMMIT`에 기록한다. `check.sh`는 커밋이 포크 트리와 다른 SDL3 빌드를 거부한다. `pkg-config sdl3`가 찾는

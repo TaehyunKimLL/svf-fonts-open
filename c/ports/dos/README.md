@@ -11,12 +11,22 @@ of syllables touches up to about 40 of its 122 blocks): a cache smaller than a l
 own colour index, and the buffer is copied to video memory. A key returns to text mode; the program then prints the
 read calls each face made (`svfdemo: 9 reads from PAPLG16, 57 from PAPLG18`).
 
-Build (from the repository root, DJGPP in `~/opt/djgpp` as `c/cross/SIZES.md` describes):
+Toolchain (built here): DJGPP `i586-pc-msdosdjgpp-gcc` 12.2.0, binutils 2.30 (build-djgpp v3.4, `~/opt/djgpp`); DOSBox-X
+2026.08.31 runs the programs. They are 32-bit protected-mode `.EXE` files and need a DPMI host: put `CWSDPMI.EXE` (DJGPP's)
+beside the program or on `PATH` on a real DOS machine (DOSBox-X has one built in). On a DOS without long file names, use bare
+8.3 names (`PAPLG16.SVF`; every face under `svf/dos` is one) and open files with `O_BINARY` (DJGPP's default is text mode).
+The library is built `-std=gnu99`: under strict `-std=c99` DJGPP's headers hide POSIX names such as `lseek`.
+
+Build (from the repository root, DJGPP in `~/opt/djgpp` as `c/cross/SIZES.md` describes; measured: `SVFDEMO.EXE` 266,265 bytes):
 
     DJ=~/opt/djgpp/bin/i586-pc-msdosdjgpp
     $DJ-gcc -std=gnu99 -O2 -Ic/include c/ports/dos/svfdemo.c c/src/*.c -o SVFDEMO.EXE
 
 Run `SVFDEMO.EXE` in a directory holding `svf/dos/PAPLG16.SVF` and `svf/dos/PAPLG18.SVF`.
+
+Streamed or mapped: this program streams its faces so a large face does not need its size in RAM. A program with RAM to spare can
+instead read the face file whole (`open` with `O_BINARY`, `lseek`, `malloc`, `read`) and call `svf_open_mapped` on the buffer, which it
+must keep; [docs/c-renderer-guide.md](../../../docs/c-renderer-guide.md) section 13.3 has that code.
 
 `c/cross/build-all.sh --ports` builds it (whole program, nothing stubbed). `screenshot.png` is the screen of a run in
 DOSBox-X 2026.08.31 (headless, xvfb-run), made by
