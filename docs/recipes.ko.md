@@ -21,7 +21,7 @@ bpp 페이스(115,684 바이트)의 크기가 그대로이다.
 어느 것도, 그 바이트도 이 저장소에 없다)로 적힌 그대로 실행했고, 인용한 수치는 그 실행에서 나온 것이다.
 페이스의 바이트 크기, 글리프 수, [페이스 점검](#페이스-점검)의 렌더 점검(`svfline.py measure`의 width / ascent / descent와 샘플
 줄의 잉크 픽셀 수), 자모 세트라면 `--check`의 IoU이다. *Synthetic*: 테스트(`tools/test_recipes.py`, `tools/test_build_faces.py`,
-`tools/test_macsfnt.py`, maker의 테스트)에서만, 테스트 안에서 만든 폰트로 실행한 것. *실행하지 않음: 이유*: 그런 종류의 원본을 찾지
+`tools/test_macsfnt.py`, `tools/test_extract.py`, maker의 테스트)에서만, 테스트 안에서 만든 폰트로 실행한 것. *실행하지 않음: 이유*: 그런 종류의 원본을 찾지
 못했다. 크기는 도구의 버전에 따라 달라진다. "약"으로 읽고 실행 결과를 믿어라.
 
 목차:
@@ -31,8 +31,12 @@ bpp 페이스(115,684 바이트)의 크기가 그대로이다.
 - [아웃라인 폰트](#아웃라인-폰트)
 - [비트맵 폰트](#비트맵-폰트)
 - [DOS 시대 원시 폰트](#dos-시대-원시-폰트)
+- [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기)
+- [OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)
+- [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)
 - [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트)
 - [기존 SVF](#기존-svf)
+- [세트 수(벌 수) 정하기](#세트-수벌-수-정하기)
 - [데스크톱 앱과 maker 경로](#데스크톱-앱과-maker-경로)
 - [svf/의 페이스](#svf의-페이스)
 - [참고](#참고)
@@ -56,12 +60,20 @@ bpp 페이스(115,684 바이트)의 크기가 그대로이다.
 | HBF | `bdfface.py`의 ASCII 절반으로만 | 없음 | [HBF](#hbf) |
 | Windows `.FNT` / `.FON` | 그 픽셀 크기로 `mkfont.py`(열리지만 FreeType이 유니코드 맵을 주지 않아 아무것도 그리지 못함) | 없음 | [Windows FNT와 FON](#windows-fnt와-fon) |
 | DOS 원시 자모 조각 폰트(8x4x4 `HANGUL.FNT`, san, 도깨비, Kyra...) | `johab844.py`(16 px 8x4x4) | `jamoset.py --layout L` | [DOS 시대 원시 폰트](#dos-시대-원시-폰트) |
-| HWP `.PFT` 한글, KS X 1001 원시 덤프 | 리더 없음 | 리더 없음 | [HWP 1.x와 2.x 폰트](#hwp-1x와-2x-폰트), [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
+| HWP `.PFT` 한글 | 리더 없음 | 리더 없음 | [HWP 1.x와 2.x 폰트](#hwp-1x와-2x-폰트) |
+| KS X 1001 원시 덤프(코드 순서의 음절 2,350개, 또는 94 x 94 표) | `rawcarve.py bdf --dense` 다음 `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
+| 프로그램이나 ROM 안의 폰트(DOS 드라이버나 TSR, 워드프로세서, 한글 VGA BIOS + 폰트 ROM) | 찾기는 `binscan.py`, 잘라 내기는 `rawcarve.py`(원시, BDF, 또는 드라이버 규칙대로 조합), 다음 `bdfface.py` | 잘라 낸 원시 폰트에 `jamoset.py --layout 844`, 또는 `--from-svf` | [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기) |
+| OS/2 한글 System DBCS 폰트(`$korZN16.FNT`, `$korZN24.FNT`, 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 한글 폰트(완성형)](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) |
+| 자모 글리프가 있는 TTF(첫가끝 자모, PUA 조각, GSUB `ljmo`) | 다른 TTF와 같이 | 합성 글리프는 `jamovec.py --components`, 변형은 `--mask-font`, 그 밖에는 맞춤 | [이미 자모를 가진 TrueType 폰트](#이미-자모를-가진-truetype-폰트) |
+| 16 px나 2 bpp로 쓰고 싶은 24-48 px 비트맵 페이스 | `svfscale.py --size 16 [--bpp 2]` | `jamoset.py --from-svf`(1 bpp 결과) | [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](#고해상도-비트맵-폰트에서-저해상도-페이스-만들기) |
 | Mac HangulTalk 1.0 `fbit`(세트 45개 + `fdef`) | 없음 | `jamoset.py --layout mac-fbit-45sets` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | Mac HangulTalk 7.1 type-3 `fbit` + HTBL 1 | `macfbit3.py bdf` + `mkfont.py` | `macfbit_svf.py build` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | SVF 페이스 | `svfdy.py`, `svf2to3.py` | `jamoset.py --from-svf`(1 bpp 원본) | [기존 SVF](#기존-svf) |
 
-모든 행의 점검은 같다: [페이스 점검](#페이스-점검)(샘플 줄의 measure와 잉크, 자모 세트는 `--check`의 IoU). 비트맵 원본에서 만든 1 bpp 페이스는 1 bpp로 남는다. 비트맵에서 안티에일리어싱을 만드는 도구는 없다. 대상의 메모리가 적으면 자모
+자모 세트에 세트를 몇 개 둘지: [세트 수 정하기](#세트-수벌-수-정하기). 안티에일리어싱 페이스:
+[2 bpp 안티에일리어싱 페이스](#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기).
+
+모든 행의 점검은 같다: [페이스 점검](#페이스-점검)(샘플 줄의 measure와 잉크, 자모 세트는 `--check`의 IoU). 비트맵 원본에서 만든 1 bpp 페이스는 같은 크기에서는 1 bpp로 남는다. 더 작은 크기로 다시 샘플링할 때만(`svfscale.py --bpp 2`) 단계가 생긴다. 대상의 메모리가 적으면 자모
 세트를 고르고(2,350 음절 16 px 페이스는 약 115 KB, 그 자모 세트는 약 20 KB), 모든 음절이 원본과 정확히 같아야 하면 완성형을
 고른다.
 
@@ -207,25 +219,110 @@ TrueType과 CFF 모두 된다). 맞춤은 근사이다. IoU를 읽고 결과를 
 **함정.** 음절을 적게 그리는 폰트(Black Han Sans: 2,581자)는 그 음절만 맞춘다(`--present-only`, 기본값). 나머지는 가장 가까운
 조각으로 조합된다. `--check`는 음절 11,172개를 모두 조합하고 표 오류에서 실패하며, 맞춤이 나쁘다고 실패하지는 않는다.
 
-### 안티에일리어싱된 (2 bpp) 페이스
+### 이미 자모를 가진 TrueType 폰트
 
-완성형 (verified, [완성형 페이스](#완성형-페이스-mkfontpy)): `mkfont.py FONT OUT --size 16 --bpp 2 --unicode ascii,ksx1001-hangul` (NanumGothic
-Bold: 195,760 바이트, 글리프 2,446개). 커버리지는 4단계로 양자화되고, 리더는 level x 85로 되살린다. 2 bpp 페이스는 같은 1 bpp
-페이스의 약 1.5-1.6배이다. `--bpp 8`은 전체 커버리지를 유지한다(8 bpp 페이스는 호스트용).
+어떤 한글 폰트는 음절 말고도 자모 글리프를 가진다. 도구가 그것을 쓸 수 있는지는 폰트가 그것을 음절과 어떻게 잇는지에 달렸다.
+먼저 폴더를 훑어라(`fontTools`: U+1100-11FF와 사용 영역 U+E000-F8FF의 cmap 항목, 합성 음절, GSUB 기능 `ljmo` / `vjmo` / `tjmo`).
+여기서 `~/work/fonts-download`의 폰트(korean-web, incoming, johab-fonts/ttf. 첫가끝 자모 50개 이상이나 PUA 글리프 100개 이상인 폰트
+375개)를 훑었더니 이런 종류가 나왔다:
 
-자모 세트:
+| 폰트가 가진 것 | 예(여기) | 길 | 절 |
+|---|---|---|---|
+| GSUB `ljmo`/`vjmo`/`tjmo`: U+1100..의 위치별 변형 | 나눔명조 / 나눔바른고딕 옛한글(변형 250개에 닿음), 은바탕(164) | 변형을 마스크로(`--mask-font FONT`) | [방법 2](#truetype와-opentype-폰트에서-만드는-자모-세트) |
+| 구성 요소가 PUA 조각 글리프인 합성 음절 | 은 글꼴(은돋움, 은바탕, 은그래픽, 은디나루, 은궁서, 은필기: 각각 합성 음절 11,172개) | `jamovec.py master --components` | [방법 1](#truetype와-opentype-폰트에서-만드는-자모-세트), 아래 |
+| 겹쳐 그리도록 그린 첫가끝 자모 U+1100..(중성과 종성은 폭 0, 펜 왼쪽에 놓임), 변형 없음 | 은돋움(U+1100 진행 폭 1000, U+1161과 U+11A8은 진행 폭 0에 x가 음수) | 자모마다 모양 하나인 방법 2, 또는 방법 3 | 아래 |
+| PUA의 위치별 자모 변형, 합성 음절 없음, GSUB 없음 | MiraeroNormal(U+E000-E9EF의 PUA 글리프 2,544개: 옛 자모와 현대 자모가 각각 여러 위치로) | 없음: 규칙이 폰트에 없다 | 아래 |
 
+**(a) 조합용으로 그린 첫가끝 자모.** 은돋움(은 글꼴 1.0.2, Debian의 `fonts-unfonts-core`, GPL 2)에는 현대 첫가끝 자모 67개(옛 자모까지
+146개)가 있고 GSUB가 없다. HarfBuzz는 가를 U+1100 + U+1161로, 자모마다 글리프 하나로 셰이핑하며, 모음은 진행 폭이 0이라 자음 위에
+그려진다. 방법 2는 이것을 마스크로 쓰고(자모마다 마스크 하나라, 한 역할의 모든 세트가 같은 마스크를 받는다), 방법 3은 자유롭게 맞춘다:
+
+    python3 tools/jamoset.py --layout 844 --from-ttf UnDotum.ttf --size 16 --binarize threshold \
+        --mask-font UnDotum.ttf --no-clean --check --pylib $OUT/pylib -o $OUT/UND16M.SVF
+    python3 tools/jamoset.py --layout 844 --from-ttf UnDotum.ttf --size 16 --binarize threshold \
+        --mask-font none --no-clean --check -o $OUT/UND16F.SVF
+
+마스크 맞춤 `15,620 bytes`, IoU 0.761 (p5 0.518), 0개 정확, 7.5 s, `width=149 ascent=13 descent=3`, 잉크 371. 자유 맞춤 `17,908 bytes`,
+IoU 0.840, 776개 정확, 7.8 s, 잉크 493(완성형 `mkfont.py` 페이스: `124,480 bytes`, 잉크 472). 자모마다 마스크 하나면 초성 세트 여덟 개의
+조각이 모두 같은 모양으로 묶이는데, 음절들은 그렇지 않다. 이런 폰트에는 자유 맞춤이 더 나은 자모 세트이고, 아래에서 `--adaptive`로 읽은 합성 글리프가
+그보다 낫다.
+
+**(b) PUA 조각 글리프.** 은 글꼴은 모든 음절을 `jamo0000` .. 라는 이름의 PUA 글리프 둘이나 셋의 합성으로 저장한다(은돋움: U+EA60-F25F의
+PUA 글리프 2,048개, 그중 1,991개를 합성 음절 11,172개가 쓴다. 가 = `jamo0000` + `jamo0019`, 과 = `jamo0220` + `jamo0239`). PUA 글리프가
+폰트 자신의 조각 세트이고 합성이 규칙이다. 방법 1이 이것을 읽는다:
+
+    python3 tools/jamovec.py master UnDotum.ttf -o $OUT/undotum.json --components
+    python3 tools/jamovec.py render $OUT/undotum.json --size 16 --bpp 1 --check -o $OUT/UNDVEC16.SVF
+    python3 tools/jamovec.py render $OUT/undotum.json --size 16 --bpp 2 --check -o $OUT/UNDVEC16A.SVF
+
+`master`는 36 s가 걸렸다. 구성 요소 1,991개가 8x4x4 슬롯으로 나뉘었다(조각 344개, 각 슬롯 구성 요소의 메도이드. 폰트의 변형이
+8x4x4의 세트보다 많아 기증 모양 5,576개가 슬롯의 이상값이었다). 1 bpp 렌더는 `16,356 bytes`, `--check`는 11,172 음절을 모두 조합하고,
+`width=149 ascent=13 descent=3`, 잉크 472. 2 bpp 렌더는 `21,348 bytes`, 잉크 716. `master --components --adaptive`(124 s)로 하면 조각이
+폰트 자신의 변형을 더 많이 지킨다: 기본 adaptive 예산 안의 조각 1,436개, 1 bpp `62,976 bytes`, 잉크 476, 2 bpp `79,088 bytes`, 잉크 728.
+같은 폰트의 완성형 `mkfont.py` 페이스와 비교하면(`svfscale.overlap`, 2,350 음절의 평균 IoU. 두 래스터라이저가 달라 1.000에는 닿지
+않는다): 마스크 맞춤 0.648, 8x4x4 구성 요소 0.734, 자유 맞춤 0.755, adaptive 구성 요소 0.840.
+
+PUA에 위치별 자모가 있지만 음절은 그냥 윤곽선이고 PUA에 닿는 GSUB도 없는 폰트(MiraeroNormal: 합성 음절 없음, GSUB 없음)는 어느
+도구에도 음절에 맞는 변형을 고르는 규칙을 주지 않는다. PUA 코드 배정(어느 코드가 어느 위치의 어느 자모인지)과 모음과 종성에 따른 선택은
+폰트 제작자의 방식이고 파일 어디에도 적혀 있지 않다. 이런 폰트는 다른 폰트처럼 방법 3으로 간다. 그 PUA 조각을 쓰려면 그 방식을 표로
+적어야 한다(`rawcarve.py compose` 명세의 꼴이지만 코드 포인트로 아웃라인 글리프를 그려야 하며, 그렇게 하는 도구는 없다).
+
+**(c) GSUB `ljmo` / `vjmo` / `tjmo`.** [방법 2](#truetype와-opentype-폰트에서-만드는-자모-세트)의 마스크 맞춤(neodgm, Noto Sans CJK KR,
+맑은 고딕을 거기서 쟀다).
+
+### TrueType/OpenType 폰트에서 2 bpp 안티에일리어싱 페이스 만들기
+
+<a id="안티에일리어싱된-2-bpp-페이스"></a>
+
+2 bpp 페이스는 픽셀마다 네 단계(0, 1, 2, 3)를 저장한다(리더는 단계를 단계 x 85로 되살린다). 아웃라인 폰트에서만 나온다(비트맵 원본에는
+커버리지가 없다. 더 큰 비트맵은 2 bpp로 다시 샘플링할 수 있다:
+[고해상도 비트맵 폰트에서 저해상도 페이스 만들기](#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)). 세 가지 길:
+
+    python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf $OUT/ng16-2.svf --size 16 --bpp 2 --unicode ascii,ksx1001-hangul
     python3 tools/jamoset.py --layout 844 --from-ttf ttf/nanumgothic/NanumGothic-Bold.ttf --size 16 --bpp 2 \
-        --check -o $OUT/NG16JA.SVF                     # verified: 73 s, 24,960 bytes, level error 0.233, IoU at level 2 0.822
-    python3 tools/jamovec.py render $OUT/MASTER.json --size 16 --bpp 2 -o $OUT/OUT.SVF      # from a vector master
+        --check -o $OUT/NG16JA.SVF
+    python3 tools/jamovec.py master ttf/neodgm/neodgm.ttf -o $OUT/neodgm.json --components
+    python3 tools/jamovec.py render $OUT/neodgm.json --size 16 --bpp 2 --check -o $OUT/NEOVEC16A.SVF
 
-`--bpp 2`는 `jamoaa.py`를 실행한다. 음절을 정확 면적 커버리지로 래스터화하고, 1 bpp 맞춤의 영역이 각 픽셀을 어느 조각이 소유하는지
-정하며, 각 조각의 level은 그 조각을 공유하는 음절들의 중앙값으로 정한 뒤 level 오차에 대해 다듬는다(`--aa-refine N`, 2회). `--clean`
-(2 bpp에서는 켜짐)은 고립된 잡음을 지운다. 조각은 픽셀별 최댓값으로 OR된다. 2 bpp에는 fontTools만 필요하다.
+**단계를 정하는 것.** `mkfont.py --bpp 2`는 각 글리프를 Pillow를 통해 FreeType의 안티에일리어싱 렌더러로 그리고(FreeType이 기본으로
+적용하는 폰트의 힌팅), 8비트 커버리지를 `(coverage x 3 + 127) // 255`로 양자화한다. 2 bpp용 감마, 임계값, 오버샘플링, 힌팅 옵션은 없다
+(`--mono-hint`는 `--bpp 1`용이고 그 밖에는 거부된다). 그러니 크기(`--size`, 배치는 `--cell` / `--ascent`)가 유일한 조절이다.
+`jamoset.py --bpp 2`(`jamoaa.py`)는 음절을 자신의 정확 면적 커버리지(힌팅 없음)로 래스터화하고, 1 bpp 맞춤의 영역으로 각 픽셀을 어느
+조각이 소유할지 정하며, 각 조각의 단계를 그것을 공유하는 음절들의 중앙값으로 정한 뒤 단계 오차에 대해 다듬는다: `--aa-refine N`
+(2회. 0이면 중앙값만), `--clean` / `--no-clean`(2 bpp에서는 켜짐: 조각을 그 자모의 윤곽이 잉크를 두는 곳으로 한정하고, 옅은 단계는
+음절의 절반이 가진 곳에만 둔다), 세트 체계(`--layout 844` 또는 `adaptive[:NI,NM,NF]`, [세트 수 정하기](#세트-수벌-수-정하기)).
+`jamovec.py render --bpp 2`(기본값)는 벡터 마스터의 조각을 같은 정확 면적 커버리지로 그린다.
+
+**측정**(2026-11-22. 잉크는 이 장의 규칙대로, "단계"는 2,350 음절을 `svfline.py`로 그렸을 때 잉크 픽셀 중 단계 1 / 2 / 3의 비율):
+
+| 폰트, 크기 | 페이스 | 바이트 | 맞춤 | 단계 1/2/3 | measure | 잉크 |
+|---|---|---|---|---|---|---:|
+| NanumGothic Bold 16 | `mkfont.py --bpp 1` | `125,520` | | (1 bpp) | `width=146 ascent=14 descent=2` | 677 |
+| | `mkfont.py --bpp 2` | `195,760` | | 23 / 18 / 59 % | 같음 | 847 |
+| | `jamoset.py --bpp 1` (threshold) | `20,064` | IoU 0.817, 12 s | (1 bpp) | `width=151 ascent=13 descent=3` | 672 |
+| | `jamoset.py --bpp 2 --aa-refine 0` | `23,692` | 단계 오차 0.269, 단계 2 IoU 0.783, 69 s | 30 / 31 / 39 % | `width=146 ascent=13 descent=3` | 869 |
+| | `jamoset.py --bpp 2` (refine 2) | `24,960` | 단계 오차 0.233, 단계 2 IoU 0.822, 72 s | 27 / 32 / 41 % | 같음 | 879 |
+| Gowun Batang Bold 20 (규칙 `line 400 28 0 20`) | `mkfont.py --bpp 1` | `170,924` | | (1 bpp) | `width=175 ascent=18 descent=2` | 727 |
+| | `mkfont.py --bpp 2` | `264,376` | | 25 / 20 / 55 % | 같음 | 955 |
+| | `jamoset.py --bpp 1` (threshold) | `23,316` | IoU 0.807, 21 s | (1 bpp) | `width=184 ascent=17 descent=3` | 776 |
+| | `jamoset.py --bpp 2` | `28,940` | 단계 오차 0.193, 단계 2 IoU 0.805, 94 s | 27 / 30 / 43 % | `width=174 ascent=17 descent=3` | 1,020 |
+| Neo둥근모 16 | `jamovec.py render --bpp 2` | `19,452` | 11,172 조합, 마스터 24 s | 0 / 0 / 100 % | `width=144 ascent=12 descent=4` | 559 |
+
+2 bpp 완성형 페이스는 1 bpp 페이스의 1.5-1.6배, 2 bpp 자모 세트는 1 bpp 세트의 약 1.2배이다. 자모 세트는 완성형 글리프보다 중간
+단계가 많다(조각의 단계는 많은 음절의 중앙값이고, 조각은 최댓값으로 OR된다). `--aa-refine 2`는 여기서 1 KB를 더 써서 단계 오차를
+낮추고 단계 2 IoU를 높인다. 픽셀 폰트(Neo둥근모)는 자기 크기에서 부분 커버리지가 없다. 그 2 bpp 페이스는 단계 3인 1 bpp 페이스일 뿐이고
+바이트만 더 든다. 자모 세트의 기준선은 폰트의 ascent가 아니라 맞춤(잉크 상자 가운데)에서 오므로 `mkfont.py` 페이스와 한 행 다를 수
+있다(`--baseline`으로 정한다).
+
+**크기 고르기.** 안티에일리어싱은 획이 1-2 픽셀 정도 굵어야 단계를 담는다. 위 크기에서 완성형 페이스 잉크 픽셀의 3분의 2는 이미
+가득 찬 단계 3이다. 더 작은 크기는 여기서 재지 않았다. 12-14 px에서는 대상에서 2 bpp 페이스와 힌팅된 폰트의 1 bpp `--mono-hint`
+페이스([완성형 글리프 레시피](#완성형-글리프-레시피-mkfont-행))를 비교한 뒤 고르라. 그리는 시점에 축소하지 말고 대상이 그리는
+크기로 구워라. 모든 결과를 숫자(잉크, 단계, 자모 세트는 `aa:` 줄의 단계 오차와 단계 2 IoU)와 눈으로 점검하라. `svfline.py line`은
+GRAY8을 쓰고, `web/` 피커는 페이스를 그 단계로 보여 준다.
 
 **함정.** 다른 조각 위의 안티에일리어싱된 조각은 합이 아니라 최댓값을 취한다. 가늘게 교차하는 획은 완성형 글리프보다 옅게
 보인다. 1 bpp 대상(MONO_PAGE)은 그리는 시점에 2 bpp 페이스를 임계값으로 자른다(대상의 `threshold`). 모노 디스플레이에는 1 bpp
-페이스를 주어라.
+페이스를 주어라. `--bpp 8`(mkfont만)은 호스트용으로 전체 커버리지를 유지한다.
 
 ### 기준선, 세로 이동, 클리핑
 
@@ -548,18 +645,276 @@ HWP 자체의 규칙으로 조합되며, 별도의 연구 도구(johab-fonts 연
 
 ### KS X 1001 원시 덤프
 
-KS X 1001 완성형 음절 2,350자의 원시 덤프(코드 순서로 음절마다 비트맵 하나. 일부 DOS와 임베디드 시스템이 이렇게 보관한다)는 이 저장소에
-리더가 없다. `jamoset.py`, `bdfface.py`, maker 어디에도 이를 위한 레이아웃이 없고, 그런 크기의 파일은 알아보지 못한다. 태백 3.5.1의
+KS X 1001 완성형 음절 2,350자의 원시 덤프(코드 순서로 음절마다 비트맵 하나. 일부 DOS와 임베디드 시스템이 이렇게 보관한다)를 바로
+읽는 빌더는 없다. `jamoset.py`, `bdfface.py`, maker 어디에도 이를 위한 레이아웃이 없고, 그런 크기의 파일은 알아보지 못한다. 태백 3.5.1의
 `GHAN24.PFT`(고딕 24 px; 169,200 바이트 = 2,350 x 72, 헤더 없음, 한 줄이 3 바이트인 24x24 행 우선, KS 순서로 가부터)로 실행: `python3 tools/jamoset.py --layout 844
-GHAN24.PFT -o $OUT/rejected.SVF`는 `size 169200 is not an 8x4x4 size`로 멈추고(종료 코드 1), maker의 `detect.scan`은 `other`, "unknown"이라 부른다. 다른 곳에서 BDF(KS C 5601
-인코딩, `ENCODING` = GL 코드)로 변환한 뒤 [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf)를 쓴다. 여기서는 15줄짜리 스크립트(행 `0x30 + i // 94`,
-열 `0x21 + i % 94`, 글리프의 각 줄을 16진수로)로 변환하고 ASCII는 Sony Fixed 12x24로 했다.
+GHAN24.PFT -o $OUT/rejected.SVF`는 `size 169200 is not an 8x4x4 size`로 멈추고(종료 코드 1), maker의 `detect.scan`은 `other`, "unknown"이라 부른다.
+`rawcarve.py bdf --dense`가 이것을 유니코드 BDF로 잘라 내고(`binscan.py info`가 크기를 알려 준다: "KS X 1001 syllables, 24x24 (2,350 x
+72 B)"), 그다음은 [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf)대로 간다. ASCII는 Sony Fixed 12x24로:
 
+    python3 -I tools/rawcarve.py bdf GHAN24.PFT --glyph 24x24 --chars ks-hangul --dense --ascent 22 -o $OUT/ghan24.bdf
     python3 tools/bdfface.py --hangul ghan24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/GHAN24.SVF
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/GHAN24.SVF --mask-font none --check -o $OUT/GHAN24J.SVF
 
 페이스는 `216,448 바이트`, 음절 2,350자, `width=216 ascent=22 descent=2`, 잉크 1,074. 자모 세트는 `33,684 바이트`, 조각 344개, 음절 2,350자에 대한 IoU
-0.710(페이스가 조각의 OR이 아니라 음절 통째의 디자인이라 맞춤이 나쁘다)이다.
+0.710(페이스가 조각의 OR이 아니라 음절 통째의 디자인이라 맞춤이 나쁘다)이다. `rawcarve.py`가 생기기 전에는 같은 페이스를 15줄 스크립트로
+만들었다. 도구의 BDF는 같은 크기와 잉크의 페이스를 준다(216,448 바이트, 잉크 1,074). 94 x 94 표 전체의 덤프는 `--dense` 대신
+`--grid 0xA1,0xA1,94`를 쓴다([OS/2 한글 폰트](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)).
+
+## Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기
+
+DOS 한글 드라이버, 워드프로세서, 게임, 한글 VGA 카드의 폰트 ROM은 폰트를 프로그램(`.COM`, `.EXE`, TSR)이나 ROM 이미지 안에 날
+바이트로 담는다. 헤더도 이름도 없고, 따로 된 파일이 없을 때도 많다. 이 저장소의 두 도구가 그것을 찾아 잘라 내고, 그 사이의
+판독(폰트가 어디서 시작하는지, 어떤 배치인지, 드라이버가 어떤 규칙으로 조합하는지)은 Claude 같은 어시스턴트가 한다.
+
+- `tools/binscan.py`는 살펴본다: `info`(크기, 종류, 압축된 데이터를 드러내는 엔트로피 지도, 아래의 크기 시그니처), `runs`(글리프처럼
+  보이는 창의 연속 구간), `sets`(원시 자모 조각 폰트의 빈 채움 슬롯이 맞아떨어지는 오프셋), `ascii`(8xH 영문 폰트), `render`(어느
+  오프셋이든 텍스트나 PNG로, 행·스트립·열·바이트 열 순서로).
+- `tools/rawcarve.py`는 잘라 낸다: `cut`(바이트 그대로: `jamoset.py`용 원시 8x4x4 폰트), `eng`(8xH 영문 폰트를 `--eng`가 읽는 4,096
+  바이트 8x16 파일로), `bdf`(오프셋의 글리프를 유니코드 BDF로: ASCII, 또는 2,350 글리프 밀집 덤프나 코드 격자의 KS X 1001 음절),
+  `compose`(자기 세트 규칙을 가진 자모 조각 폰트를, 작은 JSON 명세로 적은 규칙대로 음절로 조합해 유니코드 BDF로).
+
+BDF는 `bdfface.py`를 거쳐 완성형 페이스가 되고 `jamoset.py --from-svf`를 거쳐 자모 세트가 된다. 잘라 낸 원시 8x4x4 폰트는 곧바로
+`jamoset.py --layout 844`로 간다([그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트)). 두 도구는 바이트만 읽고 파일의 코드를
+실행하지 않는다. 내려받은 파일에는 `python3 -I`로 실행하라. 압축 파일은 먼저 풀되(`binscan.py info`가 ARJ와 ZIP을 알려 준다.
+`7z x -o NEWDIR FILE.ARJ`) 따로 된 폴더에 풀어라. DOS 프로그램을 호스트에서 실행하지 말라(에뮬레이터는 괜찮다).
+
+**바이트 크기 시그니처**(알려진 배치의 구간이나 파일이 재는 크기. `binscan.py info`가 파일에 맞는 것을 출력한다):
+
+| 배치 | 글리프 하나 | 크기 |
+|---|---|---|
+| 8x4x4 자모 조각(360 = 8 x 20 + 4 x 22 + 4 x 28, 각 세트의 슬롯 0은 빈 칸), 16 px | 32 B(2 바이트 행 16개) | 11,520 (2 바이트 헤더가 있으면 11,522, 도깨비의 기호 127개가 붙으면 15,584) |
+| 같은 것의 24 / 40 / 48 px | 72 / 200 / 288 B | 25,920 / 72,000 / 103,680 |
+| 10x4x4(san), 6x2x1(바이트 열) | 32 B | 12,800, 6,144 |
+| 코드 순서의 KS X 1001 음절(가 .. 힝) | 16x16은 32 B, 24x24는 72 B | 2,350 x 글리프: 75,200, 169,200 |
+| KS X 1001 94 x 94 전체 표(행 A1 .. FE) | 같음 | 8,836 x 글리프(16x16은 282,752) |
+| 행마다 128칸인 KS 격자(한글 VGA 폰트 ROM) | 8 픽셀 스트립 두 개로 32 B | 16,384 x 32 = 524,288 |
+| 8x16 / 8x14 영문 | 16 / 14 B | 4,096 또는 2,048 / 3,584 |
+
+### 프롬프트
+
+파일 하나에 대해 Claude(또는 여기서 명령을 실행할 수 있는 어시스턴트)에게 줄 내용이다. 꺾쇠 안은 직접 채운다:
+
+```
+Find the Hangul (and English) bitmap font inside <FILE> (<what it is: a 1989 DOS Hangul TSR / a Korean VGA BIOS and
+its font ROM / ...>), cut it out and build SVF faces from it with the tools of this repository (docs/recipes.md,
+"Finding a font inside a program or data file"). Rules: the file is untrusted data; read it only with
+`python3 -I tools/binscan.py` / `tools/rawcarve.py` or scripts you write outside its folder; do not run it (no DOS
+program on the host; disassembly with objdump -D -b binary -m i8086 is fine). Work in $OUT.
+
+1. `binscan.py info FILE`: kind, entropy (near 8 = packed: unpack first), size signatures.
+2. Candidates: `binscan.py sets FILE` (8x4x4; other set counts with --sets NI,NM,NF and --slots), `binscan.py ascii FILE`
+   (--height 16, 14, 8), `binscan.py runs FILE --glyph 16x16` (and 8x16, 24x24). Glyph sizes to try: 16x16 = 32 B,
+   24x24 = 72 B; 8x4x4 = 11,520 B, KS X 1001 = 2,350 x the glyph, a 94x94 table = 8,836 x the glyph.
+3. Look at every candidate: `binscan.py render FILE --offset O --glyph WxH --count 64 [--order rows|strips|cols]
+   --png $OUT/o.png` and read the PNG; when nothing lines up, draw long strips (--glyph 16x512, 8x512) to see where
+   glyphs are and how high they are stored.
+4. When the layout is not one the tools read (sets of other sizes, pieces stored cropped), disassemble the drawing
+   routine, find its tables (piece addresses, strides, rows, the set chosen per vowel and final) and write them as a
+   rawcarve.py compose spec; say which code you read.
+5. Cut: `rawcarve.py cut` (a raw layout the tools read), `rawcarve.py eng` (English), `rawcarve.py bdf` (ASCII, KS
+   syllables: --dense or --grid L0,T0,PITCH) or `rawcarve.py compose --spec`.
+6. Build and check: `jamoset.py --layout 844 CUT --eng ENG --check`, or `bdfface.py --hangul H.bdf --ascii A.bdf`
+   then `jamoset.py --layout 844 --from-svf FACE --mask-font none --check` (also --layout adaptive); report size, glyph
+   count, `svfline.py measure` and ink of "안녕하세요 ABC 123" (docs/recipes.md, Checking a face) and the fit IoU, and
+   show the line drawn.
+Report the offsets, the commands and the numbers; say what you could not resolve.
+```
+
+(프롬프트는 영어 문서와 같은 영문 그대로 둔다. 한국어로 옮겨 줘도 된다.) 아래 세 예는 이 프롬프트로 작업했다(2026-11-22).
+원본은 관리자가 가진 독점 프로그램과 ROM 덤프이며, 그 어느 바이트도 이 저장소에 없다.
+
+### NKP: 조각을 잘라 저장한 허큘리스 한글 TSR
+
+원본: NKP.COM V3.00 "(C) S.H.OH 06/01,89"(38,184 바이트, `NKP26.ARJ` 18,308 바이트 안)와 NKP3.COM(1989-07, 37,375 바이트,
+`NKP3.ARJ` 안). 1989년의 허큘리스 한글 TSR이다(삼보 조합형 한글 묶음, 라이선스 표기 없음). ARJ에 `binscan.py info`를 하면 "ARJ archive",
+모든 블록의 엔트로피가 7.9이다(압축됨: `7z l -slt`가 method 1을 보인다). 그래서 먼저 `7z x`로 푼다. 풀린 파일은 이미 디스크에 있던
+사본과 바이트 단위로 같다. 그다음:
+
+    python3 -I tools/binscan.py info NKP.COM --block 2048      # .COM (파일 오프셋 F는 F + 0x100에 적재), 0x2800-0x6000의 엔트로피 0.5-4.8
+    python3 -I tools/binscan.py ascii NKP.COM                  # offset 0x39a0, edge 0
+    python3 -I tools/binscan.py sets NKP.COM                   # none (--sets 8,2,1로도)
+    python3 -I tools/binscan.py render NKP.COM --offset 0x3800 --glyph 16x512 --count 16 --cols 16 --scale 2 --png $OUT/strip.png
+
+영문 폰트는 0x39a0에 있다(8x16 글리프 128개). 원시 8x4x4 폰트는 없다. 스트립을 보면 0x41a0부터 조각이 있는데, 너비는 16 픽셀이지만
+높이는 5행에서 14행뿐이고 차례로 빽빽하게 붙어 있다(인벤토리의 "8/2/1 sets, row-cropped"). 규칙은 코드에 있다. `objdump -D -b binary
+-m i8086 --adjust-vma=0x100 NKP.COM`을 보면 ASCII 루틴이 `mov ax,0x3aa0`(메모리 0x3aa0 = 파일 0x39a0)을 읽고, 한글 루틴(0x1ea9)은
+조합형 코드를 세 표(초성 0x1bd6, 중성 0x1bf6, 종성 0x1c14: 5비트 코드를 드라이버 자신의 자모 번호로)로 나누고, 초성 세트는 42 바이트
+표 0x1c34(종성 없는 모음 21개, 있는 모음 21개)에서, 중성 조각과 세트는 0x1c5e의 84 바이트 쌍 표에서 고르며, 각 조각을 0x1b0c의 6 바이트
+레코드 17개 표(`u16` 주소, `u8` 간격, 32 바이트 셀 안의 `u8` 첫 바이트와 끝 바이트, `u8` 플래그: 비트 0이 켜지면 16 픽셀 너비,
+꺼지면 행마다 한 바이트로 오른쪽 8 픽셀만)를 거쳐 그린다. 그러니 NKP에는 초성 세트 8개(종성 없음: ㅏ류 모음, ㅗㅛㅡ, ㅜㅠ, 겹모음,
+종성 있을 때 같은 넷), 중성 세트 2개(종성 없음 / 있음, 각각 모음 모양에 따라 네 가지로 잘림), 종성 세트 1개가 있고, 모음은
+자기 순서(ㅏㅑㅓㅕㅣㅐㅒㅔㅖㅗㅛㅡㅜㅠㅘㅚㅝㅟㅢㅙㅞ)로 번호를 매긴다. 25줄 스크립트가 이 표들을 compose 명세로 옮겼다(레코드
+17개에서 `sets`: offset = 주소 - 0x100, `y` = 첫 바이트 / 2, `height` = (끝 - 첫) / 2, 오른쪽 절반 레코드는 `x` = 8, `width` 8. 세
+선택 표에서 `initial`, `medial`, `final`, 중성 표에서 `vowel_order`). 그다음:
+
+    python3 -I tools/rawcarve.py compose NKP.COM --spec $OUT/NKP.json --syllables all \
+        --eng NKP.COM --eng-offset 0x39a0 --ascent 12 -o $OUT/nkp-all.bdf
+    python3 tools/bdfface.py --hangul $OUT/nkp-all.bdf --ascii $OUT/nkp-all.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/NKP16.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/NKP16.SVF --mask-font none --check -o $OUT/NKP16J.SVF
+    python3 tools/jamoset.py --layout adaptive --from-svf $OUT/NKP16.SVF --mask-font none --check -o $OUT/NKP16JA.SVF
+
+(`$OUT/ks.txt`는 2,350 음절이며 [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf)에서처럼 쓴다.) 결과: 완성형 `122,276 bytes`, 글리프
+2,447개(음절 2,350, ASCII, U+2026, U+25A1), `width=144 ascent=12 descent=4`, 잉크 467. 8x4x4 자모 세트 `16,452 bytes`, 글리프 441개,
+조각 344개, 음절 2,350개에 대해 IoU 0.998(2,324개 정확), 0.2 s. adaptive 세트 `28,204 bytes`, 세트 11/5/4와 12 x 12 클래스, IoU
+1.000(2,350개 모두 정확), 2 s. 둘 다 잉크 467이고, `--check`는 11,172 음절을 모두 조합한다. 대신 조합한 11,172 음절 전부에 맞추면
+(`--chars-from`에 그 전부를 준 573,076 바이트 완성형 페이스): 8x4x4 IoU 0.997(10,848개 정확), adaptive `28,164 bytes`, 모든 음절이
+정확, 9 s. 8x4x4 세트가 몇 음절을 놓치는 것은 NKP가 종성 있는 초성 세트를 모음 모양에 따라 넷 중에서 고르는데 8x4x4에는 셋뿐이기
+때문이다.
+
+NKP3.COM은 같은 드라이버의 다른 빌드다. 같은 명령어 바이트로 표를 찾고(디스크립터 0x193e, 초성 0x1a08, 중성 0x1a28, 종성 0x1a46,
+초성 세트 0x1a66, 중성 0x1a90. `binscan.py ascii`는 0x5f70), 같은 명령으로 `122,344 bytes`, 잉크 494(명조 비슷한 페이스), 8x4x4
+`16,432 bytes`, IoU 0.997(2,282개 정확), adaptive `26,688 bytes`, 세트 9/5/4, IoU 1.000을 얻는다.
+
+### 도깨비: 드라이버 안의 폰트
+
+원본: 사용자의 도깨비 묶음(`dkbb.rar`, 독점)에 든 한글 도깨비 B 드라이버 DKBB.COM(22,035 바이트)과 DKBII.COM(20,355 바이트).
+따로 된 DKBBG.FNT는 [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트)에서 읽는다. 여기서는 드라이버 자체에서 폰트를 꺼낸다.
+
+    python3 -I tools/binscan.py sets DKBB.COM
+    #   offset 0x5e (94): 344 of 344 pieces inked, seam 0.66, ends 0x2d5e; 4 nearby reads pass; the same seams at 0x60 (...)
+    python3 -I tools/binscan.py ascii DKBB.COM       # offset 0x4cce (19662), edge 0 (fewer than 256 glyphs left in the file)
+    python3 -I tools/binscan.py sets DKBII.COM       # offset 0x105c; the same seams at 0x105e, 0x1060
+    python3 -I tools/binscan.py ascii DKBII.COM      # offset 0x5f
+
+`sets`는 둘 다에서 8x4x4 폰트를 찾지만, 폰트 앞의 바이트가 0이면 몇 행 어긋나게 읽어도 통과한다. 도구는 16비트 행이 한데 붙어 있는
+읽기(x = 7 / 8의 "seam"을 가로지르는 획)를 남기고, 같은 점수의 행 단위로 어긋난 읽기를 이름으로 알려 준다. 두 드라이버 모두 그
+가운데 마지막 것이 맞았다. DKBB.COM은 0x60(DKBB.ASM이 `han1`을 두는 곳이며, `cmp`로 DKBBG.FNT 15,584 바이트 전부가 거기 있다), DKBII.COM은
+0x1060(그 11,520 바이트는 DKBBG.FNT와 71 바이트가 다르다: 고친 페이스). 둘 다 그려 보고 드라이버가 그리는 자리에 조각이 놓인 쪽을
+남겨라. 틀린 쪽은 모든 음절을 한 행씩 밀어 놓는다.
+
+    python3 -I tools/rawcarve.py cut DKBII.COM --offset 0x1060 --length 11520 -o $OUT/dkbii.fnt
+    python3 -I tools/rawcarve.py eng DKBII.COM --offset 0x5f -o $OUT/dkbii-eng.raw
+    python3 tools/jamoset.py --layout 844 $OUT/dkbii.fnt --eng $OUT/dkbii-eng.raw --symbols --check -o $OUT/DKBII16J.SVF
+    python3 tools/johab844.py $OUT/dkbii.fnt svf/dos/NEODG16.SVF $OUT/DKBII16.SVF --eng $OUT/dkbii-eng.raw
+
+DKBII: 자모 세트 `15,556 bytes`, 글리프 441개, 조각 344개, `check: composed 11172 syllables ... identical to johab844.py`,
+`width=144 ascent=14 descent=2`, 잉크 501. `johab844.py`로 만든 완성형은 `133,576 bytes`, 글리프 2,905개, 잉크 501. DKBB(0x60에서 자르고
+영문은 0x4cce: 파일이 끝나기 전 글리프 148개, 4,096 바이트로 채움): `15,556 bytes`, 잉크 501. 도깨비 5.1의 화면 드라이버(VDKB5.EXE,
+MDKB5.EXE, EDKB5.EXE, VDKB24.EXE)에는 폰트가 없다. `sets`, `ascii`, `runs`가 아무것도 찾지 못하며, 이들은 DKB16.FNT / DKB24.FNT(524,288,
+698,184 바이트, 셰어웨어 `DKB5.ZIP` 안. CP437 기호로 시작하는 행 우선 16x16, 여기서 풀지 못한 코드 순서)를 읽어 들인다.
+
+### 한글 VGA 폰트 ROM (86Box)
+
+원본: 86Box ROM 묶음(https://github.com/86Box/roms, 2026-11-14의 커밋 1ac40f2). 파일별로 `~/work/fonts-download/86box-roms/`에
+내려받았고, url, 바이트, sha256을 그 `downloads.tsv`에 적었다. 그 트리에는 한글 VGA 카드가 셋 있고, 각각 32 KB VGA BIOS와 512 KB
+KS C 5601 폰트 ROM이다: 삼보 트라이젬 한글 VGA(ET4000, `video/et4000/tgkorvga.bin`, `tg_ksc5601.rom`), 가산 ET4000(`et4000_kasan16.bin`,
+`kasan_ksc5601.rom`), ATI 28800 한글(`video/ati28800/atikorvga.bin`, `ati_ksc5601.rom`). 그 밖의 한국 항목은 한글 폰트가 없는 기계 BIOS다
+(삼성 Deskmaster 286, 현대 Super-16T, LG IBM, 트라이젬 286M / 486G). ROM은 독점 칩의 덤프다.
+
+    python3 -I tools/binscan.py info tg_ksc5601.rom      # 524288 bytes; size = 16384 x 32 B: 16,384 slots
+    python3 -I tools/binscan.py render tg_ksc5601.rom --offset $((0x1821*32)) --glyph 16x16 --order strips --count 4
+
+32 바이트 슬롯 16,384개는 128 x 128 격자다. 에뮬레이터 자신의 소스(`src/video/vid_svga_render.c`)가 `((lead & 0x7F) << 7) | (trail &
+0x7F)`로 색인하고, 왼쪽 8 픽셀은 바이트 `scanline`, 오른쪽은 `scanline + 16`으로 그린다. 16행짜리 8 픽셀 스트립 두 개다(`--order
+strips`). 가(B0A1)는 슬롯 0x1821이며, 세 ROM 모두 렌더가 가 각 간 갇을 보인다(디자인은 셋이 다 다르다). 영문 폰트는 BIOS의 8x16 VGA
+폰트다:
+
+    python3 -I tools/binscan.py ascii tgkorvga.bin                   # offset 0x4a2d, edge 3 (Kasan 0x499a, ATI 0x4d59)
+    python3 -I tools/rawcarve.py bdf tg_ksc5601.rom --glyph 16x16 --order strips --chars ks-hangul \
+        --grid 0x80,0x80,128 --ascent 12 -o $OUT/tg-hangul.bdf
+    python3 -I tools/rawcarve.py bdf tgkorvga.bin --offset 0x4a2d --glyph 8x16 --chars ascii --ascent 12 -o $OUT/tg-ascii.bdf
+    python3 tools/bdfface.py --hangul $OUT/tg-hangul.bdf --ascii $OUT/tg-ascii.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/TGVGA16.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/TGVGA16.SVF --mask-font none --check -o $OUT/TGVGA16J.SVF
+
+두 BDF에 모두 `--ascent 12`를 주면 ROM의 셀이 그대로 유지된다(VGA 폰트의 대문자는 11행에서 끝난다). 결과(각 페이스 글리프 2,447개,
+모든 줄이 `width=144 ascent=12 descent=4`):
+
+| ROM | 완성형 | 잉크 | 8x4x4 자모 세트 | IoU (2,350 중 정확) | 잉크 |
+|---|---|---:|---|---|---:|
+| 트라이젬 (`tg_ksc5601.rom` + `tgkorvga.bin`) | `122,392 bytes` | 476 | `17,172 bytes` | 0.968 (1,576) | 476 |
+| 가산 (`kasan_ksc5601.rom` + `et4000_kasan16.bin`) | `124,968 bytes` | 557 | `18,576 bytes` | 0.872 (290) | 566 |
+| ATI (`ati_ksc5601.rom` + `atikorvga.bin`) | `123,188 bytes` | 517 | `17,596 bytes` | 0.919 (644) | 517 |
+
+ROM에는 KS X 1001 표 전체가 있다. `--chars ks-nonhanja`는 기호와 자모를, `ks-all`은 한자까지 더한다(BDF를 그대로 두는 `mkfont.py`용.
+`bdfface.py`는 음절과 ASCII만 남긴다). `rawcarve.py eng tgkorvga.bin --offset 0x4a2d`는 같은 영문 폰트를 원시 `--eng` 파일로 준다.
+
+이 호스트의 다른 ROM 묶음: `johab-fonts/emu/romdb`의 openMSX 시스템 ROM(파일 1,241개)에는 한글 폰트가 하나 있다. 대우 CPC-400S의
+`400skfn.rom`(131,072 바이트: 16x16, 글리프당 32 바이트, 256 KB 폰트의 앞 절반, KS 기호와 기계 자신의 순서로 된 음절 1,316개.
+johab-fonts `notes/msx.md`). 다른 한국 MSX ROM(`cpc-300_hangul`, `dpc-200_hangul`, `cpc-400s_hangul`)은 한글 BASIC 코드이고, MSX1의
+자모 폰트는 BIOS의 8x8 문자표다. `~/work/88emuplayer-roms.zip`에는 Roland 음원 모듈 ROM(SC-55, SC-88, SC-8850, CM-300)만 있고 폰트는
+없다. 한글 폰트가 든 MAME식 묶음은 찾지 못했다.
+
+## OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기
+
+<a id="os2-한글-폰트완성형"></a>
+
+OS/2의 한글 "System DBCS" 폰트(`$korZN16.FNT`, `$korZN24.FNT`)는 완성형이다. KS X 1001 표 전체(기호 1,128개, 음절 2,350개, 한자
+4,888개)를 코드 순서로 담고, 글리프마다 압축되어 있다(니블의 허프만 부호, 그다음 위 두 행에서 문맥 표로 예측). `tools/os2dbcs.py`가
+이를 94 x 94 표로 풀고, 그다음은 어느 KS X 1001 덤프와 같은 길이다: BDF, `bdfface.py`, 그리고 그 페이스에 맞춘 자모 세트.
+
+    python3 -I tools/os2dbcs.py info '$korZN16.FNT'
+    python3 -I tools/os2dbcs.py table '$korZN16.FNT' -o $OUT/zn16.bin
+    python3 -I tools/rawcarve.py bdf $OUT/zn16.bin --glyph 16x16 --chars ks-hangul --grid 0xA1,0xA1,94 -o $OUT/zn16.bdf
+    python3 maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/8x16.pcf.gz $OUT/8x16.bdf
+    python3 tools/bdfface.py --hangul $OUT/zn16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/OS2ZN16.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/OS2ZN16.SVF --mask-font none --check -o $OUT/OS2ZN16J.SVF
+    python3 tools/jamoset.py --layout adaptive --from-svf $OUT/OS2ZN16.SVF --mask-font none --check -o $OUT/OS2ZN16JA.SVF
+
+OS/2 Warp 4 한국어판(IBM. CD의 FTCOMP 묶음을 johab-fonts 연구에서 푼 것, `D28REQ.004` = `$korZN16.FNT` 220,160 바이트, `D28REQ.002` =
+`$korZN24.FNT` 346,624 바이트, 독점)에서 실행했다. `info`: "System DBCS 16", 16x16, 글리프당 32 바이트, 리드 바이트 A1-AC, B0-C8, CA-FD,
+글리프 레코드 8,224개, 음절 2,350개 모두 있음. `table`은 슬롯 8,742개(279,744 바이트, 연구 디코더의 덤프와 같은 바이트)를 쓴다. 영문
+절반은 이 호스트의 X11 "Misc Fixed" 8x16과 12x24(`xfonts-base`, 퍼블릭 도메인)이다. OS/2의 DBCS 파일에는 ASCII가 없다. 24 px 페이스는
+같은 명령에 `--glyph 24x24 --ascent 22`, `12x24.pcf.gz`, `--cell 24x24`:
+
+| 페이스 | 바이트 | 글리프 | 맞춤 | measure | 잉크 |
+|---|---|---:|---|---|---:|
+| `OS2ZN16.SVF`, 완성형 16 px | `123,328` | 2,447 | | `width=144 ascent=14 descent=2` | 469 |
+| 그 8x4x4 자모 세트 | `17,264` | 441 | IoU 0.984 (p5 0.898), 2,350 중 1,753 정확, 0.3 s | 같음 | 470 |
+| adaptive 자모 세트 | `42,140` | 858 | 세트 14/12/9, IoU 0.999, 2,299 정확, 3 s | 같음 | 469 |
+| `OS2ZN24.SVF`, 완성형 24 px | `220,164` | 2,447 | | `width=216 ascent=22 descent=2`(규칙 `line 400 32 0 24`) | 922 |
+| 그 8x4x4 자모 세트 | `30,544` | 441 | IoU 0.720 (p5 0.457), 17 정확, 0.8 s | 같음 | 909 |
+| adaptive 자모 세트 | `100,740` | 1,533 | 세트 32/24/12, IoU 0.883, 548 정확, 11 s | 같음 | 921 |
+
+모든 자모 세트에서 `--check`는 11,172 음절을 모두 조합한다. 16 px 디자인은 조각의 OR에 가까워 8x4x4로도 0.984가 맞지만, 24 px는
+음절마다 따로 그린 디자인이라 기본 adaptive 예산(세트 32/24/12)으로도 잘 맞지 않는다. 예산이 허락하면 완성형 페이스를 두거나
+[세트 수 정하기](#세트-수벌-수-정하기)를 보라. `rawcarve.py bdf` 줄에 `--chars ks-nonhanja`를 주면 기호와 호환 자모까지 남는다
+(글리프 3,334개). `bdfface.py`는 음절만 남기고, `mkfont.py`는 BDF를 그 자신의 크기로 읽는다: `mkfont.py $OUT/zn16-nh.bdf ... --size 16
+--bpp 1 --unicode ksx1001-hangul,jamo`는 `123,880 bytes`, 글리프 2,444개, 샘플 줄의 다섯 음절 `width=80`, 잉크 310을 쓴다.
+`--unicode ksx1001-nohanja`는 Pillow의 `raqm_get_glyphs() failed`로 멈춘다. KS X 1001 A1A9는 셰이퍼가 버리는 U+00AD(소프트 하이픈)이니
+목록에서 빼라(`--chars-from`). 같은 CD의 `$SYS1Z16/24.FNT` 파일은 음절이 아니다(조각으로 된 IBM 사용자 영역). 읽지 않는다.
+
+## 고해상도 비트맵 폰트에서 저해상도 페이스 만들기
+
+24, 40, 48 px 비트맵 폰트(DOS나 프린터 폰트, BDF, ROM)를 16 px로, 또는 2 bpp 페이스로 쓰고 싶을 때다. 지금 도구가 하는 일:
+`mkfont.py`는 BDF나 PCF를 그 자신의 크기로만 연다(다른 크기에서는 `OSError: invalid pixel size`,
+[ISO 10646 BDF와 PCF](#iso-10646-bdf와-pcf)). `jamoset.py --from-svf`는 원본의 셀을 유지한다. C 렌더러와 `svfline.py`는 그리는 시점에
+페이스를 축소한다(`scale_num / scale_den`, 8비트 커버리지로 가는 박스 필터). 하지만 더 작은 페이스를 써 내는 도구는 없었다.
+`tools/svfscale.py`가 그 일을 한다. 1 bpp 페이스(자모 세트는 음절을 조합해서)나 BDF의 모든 글리프를 그리고, 새 셀로 박스 필터를
+걸어(출력 픽셀마다 원본 영역 중 잉크가 차지한 정확한 비율) 완성형 페이스를 쓴다. 1 bpp는 임계값으로, 2 bpp는 네 단계로:
+
+    python3 tools/svfscale.py $OUT/OS2ZN24.SVF --size 16 -o $OUT/ZN24TO16.SVF --compare $OUT/OS2ZN16.SVF   # 1 bpp, 비율 >= 0.5
+    python3 tools/svfscale.py $OUT/OS2ZN24.SVF --size 16 --bpp 2 -o $OUT/ZN24TO16A.SVF                     # 2 bpp
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/ZN24TO16.SVF --mask-font none --check -o $OUT/ZN24TO16J.SVF
+
+다른 두 원본도 같은 길이다: `bdfface.py --hangul dotum24.bdf --ascii $OUT/12x24.bdf --cell 24x24 ...`(비교할 페이스는 `dotum16.bdf`와
+`8x16.bdf`), `jamoset.py --layout 844 GHANC40.PFT --check -o $OUT/GHANC40J.SVF`(비교용은 `GOTHIC16.FNT --eng ROMAN16.FNT`). 각각 그다음
+`svfscale.py --size 16`.
+
+2 bpp 결과는 렌더러가 24 px 페이스를 2/3로 축소해 그리고 커버리지를 네 단계로 양자화한 것과 정확히 같다(아래 OS/2 페이스의 2,350
+음절 모두에서 확인: 전부 같음). 그러니 저장한 2 bpp 페이스와 그리는 시점의 축소는 같은 픽셀을 내며, 저장한 페이스는 메모리를,
+축소해 그리기는 시간을 쓴다. 자모 세트는 1 bpp 결과에만 맞출 수 있다. `jamoset.py --bpp 2`는 아웃라인 폰트만 받으므로(`--bpp 2 works
+from an outline font (--from-ttf)`) 비트맵 원본에서 2 bpp 자모 세트를 만드는 길은 없다.
+
+여기서 실행(2026-11-22)한 세 원본, 각각 같은 패밀리나 제작사의 손으로 그린 16 px 페이스와 비교했다. "겹침"은 `--compare`가 출력하는
+값으로, 1 bpp 결과의 2,350 음절을 그 페이스와 2 픽셀 안의 가장 좋은 공통 이동에서 비교한 평균 IoU이다(다시 샘플링한 페이스가 그린
+페이스에서 얼마나 먼지를 재는 값이지 품질 점수가 아니다):
+
+| 원본 | 1 bpp 결과 | 잉크 | 2 bpp 결과 | 잉크 | 1 bpp 결과의 8x4x4 맞춤 | 그린 16 px 페이스와 겹침 |
+|---|---|---:|---|---:|---|---|
+| 백묵 돋움 24 (Baekmuk BDF 2.2의 `dotum24.bdf` + Misc Fixed 12x24, `bdfface.py`를 거쳐 `216,196 bytes`) | `122,016 bytes`, 글리프 2,447개, `width=144 ascent=15 descent=1` | 330 | `194,208 bytes` | 612 | `18,292 bytes`, IoU 0.597 | `dotum16.bdf`(`122,804 bytes`, 잉크 411)와 0.520, 1행 이동 |
+| OS/2 `$korZN24.FNT` ([OS/2 한글 폰트](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기), `220,164 bytes`) | `125,084 bytes`, 글리프 2,447개, `width=144 ascent=15 descent=1` | 410 | `200,760 bytes` | 691 | `18,596 bytes`, IoU 0.710 | `$korZN16.FNT`와 0.387 |
+| 태백 3.5.1 고딕 40 (`GHANC40.PFT`, [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트)의 8x4x4 페이스, `33,944 bytes`) | `121,772 bytes`, 음절 2,350개(ASCII 없음: 40 px 영문 GASCII40.PFT는 카드 t_262e222d가 병합된 뒤에 `--eng`로 읽힌다), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | GOTHIC16.FNT와 0.471 |
+
+40 px 원본은 그 자체가 8x4x4 조각의 OR이라 16 px로 다시 샘플링해도 거의 그대로다(IoU 0.990). 음절마다 그린 두 디자인은 8x4x4에 잘
+맞지 않는다. 임계값은 획과 뭉침을 맞바꾼다: OS/2 페이스를 `--threshold 0.25`로 하면 잉크 615(`0.5`는 410), 그린 16 px 페이스와 겹침
+0.489이다. BDF를 바로 읽으면(`svfscale.py dotum24.bdf`) BDF의 모든 글리프(한자까지 8,226개)와 그 자신의 ascent를 쓴다. ASCII와 원하는
+셀이 있는 페이스를 원하면 먼저 `bdfface.py`를 거쳐라.
+
+**함정.** 24 px의 1 픽셀 획은 16 px 픽셀의 3분의 2를 덮으므로, 위치가 맞을 때만 0.5 임계값에서 살아남는다. 40, 48 px의 가는 획은 비율
+0.4인 픽셀이 되어 1 bpp에서 사라진다. 다시 샘플링은 다시 그리기가 아니다: 그린 16 px 페이스(위 표의 마지막 열)가 더 선명하고,
+아웃라인 폰트에서 만든 2 bpp 페이스([2 bpp 안티에일리어싱 페이스](#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기))는
+비트맵 계단의 커버리지가 아니라 진짜 커버리지를 가진다.
 
 ## 클래식 Mac 한글 비트맵 폰트
 
@@ -639,7 +994,7 @@ Verified: `133,720 바이트`(변함 없음), 글리프 2,905개, 글리프 95�
     python3 tools/jamoset.py --layout 844 --from-svf svf/dos/NEODG16.SVF --mask-font none -o $OUT/neodg16-from-svf.svf
 
 Verified: `34,332 바이트`, 글리프 892개, 조각 344개. 맞춤: 음절 2,357개, IoU 1.000(Neo Dunggeunmo는 그 자체가 조각의 OR이다). 렌더는
-`width=144 ascent=12 descent=4`, 잉크 559. 기존 SVF는 안티에일리어싱 원본이 아니다. 1 bpp 페이스를 2 bpp로 바꾸는 도구는 없고,
+`width=144 ascent=12 descent=4`, 잉크 559. 기존 SVF는 같은 크기의 안티에일리어싱 원본이 아니다. 1 bpp 페이스를 같은 크기의 2 bpp로 바꾸는 도구는 없고(`svfscale.py --bpp 2`는 더 작은 크기로 다시 샘플링한다),
 `svfdy.py`는 dy만 바꾼다.
 
 **버전과 프로필.** SVFN v2는 폐기되었다. `svf2to3.py`는 v2를 읽고 v3 페이스를 다시 배치한다. maker의 "copy" 경로는 업로드된 SVF에 이를 쓴다
@@ -653,6 +1008,68 @@ Verified: `34,332 바이트`, 글리프 892개, 조각 344개. 맞춤: 음절 2,
 
 Verified: NanumGothic Bold의 1 bpp 자모 세트는 `--jset-version 2`로 `20,064` -> `19,232 바이트`(JSET 블록 1,101 -> 272 바이트, 글리프 데이터 11,884 변함 없음, 모든 글리프 비교 일치); 배포된 NEODG16A는 `16,408` -> `15,576 바이트`; `--jset-version auto`에서 NEODG16A는 v1로 남는다(`jset=1`. v1 블록이 v2보다 829 바이트만 커서 1,024 기준에 못 미친다). 마지막 명령은 배포된 페이스를 `default` 프로필로 다시 배치하며 바이트가 같다: 입출력 모두 133,720 바이트(`cmp`가 차이를 보고하지 않는다). `--profile`은 대상별 레이아웃을
 고른다(`mcu-strict`, `default`, `dos`, `wasm`, `full`, `simd16`). `--check`는 픽셀이 바뀌지 않았음을 증명한다.
+
+## 세트 수(벌 수) 정하기
+
+<a id="세트-수-정하기"></a>
+
+자모 세트는 음절을 초성 조각 하나, 중성 조각 하나, 그리고 있으면 종성 조각 하나로 그린다. *세트*(벌)는 각 자모의 변형이고, 세트
+체계는 모음, 종성, 초성의 클래스에 따라 음절마다 하나를 고른다. 세트가 많을수록 폰트를 더 가깝게 따르지만 바이트(세트마다 그
+세트가 쓰이는 모든 자모의 조각)와 표 크기가 든다.
+
+**세트 체계**(`jamoset.py --layout`. JSET 블록은 초성 32, 중성 24, 종성 16 세트와 12 x 12 리드 / 테일 클래스까지, `--jset-big`은
+128 / 128 / 64와 19 x 28까지 허용한다):
+
+| 배치 | 세트 (초성 / 중성 / 종성) | 출처 | 맞춤에서(`--from-ttf`, `--from-svf`) |
+|---|---|---|---|
+| `621` | 6 / 2 / 1 | Apple II 시대 6x2x1 폰트 | 예 (`svf/`의 NEODG16G가 그 예) |
+| `844`, `844-ihnm`, `844-hbios24` | 8 / 4 / 4 | DOS 표준(`HANGUL.FNT`). IHNM은 ㄱ ㅋ의 중성 세트를 바꾸고, HBIOS는 그 24x30 파일 | 예 |
+| `1044-san` | 10 / 4 / 4 | san 1.0 | 예 |
+| `hanterm-johab` | 10 / 4 / 4 (어떤 파일은 3) | hanterm의 johab BDF | 예 |
+| `dkb-printer-7x2x2`, `dkb-printer-12x4x4` | 7 / 2 / 2, 12 / 4 / 4 | 도깨비 프린터 폰트 | 원본 파일만 |
+| `kyra-lok` | 자기 방식, 조각 385개 | Kyrandia의 MK15.BIT | 원본 파일만 |
+| `mac-fbit-45sets` | 폰트에서 끌어냄 (Munjo24: 20 / 15 / 4, 8 x 4 클래스) | HangulTalk 1.0 `fbit` | 원본 파일만 |
+| `adaptive[:NI,NM,NF]` | 8 / 4 / 4에서 NI / NM / NF까지 (기본 32 / 24 / 12. NI 8-32, NM 4-24, NF 4-16), 12 x 12 클래스 | `jamoadapt.py`: 조각을 공유하는 음절들이 서로 다르면 세트를 나눈다 | 예 |
+
+**세트 수를 바꾸는 옵션.** `--layout adaptive:NI,NM,NF`는 세트 수에 상한을 둔다(나누어도 더 얻는 것이 없으면 일찍 멈춘다: 시작
+비용의 0.05 % 이상, 양쪽에 음절 4개 이상, `jamoadapt.py`에 고정). `adaptive`의 클래스는 언제나 12 x 12이다(`--jset-big`이어도 그렇다.
+그 플래그는 원본 자신의 더 큰 표를 쓸 수 있게 할 뿐이다). `jamovec.py master --adaptive NI,NM,NF`와 `--class-limit N`은 벡터 마스터에
+같은 일을 한다(12를 넘는 `--class-limit`은 더 큰 표를 흉내 낼 뿐이다). 맞춘 뒤에는 `jamomerge.py merge --points BYTES ...`가 변형, 세트,
+클래스를 바이트 예산까지 합치고([클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트)에 실행 예가 있다), `jamoexc.py`는 세트를
+늘리는 대신 자주 쓰는 음절 몇 개를 통째로 저장한다(LIST 예외).
+
+**측정**(2026-11-22): 모든 배치를 `jamoset.py --layout L --from-svf FACE --mask-font none --check`로 16 px 완성형 페이스 둘에 맞췄다.
+NanumGothic Bold(`mkfont.py ... --size 16 --bpp 1`, 아웃라인 폰트의 래스터)와 OS/2의 `$korZN16.FNT`([OS/2 한글
+폰트](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기), 손으로 그린 비트맵 페이스). 페이스 전체의 바이트(ASCII 포함),
+2,350 음절에 대한 IoU(2,350 중 정확), 샘플 줄의 잉크(완성형 페이스는 677과 469):
+
+| 배치 | 쓰인 세트 | NanumGothic Bold: 바이트 | IoU (정확) | 잉크 | OS/2 ZN16: 바이트 | IoU (정확) | 잉크 |
+|---|---|---:|---|---:|---:|---|---:|
+| `621` | 6 / 2 / 1 | 12,788 | 0.743 (25) | 673 | 11,544 | 0.889 (206) | 471 |
+| `844` | 8 / 4 / 4 | 20,648 | 0.795 (126) | 681 | 17,264 | 0.984 (1,753) | 470 |
+| `1044-san` | 10 / 4 / 4 | 22,504 | 0.799 (118) | 681 | 18,788 | 0.991 (1,823) | 470 |
+| `hanterm-johab` | 10 / 4 / 4 | 21,992 | 0.798 (110) | 676 | 18,608 | 0.981 (1,501) | 468 |
+| `adaptive:8,4,4` | 8 / 4 / 4 | 29,544 | 0.796 (135) | 680 | 25,972 | 0.992 (2,171) | 469 |
+| `adaptive:12,8,6` | 12 / 8 / 6 | 39,176 | 0.857 (205) | 678 | 33,924 | 0.999 (2,273) | 469 |
+| `adaptive:16,12,8` | 16 / 12 / 8 (ZN16: 14 / 12 / 8) | 48,156 | 0.875 (291) | 672 | 41,008 | 0.999 (2,299) | 469 |
+| `adaptive:24,16,12` | 24 / 16 / 12 (ZN16: 14 / 12 / 9) | 65,412 | 0.905 (414) | 677 | 42,140 | 0.999 (2,299) | 469 |
+| `adaptive` (32,24,12) | 32 / 24 / 12 (ZN16: 14 / 12 / 9) | 77,560 | 0.918 (576) | 669 | 42,140 | 0.999 (2,299) | 469 |
+
+맞춤은 하나에 0.3-0.5 s(고정 배치) 또는 2-7 s(adaptive)가 걸렸다. 완성형 페이스는 125,520과 123,328 바이트이다.
+
+**읽는 법.** 고정 배치는 조각 수만큼의 값이 들고(621: 글리프 279개, 844: 440개, 10x4x4: 약 470개), 서로 간에 얻는 것이 적다.
+`adaptive:8,4,4`는 844와 같은 수지만 12 x 12 클래스를 가진다. 표가 8.8 KB 더 들고(JSET 블록 9,921 바이트 대 1,101. JSET v2로는 2,844:
+`--jset-version 2`나 `auto`. 위의 모든 adaptive 페이스가 이렇게 6-7 KB 줄어든다) 어느 음절들이 조각을 공유할지를 더 잘 고른다(OS/2:
+2,171개 정확 대 1,753개). 손으로 그린 비트맵 페이스는 이미 조각의 OR에 가까워 14 / 12 / 9에서 IoU 0.999로 나누기를 멈춘다. 아웃라인
+래스터는 상한까지 계속 나아지고(32 / 24 / 12에서 0.918) 끝내 정확해지지 않는다. 크기를 바꾼 아웃라인은 음절마다 조금씩 다르게
+그리기 때문이다.
+
+**권장.** 먼저 `844`로 맞추고 IoU를 읽어라. 약 0.98 이상(조각으로 설계된 비트맵 페이스, DOS 폰트, ROM)이면 `844`를 두어라. 세트를 더해도
+얻는 것이 거의 없다. 그 아래 약 0.9까지는 `adaptive:12,8,6`을 시도하라. 844 크기의 약 두 배로 세트를 늘려 얻을 것의 대부분을 얻는다.
+844로 0.8인 아웃라인 폰트의 래스터는 전체 `adaptive` 예산을 써야 0.9에 닿고, 그러면 완성형 페이스의 60 %를 넘는다. 그럴 때는 대개
+완성형 페이스, 또는 844 세트에 LIST 예외 몇 개(`jamoexc.py`)를 두는 편이 바이트를 더 잘 쓴다. 예산이 정해진 대상에는 넉넉히 맞춘 뒤
+`jamomerge.py merge --points`로 깎아라. 어느 경우든 결과를 눈으로 보라(`svfline.py line`, `web/` 피커). IoU는 어느 음절이 틀렸는지
+보여 주지 않는다.
 
 ## 데스크톱 앱과 maker 경로
 
@@ -831,7 +1248,8 @@ EUC-KR / 완성형 바이트 쌍 = GL 코드 + 0x8080 (`가` = B0A1 = GL 3021). 
   좌우되지 않게 한다. [자모 세트](#truetype와-opentype-폰트에서-만드는-자모-세트)를 참고한다.
 - 실행 시간(이 호스트, 코어 하나): 16 px 아웃라인 폰트의 1 bpp `threshold` 맞춤은 약 12초, 2 bpp는 약 73초, Gowun Batang adaptive 20 px는
   약 90초이다. 2 bpp 페이스는 같은 1 bpp 페이스의 약 1.5-1.6배, 자모 세트는 약 6분의 1이다.
-- 비트맵이나 1 bpp 페이스에서 2 bpp 페이스를 만드는 도구는 없다.
+- 비트맵이나 1 bpp 페이스에서 같은 크기의 2 bpp 페이스를 만드는 도구는 없다. `svfscale.py --bpp 2`는 더 작은 크기의 2 bpp
+  페이스를 만들고([고해상도 비트맵 폰트에서 저해상도 페이스 만들기](#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)), 비트맵에서 2 bpp 자모 세트를 만드는 도구는 없다.
 - `mkfont.py`는 요약을 한국어로 출력한다. 필드 이름을 찾으려고 그 stdout을 파싱하지 말 것.
 - 도구 전반의 알려진 빈틈: [tools.ko.md](tools.ko.md#도구에-남은-빈틈)의 "도구에 남은 빈틈".
 

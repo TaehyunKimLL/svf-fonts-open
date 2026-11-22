@@ -432,6 +432,35 @@ A dy on a jamo piece (`U+F0000..`) is refused. Code points the font lacks are co
 
 **Repository modules imported.** `jamoset.py`. **Third-party.** None. **Test.** `tools/test_jamoset.py`.
 
+### `tools/svfscale.py`
+
+**Purpose.** Draw a bitmap face at a smaller pixel size (a 40 / 48 px DOS or printer face, a 24 px BDF, down to 16 px),
+1 bpp by a threshold or 2 bpp from the covered share: the only route from a bitmap source to a 2 bpp face.
+
+**Status.** General-purpose.
+
+**Inputs.** A 1 bpp SVFN v3 face (precomposed or a jamo set: every glyph is drawn through `svfline.py`, so a jamo set's
+syllables are composed first) or a BDF (`bdfface.read_bdf`: KS X 1001 or Unicode encoding).
+
+**Outputs.** A precomposed SVFN v3 face (flag 5) of cell `round(W x h / H)` x `h`, ascent and advances scaled and
+rounded; an output pixel is the exact share of its source footprint that is inked; 1 bpp keeps share >= `--threshold`,
+2 bpp stores `(share x 255 x 3 + 127) // 255` (mkfont's rule).
+
+**Synopsis.** `python3 tools/svfscale.py SRC --size H [--bpp 1|2] [--threshold 0.5] [--chars ks|face|all|FILE] [--compare FACE.SVF] [--profile NAME] -o OUT.SVF`
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--size H` | required | the new cell height (below the source's) |
+| `--bpp 1\|2` | 1 | threshold or four levels |
+| `--threshold F` | 0.5 | 1 bpp: the inked share that keeps a pixel |
+| `--chars` | `ks` | `ks`: ASCII 0x20-0x7E, the 2,350 KS X 1001 syllables and the source's other code points (not a jamo set's pieces in plane 15); `face`: what the source lists; `all`: with all 11,172 syllables; or a file of characters |
+| `--compare FACE.SVF` | none | after writing a 1 bpp result, print its overlap with another 1 bpp face (mean IoU of the KS syllables both draw, at the best shift within 2 px) |
+| `--profile NAME`, `--box` | `default` | the v3 layout profile |
+
+Exit 1 with a message (not 1 bpp, `--size` not below the source). **Repository modules imported.** `jamoset.py`,
+`svfline.py`, `bdfface.py`. **Third-party.** None. **Test.** `tools/test_extract.py` (box-filter levels of a synthetic
+32 px BDF at 16 px, the overlap of a face with itself).
+
 ### `tools/svf2to3.py`
 
 **Purpose.** Convert SVFN v2 faces to v3, and re-layout v3 faces into another profile, with a proof that no pixel,
@@ -945,6 +974,100 @@ bytes, licences, hangul, latin_only, subset, family, style, variant). It writes 
 **Repository modules imported.** `tools/svfline.py` (and through it `tools/jamoset.py`). **Third-party.** None.
 **Test.** `tools/test_web_picker.py`.
 
+## Finding and cutting fonts out of files
+
+The worked examples are in [recipes.md](recipes.md#finding-a-font-inside-a-program-or-data-file-with-claude) (a
+DOS TSR, a DOS driver, Korean VGA font ROMs) and [recipes.md](recipes.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)
+(OS/2). These tools read bytes and never run the file's code; run them with `python3 -I` on downloads.
+
+### `tools/binscan.py`
+
+**Purpose.** Find where a bitmap font sits inside any file (a `.COM`/`.EXE`, a TSR, a ROM dump) and draw what is at an
+offset, so a person or an assistant can see where a font starts and how it is stored.
+
+**Status.** General-purpose.
+
+**Inputs.** Any file. Glyph geometry: `--glyph WxH`, `--stride B` (default the glyph's bytes), `--order rows` (row-major,
+ceil(W/8) bytes a row), `strips` (8-pixel-wide strips of H bytes one after another: the Korean VGA font ROMs), `cols`
+(column-major, the printer layout), `bytecols` (8-row bands of column bytes, the 6x2x1 layout), `--lsb` (bit 0 = left).
+
+**Outputs.** Text on stdout; `render --png` writes a grey PNG (zlib, no Pillow).
+
+**Synopsis.**
+
+    python3 tools/binscan.py info FILE [--block B]
+    python3 tools/binscan.py runs FILE --glyph WxH [--min N] [--max-change C]
+    python3 tools/binscan.py sets FILE [--sets NI,NM,NF] [--slots SI,SM,SF] [--glyph WxH] [--min-inked F]
+    python3 tools/binscan.py ascii FILE [--height H]
+    python3 tools/binscan.py render FILE --offset O --glyph WxH [--count N] [--cols C] [--png OUT --scale S]
+
+| Command | What it prints |
+|---|---|
+| `info` | size, kind (DOS MZ with its load image and an LZEXE / PKLITE mark, `.COM`, ARJ, ZIP, option ROM `55 AA`), the layouts whose byte size the file matches, an entropy map a block (near 8 bits a byte = packed) |
+| `runs` | runs of at least `--min` (32) inked glyph-like windows (ink 2-60 %, rows that change little) |
+| `sets` | offsets where every set's slot 0 of a raw jamo-piece font is blank and at least `--min-inked` (0.8) of the other slots have ink; of a cluster of nearby passing reads the one whose rows hold together across the byte seams (x = 7 / 8), naming the reads shifted by whole rows that score the same |
+| `ascii` | offsets of 8xH English fonts: space blank, `_` in the bottom third, `-` in the middle, 0x21-0x7E inked; of a cluster the alignment with the fewest glyphs inked in their first or last row |
+| `render` | the glyphs from an offset, as `#`/`.` text labelled with index and file offset, or as a PNG |
+
+Exit 0; argparse errors exit 2. **Repository modules imported.** None. **Third-party.** None. **Test.**
+`tools/test_extract.py`.
+
+### `tools/rawcarve.py`
+
+**Purpose.** Cut a font found with `binscan.py` out of its file into what the other tools read: raw bytes, a raw 8x16
+English font, a Unicode BDF of ASCII or of KS X 1001 syllables, or the syllables of a jamo-piece font composed by a
+rule written as a JSON spec.
+
+**Status.** General-purpose.
+
+**Inputs.** Any file; for `compose` a spec (below). Geometry options as `binscan.py`.
+
+**Outputs.** `cut`: the bytes. `eng`: 4,096 bytes (256 glyphs of 8x16; an 8xH font padded to 16 rows, `--top` rows
+above). `bdf`, `compose`: a BDF with `CHARSET_REGISTRY "ISO10646"`, `CHARSET_ENCODING "1"`, `PIXEL_SIZE` = the glyph
+height, `FONT_ASCENT` = `--ascent` (default 7/8 of the height, rounded up), every glyph the full cell; blank KS glyphs
+are left out.
+
+**Synopsis.**
+
+    python3 tools/rawcarve.py cut FILE --offset O --length N -o OUT
+    python3 tools/rawcarve.py eng FILE --offset O [--height H] [--top T] -o OUT
+    python3 tools/rawcarve.py bdf FILE [--offset O] --glyph WxH --chars ascii|ks-hangul|ks-nonhanja|ks-all \
+        [--first C] [--count N] [--dense | --grid L0,T0,PITCH] [--ascent A] -o OUT.bdf
+    python3 tools/rawcarve.py compose FILE --spec SPEC.json [--syllables ks|all] \
+        [--eng FILE2 --eng-offset O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
+
+`bdf --chars ks-*` places each KS X 1001 code by `--dense` (glyph i = the i-th code of the set: a 2,350-syllable dump)
+or `--grid L0,T0,PITCH` (glyph = (lead - L0) x PITCH + (trail - T0): `0xA1,0xA1,94` a full table, `0x80,0x80,128` the
+Korean VGA ROMs). The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
+`x`, `y`, `width`, `height`, `order`), the initial set per vowel without and with a final, the medial (set, piece) per
+vowel (optionally another table for ㄱ / ㅋ, the 8x4x4 rule), the final set per vowel or one set, and the font's own
+vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). Exit 1 with a message on
+a bad offset, spec or empty result.
+
+**Repository modules imported.** `binscan.py`. **Third-party.** None. **Test.** `tools/test_extract.py` (a carved
+8x4x4 font builds with `jamoset.py`; a KS grid ROM; a compose spec of the 8x4x4 rule equals jamoset's composition).
+
+### `tools/os2dbcs.py`
+
+**Purpose.** Decode an OS/2 "System DBCS" font (`$korZN16.FNT`, `$korZN24.FNT`; the Japanese and Chinese ones share the
+format) into its glyph table.
+
+**Status.** General-purpose. The format was read from the bytes and from OS/2's 16-bit FNTCALLS.DLL; the notes are in the
+johab-fonts research.
+
+**Inputs.** A System DBCS file (header "System DBCS NN"): 512-byte blocks of records, each a Huffman-coded nibble stream
+undone through a context table of the two rows above.
+
+**Outputs.** `info`: the header (cell, bytes a glyph, lead bytes, glyph number ranges, records, syllables present).
+`table`: every glyph number 256..8997 in order (8,742 slots, absent ones blank), row-major: the KS X 1001 94 x 94 table
+from A1A1, for `rawcarve.py bdf --grid 0xA1,0xA1,94`.
+
+**Synopsis.** `python3 tools/os2dbcs.py info FILE`, `python3 tools/os2dbcs.py table FILE -o OUT.bin`. Exit 1 with a
+message for a file without the header.
+
+**Repository modules imported.** None. **Third-party.** None. **Test.** `tools/test_extract.py` (a synthetic font with
+its own code table).
+
 ## Legacy format readers
 
 ### `tools/macfbit3.py`
@@ -1048,11 +1171,17 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
 - **The maker mistakes a real HangulTalk 1.0 `fbit` for type 3.** Real 1.0 fonts (Munjo24, Gotic12) carry generation 3
   in the header, and `detect.py` tests the generation before the 45 sets, so the `mac fbit 1.0` route is not offered
   (its test fixtures carry 0 there). `jamoset.py --layout mac-fbit-45sets` itself reads them.
-- **No reader** for the HWP `.PFT` Hangul files or for raw KS X 1001 syllable dumps (run on HWP 1.20's HANGUL1.PFT and
-  Taebaek's GHAN24.PFT: both refused, `is not an 8x4x4 size`); the DOS Johab raw formats and the Dokkaebi printer FNTs are
-  the only raw bitmap formats any tool reads. `--eng` takes only 8x16 and 12x24 English fonts, not the 40 / 48 px ones.
-- **No 1 bpp to anti-aliased conversion.** No tool makes a 2 bpp face from a 1 bpp face or from a bitmap source; 2 bpp
-  faces come only from an outline font (`mkfont.py --bpp 2`, `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`).
+- **No reader** for the HWP `.PFT` Hangul files (run on HWP 1.20's HANGUL1.PFT: refused, `is not an 8x4x4 size`). Raw
+  KS X 1001 syllable dumps, KS code grids and fonts inside programs and ROMs are cut by `rawcarve.py` into a BDF (no
+  builder reads them directly); a jamo-piece font in a layout no `jamoset.py` layout names needs its rule written as a
+  `rawcarve.py compose` spec. `--eng` takes only 8x16 and 12x24 English fonts, not the 40 / 48 px ones.
+- **No 1 bpp to anti-aliased conversion at the same size.** No tool makes a 2 bpp face from a 1 bpp face of the same
+  size; `svfscale.py --bpp 2` makes one from a larger bitmap face (a box filter), and the other 2 bpp faces come from an
+  outline font (`mkfont.py --bpp 2`, `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`). A 2 bpp jamo set from a bitmap
+  source has no route: `jamoset.py --bpp 2` refuses `--from-svf` (`--bpp 2 works from an outline font (--from-ttf)`).
+- **PUA jamo pieces without a rule.** A font that keeps jamo pieces in the Private Use Area but whose syllables are not
+  composites of them and which has no GSUB lookup reaching them (MiraeroNormal: 2,544 PUA glyphs) has no reader: the
+  rule that picks a piece set per syllable is not in the font (recipes.md, TrueType fonts that already carry jamo).
 - **No metadata or coverage report for an arbitrary font.** No tool prints an input font's family or style, its
   available sizes, or how many of the 11,172 syllables (or the 2,350 KS X 1001 ones) it covers; `mkfont.py` counts
   the requested code points it dropped, and `web/mkindex.py` reports coverage of a baked face.
