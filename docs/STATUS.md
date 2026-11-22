@@ -60,8 +60,8 @@ face마다 만드는 법은 [recipes.md](recipes.md)와 `tools/build/faces.tsv`.
 | 11-15 | 데스크톱 후속(5a3c7b2 병합 전 검토에서 나온 것): 릴리스 점검이 모든 분기에서 닫힌 채 실패(fail closed), `verify-report.sh`는 정확한 결과 줄만 받음, `third-party.mjs`, 도구 세트 가지치기 | 587dfb5 (t_951f7c7b) |
 | 11-15 | F1: mkfont 경로가 `build_faces.py`처럼 출력을 정규화함 | 05a450c (t_df773bf5) |
 | 11-17 | maker 로컬 모드의 제한된 수명 주기(시작, 중지, 활성화): 호출자의 마감 시한 안의 rename, 대기 기록, 고아 정리, 펜스, 시작 시 묘비 정리 | 97f7ce3 (t_d1aba4b8) |
-| 11-18 | maker 페이지가 busy / 준비 중 409에 재시도하거나 설명함 (busy 종류, `Try again`, stale) | 4a83d55 (t_39c9fb52) |
 | 11-17 | SVF maker T16 end-to-end: 업로드·로컬 혼합 폴더, 프리셋 인수, 느린 fit(`SVF_MAKER_SLOW=1`), Chrome으로 구동한 UI smoke | 084ca27 (t_e073891a) |
+| 11-18 | maker 페이지가 busy / 준비 중 409에 재시도하거나 설명함 (busy 종류, `Try again`, stale) | 4a83d55 (t_39c9fb52) |
 | 11-18 | 실행 충돌(409) 때 입력한 폼 수정과 더 새로운 저장을 지킴 | eab664a (t_6daa1bc7) |
 | 11-20 | probe 대 delete 경쟁 테스트가 부하에 독립적임 (잠금 밖에서 멈추고 추적을 검증) | 8b451d5 (t_4316ea37) |
 | 11-20 | 정적 type2 AppImage 런타임(appimage@1.0.3 도구 세트), libfuse2 불필요, 릴리스 점검 `runtime` | 4eb8e46 (t_ea7dcc8e) |
