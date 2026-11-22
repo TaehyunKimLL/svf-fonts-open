@@ -184,7 +184,11 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
   24.04.5)과 FUSE 마운트 시작(`docs/maker-desktop.md`)까지다. 디스플레이가 있는 네이티브 대화상자, 파일 관리자 연동, 창 관리자와
   함께 하는 실제 FUSE 마운트 시작, GPU 경로, 샌드박스된 렌더러는 **아직 하지 않은 수동 점검**이다. 자동 테스트는 대화상자를
   스텁으로 바꾸고 GPU를 끈다.
-- **`mask fit` 경로는 작성자 호스트에서 실행한 적이 없고**(라이브러리가 없다) 정체성 검사는 스텁으로만 테스트했다. 실제 Mac, HWP,
-  Johab 파일은 환경 변수가 사용자 자신의 사본을 가리킬 때만 테스트되고, 저장소의 테스트는 합성 입력을 쓴다.
+- **`mask fit`**: 2026-11-22에 freetype-py와 uharfbuzz를 스크래치 폴더에 설치해 `jamoset.py`의 마스크 맞춤을 neodgm, Noto Sans CJK KR, 맑은 고딕으로
+  실행했다(recipes.ko.md). 작성자 호스트의 시스템에는 라이브러리가 여전히 없어서 maker의 정체성 검사는 스텁으로만 테스트했다. 실제 Mac, HWP,
+  Johab 파일은 환경 변수가 사용자 자신의 사본을 가리킬 때만 테스트되고, 저장소의 테스트는 합성 입력을 쓴다. 레시피는 2026-11-22에 실제 원본
+  (Mac fbit 1.0 / 7.1, HWP 1.20 / 2.1, DOS 원시 폰트, 스트라이크, hanterm, HBF)으로 실행했고(recipes.ko.md), 그 실행에서 나온 빈틈은 `docs/tools.ko.md`
+  "도구의 남은 한계"에 있다: Windows FNT/FON은 아무것도 그리지 못하고, 비트맵 전용 Mac TrueType은 advance 0으로 구워지며, maker가 실제 HangulTalk 1.0
+  `fbit`를 type 3으로 감지한다. `.dfont`와 SAGA IHNM(`844-ihnm`)은 원본을 찾지 못해 실행하지 않았다.
 - **AppImage는 비트 단위로 재현되지 않고** 자동 갱신도 없다. LGPL 소스 보관은 릴리스 게이트다.
 - 이 저장소는 공개 전까지 비공개이다 (`docs/maker-desktop.md`).
