@@ -25,11 +25,23 @@ SVF maker 데스크톱 앱은 사용자가 가진 폰트를 자신의 컴퓨터�
 |---|---|
 | git 체크아웃 | 빌드가 `git log`와 `git describe`를 읽는다. 단순한 소스 아카이브로는 동작하지 않는다. |
 | pip가 있는 Python 3.12 | `python3 --version`이 3.12여야 하고 `python3 -m pip`가 동작해야 한다. 사이드카의 고정 wheel이 cp312이다(마지막으로 3.12.3). `python3-venv`는 필요 없다. |
-| node와 npm | node 22와 npm 12(마지막으로 22.23.4와 12.0.2). |
+| 시스템 `python3`용 Pillow와 fontTools | 갓 설치한 Ubuntu 24.04에는 둘 다 없다. 빌드의 동결 테스트와 개발 실행(아래)은 시스템 `python3`로 maker 자신의 Python 코드를 import하며, 그 코드가 `PIL`과 `fontTools`를 import한다(`maker/detect.py`). 패키지된 앱에는 필요 없다(고정된 wheel Pillow 10.2.0, fontTools 4.66.1을 싣는다). apt로 설치한다(아래). 시작할 때 그 밖의 것은 import하지 않는다. numpy, torch, freetype-py, uharfbuzz, pathops는 선택 사항이며 그것을 밝힌 경로에서만 쓰인다. |
+| node 22와 npm | node 22.12 이상(`desktop/package-lock.json`이 요구한다). Ubuntu 24.04의 apt에는 node 18이 있어 너무 오래되었다. NodeSource나 nvm을 쓴다. node 22.23.4와 npm 12를 썼다(node 22가 번들하는 npm 10은 시도하지 않았다). |
 | emsdk | 빌드가 미리 보기 모듈(WebAssembly)을 직접 컴파일한다. `$EMSDK/upstream/emscripten/emcc`에서 `emcc`를 찾으며 `$EMSDK`의 기본값은 `~/opt/emsdk`이다. 없으면 `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`(마지막으로 emcc 6.0.13). |
 | `xvfb-run`과 `flock` | 마지막 빌드 단계가 새 AppImage를 가상 디스플레이에서 한 번 시작한다(스모크 검사). `xvfb-run`이 없으면 그 검사가 실패하고 스크립트는 종료 코드 1로 끝나지만 AppImage는 이미 존재한다(아래 참조). 검사만 안 된 것이다. `flock`은 util-linux에 있다. |
 | 네트워크, 첫 빌드에만 | pip가 고정된 wheel(해시 확인)을, npm과 Electron이 패키지를, electron-builder가 AppImage 도구 세트를 내려받는다. 이후 빌드는 캐시를 재사용한다. |
 | 디스크 | 수 GB: `desktop/node_modules`, 스크래치 디렉터리, `desktop/dist`(풀어 놓은 트리가 약 335 MB). |
+
+갓 설치한 Ubuntu 24.04에서 필요한 패키지는 다음과 같다(`flock`은 util-linux에 있어 항상 있다. `libpython3.12-dev`는 `python3`이 끌어오는
+`libpython3.12t64`가 있는 호스트에서는 필요 없다. 그것이 없는 호스트는 시도하지 않았다).
+
+    sudo apt install git curl xz-utils python3-pip python3-pil python3-fonttools xvfb
+
+`python3-pil`은 고정된 버전인 Pillow 10.2.0이다. `python3-fonttools`는 4.46.0으로 고정된 4.66.1보다 오래되었다. maker의 detect, route,
+로컬 모드, 종단 간 테스트 파일(`maker/test/test_detect.py`, `test_routes.py`, `test_local.py`, `test_e2e.py`)은 이것으로 통과한다.
+동결 테스트 자체는 이것으로 실행하지 않았다(작성자의 호스트에는 pip로 설치한 fontTools 4.66.1이 있다). 고정된 것을 원하면
+`python3 -m pip install --user --break-system-packages fonttools==4.66.1`. `curl`, `xz-utils`, `git`은 `install-toolchains.sh`가 emsdk를
+가져오는 데 필요하다. node 22는 따로 설치한다(node 행 참조).
 
 **빌드**(각 명령 앞에 작업 디렉터리를 적었다. 명령은 이 순서대로 한 번 실행한다)
 
@@ -51,10 +63,13 @@ SVF maker 데스크톱 앱은 사용자가 가진 폰트를 자신의 컴퓨터�
 **AppImage가 생기는 곳**: `desktop/dist/svf-maker-0.1.0.AppImage`(버전은 `desktop/package.json`의 것)이며 약 133~134 MiB(140 MB)이다.
 직접 빌드한 것의 크기를 재 보라. 수치는 도구 체인에 따라 다르다. 어디로든 복사해도 된다. 자체 완결된 파일 하나이다.
 
-**시작**(그래픽 세션이 필요하다. 아래의 첫 변환은 앱에서 한다):
+**시작**(그래픽 세션이 필요하다. 아래의 첫 변환은 앱에서 한다). 빌드 직후 체크아웃 루트에서:
 
-    chmod +x svf-maker-0.1.0.AppImage
-    ./svf-maker-0.1.0.AppImage
+    chmod +x desktop/dist/svf-maker-0.1.0.AppImage
+    desktop/dist/svf-maker-0.1.0.AppImage
+
+또는 먼저 복사한다(`cp desktop/dist/svf-maker-0.1.0.AppImage ~/Apps/`, 그다음 `cd ~/Apps`와 `./svf-maker-0.1.0.AppImage`). 이후 절에서는
+현재 디렉터리의 파일을 `./svf-maker-0.1.0.AppImage`로 적는다.
 
 **첫 변환**
 
@@ -62,10 +77,11 @@ SVF maker 데스크톱 앱은 사용자가 가진 폰트를 자신의 컴퓨터�
 2. **choose output folder**를 눌러 비어 있고 클라우드 클라이언트가 동기화하지 않는 폴더를 고른다.
 3. **detect**를 누르고 "before you convert" 안내를 읽은 뒤 OK를 누른다. 폰트 표가 채워진다.
 4. 원하는 행의 **use** 상자를 체크한다(행은 그 폰트와 함께 라이선스 파일이 발견된 경우에만 미리 체크되며, DOS raw 폰트는 절대
-   미리 체크되지 않는다). 일괄 설정을 살펴보고(처음에는 프리셋 `plain`이면 충분하다) **run**을 누른다. 단계 표가 모든 명령을 보여 준다.
+   미리 체크되지 않는다). 일괄 설정을 살펴보고(처음에는 프리셋 `plain`이면 충분하다) **run**을 누른다. 단계 표는 각 단계의 상태, 시간(seconds), stderr를 보여 준다(명령 자체는 출력 폴더의 `build-<id>/BUILD.md`에 기록된다).
 5. 작업이 끝나면 **open folder**를 누른다. 페이스는 `<output>/svf/<dest>/`에 있다(6절).
 
-**패키징 없이 체크아웃에서 실행**(개발용. AppImage도 PyInstaller도 없다. 위와 같은 Python, node, emsdk, 네트워크가 필요하지만 한 번만):
+**패키징 없이 체크아웃에서 실행**(개발용. AppImage도 PyInstaller도 없다. 위와 같은 Python, node, emsdk, 네트워크가 필요하지만 한 번만, 그리고 위의 apt 패키지도 필요하다. 셸이 시스템 `python3`로 maker를 시작하므로 그 `python3`이
+Pillow와 fontTools를 import할 수 있어야 한다):
 
     # in the checkout root
     cd desktop && npm ci && node node_modules/electron/install.js
@@ -159,7 +175,9 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 참조)에만 나타나며, 그때는 절대 경로를 직접 입력한다.
 
 모든 경로는 검사된다. 절대 경로여야 하고, 심볼릭 링크가 아니어야 하며, 앱 자신의 데이터 폴더가 아니어야 하고, 출력
-폴더나 다른 소스와 겹치지 않아야 하며, `SVF_MAKER_ROOTS`가 설정되어 있으면 그 안에 있어야 한다. 거부된 경로는 이유와 함께
+폴더나 다른 소스와 겹치지 않아야 하며, `SVF_MAKER_ROOTS`가 설정되어 있으면 그 폴더들 중 하나 안에 있어야 한다
+(출력 폴더도 마찬가지다. `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out`이면 `~/fonts` 아래의 소스와 `~/svf-out` 아래의 출력 폴더를
+허용한다. 어떤 루트에도 속하지 않는 출력 폴더는 `output folder: outside SVF_MAKER_ROOTS`로 거부된다). 거부된 경로는 이유와 함께
 나열된다(11절).
 
 작업이 살아 있는 동안 앱은 중간 파일을 출력 폴더 안의 `.svf-maker-<id>/`(권한 0700)에 두고, 작업이 끝나거나 삭제되거나
@@ -189,7 +207,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
   표); **instance**(가변 폰트의 이름 붙은 인스턴스); **licence name**과 **note name**; **advanced options**(3.4절의 고급 패널,
   이 폰트에만); 글리프별 수직 이동 편집기와 출력 이름.
 
-### 3.4 일괄 설정(가운데)
+### 3.4 일괄 설정(왼쪽 열의 오른쪽)
 
 하나의 설정 묶음이 일괄 전체에 적용되며, 행은 제외를 선택할 수 있다.
 
@@ -214,12 +232,13 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 | edit and re-run | 실행 후 같은 소스로 설정 화면으로 돌아간다. |
 | open folder | 출력 폴더를 시스템 파일 관리자에 표시한다(이 앱에서 직접 고른 폴더에 한함). |
 | download zip | 일반 웹 페이지의 업로드 모드에서 쓰인다. 데스크톱 앱은 대신 출력 폴더에 쓰며 zip이 없다. |
-| delete job | 작업을 잊고 그 출력 폴더를 비운다. 이미 쓰인 페이스는 남는다. |
+| delete job | 작업을 잊고 그 출력 폴더를 해제한다. 이미 쓰인 페이스는 남는다. |
 
 ### 3.6 단계 표(아래)
 
-각 작업은 단계(detect, convert, check, preview...)의 목록이다. 표에는 각 단계의 도구, 인자 목록, 상태, 로그의 끝부분이
-표시되므로 어떤 폰트에 어떤 명령이 실행되었는지 정확히 볼 수 있다. 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
+각 작업은 단계(detect, convert, check, preview...)의 목록이다. 열은 id, font, kind, size, bpp, name, state, seconds,
+quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었고 무엇을 출력했는지 볼 수 있다. 명령 자체는 이 표에 없다. 출력 폴더의
+`build-<id>/BUILD.md`가 무엇을 어떤 명령으로 실행했는지 나열한다. 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
 볼 수 있다. (캔버스에 잉크가 있다는 것은 저장소의 테스트가 단언하는 것이지 앱이 검사하는 것이 아니다.)
 
 ## 4. 앱이 이해하는 입력
@@ -278,7 +297,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
   덮어쓰지 않는다.
 - `.lines` 파일은 사용자가 저장소의 표에 손으로 병합하는 조각이다(저장소의 `web/mkindex.py --check`가 병합된 결과를
   받아들인다).
-- 페이지는 쓰인 모든 페이스를 렌더러로 그려 보여 준다. 저장소 자체의 페이스 검사(`facecheck.py`, `web/mkindex.py --check`)는 별개이다. 저장소에
+- 페이지는 쓰인 모든 페이스를 렌더러로 그려 보여 준다. 저장소 자체의 페이스 검사(`facecheck.py`는 매니페스트와 맵 검사기이다. `web/mkindex.py --check`)는 별개이다. 저장소에
   추가하는 페이스에는 직접 실행하라(앱의 일부가 아니다).
 
 ## 7. 메뉴, 확대/축소, 창 상태
@@ -327,7 +346,7 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 |---|---|
 | `JAMOSET_PYLIB` | `freetype-py`와 `uharfbuzz`가 있는 폴더. `mask fit` 경로와 `binarize mono`를 활성화한다. |
 | `JAMOSET_MASK_FONT` | `mask fit`이 조각을 한정하는 데 쓰는, OpenType 자모 치환(`ljmo`, `vjmo`, `tjmo`)이 있는 폰트 파일. 없으면 도구는 ScummVM 트리 옆의 NotoSansKR을 찾는데 패키지된 앱에는 그것이 없으므로, `mask fit`을 쓸 때는 지정한다. |
-| `SVF_MAKER_ROOTS` | 콜론으로 구분한 절대 경로 폴더들. 이 안의 경로만 소스로 고를 수 있다(밖의 경로는 "outside SVF_MAKER_ROOTS"로 거부된다). 설정하지 않으면 3.2절의 규칙 외에 제한이 없다. |
+| `SVF_MAKER_ROOTS` | 콜론으로 구분한 절대 경로 폴더들. 모든 소스와 **출력 폴더**가 이 중 하나 안에 있어야 한다(밖의 경로는 "outside SVF_MAKER_ROOTS"로 거부된다). 루트를 나눈 예: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. 설정하지 않으면 3.2절의 규칙 외에 제한이 없다. |
 | `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | 인터프리터(절대 경로, numpy, torch, PIL, fontTools 포함)와, 조각 정체 검사를 위한 사용자 자신의 `recog.py`가 있는 폴더. 점수 계산 전용이며 아무것도 함께 배포되지 않는다. 이것이 없으면 페이지는 검사를 쓸 수 없다고 표시한다. |
 | `SVF_MAKER_DEV=1` | 개발 모드: frozen 사이드카 대신 체크아웃에서 `python3 maker/server.py`를 실행한다. `SVF_MAKER_DEV_REPO`가 체크아웃을 지정한다. |
 | `SVF_MAKER_DEVTOOLS=1` | 개발자 도구와 View > Toggle DevTools 항목을 활성화한다. |
@@ -359,10 +378,13 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
   붙는다. 그래도 실패하면 메시지가 남고 **Try again** 버튼이 나타나며, 이 버튼은 같은 요청을 한 번 더 보낸다. 다른 것을 시작하면
   메시지와 재시도가 지워진다.
 - `job <id> is busy; try again`, `job <id>: the previous run is finishing; try again in a moment`,
-  `job <id> is busy: a preview is being made; try again`: 잠금이 잠깐 잡혀 있다. 자동 재시도가 보통 해소한다.
-- `a run of job <id> is being prepared; try again`: 이 작업의 다른 창이 방금 run을 눌렀다. 페이지는 실행을 반복하지 않고(첫 번째와
-  경합하게 되므로) 다른 실행을 **따라간다**. 15초까지 1초마다 작업을 읽어서, 작업이 "detected" 상태를 벗어나면 그 작업의 진행 상황을
-  보여 주고 메시지를 지운다.
+  `job <id> is busy: a preview is being made; try again`: 잠금이 잠깐 잡혀 있다. 자동 재시도가 보통 해소한다. 예외
+  하나: 작업을 만드는 동안 **detect**가 답할 수 있는 `job <id> is busy; try again`은 재시도 가능으로 태그되지 않으므로 페이지가 재시도하지 않고
+  **Try again** 버튼도 없다. **detect**를 다시 누른다.
+- `a run of job <id> is being prepared`: 이 작업의 다른 창이 방금 run을 눌렀을 때 **run**이 받는 답이다. 페이지는 실행을 반복하지 않고(첫
+  번째와 경합하게 되므로) **Try again**을 보여 주면서 다른 실행을 **따라간다**. 15초까지 1초마다 작업을 읽어서, 작업이 "detected" 상태를
+  벗어나면 그 작업의 진행 상황을 보여 주고 메시지를 지운다. (준비 중에 요청한 미리 보기는 같은 문장에 `; try again`이 붙은 답을 받고
+  조용히 재시도된다.)
 - `the job changed while the run was being prepared: run again`: 저장과 실행 시작 사이에 설정이 바뀌었다(예: 다른 창에서). 페이지는
   작업을 다시 읽어 저장된 상태를 보여 준다. 설정을 확인하고 **run**을 다시 누른다.
 - `job <id> is queued`(또는 running): 다른 곳에서 실행이 시작되어 작업을 더는 편집할 수 없다. 페이지는 그 작업의 상태를 보여 준다.
@@ -370,7 +392,8 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 
 **폴더와 경로.**
 
-- `output folder is in use by job <id> (delete it, or wait until it has been idle for 30 minutes)`: 출력 폴더는 한 번에 한 작업만
+- `output folder is in use by job <id> (delete it, or wait until it has been idle for 30 minutes)`(실행 시에는 더 짧은
+  `output folder is in use by job <id>`): 출력 폴더는 한 번에 한 작업만
   쥘 수 있다. 작업 목록에서 다른 작업을 삭제하거나(이미 쓰인 페이스는 남는다) 다른 폴더를 고른다. 감지만 되고 30분 동안 손대지 않은
   작업은 스스로 폴더를 내놓는다.
 - `the files directory is still being moved or made on a slow or hung volume; try again later`: 작업의 `.svf-maker-<id>/` 폴더를
@@ -431,12 +454,11 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 - 2026-11-22에 검증함: 커밋 3d40de8로 빌드한 AppImage가 깨끗한 호스트(Ubuntu 24.04.5, `libfuse2` 없음)에서 Xvfb 아래에서 시작되었고,
   창이 그려졌으며 로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 아직 검증하지 않음: 창 관리자와 GPU가 있는 실제 데스크톱,
   Windows와 macOS.
-
 - Windows와 macOS: 빌드하지도 실행하지도 않았다. 서버는 Windows에 대응하지 않는다(프로세스 그룹, 잠금, 파일 링크 호출이
   POSIX이다). macOS 계획(서명, notarisation)은 [maker-desktop.ko.md](maker-desktop.ko.md)에 적혀 있다.
 - `mask fit` 경로는 작성자의 호스트에서 작업을 한 번도 실행한 적이 없다(그곳에는 라이브러리가 설치되어 있지 않다).
   정체 검사는 스텁으로만 테스트했다. `vector fit`은 폰트당 수 분이 걸린다.
-- 네이티브 대화상자, 파일 관리자 연동, 실제 데스크톱(창 관리자)에서의 창 시작, GPU 경로, 샌드박스된 렌더러는 손으로만
+- 네이티브 대화상자, 파일 관리자 연동, 실제 FUSE 마운트를 통한 창 시작, GPU 경로, 샌드박스된 렌더러는 손으로만
   확인했다. 자동화된 테스트는 대화상자를 스텁으로 대체하고 GPU를 끈 채 실행한다.
 - 실제 Mac, HWP, Johab 파일은 환경 변수가 사용자 자신의 사본을 가리키는 곳에서만 테스트한다. 저장소의 테스트는 합성
   입력을 쓴다.

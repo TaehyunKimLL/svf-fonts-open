@@ -12,7 +12,8 @@ in [maker-desktop.md](maker-desktop.md); the server and its HTTP API are in [../
 design is `docs/superpowers/specs/2026-11-05-maker-desktop-design.md`.
 
 Status: the Linux AppImage is built and tested on the author's host (Ubuntu 24.04, x86_64) and was started on a second,
-clean Ubuntu 24.04.5 host (section 13). Windows and macOS packages are **not built and not verified** (see the last section). The package is not signed and has no auto-update.
+clean Ubuntu 24.04.5 host (section 13). Windows and macOS packages are **not built and not verified** (see the last
+section). The package is not signed and has no auto-update.
 
 ## Quick start
 
@@ -25,11 +26,24 @@ supported yet (see section 13).
 |---|---|
 | A git checkout | The build reads `git log` and `git describe`; a plain source archive does not work. |
 | Python 3.12 with pip | `python3 --version` must say 3.12 and `python3 -m pip` must work: the sidecar's pinned wheels are cp312 (3.12.3 last used). `python3-venv` is not needed. |
-| node and npm | node 22 and npm 12 (22.23.4 and 12.0.2 last used). |
+| Pillow and fontTools for the system `python3` | A stock Ubuntu 24.04 has neither. The build's frozen tests and the development run (below) import the maker's own Python code with the system `python3`, and that code imports `PIL` and `fontTools` (`maker/detect.py`). The packaged app does not need them (it carries pinned wheels: Pillow 10.2.0, fontTools 4.66.1). Install them with apt (below). Nothing else is imported at start-up: numpy, torch, freetype-py, uharfbuzz and pathops are optional and only used by routes that say so. |
+| node 22 and npm | node 22.12 or newer (`desktop/package-lock.json` requires it); Ubuntu 24.04's apt has node 18, which is too old: use NodeSource or nvm. npm 12 with node 22.23.4 was used (npm 10, which node 22 bundles, was not tried). |
 | emsdk | The build compiles the preview module (WebAssembly) itself. It looks for `emcc` in `$EMSDK/upstream/emscripten/emcc`; `$EMSDK` defaults to `~/opt/emsdk`. Without one: `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk` (emcc 6.0.13 last used). |
 | `xvfb-run` and `flock` | The last build step starts the new AppImage once under a virtual display (a smoke check). Without `xvfb-run` that check fails and the script exits 1, but the AppImage already exists (see below); it is only unchecked. `flock` is from util-linux. |
 | Network, first build only | pip downloads the pinned wheels (hash-checked), npm and Electron download their packages, electron-builder downloads its AppImage toolset. Later builds reuse the caches. |
 | Disk | A few GB: `desktop/node_modules`, the scratch directory and `desktop/dist` (the unpacked tree is about 335 MB). |
+
+On a fresh Ubuntu 24.04 the packages are (`flock` is in util-linux, always present; `libpython3.12-dev` is not needed on a
+host that has `libpython3.12t64`, which `python3` pulls in; a host without it was not tried):
+
+    sudo apt install git curl xz-utils python3-pip python3-pil python3-fonttools xvfb
+
+`python3-pil` is Pillow 10.2.0, the pinned version. `python3-fonttools` is 4.46.0, older than the pinned 4.66.1: the maker's
+detect, route, local-mode and end-to-end test files (`maker/test/test_detect.py`, `test_routes.py`, `test_local.py`,
+`test_e2e.py`) pass with it; the frozen test itself was not run with it (the author's host has fontTools 4.66.1
+from pip). If you want the pinned one: `python3 -m pip install --user --break-system-packages fonttools==4.66.1`. `curl`,
+`xz-utils` and `git` are what `install-toolchains.sh` needs to fetch emsdk. node 22 is installed separately (see the node
+row).
 
 **Build** (the working directory is written in front of each command; the commands are run once, in this order)
 
@@ -41,8 +55,8 @@ supported yet (see section 13).
 - `npm ci` prints a warning that npm 12 blocked install scripts (for instance `electron-winstaller ... select-7z-arch.js`);
   it is harmless here, because the app is packaged for Linux only. The same blocking is why Electron's own binary is
   fetched by `node node_modules/electron/install.js`.
-- `build-appimage.sh` changes into the checkout root by itself, so it can be started from anywhere, but all other commands
-  here start in the checkout root. It builds the WebAssembly module, the frozen sidecar (with its tests), the notices file
+- `build-appimage.sh` changes into the checkout root by itself, so it can be started from anywhere, but all other
+  commands here start in the checkout root. It builds the WebAssembly module, the frozen sidecar (with its tests), the notices file
   and the AppImage, then prints one `CHECK <name> ok` line per release check. A failing check ends the script with exit
   status 1.
 - The build keeps its scratch (pip downloads, PyInstaller work directory, extractions) in `$SVF_DESKTOP_TMP`, by default
@@ -51,12 +65,17 @@ supported yet (see section 13).
   start the build as shown. With the caches warm it took 1.5 minutes here; a first build takes longer (downloads).
 
 **Where the AppImage lands**: `desktop/dist/svf-maker-0.1.0.AppImage` (the version is `desktop/package.json`'s), about
-133 to 134 MiB (140 MB). Measure your own build; the number depends on the toolchain. Copy it anywhere; it is one self-contained file.
+133 to 134 MiB (140 MB). Measure your own build; the number depends on the toolchain. Copy it anywhere; it is one
+self-contained file.
 
-**Start it** (a graphical session is needed; the first conversion below is done in the app):
+**Start it** (a graphical session is needed; the first conversion below is done in the app). From the checkout root, right
+after the build:
 
-    chmod +x svf-maker-0.1.0.AppImage
-    ./svf-maker-0.1.0.AppImage
+    chmod +x desktop/dist/svf-maker-0.1.0.AppImage
+    desktop/dist/svf-maker-0.1.0.AppImage
+
+or copy it first (`cp desktop/dist/svf-maker-0.1.0.AppImage ~/Apps/`, then `cd ~/Apps` and `./svf-maker-0.1.0.AppImage`).
+Later sections write `./svf-maker-0.1.0.AppImage` for the file in the current directory.
 
 **First conversion**
 
@@ -65,11 +84,13 @@ supported yet (see section 13).
 2. Press **choose output folder** and pick an empty folder that is not synced by a cloud client.
 3. Press **detect**, read the "before you convert" note and press OK. The fonts table fills.
 4. Tick the **use** box of each row you want (a row is pre-ticked only when a licence file was found with its font, and a
-   DOS raw font never is), look at the batch settings (the preset `plain` is fine for a first try), and press **run**. The steps table shows every command.
+   DOS raw font never is), look at the batch settings (the preset `plain` is fine for a first try), and press **run**. The steps table shows each step's state, seconds and stderr (the commands themselves are
+   written to `build-<id>/BUILD.md` in the output folder).
 5. When the job is done, press **open folder**: the faces are in `<output>/svf/<dest>/` (section 6).
 
 **Run from the checkout without packaging** (for development; no AppImage, no PyInstaller; it needs the same Python, node,
-emsdk and network as above, but only once):
+emsdk and network as above, but only once, and it also needs the apt packages above: the shell starts the maker with the
+system `python3`, which must import Pillow and fontTools):
 
     # in the checkout root
     cd desktop && npm ci && node node_modules/electron/install.js
@@ -145,8 +166,8 @@ column), the fonts table across the full width below those, and the steps table 
 
 ### 3.1 First run: the acknowledgement
 
-The first time per session you press **detect** (that is before anything is created) the page shows "before you convert": you are responsible for having the
-right to convert the fonts you choose, faces are written only to your chosen output folder, and if you publish them you
+The first time per session you press **detect** (that is before anything is created) the page shows "before you
+convert": you are responsible for having the right to convert the fonts you choose, faces are written only to your chosen output folder, and if you publish them you
 should check each font's licence. Press OK to continue. The tools never check licences for you; when no licence is
 chosen, every note and `BUILD.md` says "licence: not checked (user's responsibility)".
 
@@ -164,7 +185,9 @@ whenever the shell's dialogs exist. They appear only when the page is opened wit
 in a browser, see [../maker/README.md](../maker/README.md)), and then you type absolute paths.
 
 Every path is checked: it must be absolute, must not be a symbolic link, must not be the app's own data folder, must not
-overlap the output folder or another source, and must be inside `SVF_MAKER_ROOTS` when that variable is set. A refused
+overlap the output folder or another source, and, when `SVF_MAKER_ROOTS` is set, must be inside one of its folders
+(the output folder too: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out` allows sources under `~/fonts` and an output
+folder under `~/svf-out`; an output folder outside every root is refused with `output folder: outside SVF_MAKER_ROOTS`). A refused
 path is listed with its reason (section 11).
 
 While a job lives the app keeps intermediate files in `.svf-maker-<id>/` inside the output folder (permissions 0700) and
@@ -197,7 +220,7 @@ The columns are: id, use, preview, label, family/style, sizes, coverage, jamo, l
   table); **instance** (a variable font's named instance); **licence name** and **note name**; **advanced options** (the
   advanced panel of section 3.4, for this font only); the per-glyph vertical-shift editor and the output names.
 
-### 3.4 Batch settings (middle)
+### 3.4 Batch settings (right of the left column)
 
 One set of settings applies to the whole batch; a row can opt out.
 
@@ -226,8 +249,10 @@ One set of settings applies to the whole batch; a row can opt out.
 
 ### 3.6 Steps table (bottom)
 
-Each job is a list of steps (detect, convert, check, preview...). The table shows each step with its tool, its argument
-list, its state, and the end of its log, so you can see exactly which command ran for which font. Every result face is
+Each job is a list of steps (detect, convert, check, preview...). The columns are id, font, kind, size, bpp, name, state,
+seconds, quality, stderr and result, so you can see which step ran for which font and what it printed. The commands
+themselves are not in this table: `build-<id>/BUILD.md` in the output folder lists what was run, with which commands.
+Every result face is
 drawn on a canvas by the renderer, so you can see what was made. (That the canvas has ink is something the repository's
 tests assert, not something the app checks.)
 
@@ -288,8 +313,8 @@ Inside the output folder, and nothing else:
 - The `.lines` files are fragments that you merge into the repository's tables by hand (the repository's
   `web/mkindex.py --check` accepts the merged result).
 - The page draws every written face with the renderer so you can look at it. The repository's own checks of a face
-  (`facecheck.py`, `web/mkindex.py --check`) are separate: run them yourself on a face you add to the repository (they
-  are not part of the app).
+  (`facecheck.py`, a manifest and map checker, and `web/mkindex.py --check`) are separate: run them yourself on a face you
+  add to the repository (they are not part of the app).
 
 ## 7. Menu, zoom and window state
 
@@ -337,7 +362,7 @@ Optional environment variables (set them before starting the app):
 |---|---|
 | `JAMOSET_PYLIB` | A folder with `freetype-py` and `uharfbuzz`; enables the `mask fit` route and `binarize mono`. |
 | `JAMOSET_MASK_FONT` | The font file with OpenType jamo substitution (`ljmo`, `vjmo`, `tjmo`) that `mask fit` uses to confine the pieces. Without it the tool looks for NotoSansKR beside the ScummVM tree, which a packaged app does not have, so set it when you use `mask fit`. |
-| `SVF_MAKER_ROOTS` | Colon-separated absolute folders: only paths inside them can be picked as sources (a path outside is refused with "outside SVF_MAKER_ROOTS"). Unset: no restriction beyond the rules in section 3.2. |
+| `SVF_MAKER_ROOTS` | Colon-separated absolute folders. Every source **and the output folder** must be inside one of them (a path outside is refused with "outside SVF_MAKER_ROOTS"). Example with separate roots: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. Unset: no restriction beyond the rules in section 3.2. |
 | `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | An interpreter (absolute path, with numpy, torch, PIL, fontTools) and a folder with your own `recog.py` for the piece identity check. Scoring only; nothing is shipped. Without them the page says the check is unavailable. |
 | `SVF_MAKER_DEV=1` | Development mode: run `python3 maker/server.py` from a checkout instead of the frozen sidecar. `SVF_MAKER_DEV_REPO` names the checkout. |
 | `SVF_MAKER_DEVTOOLS=1` | Enables the developer tools and a View > Toggle DevTools item. |
@@ -369,10 +394,14 @@ your settings:
   seconds in total), with the line ` (retrying 1/3)` appended. If it still fails, the message stays and a **Try again**
   button appears; it sends the same request once more. Starting anything else clears the message and the retry.
 - `job <id> is busy; try again`, `job <id>: the previous run is finishing; try again in a moment` and `job <id> is busy: a
-  preview is being made; try again`: a lock is held a moment; the automatic retry usually clears it.
-- `a run of job <id> is being prepared; try again`: another window of this job pressed run a moment ago. The page does
-  not repeat the run (that would race the first); it **follows** the other run instead: every second, for up to 15 seconds,
-  it reads the job, and when the job has left the "detected" state it shows that job's progress and removes the message.
+  preview is being made; try again`: a lock is held a moment; the automatic retry usually clears it. One exception: the
+  `job <id> is busy; try again` that **detect** can answer while it creates the job is not tagged as retryable, so the page
+  does not retry it and shows no **Try again** button; press **detect** again.
+- `a run of job <id> is being prepared`: the answer of **run** when another window of this job pressed run a moment ago.
+  The page does not repeat the run (that would race the first); it shows **Try again** and also **follows** the other
+  run: every second, for up to 15 seconds, it reads the job, and when the job has left the "detected" state it shows that
+  job's progress and removes the message. (A preview asked for during the preparation gets the same text with
+  `; try again` appended and is retried silently.)
 - `the job changed while the run was being prepared: run again`: the settings were changed (for example from another
   window) between your save and the start of the run. The page then reads the job again and shows the saved state. Check
   the settings and press **run** again.
@@ -382,7 +411,8 @@ your settings:
 
 **Folders and paths.**
 
-- `output folder is in use by job <id> (delete it, or wait until it has been idle for 30 minutes)`: only one job at a
+- `output folder is in use by job <id> (delete it, or wait until it has been idle for 30 minutes)` (at run time the
+  shorter `output folder is in use by job <id>`): only one job at a
   time may hold an output folder. Delete the other job in the jobs list (faces already written stay), or pick another
   folder. A job that has only been detected and not touched for 30 minutes gives its folder up by itself.
 - `the files directory is still being moved or made on a slow or hung volume; try again later`: removing or creating the

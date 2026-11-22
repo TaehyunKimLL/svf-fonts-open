@@ -28,8 +28,10 @@ The user-facing version of this (what to install, where the AppImage lands, the 
 Prerequisites on the build host: a git checkout (the scripts read `git log` and `git describe`), emsdk (`$EMSDK`, default
 `~/opt/emsdk`; `maker/build-wasm.sh` compiles the preview module itself; emcc 6.0.13 last used; install with
 `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`), Python 3.12.3 with pip (the wheels are cp312; `python3 -m venv`
-does not work on Ubuntu without `python3-venv`; the build uses `pip install --target` and `python3 -S`), node 22 and
-npm 12 (22.23.4 and 12.0.2 last used), `xvfb-run` and `flock` for the release check's smoke run (without `xvfb-run` the
+does not work on Ubuntu without `python3-venv`; the build uses `pip install --target` and `python3 -S`) and, for the
+system `python3` that runs the frozen tests and the development run, Pillow and fontTools (`python3-pil`,
+`python3-fonttools` from apt; apt's fontTools 4.46.0 is older than the pinned 4.66.1, see desktop-app.md), node 22.12 or
+newer (apt has 18: NodeSource or nvm) and npm 12 (22.23.4 and 12.0.2 last used), `xvfb-run` and `flock` for the release check's smoke run (without `xvfb-run` the
 `smoke` check fails and the script exits 1, but the AppImage is already in `desktop/dist/`), `~/work/tmp` (the browser lock
 file lives there), network access once for the pinned wheels, Electron and the AppImage toolset.
 

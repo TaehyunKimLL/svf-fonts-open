@@ -26,7 +26,8 @@ t_f04f1355(셸)와 t_e64a56a7(패키징). 설계: `docs/superpowers/specs/2026-1
 빌드 호스트의 선결 조건: git 체크아웃(스크립트가 `git log`와 `git describe`를 읽는다), emsdk(`$EMSDK`, 기본값 `~/opt/emsdk`.
 `maker/build-wasm.sh`가 미리 보기 모듈을 직접 컴파일한다. 마지막으로 쓴 것은 emcc 6.0.13이며 설치는
 `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`), pip이 있는 Python 3.12.3(wheel은 cp312이다. Ubuntu에서는
-`python3-venv` 없이 `python3 -m venv`가 동작하지 않는다. 빌드는 `pip install --target`과 `python3 -S`를 쓴다), node 22와 npm 12
+`python3-venv` 없이 `python3 -m venv`가 동작하지 않는다. 빌드는 `pip install --target`과 `python3 -S`를 쓴다), 시스템 `python3`용(동결 테스트와 개발 실행이 쓴다) Pillow와 fontTools(apt의 `python3-pil`, `python3-fonttools`. apt의
+fontTools 4.46.0은 고정된 4.66.1보다 오래되었다. desktop-app.ko.md 참조), node 22.12 이상(apt에는 18이 있다. NodeSource나 nvm)과 npm 12
 (마지막으로 22.23.4와 12.0.2), 릴리스 점검의 smoke 실행을 위한 `xvfb-run`과 `flock`(`xvfb-run`이 없으면 `smoke` 점검이 실패하고 스크립트는
 종료 코드 1로 끝나지만 AppImage는 이미 `desktop/dist/`에 있다), `~/work/tmp`(브라우저 락 파일이 거기에 있다), 고정된 wheel,
 Electron, AppImage 도구 세트를 위해 한 번의 네트워크 접근.

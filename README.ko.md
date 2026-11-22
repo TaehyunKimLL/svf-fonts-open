@@ -38,7 +38,7 @@ Mac)를 SVF로 변환하는 방법을 설명한다.
 | `ttf/<family>/` | 맵이 사용하는 TrueType 페이스(`FONTS.md`) |
 | `c/` | 이식 가능한 C 렌더러([c/README.ko.md](c/README.ko.md): API, 스위치, 게이트), 그 테스트(`make -C c check`), 포트 예제 `c/ports/{pico,esp32,arduino,ch582,dos,web,sdl}`와 그 호스트 검사 `c/ports/check`, 에뮬레이션 벤치 `c/bench` |
 | `maker/` | SVF maker: 업로드한 폰트로부터 아래 도구로 페이스를 굽는 작은 웹 서비스(`maker/server.py`) |
-| `desktop/` | SVF maker 데스크톱 앱: maker를 감싼 Electron 셸과 그 Linux AppImage 빌드(`docs/desktop-app.md`, `docs/maker-desktop.md`) |
+| `desktop/` | SVF maker 데스크톱 앱: maker를 감싼 Electron 셸과 그 Linux AppImage 빌드(`docs/desktop-app.ko.md`, `docs/maker-desktop.ko.md`) |
 | `web/` | WASM 폰트 선택기 페이지, 그 페이스 색인과 테스트([web/README.ko.md](web/README.ko.md)) |
 | `tools/` | 폰트 도구와 그 테스트(`python3 -m unittest discover -s tools -p 'test_*.py'`). SVF maker의 테스트: `python3 -m unittest discover -s maker/test -p 'test_*.py'`. `facecheck.py`는 페이스를 매니페스트와 맵에 대조해 검사한다. `macfbit3.py`, `macfbit_svf.py`, `macsfnt.py`는 사용자가 제공하는 클래식 Mac 폰트를 변환한다(그런 폰트는 배포하지 않는다) |
 | `tools/build/` | `build_faces.py`와 그 레시피 표 `faces.tsv`: `ttf/`의 폰트로부터 `svf/`의 페이스를 다시 빌드하고 비교한다 |
