@@ -1043,8 +1043,6 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
 - **Windows `.FNT` / `.FON` draw nothing.** FreeType opens them (the maker routes such a file through `mkfont.py`) but
   gives them only an `FT_ENCODING_NONE` charmap: on the Windows 95 Korean FONs `mkfont.py` exits with "no `--unicode`
   character is in the font". No FNT or FON with Hangul glyphs was found either (recipes.md, Windows FNT and FON).
-- **A bitmap-only Mac TrueType (`bdat` + `bloc` + `bhed`, no `head`) bakes with advance 0** for every glyph
-  (`svfline.py measure` says `width=0`); the same font's full copy with outlines gives the same pixels and real advances.
 - **The maker mistakes a real HangulTalk 1.0 `fbit` for type 3.** Real 1.0 fonts (Munjo24, Gotic12) carry generation 3
   in the header, and `detect.py` tests the generation before the 45 sets, so the `mac fbit 1.0` route is not offered
   (its test fixtures carry 0 there). `jamoset.py --layout mac-fbit-45sets` itself reads them.

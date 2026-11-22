@@ -987,8 +987,6 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 - **Windows `.FNT` / `.FON`은 아무것도 그리지 못한다.** FreeType은 이를 열지만(maker는 이런 파일을 `mkfont.py`로 보낸다) `FT_ENCODING_NONE`
   맵만 주므로, Windows 95 한글판 FON에서 `mkfont.py`는 "`--unicode`의 글자가 글꼴에 하나도 없다"로 끝난다. 한글 글리프가 있는 FNT나 FON도
   찾지 못했다(recipes.ko.md, Windows FNT와 FON).
-- **비트맵 전용 Mac TrueType(`bdat` + `bloc` + `bhed`, `head` 없음)은 모든 글리프의 advance가 0으로 구워진다**(`svfline.py measure`가
-  `width=0`). 윤곽선이 있는 같은 폰트의 전체 사본은 같은 픽셀과 실제 advance를 준다.
 - **maker는 실제 HangulTalk 1.0 `fbit`를 type 3으로 오인한다.** 실제 1.0 폰트(Munjo24, Gotic12)는 헤더에 세대 3을 담고 있고 `detect.py`가
   45 세트보다 세대를 먼저 검사하므로 `mac fbit 1.0` 경로가 제공되지 않는다(그 테스트 픽스처는 거기에 0을 담는다). `jamoset.py --layout
   mac-fbit-45sets` 자체는 이를 읽는다.

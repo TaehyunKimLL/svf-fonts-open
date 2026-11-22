@@ -1036,5 +1036,190 @@ class ReportTest(unittest.TestCase):
         self.assertIn("--probe-cell", r.stderr)
 
 
+BM_ORDER = [".notdef", "A", "B", "D", "C", "E", "F", "G"]     # glyph order of the synthetic bitmap-only font
+
+
+def bitmap_only_font(path, hmtx_px, strikes, with_g=False):
+    """Write a bitmap-only TrueType (bdat + bloc + bhed + hmtx, no head, no glyf) of the glyphs BM_ORDER.
+
+    @p hmtx_px {name: advance px at 16 ppem} fills hmtx (1024 units per em), on purpose unlike the strikes.
+    @p strikes [(ppemX, ppemY, groups)]; a group is ("small", {name: advance}) with per-glyph small metrics
+    (bdat format 1), ("big", {name: advance}) with big metrics (format 6) or ("shared", [names], advance) of
+    format 5, whose one metrics record sits in the bloc index subtable. Groups cover consecutive glyphs of
+    BM_ORDER from .notdef; a glyph in no group is missing from that strike. Every glyph is an 8x8 block,
+    .notdef a narrower one so the letters are not taken for "absent".
+    """
+    import tempfile
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.misc.xmlReader import XMLReader
+    from fontTools.pens.ttGlyphPen import TTGlyphPen
+    from fontTools.ttLib import TTFont, newTable
+
+    names = BM_ORDER if with_g else BM_ORDER[:-1]     # G is in no strike: mkfont cannot bake a font that has it
+    fb = FontBuilder(1024, isTTF=True)
+    fb.setupGlyphOrder(names)
+    fb.setupCharacterMap({ord(n): n for n in names[1:]})
+    fb.setupGlyf({n: TTGlyphPen(None).glyph() for n in names})
+    fb.setupHorizontalMetrics({n: (hmtx_px.get(n, 0) * 64, 0) for n in names})
+    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupNameTable({"familyName": "Synth Bitmap", "styleName": "Regular"})
+    fb.setupOS2()
+    fb.setupPost()
+    fb.save(path)
+    f = TTFont(path)
+    bhed = newTable("bhed")
+    bhed.__dict__.update(f["head"].__dict__)
+    del f["head"], f["glyf"], f["loca"]
+    f["bhed"] = bhed
+    line = ('<sbitLineMetrics direction="%s"><ascender value="13"/><descender value="-3"/>'
+            '<widthMax value="16"/><caretSlopeNumerator value="1"/><caretSlopeDenominator value="0"/>'
+            '<caretOffset value="0"/><minOriginSB value="0"/><minAdvanceSB value="0"/>'
+            '<maxBeforeBL value="0"/><minAfterBL value="0"/><pad1 value="0"/><pad2 value="0"/></sbitLineMetrics>')
+
+    def big(adv, w=8):
+        return ('<BigGlyphMetrics><height value="8"/><width value="%d"/><horiBearingX value="0"/>'
+                '<horiBearingY value="8"/><horiAdvance value="%d"/><vertBearingX value="0"/>'
+                '<vertBearingY value="0"/><vertAdvance value="8"/></BigGlyphMetrics>' % (w, adv))
+
+    def bits(n):
+        return "<rawimagedata>%s</rawimagedata>" % " ".join(["f0" if n == ".notdef" else "ff"] * 8)
+
+    xml = ['<?xml version="1.0"?><ttFont><bloc><header version="2.0"/>']
+    data = ['<bdat><header version="2.0"/>']
+    for k, (px, py, groups) in enumerate(strikes):
+        ids = [BM_ORDER.index(n) for g in groups for n in (g[1] if g[0] == "shared" else g[1])]
+        xml += ['<strike index="%d"><bitmapSizeTable>' % k, line % "hori", line % "vert",
+                '<colorRef value="0"/><startGlyphIndex value="%d"/><endGlyphIndex value="%d"/>' % (min(ids), max(ids)),
+                '<ppemX value="%d"/><ppemY value="%d"/><bitDepth value="1"/><flags value="1"/></bitmapSizeTable>'
+                % (px, py)]
+        data.append('<strikedata index="%d">' % k)
+        for g in groups:
+            gnames = list(g[1])
+            lo, hi = BM_ORDER.index(gnames[0]), BM_ORDER.index(gnames[-1])
+            if g[0] == "shared":
+                xml.append('<eblc_index_sub_table_2 imageFormat="5" firstGlyphIndex="%d" lastGlyphIndex="%d">'
+                           '<imageSize value="8"/>%s' % (lo, hi, big(g[2])))
+                for n in gnames:
+                    data.append('<ebdt_bitmap_format_5 name="%s">%s</ebdt_bitmap_format_5>' % (n, bits(n)))
+            else:
+                fmt = 1 if g[0] == "small" else 6
+                xml.append('<eblc_index_sub_table_1 imageFormat="%d" firstGlyphIndex="%d" lastGlyphIndex="%d">'
+                           % (fmt, lo, hi))
+                for n in gnames:
+                    w = 4 if n == ".notdef" else 8
+                    adv = g[1][n]
+                    if fmt == 1:
+                        m = ('<SmallGlyphMetrics><height value="8"/><width value="%d"/><BearingX value="0"/>'
+                             '<BearingY value="8"/><Advance value="%d"/></SmallGlyphMetrics>' % (w, adv))
+                    else:
+                        m = big(adv, w)
+                    data.append('<ebdt_bitmap_format_%d name="%s">%s%s</ebdt_bitmap_format_%d>'
+                                % (fmt, n, m, bits(n), fmt))
+            xml += ['<glyphLoc id="%d" name="%s"/>' % (BM_ORDER.index(n), n) for n in gnames]
+            xml.append("</eblc_index_sub_table_%d>" % (2 if g[0] == "shared" else 1))
+        xml.append("</strike>")
+        data.append("</strikedata>")
+    xml.append("</bloc>")
+    data.append("</bdat></ttFont>")
+    f.bitmapGlyphDataFormat = "raw"
+    with tempfile.NamedTemporaryFile("w", suffix=".ttx", delete=False) as t:
+        t.write("".join(xml + data))
+    try:
+        XMLReader(t.name, f).read()
+    finally:
+        os.unlink(t.name)
+    f.save(path)
+
+
+def _have_fonttools():
+    try:
+        import fontTools  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+@unittest.skipUnless(_have_fonttools(), "fontTools not installed")
+class BitmapOnlyAdvanceTest(unittest.TestCase):
+    """A bitmap-only TrueType has no head, so Pillow's getlength() is 0: the advances come from the strike.
+
+    hmtx here never agrees with the strikes (A 7 vs 9, ...), so only the strike can give the expected value.
+    """
+
+    HMTX = {"A": 7, "B": 7, "C": 7, "D": 7, "E": 7, "F": 7, "G": 13}
+    N = (".notdef", 8)
+
+    def strikes(self):
+        n = {".notdef": 8}
+        return [
+            # a non-square strike that shares ppemX with the 16 px one: FreeType picks by ppemY
+            (16, 14, [("small", {**n, "A": 3, "B": 3, "D": 3})]),
+            (16, 16, [("small", {**n, "A": 9, "B": 11, "D": 0}), ("big", {"C": 12}), ("shared", ["E", "F"], 14)]),
+            (12, 12, [("small", {**n, "A": 5, "B": 6, "D": 7, "C": 8, "E": 9, "F": 10})]),
+        ]
+
+    def make(self, d, with_g=False):
+        src = os.path.join(d, "bm.ttf")
+        bitmap_only_font(src, self.HMTX, self.strikes(), with_g)
+        return src
+
+    def bake(self, letters, size="16", extra=()):
+        """Advances of the glyphs named in @p letters (a string of the letters); the whole font is baked."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            src, out = self.make(d), os.path.join(d, "o.svf")
+            r = subprocess.run([sys.executable, mkfont.__file__, src, out, "--size", size, "--bpp", "1",
+                                "--unicode", "ascii", "--ascent", str(13 if size == "16" else 10), *extra],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            f = jamoset.parse_svfn(pathlib.Path(out).read_bytes())
+        return {ord(c): f.metrics[ord(c)][0] for c in letters}
+
+    def test_small_metrics_of_the_strike_not_hmtx(self):
+        self.assertEqual(self.bake("AB"), {0x41: 9, 0x42: 11})
+
+    def test_big_metrics_and_shared_format_5_metrics(self):
+        self.assertEqual(self.bake("CEF"), {0x43: 12, 0x45: 14, 0x46: 14})
+
+    def test_an_explicit_zero_in_the_strike_stays_zero(self):
+        self.assertEqual(self.bake("D")[0x44], 0)
+
+    def test_size_picks_its_own_strike(self):
+        self.assertEqual(self.bake("ABD", size="12"), {0x41: 5, 0x42: 6, 0x44: 7})
+
+    def test_nonsquare_strike_is_chosen_by_vertical_ppem(self):
+        # the 16x14 strike comes first and has ppemX 16; --size 16 is the 16x16 one (A = 9, not 3)
+        self.assertEqual(self.bake("A")[0x41], 9)
+
+    def test_glyph_missing_from_the_strike_falls_back_to_hmtx(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            src = self.make(d, with_g=True)
+            self.assertEqual(mkfont.strike_advance(src, 16, "G"), 13)      # not in the 16 px strike: hmtx
+            self.assertEqual(mkfont.strike_advance(src, 16, "A"), 9)
+            self.assertIsNone(mkfont.strike_advance(src, 16, "\u00e9"))   # not in the cmap
+
+    def test_outline_font_is_not_asked(self):
+        self.assertIsNone(mkfont.strike_advance(NANUM_IN_TREE or "/nonexistent", 16, "A"))
+
+    def test_marks_keep_advance_zero(self):
+        # a bitmap-only face: a combining mark is not given the strike advance
+        class F:
+            def getlength(self, ch):
+                return 0.0
+        src = None
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            src = self.make(d)
+            self.assertEqual(mkfont.font_advance(F(), "A", src, 16), 9)
+        import inspect
+        text = inspect.getsource(mkfont.main)
+        self.assertIn("if is_mark(ch):\n            # 결합 부호는 나아가지 않는다.\n            adv = int(round(font.getlength(ch)))",
+                      text)
+
+    def test_ink_advance_is_unchanged(self):
+        self.assertEqual(self.bake("AB", extra=("--ink-advance",)), {0x41: 9, 0x42: 9})
+
+
 if __name__ == "__main__":
     unittest.main()
