@@ -26,15 +26,15 @@ Mac)를 SVF로 변환하는 방법을 설명한다.
 
 | 경로 | 내용 |
 | --- | --- |
-| `spec/SVF.md` | SVFN v3 형식(헤더, 레이아웃 바이트, 테이블, glyph 레코드, 프로파일, 자모 세트 JSET v1/v2, BIG, JMAP과 LIST, glyph별 dy. v1과 v2는 폐기) |
+| `spec/SVF.md` | SVFN v3 형식(헤더, 레이아웃 바이트, 테이블, 글리프 레코드, 프로파일, 자모 세트 JSET v1/v2, BIG, JMAP과 LIST, 글리프별 dy. v1과 v2는 폐기) |
 | `docs/STATUS.md` | 개발 상태: 구성 요소, 연표, 열린 카드, 결정 사항, 알려진 공백 |
 | `docs/tools.md` | 모든 도구: 목적, 입력, 출력, 옵션, 그리고 각 입력 형식에서 SVF로 가는 레시피 |
 | `docs/desktop-app.md` | SVF maker 데스크톱 앱: 빠른 시작(체크아웃에서 빌드, 첫 변환), 사용법, 메시지, 복구와 제거, 프라이버시와 보안, 한계 |
 | `docs/c-renderer-guide.md` | C 렌더러 통합 가이드: 빌드, 페이스 열기, 줄 그리기, 타깃, 스케일, 한글, 메모리, 문제 해결 |
 | `docs/recipes.md` | `svf/`의 각 페이스를 만드는 방법과 모든 종류의 한글 폰트 원본에 대한 사용법 |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | 설계 문서와 구현 계획. 기능마다 한 쌍이며 날짜로 이름 붙인다. 작업 기록이며, 이 저장소가 제외한 원래 작업 저장소의 페이스, 도구, 경로를 여전히 언급한다 |
-| `svf/dos/` | 완성형(precomposed) 및 자모 세트 페이스(처음에는 ScummVM 한글 맵용으로 만듦)와 그 라이선스 `.TXT` 파일 |
-| `svf/jamo-extra/` | 합성 glyph 폰트에서 만든 추가 자모 세트 페이스(`FACES.TSV`) |
+| `svf/dos/` | 완성형 및 자모 세트 페이스(처음에는 ScummVM 한글 맵용으로 만듦)와 그 라이선스 `.TXT` 파일 |
+| `svf/jamo-extra/` | 합성 글리프 폰트에서 만든 추가 자모 세트 페이스(`FACES.TSV`) |
 | `ttf/<family>/` | 맵이 사용하는 TrueType 페이스(`FONTS.md`) |
 | `c/` | 이식 가능한 C 렌더러([c/README.ko.md](c/README.ko.md): API, 스위치, 게이트), 그 테스트(`make -C c check`), 포트 예제 `c/ports/{pico,esp32,arduino,ch582,dos,web,sdl}`와 그 호스트 검사 `c/ports/check`, 에뮬레이션 벤치 `c/bench` |
 | `maker/` | SVF maker: 업로드한 폰트로부터 아래 도구로 페이스를 굽는 작은 웹 서비스(`maker/server.py`) |

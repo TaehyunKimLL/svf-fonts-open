@@ -18,10 +18,10 @@ JavaScript가 소유한 버퍼 위에 타깃(GRAY8, MONO_PAGE, MONO_ROW 또는 R
 | `svfw_measure(text, len, out)` | int16 out[0..2] = 너비, ascent, descent |
 | `svfw_draw(text, len, x, baseline)` | 타깃에 줄을 그린다 |
 | `svfw_reset()` | 모든 슬롯을 닫아(체인 개수 0) 체인을 다른 순서로 다시 만들 수 있게 한다. SVF_OK |
-| `svfw_info(slot, out)` | int32 out[0..7] = bpp, cell_w, cell_h, ascent, flags, status, glyph 수, is_jamo. 열려 있지 않은 슬롯은 SVF_E_ARG |
+| `svfw_info(slot, out)` | int32 out[0..7] = bpp, cell_w, cell_h, ascent, flags, status, 글리프 수, is_jamo. 열려 있지 않은 슬롯은 SVF_E_ARG |
 | `svfw_has(slot, cp)` | 슬롯 페이스의 `svf_has`: 1 또는 0(열려 있지 않은 슬롯은 0) |
 | `svfw_order(first)` | 체인이 슬롯 first를 먼저 시도하고 나머지는 슬롯 순서로 그 뒤에 시도한다(`svfw_order(0)`: 슬롯 순서). 다시 열지 않는다. 열려 있지 않은 슬롯은 SVF_E_ARG. `svfw_open`/`svfw_reset`은 슬롯 순서를 복원한다 |
-| `svfw_metrics(slot, cp, out)` | `svf_metrics_of`: 1(메트릭 표 있음), 0(없음), -1(glyph 없음, 슬롯이 열려 있지 않음 또는 out이 NULL). int32 out[0..3] = advance, bearing_x, ink_w, dy |
+| `svfw_metrics(slot, cp, out)` | `svf_metrics_of`: 1(메트릭 표 있음), 0(없음), -1(글리프 없음, 슬롯이 열려 있지 않음 또는 out이 NULL). int32 out[0..3] = advance, bearing_x, ink_w, dy |
 | `svfw_cell_bytes(slot)` | 슬롯 페이스의 `svf_cell_bytes`. 열려 있지 않은 슬롯은 0 |
 | `svfw_glyph(slot, cp, cell, len)` | `svf_glyph`(JSET 페이스의 음절은 조합된다). 그 `svf_err`. 열려 있지 않은 슬롯이나 cell이 NULL이면 SVF_E_ARG |
 | `svfw_pieces(slot, cp, out)` | `svf_jamo_pieces`: 개수 0..3, uint16 out[0..2] = 조각 번호(0xFFFF는 빈 조각). 열려 있지 않은 슬롯이나 out이 NULL이면 0 |

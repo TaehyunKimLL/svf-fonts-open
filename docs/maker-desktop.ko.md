@@ -2,7 +2,7 @@
 
 # SVF maker 데스크톱 앱
 
-maker 서버를 감싼 Electron 셸(`desktop/`)과, 이를 동결된 Python sidecar와 함께 Linux AppImage로 패키징하는 빌드이다. 카드
+maker 서버를 감싼 Electron 셸(`desktop/`)과, 이를 동결된 Python 사이드카와 함께 Linux AppImage로 패키징하는 빌드이다. 카드
 t_f04f1355(셸)와 t_e64a56a7(패키징). 설계: `docs/superpowers/specs/2026-11-05-maker-desktop-design.md`; 계획:
 `docs/superpowers/plans/2026-11-05-maker-desktop.md`. 패키지는 소유자가 저장소를 공개로 돌릴 때까지 비공개이다.
 
@@ -10,12 +10,12 @@ t_f04f1355(셸)와 t_e64a56a7(패키징). 설계: `docs/superpowers/specs/2026-1
 
 - `desktop/main.js`는 실행할 때마다 새 토큰과 `127.0.0.1:0`으로 `svf-maker-sidecar serve --exit-with-parent=<pid>`(서버와 모든
   도구의 PyInstaller one-dir 번들)를 띄우고, 포트 줄을 읽고, `http://127.0.0.1:<port>/`를 불러오고, `/api/` 요청에 `X-Maker-Token`을
-  직접 붙이고, 페이지에 `window.svfMaker`를 주고, 종료할 때 sidecar를 멈춘다. sidecar 자신의 origin이 아닌 요청은 모두 취소되고,
+  직접 붙이고, 페이지에 `window.svfMaker`를 주고, 종료할 때 사이드카를 멈춘다. 사이드카 자신의 origin이 아닌 요청은 모두 취소되고,
   탐색과 새 창은 거부되고, 다운로드는 저장되지 않고, 권한은 부여되지 않는다. 네트워크 연결은 하지 않는다. 자동 업데이트도 없다.
-- sidecar는 각 도구를 `svf-maker-sidecar run-tool <name> ...`로 자기 세션에서 실행하고, `<data root>/tools.pids`에 등록하며, 시작할
+- 사이드카는 각 도구를 `svf-maker-sidecar run-tool <name> ...`로 자기 세션에서 실행하고, `<data root>/tools.pids`에 등록하며, 시작할
   때 죽은 실행이 남긴 것을 정리한다(`maker/toolreg.py`). 데이터 루트당 서버는 하나이다(`instance.lock`). 데이터 루트는
   `~/.config/svf-maker/maker`(`<userData>/maker`)이고, 개발 실행은 `<userData>/maker-dev`를 쓴다.
-- 선택적 부품은 밖에 둔다. 신원 점검은 `SVF_RECOG_DIR`와 함께 `SVF_RECOG_PYTHON` 아래에서 실행되고, 마스크 맞춤 라이브러리는
+- 선택적 부품은 밖에 둔다. 정체성 검사는 `SVF_RECOG_DIR`와 함께 `SVF_RECOG_PYTHON` 아래에서 실행되고, 마스크 맞춤 라이브러리는
   `JAMOSET_PYLIB`에서 온다. 패키지는 그 인터프리터를 위해 `maker/*.py`와 `tools/*.py`를 소스로 싣는다.
 
 ## 빌드 (Linux)
@@ -45,15 +45,15 @@ Electron, AppImage 도구 세트를 위해 한 번의 네트워크 접근.
 Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
 
 스크래치: 스크립트는 `SVF_DESKTOP_TMP`를 받는다(기본값 `$HOME/work/tmp/svf-desktop-build`: pip 다운로드, PyInstaller 작업 디렉터리,
-가지친 도구 세트, 추출물). 시험은 `TMP_DIR`을 받는다(짧게 유지하라: `$HOME` 뒤로 약 40자 이내. Chrome의 소켓 경로는 107 바이트로
+가지친 도구 세트, 추출물). 테스트는 `TMP_DIR`을 받는다(짧게 유지하라: `$HOME` 뒤로 약 40자 이내. Chrome의 소켓 경로는 107 바이트로
 제한된다). `/tmp`는 절대 쓰지 않는다. Chrome이나 Electron을 시작하는 모든 실행은 `flock $HOME/work/tmp/svf-browser.lock`을 잡고
 `~/.local/bin/heavy` 아래에서 실행한다.
 
-`build-appimage.sh`는 `maker/build-sidecar.sh`(동결 시험 포함, 건너뛰기 불가)를 실행하고, `THIRD-PARTY.txt`를 쓰고(출처가 밝혀지지
+`build-appimage.sh`는 `maker/build-sidecar.sh`(동결 테스트 포함, 건너뛰기 불가)를 실행하고, `THIRD-PARTY.txt`를 쓰고(출처가 밝혀지지
 않은 라이브러리나 GPL 라이브러리가 있으면 실패), AppImage를 빌드하고, `desktop/build/release-check.sh`를 실행한다. 이 스크립트는
 `CHECK <name> ok|FAIL` 줄을 하나씩 출력한다: size, extract, size-sidecar, layout, apprun, runtime(AppImage의 runtime은 정적이다:
 로더 없음, 필요한 라이브러리 없음, `libfuse.so.2` 문자열 없음; `desktop/build/check-runtime.mjs`, `desktop/test/check-runtime.test.js`로
-시험; 그리고 `--appimage-version`이 `env -i`에서 버전 줄과 함께 0으로 종료), desktop-entry, frozen(추출된 sidecar에 대한
+테스트; 그리고 `--appimage-version`이 `env -i`에서 버전 줄과 함께 0으로 종료), desktop-entry, frozen(추출된 사이드카에 대한
 `test_frozen.py`, 건너뜀 0), wasm(새 빌드와 `cmp`), licences(추출물에 대한 생성기), notices와 sources(번들된 `THIRD-PARTY.txt`가 다시
 생성한 것과 같음; `resources/repo/{maker,tools}/*.py`와 `resources/repo/web/mkindex.py`가 checkout과 sha256으로 같음:
 `desktop/build/verify-extraction.sh`, `verify-report.sh`/`run-verify.sh`로 실행되며, 0이 아닌 종료, 없거나 중복된 결과 줄, stderr를
@@ -67,10 +67,10 @@ Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
 
 | 항목 | 값 |
 |---|---|
-| Sidecar one-dir | 47 MB; 빌드 8-9 초(동결 시험 포함 약 30 초); 시작 후 포트 줄까지 2 초 훨씬 미만 |
+| 사이드카 one-dir | 47 MB; 빌드 8-9 초(동결 테스트 포함 약 30 초); 시작 후 포트 줄까지 2 초 훨씬 미만 |
 | AppImage | 140 MB (133.9 MiB, 커밋 3d40de8, 2026-11-22. 정적 runtime과 zstd 이전에는 149.7 MB); `linux-unpacked` 335 MB; electron-builder 약 50 초; 캐시가 따뜻할 때 스크립트 전체 1분 26초 |
-| 동결 시험 | 시험 26개, 건너뜀 0: `env -i`에서 고정된 wheel과 바이트 단위로 같음, 동결된 작업과 노트가 소스 모드와 같음 |
-| Electron 태스크 수 (xvfb 아래 `--no-sandbox --disable-gpu`) | 인스턴스 하나 87, 두 번째 인스턴스 경우 114 (계획 단계 측정, GPU 포함 143과 170); 수명 주기 시험의 최대값은 79-80 |
+| 동결 테스트 | 테스트 26개, 건너뜀 0: `env -i`에서 고정된 wheel과 바이트 단위로 같음, 동결된 작업과 노트가 소스 모드와 같음 |
+| Electron 태스크 수 (xvfb 아래 `--no-sandbox --disable-gpu`) | 인스턴스 하나 87, 두 번째 인스턴스 경우 114 (계획 단계 측정, GPU 포함 143과 170); 수명 주기 테스트의 최대값은 79-80 |
 | Debian Pillow 비교 | 같음 |
 | `sample set` e2e 단계 | dev 10.4 초, 패키지 15.0 초 (14단계, 페이스 10개; 락 대기가 없을 때 전체 e2e 48 초) |
 
@@ -78,7 +78,7 @@ Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
 
 `desktop/test/e2e.js`에는 단계가 하나 있다. 패스마다 `sample set`이라는 단계로, 고정된 샘플을 로컬 모드에서 **페이지를 통해**
 변환한다(입력은 제자리에서 읽고 페이스는 고른 출력 폴더에 씀). dev 패스와 패키지 패스에서 모두 한다. 샘플은
-`maker/test/uisample.py`가 정의한다(시험 시점에 합성 입력을 만들고, 폰트별 설정 표, 기대하는 33개 파일 트리, 점검을 소유한다).
+`maker/test/uisample.py`가 정의한다(테스트 시점에 합성 입력을 만들고, 폰트별 설정 표, 기대하는 33개 파일 트리, 점검을 소유한다).
 `ttf/`의 OFL 폰트 넷을 제자리에서 읽고(neodgm, NanumGothic-Bold, `dos-u-2bpp` preset을 쓰는 GowunBatang-Bold, Bold 인스턴스의
 Caveat-VF), 저장소의 fixture 빌더가 만든 합성 파일을 쓴다: HTBL 표와 suitcase가 있는 Mac 7.1 fbit, HangulTalk 1.0 폰트, Mac
 dfont, `ASCII.PFT`가 있는 HWP DOS 844 폰트(`HANGUL24.PFT`는 읽지 않음으로 표시), KSC / johab BDF. 이 단계는 스텁 대화상자로 루트 9개와
@@ -95,7 +95,7 @@ API로 실행하고 각 점검이 변이에서 실패함을 증명한다.
 
 AppImage는 Chromium의 SUID 샌드박스 도우미를 실을 수 없다(FUSE 마운트는 `nosuid`이다). 따라서 가질 수 있는 샌드박스는 사용자
 네임스페이스 샌드박스뿐인데, Ubuntu 24.04는 권한 없는 사용자 네임스페이스를 거부한다. electron-builder의 `AppRun`은 `unshare -Ur
-true`를 시험하고 실패하면 `--no-sandbox`를 붙인다. AppImage의 `.desktop` 항목은 `Exec=AppRun %U`이다(사용자 네임스페이스가 있든 없든 항목은 같고, 플래그는 `AppRun`이 스스로 붙인다. 아래 참조). 따라서 이
+true`를 테스트하고 실패하면 `--no-sandbox`를 붙인다. AppImage의 `.desktop` 항목은 `Exec=AppRun %U`이다(사용자 네임스페이스가 있든 없든 항목은 같고, 플래그는 `AppRun`이 스스로 붙인다. 아래 참조). 따라서 이
 호스트와 Ubuntu 24.04급의 모든 시스템에서 렌더러는 샌드박스 **없이** 실행된다(셸이 로그를 남기고 About에 "renderer sandbox: off
 (--no-sandbox; user namespaces unavailable)"이 표시된다). 사용자 네임스페이스가 있는 시스템에서는 샌드박스 안에서 실행될 것이다
 (검증하지 않음). 렌더러는 엄격한 CSP를 가진 루프백 서버의 앱 자체 페이지와 사용자가 고른 파일만 불러오며, 원격 콘텐츠는 불러오지
@@ -129,9 +129,9 @@ AppImage의 `usr/lib`에 복사한다. `libindicator`는 **GPL-3.0**이고 패�
 
 ## 라이선스와 릴리스 게이트
 
-`THIRD-PARTY.txt`는 번들에서 생성된다. 규칙: sidecar, Electron의 디렉터리, `usr/lib`의 모든 공유 객체는
+`THIRD-PARTY.txt`는 번들에서 생성된다. 규칙: 사이드카, Electron의 디렉터리, `usr/lib`의 모든 공유 객체는
 `desktop/build/third-party-map.json`의 항목과 일치해야 한다(fail closed). Electron과 `usr/lib`의 모든 라이브러리의 sha256이 그 옆에
-출력된다. sidecar 라이브러리는 빌드 시점의 출처와 일치해야 한다(`sidecar-provenance.py`, PyInstaller의 목차에서). 클래스 `gpl`은
+출력된다. 사이드카 라이브러리는 빌드 시점의 출처와 일치해야 한다(`sidecar-provenance.py`, PyInstaller의 목차에서). 클래스 `gpl`은
 금지된다. 클래스 `lgpl`은 배포 기록이 필요하다. `svf/`에는 OFL로 나열된 페이스만 둘 수 있다. 현재의 카피레프트 구성 요소: ffmpeg
 (Electron의 `libffmpeg.so`, LGPL-2.1), AppImage runtime(libfuse가 정적으로 링크됨, LGPL-2.1), PyInstaller 부트로더(부트로더 예외가
 있는 GPL).
@@ -149,18 +149,18 @@ AppImage의 `usr/lib`에 복사한다. `libindicator`는 **GPL-3.0**이고 패�
 
 ## glibc 하한
 
-sidecar는 PyInstaller가 찾는 시스템 라이브러리를 glibc만 빼고 번들한다. 따라서 패키지에는 적어도 빌드 호스트의 glibc(2.39,
+사이드카는 PyInstaller가 찾는 시스템 라이브러리를 glibc만 빼고 번들한다. 따라서 패키지에는 적어도 빌드 호스트의 glibc(2.39,
 Ubuntu 24.04)가 필요하다. Ubuntu 22.04(glibc 2.35)의 컨테이너 빌드라면 이를 넓힐 것이다(D9; 하지 않음).
 
 ## 수동 점검 (실제 데스크톱이 있는 사람)
 
-네이티브 파일 및 폴더 대화상자(시험은 이를 스텁으로 대체한다), 데스크톱 파일 관리자에서 "폴더 열기", 창 관리자가 있는 실제 데스크톱에서
-AppImage 시작(`./svf-maker-0.1.0.AppImage`; 마운트와 Xvfb 아래의 창은 깨끗한 호스트에서 보였으며 아래 참고), GPU 경로(시험은 `--disable-gpu`를 쓴다), 사용자 네임스페이스가 있는 호스트에서
+네이티브 파일 및 폴더 대화상자(테스트는 이를 스텁으로 대체한다), 데스크톱 파일 관리자에서 "폴더 열기", 창 관리자가 있는 실제 데스크톱에서
+AppImage 시작(`./svf-maker-0.1.0.AppImage`; 마운트와 Xvfb 아래의 창은 깨끗한 호스트에서 보였으며 아래 참고), GPU 경로(테스트는 `--disable-gpu`를 쓴다), 사용자 네임스페이스가 있는 호스트에서
 샌드박스된 렌더러.
 
 ## 깨끗한 머신에서의 시작 (t_ea7dcc8e, 2026-11-20)
 
-호스트 `pc`: Ubuntu 24.04.5, `libfuse2t64` 없음(`libfuse.so.2` 없음), `fusermount`/`fusermount3` 있음, 디스플레이 없음, 시험을 위해
+호스트 `pc`: Ubuntu 24.04.5, `libfuse2t64` 없음(`libfuse.so.2` 없음), `fusermount`/`fusermount3` 있음, 디스플레이 없음, 테스트를 위해
 설치한 것 없음. 이 브랜치에서 빌드한 AppImage(133 MB, zstd squashfs)를 `~/work/tmp/svf-clean`에 복사해 `env -i HOME=$HOME
 PATH=/usr/bin:/bin`으로 실행했다.
 
@@ -186,7 +186,7 @@ libfuse 오류는 사라졌다. 이제는 FUSE 마운트 뒤에(마운트된 이
 
 - **macOS.** PyInstaller one-dir은 macOS에서 같은 spec을 빌드한다(arm64와 x86_64는 별개의 빌드이고, universal2 빌드에는 Pillow와
   fontTools의 universal wheel이 필요하다. `desktop/build/requirements.lock`은 Linux cp312 wheel만 고정한다). 서버는 이미 macOS
-  (POSIX)에서 동작하지만, 레지스트리의 macOS 시작 시각(`ps -o lstart=`)은 시험하지 않았다. electron-builder 대상은 `dmg` + `zip`이고,
+  (POSIX)에서 동작하지만, 레지스트리의 macOS 시작 시각(`ps -o lstart=`)은 테스트하지 않았다. electron-builder 대상은 `dmg` + `zip`이고,
   `extraResources`는 같으며, AppImage의 `--no-sandbox` 문제는 없다. 서명: Developer ID Application 인증서, `mac.hardenedRuntime:
   true`, `com.apple.security.cs.allow-unsigned-executable-memory`(Chromium) 외에는 아무것도 허용하지 않는 entitlements 파일 - 그리고
   `resources/sidecar/` 아래의 모든 바이너리도 서명해야 한다(`codesign --deep`은 `_internal/*.so`에 확실히 닿지 않는다. 각각
@@ -202,8 +202,8 @@ libfuse 오류는 사라졌다. 이제는 FUSE 마운트 뒤에(마운트된 이
 ## 여기서 검증하지 않은 것
 
 Windows와 macOS 전체; 실제 데스크톱(창 관리자, GPU)에서의 AppImage 시작(위의 Xvfb 창 실행은 했음); 샌드박스된 렌더러; 2.39보다 오래된 glibc; 동결된 프로세스에서 3.12
-wheel을 쓰는 `JAMOSET_PYLIB`과 실제 인식기(시험은 스텁 인터프리터를 쓴다); 디스플레이가 있는 네이티브 대화상자; AppImage runtime의
+wheel을 쓰는 `JAMOSET_PYLIB`과 실제 인식기(테스트는 스텁 인터프리터를 쓴다); 디스플레이가 있는 네이티브 대화상자; AppImage runtime의
 바이너리가 밝히는 것 이상의 구성(내장된 라이선스 목록과 버전 문자열: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2,
 libzstd 1.5.6, zlib 1.3.1; musl 자체의 버전은 내장되어 있지 않으므로 그 COPYRIGHT는 v1.2.5의 것을 가져왔다); AppImage의
-`SOURCE_DATE_EPOCH` 결정성(sidecar는 비트 단위로 재현되지 않는다: `base_library.zip` 멤버 순서가 빌드마다 바뀐다); 향후 Pillow
+`SOURCE_DATE_EPOCH` 결정성(사이드카는 비트 단위로 재현되지 않는다: `base_library.zip` 멤버 순서가 빌드마다 바뀐다); 향후 Pillow
 wheel의 2.13.2가 아닌 FreeType; 기록된 소스의 정확한 URL(기록만 했고 가져오지 않았다).

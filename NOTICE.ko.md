@@ -71,7 +71,7 @@ NanumMyeongjo 파일은 name 테이블에 "NHN Corporation"만 적혀 있다. �
 (Google Fonts)에서 온 것이며 NAVER는 Nanum 폰트를 SIL OFL 1.1로 배포한다. NanumSquareRound 페이스는 같은
 NAVER 배포에 근거한다(폰트 파일에는 저작권 줄만 있으며 `OFLNSQR.TXT`가 그렇게 밝힌다). Neo Dunggeunmo Pro와
 Paperlogy는 폰트 파일에 OFL을 명시한다. 페이스 여섯 개(`NGOTB17`, `NGO17X1`, `NGO17X2`, 그리고
-`NGO15X2`, `NGO16BX2`, `NGO21AX2`의 대체 glyph)는 NHN의 힌팅된 NanumGothicBold.ttf(Debian `fonts-nanum`, SIL OFL
+`NGO15X2`, `NGO16BX2`, `NGO21AX2`의 대체 글리프)는 NHN의 힌팅된 NanumGothicBold.ttf(Debian `fonts-nanum`, SIL OFL
 1.1)로 그렸으며, 이 파일은 이 저장소에 없다.
 
 ## 데스크톱 패키지

@@ -149,6 +149,6 @@ neodgm v1.601 릴리스 자산과 대조해 확인했다.
 
 ## 배포하지 않는 것
 
-- **HBIOS-SYS**: 5.7 MB. 라틴과 상자 그리기 glyph은 CC BY-SA 4.0(VileR, int10h.org)이고
+- **HBIOS-SYS**: 5.7 MB. 라틴과 상자 그리기 글리프는 CC BY-SA 4.0(VileR, int10h.org)이고
   나머지는 OFL이다. 라이선스가 섞여 있어 별도의
   표시와 동일조건변경허락 조건이 필요하다. Neo둥근모가 같은 용도를 대신한다.

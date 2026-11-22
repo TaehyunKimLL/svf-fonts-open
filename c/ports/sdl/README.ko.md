@@ -6,7 +6,7 @@
 `SDL_Surface`에 C 렌더러의 대응하는 `svf_target` 종류를 통해 그리고 창에 보여 준다. **하나의 소스가 SDL2와 SDL3 모두에
 대해 빌드된다**(`sdl_compat.h`, ScummVM 백엔드가 쓰는 `SDL_VERSION_ATLEAST(3, 0, 0)`). `--dump`를 주면 16바이트
 헤더 뒤에 서피스의 바이트 그대로를 쓰고 종료한다. 헤드리스 검사(아래)는 같은 바이트를 SDL의 실제 pitch로
-`tools/svfline.py`로 다시 만들어 한 바이트도 빠짐없이 비교하며, 두 SDL 모두에서, 페이스를 mapped와 streamed로
+`tools/svfline.py`로 다시 만들어 한 바이트도 빠짐없이 비교하며, 두 SDL 모두에서, 페이스를 mapped와 스트리밍으로
 모두 확인한다. 따라서 그림은 결코 증거가 아니다: **증명되는 대상은 스크린샷이 아니라 백 버퍼이다**(변환은 렌더러가
 한다. 스크린샷 노트 참조).
 
@@ -183,7 +183,7 @@ SDL2와 SDL3의 그림은 **xrgb8888, argb8888, index8, gray 4에서 픽셀 단�
   (`SDL_RenderReadPixels`는 SDL3에서는 서피스를 반환하고 SDL2에서는 버퍼를 채운다), 서피스 경로의 스크린샷을 위해
   `sdl_compat.h`에 이 차이를 담을 가치가 없다. 이 제한은 의도적이다. 텍스처 실행은 대신 `--dump`로 다룬다.
 - **팔레트 서피스.** SDL2는 `INDEX8` 서피스에 팔레트를 주지만 SDL3은 요청하기 전까지 주지 않는다
-  (`SDL_CreateSurfacePalette`). compat 헤더가 이를 감춘다. `index8` 팔레트는 DOS 8 bpp 규칙
+  (`SDL_CreateSurfacePalette`). 호환 헤더가 이를 감춘다. `index8` 팔레트는 DOS 8 bpp 규칙
   (`vbe_palette_entry`)을 따른다. gray 팔레트는 채널마다 `(bg * (n - k) + 255 * k + n / 2) / n`이며 `n = 2^bits - 1`이다.
 
 ## ScummVM용 (카드 t_5a7bcd78)

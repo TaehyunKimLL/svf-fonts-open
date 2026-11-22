@@ -4,7 +4,7 @@
 
 SVFN v3 비트맵 페이스(face)([spec/SVF.ko.md](../spec/SVF.ko.md))를 읽어 UTF-8 한 줄을 그리는 이식 가능한 C99 라이브러리이다.
 자모 세트 페이스에서 조합되는 한글 음절도 그린다. 설계: [spec/renderer-design.ko.md](../spec/renderer-design.ko.md).
-기준은 Python 도구이다. glyph와 음절은 `tools/jamoset.py`(`parse_svfn`, `pieces_of`, `compose`), 줄·타깃·스케일링은
+기준은 Python 도구이다. 글리프와 음절은 `tools/jamoset.py`(`parse_svfn`, `pieces_of`, `compose`), 줄·타깃·스케일링은
 `tools/svfline.py`가 기준이다. 이 라이브러리는 이들과 바이트 단위로 같은 픽셀을 그린다.
 
 - **할당 없음.** 호출자가 모든 바이트를 소유한다: 페이스 구조체, 스트리밍 페이스의 테이블 버퍼와 캐시,
@@ -44,12 +44,12 @@ SVFN v3 비트맵 페이스(face)([spec/SVF.ko.md](../spec/SVF.ko.md))를 읽어
 페이스는 두 방식 중 하나로 열며, 그 뒤로는 모든 호출이 같다.
 
 - **Mapped**(`svf_open_mapped`): 파일 전체가 주소 지정 가능한 메모리(RAM, 플래시, PROGMEM)에 있다. 모든 테이블과 모든
-  glyph 레코드를 열 때 검증하며, 페이스를 쓰는 동안 바이트가 바뀌어서는 안 된다. AVR에서는 라이브러리를
+  글리프 레코드를 열 때 검증하며, 페이스를 쓰는 동안 바이트가 바뀌어서는 안 된다. AVR에서는 라이브러리를
   `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'`로 빌드하여 모든 페이스 읽기가 `pgm_read_byte`를 거친다.
-- **Streamed**(`svf_open_stream`): 파일은 디스크, SD 카드 또는 네트워크에 남는다. 헤더와 테이블은 호출자 버퍼에
-  한 번 읽는다(`svf_stream_tables_size`가 필요한 크기를 알려 준다). glyph 행은 `svf_read_fn` 콜백으로 필요할 때
+- **스트리밍**(`svf_open_stream`): 파일은 디스크, SD 카드 또는 네트워크에 남는다. 헤더와 테이블은 호출자 버퍼에
+  한 번 읽는다(`svf_stream_tables_size`가 필요한 크기를 알려 준다). 글리프 행은 `svf_read_fn` 콜백으로 필요할 때
   읽으며, 선택적으로 블록 캐시를 거친다(`block_size`는 64..4096 범위의 2의 거듭제곱, 슬롯은 `block_size + 8` 바이트,
-  최소 2개). glyph 레코드는 읽을 때 검사한다. `-DSVF_NO_STREAM`에서는 컴파일되지 않는다(스트림 함수 세 개는
+  최소 2개). 글리프 레코드는 읽을 때 검사한다. `-DSVF_NO_STREAM`에서는 컴파일되지 않는다(스트림 함수 세 개는
   선언조차 되지 않는다).
 
 ```c
@@ -83,7 +83,7 @@ if (need && need <= sizeof tables)
 | `SVF_E_MAGIC` | SVFN 파일이 아님 |
 | `SVF_E_VERSION` | 버전 3이 아님(v2 파일은 `tools/svf2to3.py`로 변환) |
 | `SVF_E_BPP` | 픽셀당 비트 수가 1, 2, 8이 아님 |
-| `SVF_E_RANGE` | 파일 밖의 크기나 오프셋, 빈 glyph 박스, 없는 코드 포인트나 glyph |
+| `SVF_E_RANGE` | 파일 밖의 크기나 오프셋, 빈 글리프 박스, 없는 코드 포인트나 글리프 |
 | `SVF_E_NOMEM` | 호출자 버퍼가 너무 작음 |
 | `SVF_E_IO` | 읽기 콜백 실패(스트리밍 페이스) |
 | `SVF_E_ARG` | NULL 포인터 또는 잘못된 인자(이 빌드가 컴파일하지 않은 타깃 종류나 스케일 포함) |
@@ -96,7 +96,7 @@ if (need && need <= sizeof tables)
 | 비트 | 이름 | 의미 |
 |---|---|---|
 | 0x0001 | `SVF_FACE_CMAP_LINEAR` | 코드 포인트 테이블이 엄격히 증가하지 않음: 선형 탐색, 마지막 항목이 우선 |
-| 0x0002 | `SVF_FACE_DY_IGNORED` | 헤더의 dy 범위가 잘못됨: 모든 glyph를 dy 0에 둠 |
+| 0x0002 | `SVF_FACE_DY_IGNORED` | 헤더의 dy 범위가 잘못됨: 모든 글리프를 dy 0에 둠 |
 | 0x0004 | `SVF_FACE_METRICS_DROPPED` | 메트릭 테이블이 파일 밖에 있음: 버림, 셀은 자기 폭만큼 전진 |
 | 0x0008 | `SVF_FACE_JSET_BAD` | JSET 부분이 검증에 실패하거나 이 빌드가 모르는 버전임: 일반 페이스 |
 | 0x0010 | `SVF_FACE_JSET_UNREAD` | 형식이 올바른 v1 또는 v2 블록이지만 리더가 컴파일되지 않음: 일반 페이스 |
@@ -107,15 +107,15 @@ if (need && need <= sizeof tables)
 
 | 함수 | 계약(한 줄; 전문은 `svf.h`의 주석) |
 |---|---|
-| `svf_open_mapped(f, data, len)` | 통째로 보유한 페이스를 연다. 헤더, 레이아웃, 테이블, 모든 glyph 레코드와 JSET 부분을 검증한다 |
+| `svf_open_mapped(f, data, len)` | 통째로 보유한 페이스를 연다. 헤더, 레이아웃, 테이블, 모든 글리프 레코드와 JSET 부분을 검증한다 |
 | `svf_open_stream(f, rd, ctx, file_len, tables, tables_len, cache, cache_len, block_size)` | `rd`로 읽는 페이스를 연다. 오류 시 페이스는 전부 0이다(`SVF_NO_STREAM`에서는 없음) |
 | `svf_stream_tables_size(rd, ctx, file_len, err)` | 이 빌드의 리더로 그 파일이 필요로 하는 `tables`의 바이트 수. 헤더가 거부되면 0이며 `err`가 설정된다 |
 | `svf_stream_reads(f)` | 열린 뒤 읽기 콜백이 호출된 횟수(mapped 페이스는 0) |
 | `svf_layouts(&set)` | 이 빌드가 읽는 레이아웃 코드. 유효한 모든 레이아웃을 읽으면 0과 NULL |
 | `svf_bpp`, `svf_cell_w`, `svf_cell_h`, `svf_ascent`, `svf_flags`, `svf_status`, `svf_glyph_count` | 헤더 값. NULL 페이스는 0 |
 | `svf_cmap_cp(f, i)` | 코드 포인트 테이블 항목 `i`의 코드 포인트, 또는 0xFFFFFFFF |
-| `svf_has(f, cp)` | 페이스가 `cp`를 그리면(저장된 glyph, 또는 조합되는 음절/호환 자모) 0이 아님 |
-| `svf_metrics_of(f, cp, &m)` | 메트릭 테이블에서 얻으면 1, 테이블이 없으면 0(셀 메트릭), 페이스에 glyph가 없으면 -1 |
+| `svf_has(f, cp)` | 페이스가 `cp`를 그리면(저장된 글리프, 또는 조합되는 음절/호환 자모) 0이 아님 |
+| `svf_metrics_of(f, cp, &m)` | 메트릭 테이블에서 얻으면 1, 테이블이 없으면 0(셀 메트릭), 페이스에 글리프가 없으면 -1 |
 | `svf_cell_bytes(f)` | 저장된 셀 하나의 바이트 수: `((cell_w * bpp + 7) / 8) * cell_h` |
 | `svf_glyph(f, cp, cell, cell_len)` | `cp`의 저장된 또는 조합된 행을 `cell`에 복사한다(MSB 우선, 행은 바이트로 패딩) |
 | `svf_is_jamo(f)` | 페이스가 음절을 조합하면(쓸 수 있는 JSET 또는 JMAP) 0이 아님 |
@@ -125,8 +125,8 @@ if (need && need <= sizeof tables)
 | `svf_chain_cache(c, buf, len)` | 체인에 조합된 음절 캐시를 준다(라운드 로빈, 있든 없든 같은 픽셀) |
 | `svf_target_init(t, kind, buf, buf_len, w, h, stride)` | 타깃을 채운다(타깃 전체 클립, 종류별 기본값). 컴파일되지 않은 종류는 `SVF_E_ARG` |
 | `svf_chain_scratch_bytes(c)` | 이 체인을 그 스케일로 `svf_draw_utf8`이 필요로 하는 스크래치 |
-| `svf_measure_utf8(c, s, len, &e)` | glyph를 읽지 않고 구한 줄의 폭, ascent, descent |
-| `svf_draw_utf8(c, s, len, x, y_baseline, t, scratch, scratch_len)` | UTF-8 한 줄을 그린다. 스트리밍 읽기가 실패하면 그 glyph를 건너뛰고 끝에서 `SVF_E_IO`를 반환한다 |
+| `svf_measure_utf8(c, s, len, &e)` | 글리프를 읽지 않고 구한 줄의 폭, ascent, descent |
+| `svf_draw_utf8(c, s, len, x, y_baseline, t, scratch, scratch_len)` | UTF-8 한 줄을 그린다. 스트리밍 읽기가 실패하면 그 글리프를 건너뛰고 끝에서 `SVF_E_IO`를 반환한다 |
 
 조합에는 공간이 필요하다: 캐시가 **없는** 스트리밍 페이스는 `2 * svf_cell_bytes`에 조합한다(뒤쪽 절반은 읽고 있는
 조각을 담는다). `svf_chain_scratch_bytes`는 이것과 스케일링을 이미 반영한다.
@@ -134,7 +134,7 @@ if (need && need <= sizeof tables)
 ### 체인, 타깃, 스케일
 
 `svf_chain`은 페이스의 목록이다. 각 코드 포인트는 그것을 가진(`svf_has`) 첫 페이스가 그린다. 어느 페이스에도 없는
-코드 포인트는 `missing_advance` 픽셀만큼 전진한다. 마크(`is_mark`, 기본 U+0300..U+036F)는 0만큼 전진하며 앞 glyph
+코드 포인트는 `missing_advance` 픽셀만큼 전진한다. 마크(`is_mark`, 기본 U+0300..U+036F)는 0만큼 전진하며 앞 글리프
 위에 그려진다. `scale_num / scale_den`(각각 1..16, 0/0은 1/1을 뜻함)은 줄을 스케일한다: 정수배는 픽셀을
 반복하고, 그 외 비율은 면적 평균을 낸다(기준은 `tools/svfline.py`의 "Scaling").
 
@@ -220,14 +220,14 @@ xtensa-esp32s3/esp32-elf-gcc 16.1.0):
 ## 자모 세트: 각 빌드가 읽는 것
 
 자모 세트 페이스(헤더 플래그 비트 1)는 JSET 블록을 가지며, 음절 U+AC00..U+D7A3은 조각 둘 또는 셋의 최대
-커버리지이다(조각 번호를 U+F0000에 더한 위치의 glyph). 블록의 형식은 모두 [spec/SVF.ko.md](../spec/SVF.ko.md)에 명세되어 있다.
+커버리지이다(조각 번호를 U+F0000에 더한 위치의 글리프). 블록의 형식은 모두 [spec/SVF.ko.md](../spec/SVF.ko.md)에 명세되어 있다.
 
-- **JSET 버전 1**("Jamo-set fonts"): 클래스 테이블과 세트 테이블. 표준 형식이며 기본으로 기록된다.
-- **JSET 버전 2**("JSET block version 2 (compact; exception-only)"): 비트 팩 테이블. 요청할 때만 기록된다
-  (`--jset-version 2`, "When to use version 2" 참조).
+- **JSET 버전 1**("자모 세트 폰트 (플래그 비트 1)"): 클래스 테이블과 세트 테이블. 표준 형식이며 기본으로 기록된다.
+- **JSET 버전 2**("JSET 블록 버전 2 (압축형, 예외 전용)"): 비트 팩 테이블. 요청할 때만 기록된다
+  (`--jset-version 2`, "버전 2를 쓸 때" 참조).
 - 버전 1과 2의 **BIG 한계**: 초성 19 x 종성 28 클래스까지, 초성/중성/종성 세트 128 / 128 / 64까지.
   좁은 한계는 12 x 12와 32 / 24 / 16이다.
-- **버전 3, JMAP**("Version 3: mapping table (JMAP)"): 음절에서 조각으로의 직접 매핑. dense(전체
+- **버전 3, JMAP**("버전 3: 매핑 테이블 (JMAP)"): 음절에서 조각으로의 직접 매핑. dense(전체
   11,172개) 또는 SPARSE(비트맵과 NS개 항목)이며, 나열하지 않은 음절을 위한 선택적 FALLBACK v1/v2 블록이 있다.
 - **JMAP LIST**(플래그 0x08, 같은 절): 최대 255개 예외의 정렬된 목록(음절 -> 폴백과 공유하는 풀 위의 조각 번호 셋).
   없으면 폴백으로 가고, 폴백도 없으면 그 음절은 조합되지 않는다.
@@ -319,7 +319,7 @@ LIST 헤더 규칙(R1', L2, L3, R4)만 적용한다: 통과하는 블록은 폴�
 
 속도 예산(`MEASUREMENTS.md`에서): Pico `-Os` MONO_PAGE `syl_ga` 48.39 µs(예산 50, 충족), `syl_bwelk` 58.23 µs
 (**미달**, `-O2`에서는 충족, 47.18 µs), `screen32` 1,498.39 µs(예산 2 ms). DOS 486DX2-66 `line40_mapped` 11,876.45 µs
-(예산 16 ms, 충족, cold streamed와 DX-33 행은 미달). WASM `line40_mapped` 13.74 µs(예산 1 ms).
+(예산 16 ms, 충족, cold 스트리밍과 DX-33 행은 미달). WASM `line40_mapped` 13.74 µs(예산 1 ms).
 
 ## 스위치 추가하기
 
@@ -333,7 +333,7 @@ LIST 헤더 규칙(R1', L2, L3, R4)만 적용한다: 통과하는 블록은 폴�
    추가한다(심볼이 `-Os`에서 살아남는지 확인할 것. 아니면 규칙이 공허해진다. 아래 `jlist` 참조). 라이브러리에는
    문자열이 없다.
 4. **상태 행렬 테스트.** 기능이 읽거나 거부하는 모든 페이스 종류는 그 기능이 있는 빌드와 없는 빌드, mapped와
-   streamed에 대해 `tools/test_c_renderer.py`에 행을 가진다(`test_jmap_list_status_matrix`처럼). 추가로 퍼즈 시드가
+   스트리밍에 대해 `tools/test_c_renderer.py`에 행을 가진다(`test_jmap_list_status_matrix`처럼). 추가로 퍼즈 시드가
    필요하고, 하니스가 새 경로에 닿을 수 있다면 퍼즈 타깃도 필요하다.
 5. **hot-path 동일성.** 스위치가 조회 또는 검증 코드를 건드리면, 스위치를 껐을 때 옛 경로의 오브젝트 코드가
    바뀌지 않았음을 증명하고(`test_narrow_hot_path_identical`, `test_jmap_nolist_identical`),
