@@ -770,7 +770,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
   ```cmake
   # main/CMakeLists.txt
   file(GLOB SVF_SRCS svf/*.c)
-  idf_component_register(SRCS main.c face.c ${SVF_SRCS} INCLUDE_DIRS svf REQUIRES esp_partition spiffs)
+  idf_component_register(SRCS main.c esp_faces.c face.c ${SVF_SRCS} INCLUDE_DIRS svf REQUIRES esp_partition spiffs)
   target_compile_definitions(${COMPONENT_LIB} PRIVATE SVF_NO_SCALE SVF_TARGETS=0x08)   # 종류 하나: 여기서는 RGB565
   ```
 
