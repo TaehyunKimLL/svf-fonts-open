@@ -2,11 +2,23 @@
 
 # Arduino Uno 예제 (I2C로 연결한 SSD1306, 페이스는 PROGMEM)
 
-`arduino.ino`는 128 x 64 SSD1306 OLED에 한글과 ASCII 네 줄을 그린다. 페이스(face)인 `svf/dos/NEODG16G.SVF`
-(16 px 1 bpp 자모, `mcu-strict` 레이아웃에서 10.1 KB)는 플래시(PROGMEM)에 그대로 둔다. 라이브러리는 `-DSVF_TARGETS=0x02`(MONO_PAGE만), `-DSVF_NO_STREAM`(스트림 리더 없음: 이 스케치는 페이스를 매핑해서 연다. 그러면 `svf_open_stream`, `svf_stream_tables_size`, `svf_stream_reads`는 선언되지 않으므로 이들을 호출하는 스케치는 컴파일되지 않는다. 페이스를 스트리밍하려면 이 스위치를 뺀다), `-DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT`(라이브러리는 `mkface.py --profile mcu-strict`가 쓰는 페이스 레이아웃만 읽는다. 이 페이스를 쓴 text는 23,676 바이트이며 `c/cross/SIZES.md`의 `arduino` 행이다), 그리고 `-DSVF_RD8(p)=pgm_read_byte(p)`로 빌드하므로
-페이스의 모든 읽기가 `pgm_read_byte`를 거친다. 텍스트 줄도 PROGMEM에 있다. MONO_PAGE 타깃은 SSD1306의 레이아웃인
-128 x 64 페이지 버퍼에 그린다: **1 KB이며, Uno의 RAM 2 KB의 절반이다.** Wire는 한 번 전송에 32 바이트를 보내므로 프레임은
-16 바이트씩 나간다. 배선: SDA A4, SCL A5, 디스플레이 주소 0x3C.
+`arduino.ino`는 128 x 64 SSD1306 OLED에 한글과 ASCII 네 줄을 그린다. 페이스(face)인 `svf/dos/NEODG16G.SVF`(16 px 1 bpp
+자모, `mcu-strict` 레이아웃에서 10.1 KB)는 플래시(PROGMEM)에 그대로 둔다. 라이브러리는 다음 스위치로 빌드한다.
+
+- `-DSVF_TARGETS=0x02`: `MONO_PAGE`만 컴파일된다.
+- `-DSVF_NO_STREAM`: 스트림 리더 없음. 스케치는 페이스를 매핑해서 연다. 그러면 `svf_open_stream`, `svf_stream_tables_size`, `svf_stream_reads`는 선언되지 않으므로
+  이들을 호출하는 스케치는 컴파일되지 않는다(페이스를 스트리밍하려면 이 스위치를 뺀다).
+- `-DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT`: 라이브러리는 `mkface.py --profile mcu-strict`가 쓰는 페이스 레이아웃만 읽는다(배포되는 페이스는 이미 그 레이아웃이며 프로필은 오프셋을
+  줄인다). 이 페이스를 쓴 text는 23,676바이트이며 `c/cross/SIZES.md`의 `arduino` 행이다.
+- `-DSVF_RD8(p)=pgm_read_byte(p)`: 페이스의 모든 읽기가 `pgm_read_byte`를 거친다. 이것이 없으면 PROGMEM 페이스에서 `svf_open_mapped`가 `SVF_E_MAGIC`을 반환한다
+  (simavr에서 실행: 재정의가 있으면 0, 없으면 1).
+
+텍스트 줄도 PROGMEM에 있으며 그리기 전에 RAM 버퍼로 복사된다(라이브러리는 텍스트를 일반 로드로 읽는다). MONO_PAGE 타깃은 SSD1306의 레이아웃인 128 x 64 페이지 버퍼에 그린다:
+**1 KB이며, Uno의 RAM 2 KB의 절반이다.** Wire는 한 번 전송에 32 바이트를 보내므로 프레임은 16 바이트씩 나간다. 배선: SDA A4, SCL A5, 디스플레이 주소 0x3C.
+
+아래 수치에 쓴 툴체인: avr-gcc 16.1.0과 AVR-LibC 2.3.2(`c/cross/install-toolchains.sh avr`이 `~/opt` 아래에 설치하는 Zak Kemble 빌드). 여기에는 Arduino 코어가 설치되어 있지 않으므로
+코어 버전은 기록하지 않았다. Uno의 쓸 수 있는 플래시 32,256바이트는 32 KB에서 Optiboot의 512바이트를 뺀 값이다. `face.c`는 스케치 폴더에 **C** 파일로 생성되며(`.gitignore`에 올라 있다)
+스케치는 `arduino.ino`처럼 이를 `extern "C"`로 선언한다.
 
 arduino-cli로 빌드한다(저장소 루트에서. 라이브러리는 Arduino 라이브러리로 넣고, 페이스 배열은 스케치 폴더의 `face.c`로
 생성하며 커밋되지 않는다).

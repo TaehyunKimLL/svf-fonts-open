@@ -17,6 +17,10 @@
 드라이버가 이를 SSD1327의 픽셀당 4비트로 패킹한다. `-DSVF_GREY_KIND=GRAY8`(유일한 값이며 기본값)은 그 종류를 지정하는
 캐시 STRING이다.
 
+툴체인(여기서 빌드하고 측정함): pico-sdk **2.3.1**(`~/opt/pico-sdk-2.3.1`), arm-none-eabi-gcc 15.2.1(Arm GNU Toolchain 15.2.Rel1.
+`c/cross/install-toolchains.sh arm`이 `~/opt/arm-gnu-toolchain-15.2.rel1/bin`에 넣으며 이것이 `PATH`에 있어야 한다), CMake, 페이스 배열용 python3,
+`.uf2`용 picotool 2.3.1.
+
 빌드(pico-sdk 설치됨. 페이스 배열용 python3 필요). 프로필마다 빌드 디렉터리 하나를 쓴다.
 
     cmake -S c/ports/pico -B build-pico-mono   -DSVF_PROFILE=mono   -DPICO_SDK_PATH=/path/to/pico-sdk
@@ -24,7 +28,15 @@
     cmake -S c/ports/pico -B build-pico-colour -DSVF_PROFILE=colour -DPICO_SDK_PATH=/path/to/pico-sdk
     cmake --build build-pico-colour      # build-pico-colour/svf_pico_colour.elf and .uf2
 
-`PICO_SDK_PATH`는 대신 환경 변수로 줄 수도 있다. 빌드 디렉터리는 프로필에 묶인다(grey는 `SVF_GREY_KIND`에도 묶인다).
+`PICO_SDK_PATH`는 대신 환경 변수로 줄 수도 있다. 아래의 크기는 `-DCMAKE_BUILD_TYPE=Release`일 때의 값이다.
+
+**Pico 2(RP2350, Arm 코어).** 같은 소스가 `-DPICO_BOARD=pico2`(pico-sdk의 보드 이름이며 `rp2350-arm-s` 플랫폼을 고른다)로 빌드된다. 빌드 디렉터리는 각각 새것을 쓴다.
+
+    cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH=/path/to/pico-sdk
+
+세 프로필 모두 빌드된다(크기는 "확인한 것" 아래). Pico 이미지처럼 보드에서 실행한 적은 없다.
+아래의 수동 `.uf2` 변환은 RP2040용이다. Pico 2에서는 SDK의 picotool 단계가 만들게 하거나(`-DPICO_NO_PICOTOOL=1` 없이 구성한다),
+`picotool uf2 convert`에 RP2350 패밀리와 플랫폼을 준다. 빌드 디렉터리는 프로필에 묶인다(grey는 `SVF_GREY_KIND`에도 묶인다).
 다른 `SVF_PROFILE`(grey는 `SVF_GREY_KIND`)로 다시 구성하면 오류("configured for ...")가 난다. 새
 `-B` 디렉터리를 쓰거나 이전 것을 지운다. `CMakeLists.txt`는 빌드 시 `c/bench/mkface.py`로 페이스 배열을 생성한다(커밋되지 않음).
 `-DSVF_FACE_ASCII=` / `-DSVF_FACE_HANGUL=`은 colour와 grey에서 다른 페이스를 고르고, `-DSVF_FACE=`는 mono에서 다른 16 px 1 bpp
@@ -51,13 +63,13 @@ PATH에 `picotool` 바이너리만 있는 것으로는 찾지 못한다), 없으
   서로 바뀌어 보이는 모듈은 그 매개변수 하나를 `0x53`으로 해야 한다.
 - SSD1306, 128 x 64: 세그먼트 리맵과 COM 스캔 `0xA1`, `0xC8`(흔한 모듈에서 (0, 0)이 왼쪽 위).
 
-XIP 캐시 주의: colour와 grey 이미지는 페이스 139 KB를 RP2040의 16 KB XIP 캐시 뒤 플래시에 둔다
-(mono 이미지는 빌드된 이미지에서 페이스 12.9 KB, text 31.9 KB). rp2040js도 bench도 이 캐시를 모델링하지 않으므로, 실제 그리기 시간은 에뮬레이션된
+XIP 캐시 주의: colour와 grey 이미지는 페이스 74,660바이트를 RP2040의 16 KB XIP 캐시 뒤 플래시에 둔다
+(mono 이미지는 빌드된 이미지에서 페이스 10,124바이트, text 35,484바이트). rp2040js도 bench도 이 캐시를 모델링하지 않으므로, 실제 그리기 시간은 에뮬레이션된
 시간이거나 그보다 느리며, 그 차이를 여기서 측정한 것은 없다(`c/bench/MEASUREMENTS.md`).
 
 라이선스: 이미지는 폰트 소프트웨어를 내장한다([FACES.md](../FACES.ko.md)가 각 페이스의 출처, 저작권, 라이선스를 적는다). 배포하는 이미지는 `c/ports/FACES.md`와 라이선스 문서
 (`svf/dos/OFLPAPLG.TXT`, `svf/dos/OFL.TXT`, `svf/dos/NEODGM.TXT`)를 함께 두어야 한다. 구성하면 이들이
-`<build>/licences/`로 복사된다.
+`<build>/licences/`로 복사된다. 저장소의 `LICENSE`(코드의 MIT 라이선스)도 `LICENSE-MIT.txt`로 함께 복사된다.
 
 ## 확인한 것
 
@@ -68,8 +80,9 @@ XIP 캐시 주의: colour와 grey 이미지는 페이스 139 KB를 RP2040의 16 
 | 호스트 검사(`sh c/ports/check/host-checks.sh`: 기록용 `display_show`를 거친 실제 `profile_<p>.c`를 `c/ports/check/screen_ref.py`와 비교. 기록용 스텁에 대한 드라이버 명령 스트림) | yes | yes | yes |
 | 실제 pico-sdk 2.3.1에 대한 빌드(`-DPICO_NO_PICOTOOL=1`. `PICO_SDK_PATH`가 설정되어 있으면 `sh c/ports/check/test_pico_cmake.sh`가 구성 규칙을 검사한다) | yes | yes | yes |
 | 패널 모델 위에서 rp2040js로 실행(`sh c/ports/check/run-screens.sh`): 패널 메모리가 참조와 같고 `svf_port_idle`에서 끝난다 | yes: 15회 show, 에뮬레이션 280.6 ms | yes: 1회 show, 에뮬레이션 13.9 ms | yes: 1회 show, 에뮬레이션 2.6 ms |
-| `stub/`에 대해 Cortex-M0+용으로 링크(`c/cross/build-all.sh --ports`), 페이스 제외 text(`c/cross/SIZES.md`) | 6,074 바이트 | 5,746 | 5,980 |
-| pico-sdk 이미지(`arm-none-eabi-size`, Release. 내장 페이스 포함) | text 158,204, data 0, bss 12,804 | text 157,480, data 0, bss 17,928 | text 31,876, data 0, bss 2,380 |
+| `stub/`에 대해 Cortex-M0+용으로 링크(`c/cross/build-all.sh --ports`), 페이스 제외 text(`c/cross/SIZES.md`) | 9,646 바이트 | 9,486 | 9,554 |
+| pico-sdk 2.3.1 이미지, Pico(`arm-none-eabi-size`, Release. 내장 페이스 포함. 2026-11-22에 깨끗한 `git archive`에서 측정) | text 99,828, data 0, bss 12,812 | text 99,256, data 0, bss 17,936 | text 35,484, data 0, bss 2,384 |
+| 같은 것을 Pico 2(`-DPICO_BOARD=pico2`)로 | text 98,176, data 0, bss 12,428 | text 97,420, data 0, bss 17,552 | text 33,636, data 0, bss 2,000 |
 | 빌드만 하고 실행하지 않음: 타이밍, 전압, 패널 변형, 핀 매핑, `.uf2` 단계 | yes | yes | yes |
 
 세 번째 행의 시간은 SDK 시작과 패널의 init 지연(`sleep_ms`, colour 이미지 280.6 ms 중 242 ms)을 포함한 이미지 전체 실행에 대한

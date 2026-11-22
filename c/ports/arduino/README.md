@@ -2,11 +2,26 @@
 
 # Arduino Uno example (SSD1306 over I2C, face in PROGMEM)
 
-`arduino.ino` draws four lines of Korean and ASCII on a 128 x 64 SSD1306 OLED. The face, `svf/dos/NEODG16G.SVF`
-(16 px 1 bpp jamo, 10.1 KB in the `mcu-strict` layout), stays in flash (PROGMEM): the library is built with `-DSVF_TARGETS=0x02` (MONO_PAGE only), `-DSVF_NO_STREAM` (no stream reader: this sketch opens the face mapped; `svf_open_stream`, `svf_stream_tables_size` and `svf_stream_reads` are then not declared, so a sketch that calls them does not compile: drop the switch to stream a face), `-DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT` (the library reads only the face layout `mkface.py --profile mcu-strict` writes; 23,676 bytes of text with this face, the `arduino` row of `c/cross/SIZES.md`) and with `-DSVF_RD8(p)=pgm_read_byte(p)`, so
-every read of the face goes through `pgm_read_byte`. The text lines are in PROGMEM too. The MONO_PAGE target draws into
-a 128 x 64 page buffer in the SSD1306's layout: **1 KB, half of the Uno's 2 KB of RAM.** Wire sends 32 bytes a
-transmission, so the frame goes out 16 bytes at a time. Wiring: SDA A4, SCL A5, display address 0x3C.
+`arduino.ino` draws four lines of Korean and ASCII on a 128 x 64 SSD1306 OLED. The face, `svf/dos/NEODG16G.SVF` (16 px 1 bpp
+jamo, 10.1 KB in the `mcu-strict` layout), stays in flash (PROGMEM). The library is built with these switches:
+
+- `-DSVF_TARGETS=0x02`: `MONO_PAGE` is the only target kind compiled.
+- `-DSVF_NO_STREAM`: no stream reader. The sketch opens the face mapped; `svf_open_stream`, `svf_stream_tables_size` and
+  `svf_stream_reads` are then not declared, so a sketch that calls them does not compile (drop the switch to stream a face).
+- `-DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT`: the library reads only the face layout `mkface.py --profile mcu-strict` writes (the
+  shipped faces already have it; the profile shrinks their offsets). 23,676 bytes of text with this face: the `arduino` row of
+  `c/cross/SIZES.md`.
+- `-DSVF_RD8(p)=pgm_read_byte(p)`, so every read of the face goes through `pgm_read_byte`. Without it `svf_open_mapped`
+  returns `SVF_E_MAGIC` for a PROGMEM face (run on simavr: 0 with the override, 1 without).
+
+The text lines are in PROGMEM too and are copied to a RAM buffer before drawing (the library reads text with plain loads). The
+MONO_PAGE target draws into a 128 x 64 page buffer in the SSD1306's layout: **1 KB, half of the Uno's 2 KB of RAM.** Wire sends
+32 bytes a transmission, so the frame goes out 16 bytes at a time. Wiring: SDA A4, SCL A5, display address 0x3C.
+
+Toolchain used for the figures below: avr-gcc 16.1.0 with AVR-LibC 2.3.2 (the Zak Kemble build that
+`c/cross/install-toolchains.sh avr` installs under `~/opt`). No Arduino core is installed here, so no core version is
+recorded; the Uno's 32,256 usable bytes of flash are 32 KB less Optiboot's 512 bytes. `face.c` is generated into the sketch
+folder as a **C** file (it is in `.gitignore`); the sketch declares it `extern "C"`, as `arduino.ino` does.
 
 Build with arduino-cli (from the repository root; the library goes in as an Arduino library, the face array is
 generated into the sketch folder, `face.c`, not committed):

@@ -17,6 +17,10 @@ The library is built with `SVF_NO_SCALE` and the profile's one `SVF_TARGETS` bit
 driver packs it to the SSD1327's 4 bits a pixel; `-DSVF_GREY_KIND=GRAY8` (the only value, and the default) is the cache
 STRING that names the kind.
 
+Toolchain (built and measured here): pico-sdk **2.3.1** (`~/opt/pico-sdk-2.3.1`), arm-none-eabi-gcc 15.2.1 (Arm GNU Toolchain
+15.2.Rel1; `c/cross/install-toolchains.sh arm` puts it in `~/opt/arm-gnu-toolchain-15.2.rel1/bin`, which must be on `PATH`),
+CMake, python3 for the face arrays, picotool 2.3.1 for the `.uf2`.
+
 Build (pico-sdk installed; python3 for the face arrays), one build directory per profile:
 
     cmake -S c/ports/pico -B build-pico-mono   -DSVF_PROFILE=mono   -DPICO_SDK_PATH=/path/to/pico-sdk
@@ -24,7 +28,16 @@ Build (pico-sdk installed; python3 for the face arrays), one build directory per
     cmake -S c/ports/pico -B build-pico-colour -DSVF_PROFILE=colour -DPICO_SDK_PATH=/path/to/pico-sdk
     cmake --build build-pico-colour      # build-pico-colour/svf_pico_colour.elf and .uf2
 
-`PICO_SDK_PATH` may come from the environment instead. A build directory is tied to its profile (for grey, also to `SVF_GREY_KIND`):
+`PICO_SDK_PATH` may come from the environment instead. `-DCMAKE_BUILD_TYPE=Release` gives the sizes below.
+
+**Pico 2 (RP2350, Arm cores).** The same sources build for it with `-DPICO_BOARD=pico2` (the pico-sdk's board name; it selects
+the `rp2350-arm-s` platform), one fresh build directory each:
+
+    cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH=/path/to/pico-sdk
+
+The three profiles build for it (sizes under "What was checked"); like the Pico images they have not run on a board.
+The `.uf2` conversion by hand (below) is for the RP2040; for a Pico 2 let the SDK's picotool step make it (configure
+without `-DPICO_NO_PICOTOOL=1`), or give `picotool uf2 convert` the RP2350 family and platform. A build directory is tied to its profile (for grey, also to `SVF_GREY_KIND`):
 configuring it again with another `SVF_PROFILE` (or, for grey, `SVF_GREY_KIND`) is an error ("configured for ..."); use a fresh
 `-B` directory (or delete the old one). `CMakeLists.txt` generates the face arrays at build time with `c/bench/mkface.py` (not committed);
 `-DSVF_FACE_ASCII=` / `-DSVF_FACE_HANGUL=` pick other faces for colour and grey, `-DSVF_FACE=` another 16 px 1 bpp
@@ -51,13 +64,13 @@ change for the common variant:
   that shows each pair of pixels swapped wants `0x53` in that one parameter.
 - SSD1306, 128 x 64: segment remap and COM scan `0xA1`, `0xC8` ((0, 0) at the top left on the usual modules).
 
-XIP cache caveat: the colour and grey images put 139 KB of faces in flash behind the RP2040's 16 KB XIP cache
-(the mono image: 12.9 KB of face, 31.9 KB of text in the built image). Neither rp2040js nor the bench models that cache, so real drawing times are the emulated
+XIP cache caveat: the colour and grey images put 74,660 bytes of faces in flash behind the RP2040's 16 KB XIP cache
+(the mono image: 10,124 bytes of face, 35,484 of text in the built image). Neither rp2040js nor the bench models that cache, so real drawing times are the emulated
 ones or slower, by an amount nothing here measures (`c/bench/MEASUREMENTS.md`).
 
 Licences: the images embed font software ([FACES.md](../FACES.md) names each face's source, copyright and licence). A distributed image must carry `c/ports/FACES.md` and the licence texts
 (`svf/dos/OFLPAPLG.TXT`, `svf/dos/OFL.TXT`, `svf/dos/NEODGM.TXT`); configuring copies them to
-`<build>/licences/`.
+`<build>/licences/`, with the repository's `LICENSE` (the code's MIT licence) as `LICENSE-MIT.txt`.
 
 ## What was checked
 
@@ -68,8 +81,9 @@ The hardware has not been run. Per profile:
 | host checks (`sh c/ports/check/host-checks.sh`: the real `profile_<p>.c` through a recording `display_show`, compared with `c/ports/check/screen_ref.py`; the driver command streams against recording stubs) | yes | yes | yes |
 | builds against the real pico-sdk 2.3.1 (`-DPICO_NO_PICOTOOL=1`, `sh c/ports/check/test_pico_cmake.sh` checks the configure rules when `PICO_SDK_PATH` is set) | yes | yes | yes |
 | runs under rp2040js on the panel model (`sh c/ports/check/run-screens.sh`): panel memory identical to the reference, ends at `svf_port_idle` | yes: 15 shows, 280.6 ms emulated | yes: 1 show, 13.9 ms emulated | yes: 1 show, 2.6 ms emulated |
-| links for the Cortex-M0+ against `stub/` (`c/cross/build-all.sh --ports`), text without faces (`c/cross/SIZES.md`) | 6,074 bytes | 5,746 | 5,980 |
-| pico-sdk image (`arm-none-eabi-size`, Release; the embedded faces included) | text 158,204, data 0, bss 12,804 | text 157,480, data 0, bss 17,928 | text 31,876, data 0, bss 2,380 |
+| links for the Cortex-M0+ against `stub/` (`c/cross/build-all.sh --ports`), text without faces (`c/cross/SIZES.md`) | 9,646 bytes | 9,486 | 9,554 |
+| pico-sdk 2.3.1 image, Pico (`arm-none-eabi-size`, Release; the embedded faces included; measured 2026-11-22 from a clean `git archive`) | text 99,828, data 0, bss 12,812 | text 99,256, data 0, bss 17,936 | text 35,484, data 0, bss 2,384 |
+| the same for the Pico 2 (`-DPICO_BOARD=pico2`) | text 98,176, data 0, bss 12,428 | text 97,420, data 0, bss 17,552 | text 33,636, data 0, bss 2,000 |
 | only built, not run: timing, voltages, panel variants, pin mapping, the `.uf2` step | yes | yes | yes |
 
 The times in the third row are rp2040js's emulated clock (`nanos`) for the whole image run, including the SDK start-up and

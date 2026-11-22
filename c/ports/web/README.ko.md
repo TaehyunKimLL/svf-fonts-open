@@ -13,7 +13,7 @@ JavaScript가 소유한 버퍼 위에 타깃(GRAY8, MONO_PAGE, MONO_ROW 또는 R
 | --- | --- |
 | `svfw_open(slot, data, len)` | data의 페이스를 슬롯 0..3에 순서대로 연다(마지막으로 열린 슬롯보다 뒤의 슬롯은 SVF_E_ARG). 그 뒤의 슬롯은 닫는다. 체인은 슬롯 0부터 이어지는 열린 슬롯의 연속이므로, 열기에 실패하면 체인이 거기서 끝난다 |
 | `svfw_target(buf, w, h)` | w * h 바이트 위의 GRAY8 타깃(기존 호출자를 위해 유지. 페이지는 `svfw_target2`를 쓴다) |
-| `svfw_target2(kind, buf, buf_len, w, h, stride, fg565, bg565, threshold, flags)` | 모든 버퍼 타깃: kind 0 GRAY8, 1 MONO_PAGE, 2 MONO_ROW, 3 RGB565(4, 콜백은 SVF_E_ARG). flags 0 또는 1(`SVF_TF_565_BIGENDIAN`) |
+| `svfw_target2(kind, buf, buf_len, w, h, stride, fg565, bg565, threshold, flags)` | 모든 버퍼 타깃: kind 0 GRAY8, 1 MONO_PAGE, 2 MONO_ROW, 3 RGB565(4, 콜백은 SVF_E_ARG). flags 0 또는 1(`SVF_TF_565_BIGENDIAN`. `SVF_TF_RGB16_BIGENDIAN`의 옛 이름이며 같은 비트이다) |
 | `svfw_scale(num, den)` | 줄 스케일, 각각 1..16 |
 | `svfw_measure(text, len, out)` | int16 out[0..2] = 너비, ascent, descent |
 | `svfw_draw(text, len, x, baseline)` | 타깃에 줄을 그린다 |
@@ -35,7 +35,7 @@ JavaScript가 소유한 버퍼 위에 타깃(GRAY8, MONO_PAGE, MONO_ROW 또는 R
 malloc된 것이었다면 해제한다. malloc이 실패하면 SVF_E_NOMEM을 반환하고 아무것도 그리지 않으며 이전
 버퍼를 유지한다. 할당하는 것은 이 포트뿐이다. `c/src`는 절대 할당하지 않는다(`make -C c check`, no-malloc).
 
-빌드(`c/cross/install-toolchains.sh`가 설치한 emsdk. 이것이 `web/build.sh`와 `maker/build-wasm.sh`가 실행하는 줄이며 `emcc-flags.sh`에 있다):
+빌드(emsdk **6.0.13**, emcc 6.0.13. `c/cross/install-toolchains.sh emsdk`가 `~/opt/emsdk` 아래에 설치한다. 이 줄로 측정: `svf.wasm` 39,808바이트, `svf.js` 6,937. 이것이 `web/build.sh`와 `maker/build-wasm.sh`가 실행하는 줄이며 `emcc-flags.sh`에 있다):
 
     EM_CONFIG=~/opt/emsdk/.emscripten ~/opt/emsdk/upstream/emscripten/emcc -std=c99 -Wall -Wextra -Werror -O2 \
         -Ic/include c/ports/web/svf_web.c c/src/*.c -o svf.js -sMODULARIZE -sEXPORT_ES6 -sEXPORT_NAME=SvfModule \

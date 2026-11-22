@@ -28,6 +28,15 @@ gBits, bBits, aBits, rShift, gShift, bShift, aShift)` on a little-endian host.
 the name. After the surface is made the program checks that SDL gave the format it asked for (a mismatch is an error,
 never a silent conversion).
 
+## In your own program
+
+The smallest use is a surface, a mapped face and one call; [docs/c-renderer-guide.md](../../../docs/c-renderer-guide.md) section
+13.6 has a complete SDL3 sample (`SDL_LoadFile`, `SDL_CreateSurface(..., SDL_PIXELFORMAT_XRGB8888)`, `SDL_LockSurface`,
+`svf_target_init(&t, SVF_T_XRGB8888, surf->pixels, (size_t)surf->pitch * surf->h, w, h, (uint16_t)surf->pitch)`,
+`svf_draw_utf8`), built and run here against SDL 3.5.0-dev. Compile it with `c/src/*.c`, `-I c/include` and
+`$(pkg-config --cflags --libs sdl3)`; no `-D` switches (the host defaults are the full set). The 32-bit kind is memory order B, G,
+R, X, which as one native `uint32_t` is `0x00RRGGBB` on little-endian hosts only.
+
 ## Build and run
 
 From the repository root (SDL2 2.30.0 or newer, the INDEX2 pixel formats: `libsdl2-dev` and `pkg-config`; `sdl_compat.h` stops an older one with an `#error`; SDL3: below):

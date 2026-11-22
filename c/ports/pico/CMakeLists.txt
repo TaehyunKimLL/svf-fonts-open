@@ -81,3 +81,4 @@ endif()
 # A distributed image carries the faces' notices and licence texts (c/ports/FACES.md): copied next to the image.
 file(COPY ${SVF_C}/ports/FACES.md ${SVF_ROOT}/svf/dos/OFLPAPLG.TXT ${SVF_ROOT}/svf/dos/OFL.TXT
           ${SVF_ROOT}/svf/dos/NEODGM.TXT DESTINATION ${CMAKE_BINARY_DIR}/licences)
+configure_file(${SVF_ROOT}/LICENSE ${CMAKE_BINARY_DIR}/licences/LICENSE-MIT.txt COPYONLY) # the code's own licence (MIT)

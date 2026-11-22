@@ -20,7 +20,10 @@
 SSD1327의 픽셀당 4비트로 패킹한다. `-DSVF_GREY_KIND=GRAY8`(유일한 값이며 기본값)은 그 종류를 지정하는
 캐시 STRING이다.
 
-빌드(ESP-IDF가 설치되고 export되어 있거나 `-DIDF_PATH=<esp-idf 디렉터리>`. 페이스 배열용 python3 필요). 프로필과 칩마다
+툴체인(여기서 빌드하고 측정함): ESP-IDF **v5.5.6**(`~/opt/esp-idf-v5.5.6`. esp32s3와 esp32c3 타깃용으로 설치했으며 자체 Python 3.12 환경을 쓴다.
+`~/opt/esp-idf-NOTES.txt` 참조). 설치 프로그램이 컴파일러(ESP32-C3용 `riscv32-esp-elf`, ESP32-S3용 `xtensa-esp32s3-elf`), CMake, Ninja를 가져온다.
+
+빌드(ESP-IDF가 설치되고 `. $IDF_PATH/export.sh`로 export되어 있거나 `-DIDF_PATH=<esp-idf 디렉터리>`. 페이스 배열용 python3 필요). 프로필과 칩마다
 빌드 디렉터리 하나를 쓴다.
 
     cd c/ports/esp32
@@ -29,20 +32,22 @@ SSD1327의 픽셀당 4비트로 패킹한다. `-DSVF_GREY_KIND=GRAY8`(유일한 
     idf.py -B build-mono   -DSVF_PROFILE=mono   set-target esp32c3 && idf.py -B build-mono build
     idf.py -B build-qemu   -DSVF_PROFILE=colour -DSVF_DISPLAY=esp_rgb set-target esp32s3 && idf.py -B build-qemu build
 
-`set-target`은 빌드 디렉터리를 비운다. 이미 있는 디렉터리에서 프로필이나 칩을 바꾸려면 `idf.py -B <dir>
+`idf.py`는 `sdkconfig`와 `sdkconfig.old`도 `c/ports/esp32`(빌드 디렉터리가 아니라 프로젝트 디렉터리)에 쓴다. `c/ports/esp32/.gitignore`가 이들과
+`build-*` 디렉터리를 나열한다. `set-target`은 빌드 디렉터리를 비운다. 이미 있는 디렉터리에서 프로필이나 칩을 바꾸려면 `idf.py -B <dir>
 fullclean`을 실행하고 다시 구성하거나 새 `-B`를 쓴다. 오래된 캐시는 이전 `SVF_PROFILE` / `SVF_DISPLAY`를 유지한다
 (`idf.py`의 `-D` 옵션은 CMake가 구성될 때에만 캐시에 전달된다). 빌드 디렉터리는 프로필에 묶인다(grey는
 `SVF_GREY_KIND`에도 묶인다). 다른 `SVF_PROFILE`(grey는 다른 `SVF_GREY_KIND`)로 다시 구성하면
 오류("configured for ...")가 난다. 새 `-B` 디렉터리를 쓰거나 이전 것을 지운다.
 
 `main/CMakeLists.txt`는 빌드 시 `c/bench/mkface.py`로 프로필의 페이스 배열을 생성하고(커밋되지 않음: PAPLG18은
-124 KB 페이스이며 C로 약 450 KB이다) 라이브러리 소스를 `main` 컴포넌트에 빌드한다.
+`mcu-strict` 레이아웃에서 67,200바이트 페이스이며 C로 약 186 KB이다) 라이브러리 소스를 `main` 컴포넌트에 빌드한다.
 `-DSVF_FACE_ASCII=` / `-DSVF_FACE_HANGUL=`은 colour와 grey에서 다른 페이스를 고르고, `-DSVF_FACE=`는 mono에서 다른 16 px 1 bpp 페이스를
 고른다.
 
 라이선스: 이미지는 폰트 소프트웨어를 내장한다([FACES.md](../FACES.ko.md)가 각 페이스의 출처, 저작권, 라이선스를 적는다).
 배포하는 이미지는 `c/ports/FACES.md`와 라이선스 문서(`svf/dos/OFLPAPLG.TXT`,
-`svf/dos/OFL.TXT`, `svf/dos/NEODGM.TXT`)를 함께 두어야 한다. 구성하면 이들이 `<build>/licences/`로 복사된다.
+`svf/dos/OFL.TXT`, `svf/dos/NEODGM.TXT`)와 저장소의 `LICENSE`(코드의 MIT 라이선스)를 함께 두어야 한다. 구성하면 이들이 `<build>/licences/`로 복사된다
+(`LICENSE`는 `LICENSE-MIT.txt`로).
 
 `main/main_qemu.c`는 QEMU 화면 실행용 베어메탈 main이다. `display_init(); profile_run();`을 실행한 뒤 newlib 세미호스팅 콘솔에
 `screen=ready`(프로필 호출이 실패했으면 `screen=failed`)를 출력하고 제자리에서 돈다. IDF 헤더는 필요 없다.
@@ -63,17 +68,20 @@ fullclean`을 실행하고 다시 구성하거나 새 `-B`를 쓴다. 오래된 
 
 ## 확인한 것
 
-여기에는 ESP-IDF가 설치되어 있지 않다. 두 `CMakeLists.txt`는 IDF 문서에 맞춰 읽었고 `test_esp32_cmake.sh`와
-`test_esp32_component.sh`(대용 `IDF_PATH`, 모의 IDF 명령)로만 실행했으며 `idf.py`로는 실행한 적이 없고,
-하드웨어에서 실행된 것도 없다. 프로필별 상태는 다음과 같다.
+ESP-IDF v5.5.6이 여기에 설치되어 있고 `idf.py`가 프로필들을 빌드한다. ESP32-C3용 colour, ESP32-S3용 grey, ESP32-C3용 mono이다
+(2026-11-22에 깨끗한 `git archive`에서 Release로 측정. 이미지는 기본 1 MB 애플리케이션 파티션에 들어간다. `svf_esp32_colour.bin` 294,960바이트(여유 72 %),
+`svf_esp32_grey.bin` 317,856(70 %), `svf_esp32_mono.bin` 229,648(78 %). `idf.py size`: colour 이미지는 플래시 코드 109,930바이트, `.rodata` 117,180(페이스 74,660),
+`.bss` 19,320이고, mono 이미지는 `.bss` 4,920이다). 두 `CMakeLists.txt`는 `test_esp32_cmake.sh`와 `test_esp32_component.sh`(대용 `IDF_PATH`, 모의 IDF 명령)로도
+실행한다. 하드웨어에서 실행된 것은 없다. 프로필별 상태는 다음과 같다.
 
 | | colour (ILI9341, 또는 `esp_rgb`) | grey (SSD1327) | mono (SSD1306) |
 |---|---|---|---|
 | 호스트 검사(`sh c/ports/check/host-checks.sh`: 기록용 `display_show`를 거친 실제 `profile_<p>.c`를 `c/ports/check/screen_ref.py`와 비교. colour는 두 픽셀 순서와 ESP32-S3 제목 모두. 기록용 스텁에 대한 드라이버 명령 스트림. `esp_rgb` 레지스터 쓰기 횟수) | yes | yes | yes |
 | 구성 규칙과 컴포넌트 소스(`test_esp32_cmake.sh`, `test_esp32_component.sh`) | yes | yes | yes |
-| `stub/`에 대해 riscv32(ESP32-C3)와 xtensa(ESP32-S3)용으로 링크(`c/cross/build-all.sh --ports`), 페이스 제외 text(`c/cross/SIZES.md`) | C3 7,456 바이트, S3 6,498 | C3 6,996, S3 6,102 | C3 7,478, S3 6,564 |
+| `stub/`에 대해 riscv32(ESP32-C3)와 xtensa(ESP32-S3)용으로 링크(`c/cross/build-all.sh --ports`), 페이스 제외 text(`c/cross/SIZES.md`) | C3 12,022 바이트, S3 10,392 | C3 11,770, S3 9,988 | C3 12,050, S3 10,452 |
+| ESP-IDF v5.5.6으로 `idf.py build`(위의 이미지들) | yes (C3) | yes (S3) | yes (C3) |
 | `profile_colour.c` + `disp_esp_rgb.c`의 베어 이미지를 QEMU 9.2.2 `-M esp32c3`와 `-M esp32s3`에서 실행(`sh c/ports/check/run-screens.sh`): VRAM과 `screendump` PPM이 양쪽 모두 참조와 같다 | yes (`esp_rgb` 빌드만) | no | no |
-| 빌드만 했거나 읽기만 함: ESP-IDF 이미지, SPI 타이밍, 패널 변형, 핀 매핑, 실제 패널에서의 ILI9341 / SSD13xx SPI 경로 | yes | yes | yes |
+| 빌드만 했거나 읽기만 함: SPI 타이밍, 패널 변형, 핀 매핑, 실제 패널에서의 ILI9341 / SSD13xx SPI 경로 | yes | yes | yes |
 
 C3와 S3 화면의 PNG는 `run-screens.sh`가 `c/build/screens/esp32c3-colour.png`와 `esp32s3-colour.png`에 쓴다
 (커밋되지 않음). `main_qemu.c`는 기록용 스텁으로 호스트에서도 실행된다. `c/cross/build-all.sh

@@ -251,13 +251,16 @@ by `test_status_unread_bits` and `test_jmap_list_status_matrix` in `tools/test_c
 
 | port | one line | README |
 |---|---|---|
-| `pico` | Raspberry Pi Pico (pico-sdk 2.3.1): colour ST7789 RGB565, grey SSD1327 GRAY8, mono SSD1306 MONO_PAGE | [ports/pico/README.md](ports/pico/README.md) |
-| `esp32` | ESP-IDF, ESP32-C3 and ESP32-S3: colour ILI9341 (or `esp_rgb`), grey SSD1327, mono SSD1306 | [ports/esp32/README.md](ports/esp32/README.md) |
+| `pico` | Raspberry Pi Pico and, with `-DPICO_BOARD=pico2`, Pico 2 (pico-sdk 2.3.1, arm-none-eabi-gcc 15.2.1): colour ST7789 RGB565, grey SSD1327 GRAY8, mono SSD1306 MONO_PAGE | [ports/pico/README.md](ports/pico/README.md) |
+| `esp32` | ESP-IDF v5.5.6, ESP32-C3 and ESP32-S3: colour ILI9341 (or `esp_rgb`), grey SSD1327, mono SSD1306 | [ports/esp32/README.md](ports/esp32/README.md) |
 | `arduino` | Arduino Uno (and Mega size rows): SSD1306 over I2C, face in PROGMEM | [ports/arduino/README.md](ports/arduino/README.md) |
 | `ch582` | WCH CH582M (YD-CH582M), SH1106 OLED over hardware I2C, bare metal, 24 MHz | [ports/ch582/README.md](ports/ch582/README.md) |
-| `dos` | DJGPP: `SVFDEMO.EXE` in mode 13h and `SVFVESA.EXE` in VBE 2.0 LFB modes, faces streamed from files | [ports/dos/README.md](ports/dos/README.md) |
-| `web` | emscripten glue `svf_web.c` for the WASM picker in `web/` | [ports/web/README.md](ports/web/README.md) |
+| `dos` | DJGPP (gcc 12.2.0, CWSDPMI): `SVFDEMO.EXE` in mode 13h and `SVFVESA.EXE` in VBE 2.0 LFB modes, faces streamed from files | [ports/dos/README.md](ports/dos/README.md) |
+| `web` | emscripten (emsdk 6.0.13) glue `svf_web.c` for the WASM picker in `web/` | [ports/web/README.md](ports/web/README.md) |
 | `sdl` | `svfsdl.c`, one source for SDL2 and SDL3, every SDL pixel format the kinds cover, headless byte check | [ports/sdl/README.md](ports/sdl/README.md) |
+
+How to take a port's files and flags into a project of your own, how to embed a face (`bench/mkface.py`) and which face fits which
+target: [docs/c-renderer-guide.md](../docs/c-renderer-guide.md), sections 5, 6 and 13.
 
 The original ESP32 (Xtensa LX6, Odroid-Go) has size rows (`esp32-xtensa`) but no port image: it needs its own driver and
 board code. The Arduino Mega reads PROGMEM below 64 KB only (near `pgm_read_byte`); far reads are not supported.

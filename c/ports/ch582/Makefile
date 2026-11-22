@@ -100,6 +100,7 @@ $(OBJ):
 licences: | $(ELF)
 	mkdir -p $(LICENCES)
 	cp ../FACES.md ../../../svf/dos/OFL.TXT ../../../svf/dos/NEODGM.TXT $(LICENCES)/
+	cp ../../../LICENSE $(LICENCES)/LICENSE-MIT.txt
 	cp $(CH583_SDK)/LICENSE $(LICENCES)/LICENSE-ch583-evt.txt
 	{ echo "WCH's notice from the header of $(NOTICE_SRC) (EVT/EXAM/SRC/ of github.com/openwch/ch583), verbatim:"; \
 	  grep -a -A1 'Attention:' $(SDKSRC)/$(NOTICE_SRC); } >$(LICENCES)/NOTICE-ch583-evt.txt
