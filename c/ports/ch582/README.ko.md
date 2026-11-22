@@ -6,7 +6,7 @@
 `svf/dos/NEODG16G.SVF`(1 bpp 자모 세트, `MONO_PAGE`)의 네 줄을 1.3" SH1106 OLED에 그리고 멈춘다. `main.c`는
 `SetSysClock(CLK_SOURCE_PLL_24MHz); led_init(); display_init(); profile_run();`을 실행한 뒤 `svf_port_idle()`(상태
 LED)로 들어간다. 베어메탈이며 폴링 방식이다. stdio, `PRINT`, 인터럽트, BLE 스택, 슬립 모드, 벤더 IDE가 없다
-(Makefile과 stock GCC, WCH EVT 소스만 쓴다). **패널에서는 아직 시험하지 않았다**: 여기 있는 어떤 것도 보드에서 실행된 적이 없다
+(Makefile과 stock GCC, WCH EVT 소스만 쓴다). **패널에서는 아직 테스트하지 않았다**: 여기 있는 어떤 것도 보드에서 실행된 적이 없다
 ("확인한 것" 참조).
 
 **이미지는 24 MHz로 동작한다.** EVT 예제의 60 MHz가 아니다. CH582의 I2C 모듈 클럭은 2..36 MHz여야 하며
@@ -181,7 +181,7 @@ text와 페이스는 "ch582 mono" 행을 본다
 
 ## 확인한 것
 
-**패널에서는 아직 시험하지 않았다.** 보드를 연결하지 않았으며 아무것도 플래시하거나 실행하지 않았다.
+**패널에서는 아직 테스트하지 않았다.** 보드를 연결하지 않았으며 아무것도 플래시하거나 실행하지 않았다.
 
 | check | status |
 |---|---|

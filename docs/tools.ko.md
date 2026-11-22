@@ -25,7 +25,7 @@ SVF maker의 설계가 이 문서를 바탕으로 계획되므로, 아래의 모
 
 도구는 두 종류를 쓴다.
 
-- **미리 합성된(precomposed) 페이스**는 코드 포인트마다 글리프 하나를 저장한다(한글 음절, ASCII 문자, 기호). **1, 2, 8 bpp**로
+- **완성형 페이스**는 코드 포인트마다 글리프 하나를 저장한다(한글 음절, ASCII 문자, 기호). **1, 2, 8 bpp**로
   쓴다(1 bpp는 스텐실, 2 bpp는 4단계 커버리지, 8 bpp는 256단계). 4 bpp는 없다. 페이스는 글리프별 advance, 왼쪽 베어링,
   잉크 폭을 가진 메트릭 표(헤더 플래그 비트 0)를 가질 수 있으며, 이 경우 가변 폭이 된다.
   코드 포인트 목록에서 `mkfont.py`가 쓴 페이스는 플래그 비트 2도 설정한다(결합 표시는 펜을
@@ -44,16 +44,16 @@ SVF maker의 설계가 이 문서를 바탕으로 계획되므로, 아래의 모
 있는 레이아웃은 `844`(DOS 8x4x4 표준), `844-ihnm`, `844-hbios24`, `1044-san`, `621`, `hanterm-johab`,
 `dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`이다.
 
-한 문단으로 보는 지도: `mkfont.py`는 아웃라인 폰트에서 **미리 합성된 페이스**를 굽고, `bdfface.py`/`johab844.py`는
+한 문단으로 보는 지도: `mkfont.py`는 아웃라인 폰트에서 **완성형 페이스**를 굽고, `bdfface.py`/`johab844.py`는
 비트맵 폰트에서 굽는다.
 `jamoset.py`, `jamovec.py`, `svf_synth.py`는 **자모 세트**와 합성 페이스를 쓰고, `svfdy.py`는 기존 페이스의 **dy**를
 편집하며, `tools/build/build_faces.py`와 `web/` 도구는 페이스를 다시 빌드하고 서비스한다. 도구별 자세한 내용은 다음과 같다.
 
-- `mkfont.py`는 TTF/OTF에서 **미리 합성된 페이스**를 쓴다(1/2/8 bpp, SVFN v3, 코드 포인트 목록 필요).
-- `bdfface.py`는 한글 BDF와 ASCII BDF/HBF에서 **미리 합성된 1 bpp 페이스**를 쓴다. `johab844.py`는 원시 8x4x4 Johab
-  폰트로 **미리 합성된 16x16 1 bpp 페이스**의 한글을 다시 그린다.
+- `mkfont.py`는 TTF/OTF에서 **완성형 페이스**를 쓴다(1/2/8 bpp, SVFN v3, 코드 포인트 목록 필요).
+- `bdfface.py`는 한글 BDF와 ASCII BDF/HBF에서 **완성형 1 bpp 페이스**를 쓴다. `johab844.py`는 원시 8x4x4 Johab
+  폰트로 **완성형 16x16 1 bpp 페이스**의 한글을 다시 그린다.
 - `jamoset.py`는 DOS Johab 원시 폰트, hanterm BDF, Dokkaebi 프린터 FNT, Kyra `.BIT`, Mac HangulTalk `fbit` 리소스
-  포크에서, 또는 아웃라인 폰트(`--from-ttf`)나 미리 합성된 1 bpp 페이스(`--from-svf`)를 맞춰서 **자모 세트**(1 또는 2 bpp)를
+  포크에서, 또는 아웃라인 폰트(`--from-ttf`)나 완성형 1 bpp 페이스(`--from-svf`)를 맞춰서 **자모 세트**(1 또는 2 bpp)를
   쓴다. `jamovec.py`는 폰트의 자모를 한 번 분리해 어떤 크기로든 렌더링하는 방식으로 **자모 세트**를 쓴다.
 - `svfdy.py`는 기존 페이스의 **dy**를 편집한다. `svf_synth.py`는 C 테스트용 합성 페이스를 쓴다.
 - `tools/build/build_faces.py`는 `svf/`의 페이스를 업스트림 폰트에서 다시 빌드한다(`tools/build/faces.tsv`, `docs/recipes.md`).
@@ -64,7 +64,7 @@ SVF maker의 설계가 이 문서를 바탕으로 계획되므로, 아래의 모
 ### `tools/jamoset.py`
 
 **목적.** DOS 시대 원본 폰트에서 자모 세트 SVF(플래그 비트 1과 JSET 블록)를 만들거나, 조각을 아웃라인 폰트나 기존의
-미리 합성된 페이스에 맞춘다. SVFN v3도 쓰고(`write_svfn`, `pack_svfn`, `--profile`, `--box`) 읽으며(v2 페이스는 변환 안내
+완성형 페이스에 맞춘다. SVFN v3도 쓰고(`write_svfn`, `pack_svfn`, `--profile`, `--box`) 읽으며(v2 페이스는 변환 안내
 메시지와 함께 거부된다, `tools/svf2to3.py`), JSET 블록을 묶고 풀며, 검사를 위해 음절을 합성한다.
 
 **상태.** 범용이다. 게임 전용 세트 체계(SAGA IHNM, hanterm, Dokkaebi 프린터, Kyra LoK, Mac
@@ -81,7 +81,7 @@ HangulTalk)의 이름을 갖지만 특정 게임에 묶여 있지 않다.
 - `--base` SVFN v3 페이스(음절이 아닌 글리프를 유지한다. v2 페이스는 변환 안내 메시지와 함께 거부된다(`tools/svf2to3.py`));
 - `--from-ttf` 아웃라인 TTF/OTF. 1 bpp `mono` 대상은 freetype-py로, 2 bpp와 `--binarize threshold|ridge`는
   fontTools(`jamoaa.py`를 통해)로 읽는다;
-- `--from-svf` 미리 합성된 1 bpp SVFN v3 페이스(v2 페이스는 변환 안내 메시지와 함께 거부된다(`tools/svf2to3.py`)).
+- `--from-svf` 완성형 1 bpp SVFN v3 페이스(v2 페이스는 변환 안내 메시지와 함께 거부된다(`tools/svf2to3.py`)).
 
 **출력.** SVFN v3 자모 세트 페이스(플래그 비트 1, 메트릭이 있으면 비트 0도). 기본은 1 bpp이고 `--bpp 2`이면 2 bpp이다.
 조각은 `U+F0000 + n`에 있으며, `--from-ttf`/`--from-svf`는 ASCII 글리프도 담는다. `--blank-compat`는 대신 기존 자모 세트를
@@ -116,13 +116,13 @@ hanterm BDF, Kyra `.BIT`, Dokkaebi FNT 파일), `mac-fbit-45sets`(위치 인자�
 | `--symbols` (off) | `source`, `mac-fbit-45sets`, `--bpp 2` | U+2026과 U+25A1을 추가한다. 1 bpp `--from-ttf`/`--from-svf`는 무시한다 |
 | `--check` (off) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | 출력에서 11,172개 음절 전부를 합성해 검증한다 |
 | `--from-ttf FONT` (none) | mode | 조각을 `--size`에서의 아웃라인 폰트 음절에 맞춘다 |
-| `--from-svf FACE.SVF` (none) | mode | 1 bpp 미리 합성된 SVFN 페이스를 분해한다(다른 bpp는 거부된다) |
+| `--from-svf FACE.SVF` (none) | mode | 1 bpp 완성형 SVFN 페이스를 분해한다(다른 bpp는 거부된다) |
 | `--size N` (none) | `--from-ttf` | 픽셀 크기 |
 | `--cell WxH` (none) | `--from-ttf` | 셀(기본 `SIZExSIZE`) |
 | `--baseline N` (none) | `--from-ttf` | 베이스라인 행(기본: 잉크 박스 중앙) |
 | `--present-only` / `--no-present-only` (on) | `--from-ttf` 1 bpp `mono` | 폰트가 그리는 음절만 맞출지, `.notdef`도 맞출지. `--binarize threshold\|ridge`는 그려진 음절만 맞추며 `--no-present-only`를 거부한다. `--bpp 2`와 함께면 거부된다 |
 | `--blank-compat FACE.SVF` (none) | mode | 온전한 글리프가 있는 호환 자모는 그 글리프에 맡기도록 자모 세트를 다시 쓴다 |
-| `--mask-font FONT\|none` (alias `--mask`) | `--from-ttf`, `--from-svf` 1 bpp | OpenType `ljmo`/`vjmo`/`tjmo`가 있는 마스크 폰트. 기본은 `$JAMOSET_MASK_FONT` 또는 freetype/uharfbuzz를 import할 수 있을 때 동봉된 NotoSansKR, 그렇지 않으면 자유 조각 |
+| `--mask-font FONT\|none` (별칭 `--mask`) | `--from-ttf`, `--from-svf` 1 bpp | OpenType `ljmo`/`vjmo`/`tjmo`가 있는 마스크 폰트. 기본은 `$JAMOSET_MASK_FONT` 또는 freetype/uharfbuzz를 import할 수 있을 때 동봉된 NotoSansKR, 그렇지 않으면 자유 조각 |
 | `--mask-radius N` (none) | `--from-ttf`, `--from-svf` 1 bpp | 마스크 팽창(1은 16 px까지, 2는 24까지, 그 이상은 3) |
 | `--passes N` (12) | `--from-ttf`, `--from-svf`, `--bpp 2` | 좌표 하강(coordinate-descent)의 최대 패스 수 |
 | `--pylib DIR` (none) | `--from-ttf`, `--from-svf`, `--bpp 2` | freetype과 uharfbuzz가 있는 디렉터리(`$JAMOSET_PYLIB`도 가능) |
@@ -134,7 +134,7 @@ hanterm BDF, Kyra `.BIT`, Dokkaebi FNT 파일), `mac-fbit-45sets`(위치 인자�
 | `--clean` / `--no-clean` (off) | `--from-ttf`, `--from-svf`, `--bpp 2` | 노이즈 정리(`--bpp 2`와 `--layout adaptive`에서는 켜짐, 그 외에는 꺼짐) |
 
 **JSET 버전.** 버전 1이 표준이며 모든 작성기의 기본값이다. 버전 2(compact)는 메모리가 제한된 대상을 겨냥한 빌드와
-팩용이다(`spec/SVF.md`, "When to use version 2"). `--jset-version`은 `1`, `2`, `auto`를 받는다. `auto`는 페이스의 버전 1
+팩용이다(`spec/SVF.ko.md`, "버전 2를 쓸 때"). `--jset-version`은 `1`, `2`, `auto`를 받는다. `auto`는 페이스의 버전 1
 블록이 버전 2 블록보다 `JSET_V2_MIN_SAVING`(1,024)바이트 이상 크면 버전 2를 쓰고, 아니면 버전 1을 쓴다. 같은 플래그가
 `jamovec.py render`와 `svf2to3.py`에도 있다. `jamoaa.py`(라이브러리)는 빌더의 `jset_version` 인자로 받으며, `jamoset.py --bpp 2`가 이를
 넘긴다. `jamovec.py`는 `pack_jset`을 직접 호출한다.
@@ -156,7 +156,7 @@ version, big=False)`(1, 2 또는 `"auto"`. 같은 `Packed`이며 버전 1은 항
 (초성, 종성) 클래스 한계를 주며, `jset_line`은 그런 페이스에 ` big=1`을 덧붙인다. `jamoadapt.FORMAT_LIMITS` / `CLASS_LIMITS`는 두 행을 모두 담고
 `adapt(..., class_limit=)`는 정수 또는 (초성, 종성) 쌍을 받는다.
 
-**JMAP (JSET 버전 3).** 라이브러리로서 `jamoset.py`는 `spec/SVF.md`("Version 3: mapping table (JMAP)")의 매핑 표 블록도 읽고 쓴다.
+**JMAP (JSET 버전 3).** 라이브러리로서 `jamoset.py`는 `spec/SVF.ko.md`("버전 3: 매핑 테이블 (JMAP)")의 매핑 표 블록도 읽고 쓴다.
 `Jmap`(advance, plane 개수 `pi`/`pm`/`pf`, `entries` 음절 인덱스 -> plane 인덱스, `block_compat`, 유효한 `compat`, `fallback` Tables, `pieces(cp)`), `jmap_size(ns, four, sparse,
 fallback_len)`, `pack_jmap(jmap, fallback_block)`(개수가 255를 넘으면 4B, 항목이 11,172개보다 적으면 SPARSE. 한계를 넘거나 65,534바이트를 넘는 것은 거부한다), `unpack_jmap(block)`(규칙 R1-R7을 명세의 순서대로. ValueError 메시지는
 `JMAP Rn ...`), `jmap_from_tables(tables, syllables, glyphs, pad)`(JSET 페이스에서 plane별로 연속된 조각과, U+F0000 + 번호를 키로 하는 새 조각 글리프. 입력 글리프는 조각 번호 또는 코드 포인트를 키로 쓸 수 있다. 페이스의 글리프 딕셔너리 전체가 통하며 낮은 키는 무시된다), 그리고
@@ -175,7 +175,7 @@ uharfbuzz(마스크 폰트와 1 bpp `mono`의 `--from-ttf`용). 둘 다 선택 �
 ### `tools/mkfont.py`
 
 **목적.** TTF 또는 OTF를 명시적인 코드 포인트 목록(`--unicode` 또는 `--chars-from`. 없으면 `mkfont: version 1 (code page order) is gone:
-pass --unicode SET`과 함께 종료 코드 2로 끝난다)에서 Pillow의 FreeType 래스터라이저로 미리 합성된 SVFN v3 페이스로 굽는다. 비트맵 BDF나 PCF도
+pass --unicode SET`과 함께 종료 코드 2로 끝난다)에서 Pillow의 FreeType 래스터라이저로 완성형 SVFN v3 페이스로 굽는다. 비트맵 BDF나 PCF도
 FreeType을 통해 열리지만, 파일에 내장된 픽셀 크기에서만 열린다.
 
 **상태.** 범용이다.
@@ -186,7 +186,7 @@ FreeType을 통해 열리지만, 파일에 내장된 픽셀 크기에서만 열�
 `--unicode` 코드 포인트를 버릴지 정하는 데에만 쓰인다. `cmap_has`는 sfnt를 가정하므로 fontTools가 설치되어 있을 때 BDF나 PCF에서
 `fontTools.ttLib.TTLibError: Not a TrueType or OpenType font (bad sfntVersion)`를 일으킨다(버그. BDF와 PCF 레시피 참고). `--chars-from`은 게임이 쓴 파일을 읽는다(아래 참고).
 
-**출력.** 미리 합성된 SVFN v3 페이스. 1, 2, 8 bpp이고 가변 폭(메트릭 표), 플래그 비트 2 설정, `--profile` 레이아웃이다.
+**출력.** 완성형 SVFN v3 페이스. 1, 2, 8 bpp이고 가변 폭(메트릭 표), 플래그 비트 2 설정, `--profile` 레이아웃이다.
 v1 옵션 `--codepage`, `--count`, `--shadow`, `--center`, `--fixed`, `--fullwidth`, `--variable`은 없어졌다(argparse가 거부한다).
 
 **개요(Synopsis).** `python3 tools/mkfont.py INPUT OUTPUT --size N [options]`
@@ -230,7 +230,7 @@ fontTools(선택).
 
 ### `tools/bdfface.py`
 
-**목적.** 미리 합성된 한글 비트맵 폰트(BDF)와 ASCII 비트맵 폰트(BDF 또는 HBF)에서 미리 합성된 1 bpp SVF를 굽는다.
+**목적.** 완성형 한글 비트맵 폰트(BDF)와 ASCII 비트맵 폰트(BDF 또는 HBF)에서 완성형 1 bpp SVF를 굽는다.
 MI1/MI2 "L" 페이스용으로 작성되었으나 게임 전용은 아니다.
 
 **상태.** 범용이다.
@@ -240,7 +240,7 @@ MI1/MI2 "L" 페이스용으로 작성되었으나 게임 전용은 아니다.
 파일이 필요하다), `--ascii`의 ASCII 0x20-0x7E, 그리고 자체 U+2026/U+25A1만 유지하며, 어느 비트맵 페이스에서도 기호나 자모를 가져오지 않는다. 셀은
 BDF 자체의 박스와 관계없이 기본 24x24이다.
 
-**출력.** 미리 합성된 SVFN v3 페이스. 1 bpp, 가변 폭, 플래그 5(가변 폭 + 원점의 표시). U+2026(점 셋)과 U+25A1(글리프 누락 박스)을
+**출력.** 완성형 SVFN v3 페이스. 1 bpp, 가변 폭, 플래그 5(가변 폭 + 원점의 표시). U+2026(점 셋)과 U+25A1(글리프 누락 박스)을
 스스로 쓴다. `--fill-absent`가 있으면 페이스에 없는, 요청된 음절을 페이스에 맞춘 자모 조각으로 합성한다(`jamoset.fit_font`를 통해).
 
 **개요(Synopsis).**
@@ -277,7 +277,7 @@ BDF 자체의 박스와 관계없이 기본 24x24이다.
 **입력.** 원시 8x4x4 Johab 폰트(11520바이트, 조각 360개. 자체 리더로 읽는다)와 SVFN v3 16x16 1 bpp base(`jamoset.parse_svfn`. v2 페이스는 변환 안내 메시지와 함께 거부된다(`tools/svf2to3.py`)).
 `--eng`는 원시 8x16 DOS 영문 폰트(2048 또는 4096바이트)를 읽는다.
 
-**출력.** 한글 음절이 다시 그려진 SVFN v3 형태의 base(`jamoset.pack_svfn`. 여전히 미리 합성된 1 bpp 페이스이다). 글리프는 코드 포인트 순서로 저장된다.
+**출력.** 한글 음절이 다시 그려진 SVFN v3 형태의 base(`jamoset.pack_svfn`. 여전히 완성형 1 bpp 페이스이다). 글리프는 코드 포인트 순서로 저장된다.
 
 **개요(Synopsis).** `python3 tools/johab844.py JOHAB.KOR BASE.SVF OUTPUT [--eng ENG] [--profile NAME] [--box x|y|full]`
 
@@ -310,7 +310,7 @@ bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 `docs/recipes.
 가장 가까운 관측 셀의 세트를 취하고, 세트에 없는 자모는 가장 가까운 문맥의 평범한 Mac 글리프로 채운다). 외삽된 음절은 Mac의 출력이 아니다.
 
 **direct 모드(기본, `--mode direct`).** 외삽 없이 Mac의 구조 자체를 쓴다. 조각이 Mac 슬롯인 JMAP 블록(JSET 버전 3,
-명세 "Jamo-set fonts")이다(`direct_jmap`). plane별로 슬롯 순서대로(초성, 중성, 종성.
+명세 `spec/SVF.ko.md`의 "자모 세트 폰트 (플래그 비트 1)")이다(`direct_jmap`). plane별로 슬롯 순서대로(초성, 중성, 종성.
 두 plane에서 참조되는 슬롯은 거부된다), `--no-dedup`이 아니면 한 plane의 바이트 단위로 같은 비트맵은 하나로 접히고(plane을 가로지르지는 않는다),
 KS 음절마다 항목이 하나(필드 = plane 안의 조각, 0 = plane 없음)이며, 한 plane짜리 호환 자모는 자기 종류 plane의 조각으로, plane이 둘 이상인 호환 자모는 U+3131 + k에 통째로 저장된다.
 2,350개 KS 음절과 51개 호환 자모만 합성된다(다른 음절은 단순한 누락 글리프이다). `--with-jset`은 위와 같이 외삽된
@@ -474,7 +474,7 @@ dy에 대응시킨 JSON 객체를 읽는다.
 --jset-unused-finset | --jset-cut N | --bpp8 | --marks | --layout-bad KIND) [--from FACE] [--jset-version 1|2] OUT`
 
 `--jset-version`은 쓰이는 모든 JSET의 JSET 블록 버전이며, 동봉된 작성기와 달리 **기본값이 2**이다.
-이것은 테스트 도구이고 대부분의 경우가 버전 2 리더와 그 거부를 시험하기 때문이다. `--jset-bad KIND`는 블록의
+이것은 테스트 도구이고 대부분의 경우가 버전 2 리더와 그 거부를 테스트하기 때문이다. `--jset-bad KIND`는 블록의
 규칙 하나를 깨뜨린다. 버전 2 종류는 `lc13`, `tc13`, `ni33`, `nm25`, `nf17`, `length`, `leadclass`, `finset`,
 `initset`, `missing_piece`, `magic`, `version`, `version4`, `short`, `na_over`, `reserved`, `pad_bits`,
 `alias_no_presence`, `abase_over`, `alias_blank`, `missing_alias_piece`, `base_wrap`, `compat_set_over`,
@@ -673,11 +673,11 @@ syllables`와 같음. `default`와 `dos` 원본에 대한 레이아웃, 메트�
 
 **import하는 저장소 모듈.** `jamoset.py`. **서드파티.** 없음.
 
-**테스트.** `tools/test_jamoaa.py`가 시험한다(`--layout adaptive` 경우들).
+**테스트.** `tools/test_jamoaa.py`가 테스트한다(`--layout adaptive` 경우들).
 
 ### `tools/jamofit.py`
 
-**목적.** 마스크가 있는 좌표 하강으로 자모 세트 조각을 미리 합성된 1 bpp 음절에 맞추고, 그 맞춤에 점수를 매긴다
+**목적.** 마스크가 있는 좌표 하강으로 자모 세트 조각을 완성형 1 bpp 음절에 맞추고, 그 맞춤에 점수를 매긴다
 (IoU, 1 px 허용 F1, blob과 stray-ink 메트릭).
 
 **상태.** 범용이다.
@@ -975,14 +975,14 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 
 원본: `ttf/nanumgothic/NanumGothic-Bold.ttf`.
 
-미리 합성, 1 bpp:
+완성형, 1 bpp:
 
     python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf /tmp/svf-tools-doc/ng16-1bpp.svf \
         --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
 
 `107660 bytes`, `2446` 글리프(한글 음절 2350개). 렌더: `width=146 ascent=14 descent=2`, 잉크 픽셀 677개.
 
-미리 합성, 안티앨리어싱(2 bpp):
+완성형, 안티앨리어싱(2 bpp):
 
     python3 tools/mkfont.py ttf/nanumgothic/NanumGothic-Bold.ttf /tmp/svf-tools-doc/ng16-2bpp.svf \
         --size 16 --bpp 2 --unicode ascii,ksx1001-hangul
@@ -1010,7 +1010,7 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 `/tmp/svf-tools-doc/NotoSansKR-Regular.otf`로 썼다. KS X 1001(ASCII, Latin-1, 문장 부호, 2,350개
 음절, 자모, 기호, 한자)에 맞춰 자른 서브셋이다. 전체 Noto Sans KR로는 같은 명령에 다른 개수가 나온다.
 
-미리 합성, 1 bpp:
+완성형, 1 bpp:
 
     python3 tools/mkfont.py /tmp/svf-tools-doc/NotoSansKR-Regular.otf /tmp/svf-tools-doc/noto16-1bpp.svf \
         --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
@@ -1018,7 +1018,7 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 `107660 bytes`, `2446` 글리프(한글 음절 2350개. 서브셋은 정확히 KS X 1001의 것만 담는다). 렌더:
 `width=141 ascent=10 descent=6`, 잉크 픽셀 464개.
 
-미리 합성, 안티앨리어싱(2 bpp): 같은 명령에 `--bpp 2`를 주면 `185932 bytes`, `2446` 글리프. 렌더
+완성형, 안티앨리어싱(2 bpp): 같은 명령에 `--bpp 2`를 주면 `185932 bytes`, `2446` 글리프. 렌더
 `width=141 ascent=10 descent=6`, 잉크 픽셀 700개.
 
 자모 세트, 1 bpp:
@@ -1036,7 +1036,7 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 
 **이 저장소에서는 지원하지 않는다. `.bdf`가 없다**(`ttf/`, `svf/`, `tools/testdata/`에 하나도 없다). 따라서 저장소 폰트로 실행할 수 있는 BDF
 레시피는 없다. 리더는 `tools/test_bdfface.py`와
-`tools/test_jamoset.py`가 합성 BDF로 시험한다. 이 호스트의 유일한 유니코드 BDF는 `/usr/share/dosbox-x/wqy_12pt.bdf`(WenQuanYi Bitmap
+`tools/test_jamoset.py`가 합성 BDF로 테스트한다. 이 호스트의 유일한 유니코드 BDF는 `/usr/share/dosbox-x/wqy_12pt.bdf`(WenQuanYi Bitmap
 Song)이며 **저장소에 없으므로** 아래 실행은 외부 것이다.
 
 `tools/bdfface.py`는 한글 BDF와 ASCII BDF/HBF를 읽는다. 외부 BDF가 두 쪽 모두를 맡을 수 있다. `--chars-from`은
@@ -1105,18 +1105,18 @@ BDF에는 커버리지가 없으므로 `--bpp 2`는 레벨이 0과 3뿐인 `1859
   `tools/johab844.py`는 원시 8x4x4 파일을 읽는다. **이 저장소에서는 지원하지 않는다. DOS Johab `.fnt`가 없으므로** 실행할 수 있는
   레시피가 없다.
 - **Windows `.FNT`.** FreeType에는 winfnt 드라이버가 있으므로 (FreeType을 통해 렌더링하는) `mkfont.py`가
-  Windows FNT를 BDF나 PCF처럼 폰트 자체의 픽셀 크기에서 읽을 수 있을 것이다. 시험하지 않았다. **저장소에 샘플이 없고**, `/usr/share/fonts`와 `~`에서 `.FNT`/`.FON`을 찾아봤으나 Windows FNT는 나오지 않았다(그 이름의
+  Windows FNT를 BDF나 PCF처럼 폰트 자체의 픽셀 크기에서 읽을 수 있을 것이다. 테스트하지 않았다. **저장소에 샘플이 없고**, `/usr/share/fonts`와 `~`에서 `.FNT`/`.FON`을 찾아봤으나 Windows FNT는 나오지 않았다(그 이름의
   파일은 FONTX2 폰트나 DOS 비트맵이며 Windows FNT가 아니다).
 
 ### HBF
 
 **이 저장소에서는 지원하지 않는다. HBF도, 짝이 될 한글 BDF도 없다.** `tools/bdfface.py --ascii`는
 HBF(옆에 `.bin` 또는 `.bin.gz`가 있어야 한다)를 읽지만 페이스의 ASCII 쪽으로서만 읽는다. 한글 쪽은 BDF여야 하며
-여기에는 `.hbf`가 없다. 리더는 `tools/test_bdfface.py`가 합성 HBF로 시험한다.
+여기에는 `.hbf`가 없다. 리더는 `tools/test_bdfface.py`가 합성 HBF로 테스트한다.
 
 ### 기존 SVF
 
-원본: `svf/dos/NEODG16.SVF`(미리 합성된 1 bpp 페이스, 16x16, 글리프 2905개, 메트릭 표 있음).
+원본: `svf/dos/NEODG16.SVF`(완성형 1 bpp 페이스, 16x16, 글리프 2905개, 메트릭 표 있음).
 
 dy 설정(다른 바이트는 바뀌지 않는다):
 
@@ -1149,7 +1149,7 @@ SVF maker가 필요로 하지만 오늘의 어떤 도구도 하지 못하는 것
 - **비트맵 폰트는 스트라이크 크기에서만 열린다.** PCF나 BDF는 파일에 내장된 픽셀 크기에서만 열리고
   다른 크기에서는 열리지 않으며(`OSError: invalid pixel size`), 비트맵 폰트가 제공하는 스트라이크를 나열하는 것도 없다.
 - **Windows `.FNT` 읽기.** FreeType에는 winfnt 드라이버가 있으므로 `mkfont.py`가 Windows FNT를 BDF/PCF처럼 읽어야 하지만,
-  시험할 샘플이 여기에 없으므로 검증되지 않았다. DOS Johab 원시 포맷과
+  테스트할 샘플이 여기에 없으므로 검증되지 않았다. DOS Johab 원시 포맷과
   Dokkaebi 프린터 FNT가 오늘 어떤 도구든 읽는 유일한 FNT이다.
 - **문자 집합이 필요하다.** `mkfont.py`에는 더 이상 코드 페이지(버전 1) 순서가 없다. `--unicode`나
   `--chars-from` 없이는 종료 코드 2로 끝난다(`mkfont: version 1 (code page order) is gone: pass --unicode SET`).

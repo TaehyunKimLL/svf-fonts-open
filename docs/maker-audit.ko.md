@@ -24,7 +24,7 @@ FreeType으로 읽을 수 있는 원본의 원본 PNG만 Pillow(`preview.source_
 | OTF (CFF) | 예: `otf` -> `outline`(합성은 없음: CFF에는 없다) | TTF와 같음: mkfont; 자모는 experimental fit으로만 | 예 (Pillow/FreeType) | detect.py:93, 346; routes.py:263-272 |
 | TTC / OTC | 예: 모든 페이스(최대 64개)를 나열한다; 첫 번째가 아닌 페이스, 또는 Mac 전용 cmap을 가진 페이스는 `prep` 목록(`ttc-face`)을 가진다 | 먼저 `source` 단계: `maker/srcprep.py ttc-face SRC OUT --index N`이 페이스를 일반 sfnt(CFF는 `.otf`)로 저장하고, 이후 TTF/OTF 경로가 그것을 읽는다 | 모든 페이스에 대해 예(`preview.source_png`가 페이스 인덱스를 받는다); Now: 미리보기와 클리핑 프로브는 준비된 페이스를 읽는다(`settings.source_ops`) | maker/detect.py `_ttc_entries`; maker/srcprep.py; routes.py `source_commands`; branch maker-inputs, A3/B1 |
 | Variable font | 예: `fvar` 축과 이름 있는 인스턴스를 읽는다(항목의 `variable`, 레이블 `; variable (wght 100..900)`) | 작업당 폰트마다 인스턴스 하나: 설정 `instance`가 모든 축을 고정하는(기본값 위에 선택이 덧씌워짐) `fontTools.varLib.instancer` 원본 연산을 추가한다; 페이지에 인스턴스 선택이 있다 | Now 예: 미리보기와 프로브가 인스턴스화된 사본(`work/preview/<font>/source.ttf`)을 읽는다; 감사 당시: 기본 인스턴스 | settings.py `instance`, `instance_coords`; routes.py `source_commands`; maker.js `perFontInstance`; B2/C1 |
-| GSUB로 분해 가능한 윤곽(`ljmo`/`vjmo`/`tjmo`) | Now 예: GSUB FeatureList를 읽는다(`gsub_jamo`, 레이블 "; conjoining jamo (GSUB)") | Now `mask fit` 경로(`jamoset.py --from-ttf --mask-font SRC --no-clean`, `--pylib DIR`)는 폰트에 자모 feature가 있고 라이브러리가 로드될 때 제공되며, `vector fit` 경로(`--components` 없는 `jamovec.py master`)도 있다. 자유 fit은 `--mask-font none`을 넘기므로 워커의 환경이 mask를 켤 수 없다. **mask-fit 작업은 한 번도 실행된 적이 없다: 이것을 빌드한 호스트에 freetype-py와 uharfbuzz가 설치되어 있지 않아서 argv, 제공 여부, 거부만 시험했다.** vector fit은 합성 폰트에서 실행되었고(1.1 s) 그 master는 maker 밖에서 NanumGothic Regular로 한 번 시간을 쟀다: 높은 부하에서 172 s | TTF와 같음 | routes.py:132-141; jobs.py:66; tools/jamoset.py:2297-2302, 2855 |
+| GSUB로 분해 가능한 윤곽(`ljmo`/`vjmo`/`tjmo`) | Now 예: GSUB FeatureList를 읽는다(`gsub_jamo`, 레이블 "; conjoining jamo (GSUB)") | Now `mask fit` 경로(`jamoset.py --from-ttf --mask-font SRC --no-clean`, `--pylib DIR`)는 폰트에 자모 feature가 있고 라이브러리가 로드될 때 제공되며, `vector fit` 경로(`--components` 없는 `jamovec.py master`)도 있다. 자유 fit은 `--mask-font none`을 넘기므로 워커의 환경이 mask를 켤 수 없다. **mask-fit 작업은 한 번도 실행된 적이 없다: 이것을 빌드한 호스트에 freetype-py와 uharfbuzz가 설치되어 있지 않아서 argv, 제공 여부, 거부만 테스트했다.** vector fit은 합성 폰트에서 실행되었고(1.1 s) 그 master는 maker 밖에서 NanumGothic Regular로 한 번 시간을 쟀다: 높은 부하에서 172 s | TTF와 같음 | routes.py:132-141; jobs.py:66; tools/jamoset.py:2297-2302, 2855 |
 | BDF ISO 10646 (Unicode) | 예: `bdf-iso10646`, 크기 = FreeType이 여는 스트라이크 | 완성형: 스트라이크에서 mkfont, 1 bpp만 | 예 (Pillow) | detect.py:355-373, 516; routes.py:273-276 |
 | BDF ISO 8859 | 예: `bdf-iso8859`, 라틴 동반 폰트로만 사용 | 자체 경로 없음 | 아니오 | detect.py:516; routes.py (분기 없음); 동반 폰트 설정 detect.py:1120-1130 |
 | hanterm (johab BDF) | 예: `bdf-johab`(레지스트리에 `johab`/`hanterm` 포함) | `jamoset.py SRC --layout hanterm-johab --check [--eng]` | 아니오: FreeType이 Unicode charmap을 주지 않아 `_draws_sample`이 거부한다 | detect.py:516-525; routes.py:153-158, 280-281; preview.py:236 |
@@ -34,14 +34,14 @@ FreeType으로 읽을 수 있는 원본의 원본 PNG만 Pillow(`preview.source_
 | DOS johab raw (`.FNT`, `*.KOR`, HBIOS, san, 621, Dokkaebi, Kyra) | 예: 정확한 크기(`DOS_SIZES`)로 판별하고, 후보를 레이아웃 opener로 거른다; 소유자가 레이아웃을 확인한다 | `jamoset.py SRC --layout L --check [--eng ENG] [--face 0\|1]`; `--eng` = 옆에 있는 2048/4096바이트 파일 | 예: 첫 크기에서 같은 명령으로 구운 뒤 `svfline` | detect.py:29-33, 241-253, 417-436; routes.py:144-150, 277-279; preview.py:146-197; server.py:906-913 |
 | DOS `johab844.py` (raw 조각에서 만든 완성형) | 예: 후보 `844`를 가진 11,520바이트 raw 폰트(`dos_bytes`) | 완성형 경로 `johab844`: `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng ENG]`; 레이아웃 844와 8x16 영문 폰트만; 선택한 범위는 무시되고 노트가 기준 페이스를 명시한다 | 해당 없음 | routes.py `_johab844_commands`; settings.py `_route_errors`; B5 |
 | HWP `ASCII.PFT` (12x24 영문, 12,288바이트) / HBIOS 12x24 영문 (15,360) | 예: 둘 다 `eng` 항목이다(`eng` = 바이트와 셀); 15,360바이트 파일은 `hbios_eng_like`(빈 여백 행, 12 px 셀, `A`에 잉크)일 때만 HBIOS 영문이고, 아니면 Dokkaebi 페이스이다; UI 재정의 없음 | DOS 자모 경로의 `jamoset.py --eng FILE`; 24 px 미만 페이스에서는 거부 | 아니오 | detect.py `hbios_eng_like`; settings.py `_route_errors`; A5/B6 |
-| HWP 한글 `.PFT` | Local 모드 전용(Task 14): 크기가 `eng` 크기가 아닐 때 `.pft` 확장자(바이트 규칙 없음)로 이름 붙은 `other` 항목, 형식 `hwp-pft`, 다른 곳에서 변환해 그 파일을 추가하라는 레이블을 가진다; 업로드는 `unknown (...)`을 유지한다. `ASCII.PFT`(12x24 `eng`)는 배치의 어느 폴더에 있든 24 px DOS raw 페이스와 짝지어진다(`detect.detect_file`, `HWP_PFT_LABEL`, `scan`) | 없음: 저장소에 리더가 없다(recipes: BDF 또는 완성형 SVF를 넣을 것) | 아니오 | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py); 실제 HWP 파일은 실행하지 않았다(`SVF_MAKER_REAL_PFT`) |
+| HWP 한글 `.PFT` | 로컬 모드 전용(Task 14): 크기가 `eng` 크기가 아닐 때 `.pft` 확장자(바이트 규칙 없음)로 이름 붙은 `other` 항목, 형식 `hwp-pft`, 다른 곳에서 변환해 그 파일을 추가하라는 레이블을 가진다; 업로드는 `unknown (...)`을 유지한다. `ASCII.PFT`(12x24 `eng`)는 배치의 어느 폴더에 있든 24 px DOS raw 페이스와 짝지어진다(`detect.detect_file`, `HWP_PFT_LABEL`, `scan`) | 없음: 저장소에 리더가 없다(recipes: BDF 또는 완성형 SVF를 넣을 것) | 아니오 | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py); 실제 HWP 파일은 실행하지 않았다(`SVF_MAKER_REAL_PFT`) |
 | Windows `.FNT` / `.FON` | 예: `fnt`/`fon` -> `bitmap`; FON은 페이스 0만 | 스트라이크에서 mkfont, 1 bpp | 예 | detect.py:109-112, 391-415; routes.py:273-276 |
 | Unicode cmap을 가진 Mac TrueType (`true` 매직) | 예: `ttf` | TTF와 같음 | 예 | detect.py:90-91 |
 | Mac Korean (1,3) 또는 Wansung (3,5) cmap만 가진 Mac TrueType | 예: `mac_cmap_only`가 항목에 `mac-cmap` prep 연산을 주고 커버리지를 그것을 통해 읽는다(Unicode 서브테이블도 있는 폰트에는 주지 않는다) | `source` 단계: `macsfnt.py unicode IN OUT`, 이어서 TTF 경로 | Now 예(준비된 사본을 그린다) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |
 | `.dfont`, suitcase, resource fork, AppleDouble, MacBinary | 예: `mac-rsrc`; `sfnt` 리소스마다 항목 하나(`rsrc-sfnt` 연산, 필요하면 `mac-cmap`도); `NFNT`/`fbit` 리소스만 있으면 `other` 항목 하나; 손상된 맵은 `unknown` 항목 하나 | `source` 단계: `macsfnt.py extract IN OUT --id N`(그다음 `unicode`) | Now 예(준비된 사본을 그린다) | detect.py `_mac_head`, `_mac_entries`; B1 |
-| Mac HangulTalk 1.0 `fbit` (`--layout mac-fbit-45sets`) | Local 모드 전용(Task 12): `mac-fbit1`, 45세트의 `fbit`와 `fdef` 3을 가진 fork(raw fork, AppleDouble, MacBinary); `fbit` 리소스만 있는 경우는 없는 `fdef`를 이름으로 알려 주는 `other` 항목이다(`detect._mac_fbit1_entry`) | 경로 `mac fbit 1.0`: `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT`(`routes._mac10_commands`); 감싸진 원본은 jamoset의 golden 조회를 위해 `<stem>.rsrc`로 끝난다 | 예: 구운 원본 페이스 | `MacEndToEndTest.test_mac10_end_to_end_and_prepared_name`; Task 12 Step 1 결과 (a)가 유지되었다: 합성 픽스처(`macfx.fbit1_fork`, 모두 0인 `fdef`)가 `--check`를 통과한다. 실제 1.0 폰트와 그 golden은 실행하지 않았다(`SVF_MAKER_REAL_MAC1`, `RealMac1Test`) |
-| Mac HangulTalk 7.1 type-3 `fbit` (+ HTBL) | Local 모드 전용(Task 11): `mac-fbit3`(resource fork, AppleDouble, MacBinary, JM 아카이브, raw `fbit`), `mac-htbl`(HTBL 1 테이블, raw 9,612 또는 9,816바이트), `mac-suitcase`(FOND + 스트라이크를 가진 NFNT); HTBL과 선택적 suitcase는 동반 파일이며, 각각 한 번씩 자체 원본 단계로 계획되고 페이스 단계에 `needs`가 걸린다 | 경로 `mac fbit 7.1 direct` / `derived`: `macfbit_svf.py build SRC HTBL -o OUT --mode ... [--latin]`; `mac fbit 7.1 bdf + mkfont`: `macfbit3.py bdf`, `srcprep.py bdf-pixel-size`(도구의 BDF에는 `PIXEL_SIZE`가 없다), `mkfont.py`, `svf2to3.py --profile default` | 예: 구운 원본 페이스(HTBL 필요; 선택한 suitcase는 구워 넣는다) | `MacEndToEndTest`(direct는 `macfbit_svf.py verify`와 facecheck로 검증, wrapped와 JM, derived와 bdf + mkfont, gz fork, 동반 파일 연쇄, 원본 페이스), `LocalKindsTest`, `MacRoutesTest`, `LocalSettingsTest`. 실제 7.1.2 폰트와 HTBL은 실행하지 않았다(`SVF_MAKER_REAL_MAC3`, `RealMac3Test`) |
-| 내장 비트맵 스트라이크 (`EBDT`/`bdat`) | 예: `EBLC`/`bloc` 스트라이크 크기를 나열한다(`strikes`); 스트라이크가 있고 윤곽이 없는 sfnt는 그 크기의 `bitmap` 원본이다(`sizes_fixed`) | 스트라이크에서 mkfont(계획 및 시험됨; 실제 비트맵 전용 폰트는 `SVF_MAKER_REAL_EBDT`로만 실행된다) | 윤곽 폰트에 대해 예 | detect.py `_sfnt_entry`; srcprep.py `embedded_strikes`; A3/B1 |
+| Mac HangulTalk 1.0 `fbit` (`--layout mac-fbit-45sets`) | 로컬 모드 전용(Task 12): `mac-fbit1`, 45세트의 `fbit`와 `fdef` 3을 가진 fork(raw fork, AppleDouble, MacBinary); `fbit` 리소스만 있는 경우는 없는 `fdef`를 이름으로 알려 주는 `other` 항목이다(`detect._mac_fbit1_entry`) | 경로 `mac fbit 1.0`: `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT`(`routes._mac10_commands`); 감싸진 원본은 jamoset의 golden 조회를 위해 `<stem>.rsrc`로 끝난다 | 예: 구운 원본 페이스 | `MacEndToEndTest.test_mac10_end_to_end_and_prepared_name`; Task 12 Step 1 결과 (a)가 유지되었다: 합성 픽스처(`macfx.fbit1_fork`, 모두 0인 `fdef`)가 `--check`를 통과한다. 실제 1.0 폰트와 그 golden은 실행하지 않았다(`SVF_MAKER_REAL_MAC1`, `RealMac1Test`) |
+| Mac HangulTalk 7.1 type-3 `fbit` (+ HTBL) | 로컬 모드 전용(Task 11): `mac-fbit3`(resource fork, AppleDouble, MacBinary, JM 아카이브, raw `fbit`), `mac-htbl`(HTBL 1 테이블, raw 9,612 또는 9,816바이트), `mac-suitcase`(FOND + 스트라이크를 가진 NFNT); HTBL과 선택적 suitcase는 동반 파일이며, 각각 한 번씩 자체 원본 단계로 계획되고 페이스 단계에 `needs`가 걸린다 | 경로 `mac fbit 7.1 direct` / `derived`: `macfbit_svf.py build SRC HTBL -o OUT --mode ... [--latin]`; `mac fbit 7.1 bdf + mkfont`: `macfbit3.py bdf`, `srcprep.py bdf-pixel-size`(도구의 BDF에는 `PIXEL_SIZE`가 없다), `mkfont.py`, `svf2to3.py --profile default` | 예: 구운 원본 페이스(HTBL 필요; 선택한 suitcase는 구워 넣는다) | `MacEndToEndTest`(direct는 `macfbit_svf.py verify`와 facecheck로 검증, wrapped와 JM, derived와 bdf + mkfont, gz fork, 동반 파일 연쇄, 원본 페이스), `LocalKindsTest`, `MacRoutesTest`, `LocalSettingsTest`. 실제 7.1.2 폰트와 HTBL은 실행하지 않았다(`SVF_MAKER_REAL_MAC3`, `RealMac3Test`) |
+| 내장 비트맵 스트라이크 (`EBDT`/`bdat`) | 예: `EBLC`/`bloc` 스트라이크 크기를 나열한다(`strikes`); 스트라이크가 있고 윤곽이 없는 sfnt는 그 크기의 `bitmap` 원본이다(`sizes_fixed`) | 스트라이크에서 mkfont(계획 및 테스트됨; 실제 비트맵 전용 폰트는 `SVF_MAKER_REAL_EBDT`로만 실행된다) | 윤곽 폰트에 대해 예 | detect.py `_sfnt_entry`; srcprep.py `embedded_strikes`; A3/B1 |
 | WOFF / WOFF2 | 아니오: `unknown`(레시피 입력도 아니다) | 없음 | 아니오 | detect.py:84-117 |
 | SVF v3 (완성형 / 자모) | 예: `svf-precomposed` / `svf-jamo`, JSET 버전과 JMAP 모드 포함 | 복사, 또는 `svf2to3.py --jset-version V --check`; 완성형 1 bpp는 "from-svf fit" `jamoset.py --layout 844\|adaptive --from-svf --check`도 가능 | 예: 복사한 뒤 `svfline` | detect.py:438-451; routes.py:224-250, 286-296; preview.py:173-179 |
 | SVF v2 | 예: v3로 변환된다 | `svf2to3.py --jset-version 1 --check` | 예 | detect.py:103-105, 438-451; routes.py:200-221 |
@@ -66,8 +66,8 @@ maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63
 |---|---|---|---|
 | AA 2 bpp, 완성형 | 예: 윤곽 원본에 bpp 2(mkfont `--bpp 2`) | 비트맵/BDF/DOS 원본은 1 bpp뿐이며(routes.py:273-284) 이는 올바르다. `--bpp 8`(호스트 페이스)은 제공되지 않는다 | 변경 없음 |
 | AA 2 bpp, 자모 세트 | 윤곽에 대해 예: 합성 경로 `jamovec.py render --bpp 2`, fit 경로 `jamoset.py --bpp 2`(routes.py:126-141) | `--aa-refine N`, `--clean/--no-clean`이 노출되지 않음; `quality.py`의 IoU(maker/quality.py) 외에는 레벨 오차 수치가 표시되지 않음 | `--aa-refine`와 `clean`이 옵션이다(`clean`은 2 bpp에서만); `binarize` threshold/ridge/mono |
-| 베이스라인 / ascent | mkfont에만 `--ascent`(presets.py:69-70) | jamoset 경로(DOS raw, hanterm, fit, from-svf; tools/jamoset.py:2839)에도 bdfface(`--ascent` / `--hangul-ascent`)에도 `--ascent`가 없음; `--latin`(대문자 높이를 맨 위로)이 노출되지 않음 | 도구별 ascent 키(`ascent`, `jamo_ascent`, `fit_baseline`, `latin_ascent`, `hangul_ascent`), `latin`, 미리보기에서 시험해 볼 ascent |
-| 글리프별 수직 이동 (`svfdy.py --range --dy`) | 아니오 | 단계도 제어도 없음; `svfdy.py`는 maker/ 어디에도 언급되지 않음 | 폰트별 dy 표와 완성형 페이스에 대한 `svfdy.py` 단계, 미리보기에서 시험해 볼 dy |
+| 베이스라인 / ascent | mkfont에만 `--ascent`(presets.py:69-70) | jamoset 경로(DOS raw, hanterm, fit, from-svf; tools/jamoset.py:2839)에도 bdfface(`--ascent` / `--hangul-ascent`)에도 `--ascent`가 없음; `--latin`(대문자 높이를 맨 위로)이 노출되지 않음 | 도구별 ascent 키(`ascent`, `jamo_ascent`, `fit_baseline`, `latin_ascent`, `hangul_ascent`), `latin`, 미리보기에서 테스트해 볼 ascent |
+| 글리프별 수직 이동 (`svfdy.py --range --dy`) | 아니오 | 단계도 제어도 없음; `svfdy.py`는 maker/ 어디에도 언급되지 않음 | 폰트별 dy 표와 완성형 페이스에 대한 `svfdy.py` 단계, 미리보기에서 테스트해 볼 dy |
 | 위/아래 클리핑 | `--clip-cell`만 | `--fit-cell`(잉크가 잘리지 않을 때까지 크기를 낮춤)이 노출되지 않음; mkfont가 stdout에 찍는 잘림 횟수는 빌드 로그에만 있고 단계별로 표시되지 않음; 빌드 전에 "잘린 행"을 보는 화면이 없음 | `fit_cell`; mkfont `--report`에서 얻은 단계별 잘림 횟수; 클리핑 패널이 빌드 전에 어떤 ascent에서든 잘리는 행을 보여 준다 |
 | 셀 너비 / 고정 advance | 프리셋을 통해서만(`latin-18cell-2bpp`의 `--width`) | `--width` 필드 없음; `--punct-extra`, `--ink-advance`, `--only-listed`, `--fallback-ttf`, `--limit`, `--require`가 패널에 없음; jamoset `--advance`, `--cell`(from-ttf)이 노출되지 않음 | `width`가 옵션이다; 나머지 플래그는 여전히 노출되지 않는다 |
 | 크기 / bpp / 문자 집합 | 크기, bpp 1/2, 범위 2350 / 11172 / 목록 파일 | 이 둘 너머의 이름 있는 범위(`ksx1001-nohanja`, `ksx1001-symbols`, `jamo`, `cp949`, `ksx1001`)는 프리셋을 통해서만; ASCII는 항상 추가된다(`ascii,` 접두, routes.py:98-110) | 이름 있는 범위 다섯 개를 선택할 수 있다(모두 일곱 개) |
@@ -89,13 +89,13 @@ maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63
 - 그리기 경로 외에 `c/ports/web/svf_web.c`의 **export**: `svfw_metrics`, `svfw_cell_bytes`, `svfw_glyph`,
   `svfw_pieces`, `svfw_cmap_cp`, `svfw_line_box`(`svf.h`로의 얇은 호출; `c/src`는 바뀌지 않았다).
 - **페이지**(`maker/static/svfview.js`, `maker.js`): 완료된 단계마다 샘플 텍스트, 배율, 대상(GRAY8, MONO, RGB565), 임계값, 가이드, 글리프 격자,
-  그리고 재빌드 없이 글리프별 컴포지터(`walk_next`를 따르는 `drawGlyphsInto`)가 그리는 시험용 ascent(`dos raw`/`hanterm`) 또는 시험용 dy(완성형)를 가진 결과 셀;
+  그리고 재빌드 없이 글리프별 컴포지터(`walk_next`를 따르는 `drawGlyphsInto`)가 그리는 테스트용 ascent(`dos raw`/`hanterm`) 또는 테스트용 dy(완성형)를 가진 결과 셀;
   하나를 적용하면 끝난 작업을 다시 열어 저장한다. 단계 행은 mkfont 보고서(`cut N`, `nudged N`, `fit at
   S px`)를 보여 준다; 자모 단계는 정체성 판정을 보여 주고, 열면 그 조각들을 보여 준다.
 - **빌드 전 클리핑**(`mkfont --probe` / `--report`, `clip.js`): 프로브는 그 단계 자신의 argv(`settings.face_argv` / `probe_argv`)로, 아무것도 자르지 않는 셀에서 구워진다;
   "clipping" 패널은 `fit_counts`의 규칙으로 어떤 ascent가 자르게 될 행을 계산해 프로브 페이스 위에 그린다.
 - **서버가 계속 그리는 것:** FreeType으로 읽을 수 있는 원본의 원본 PNG(Pillow, `preview.source_png`); 구운 원본의
-  PNG는 여전히 서버가 쓰지만(그리고 시험되지만) 페이지는 그것들을 WASM으로 그린다.
+  PNG는 여전히 서버가 쓰지만(그리고 테스트되지만) 페이지는 그것들을 WASM으로 그린다.
 - **Caps:** `wasm`(모듈이 빌드됨), `mask_libs`(`mask fit`과 `binarize mono`를 위한 freetype-py와 uharfbuzz),
   `recog`(정체성 검사를 위해 numpy와 torch가 있는 `SVF_RECOG_DIR`).
 
@@ -118,46 +118,46 @@ maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63
 | Output | `GET /api/jobs/<id>/zip`의 zip 다운로드(server.py:974-983) | Electron이 저장하거나, 사이드카가 선택한 폴더에 쓴다(경로 모드) |
 
 **독점 입력을 위한 Local 전용 모드**(Mac fbit, HWP, 그 밖의 비 OFL 폰트): 현재는 모든 입력이 `PUT /api/jobs/<id>/files?path=`
-(server.py:567-632)를 통해 작업의 `upload/`로 복사되고, 미리보기와 zip은 작업 디렉터리 아래에 써진다. local 모드는 다음과 같이 한다. Electron의 대화상자에서 온 절대 경로 목록을
+(server.py:567-632)를 통해 작업의 `upload/`로 복사되고, 미리보기와 zip은 작업 디렉터리 아래에 써진다. 로컬 모드는 다음과 같이 한다. Electron의 대화상자에서 온 절대 경로 목록을
 토큰 보유자만 호출할 수 있는 새 엔드포인트로 받는다; 그 경로에서 제자리로 감지하고 변환한다(detect는 이미 경로에서 동작한다;
 `plan_steps`는 `upload_dir`을 받으며, settings.py:1016-1027, 이는 폰트별 원본 루트가 된다); 출력은 선택한 출력 폴더에만 쓰고,
-작업 파일은 작업 후 지워지는 임시 디렉터리에 둔다; 원본을 데이터 디렉터리에 복사하지 않으며 zip에 쓰지도 않는다(지금 zip에는 생성된 페이스와 라이선스 텍스트만 들어 있다, zipout.py). 이를 위한 시험은
+작업 파일은 작업 후 지워지는 임시 디렉터리에 둔다; 원본을 데이터 디렉터리에 복사하지 않으며 zip에 쓰지도 않는다(지금 zip에는 생성된 페이스와 라이선스 텍스트만 들어 있다, zipout.py). 이를 위한 테스트는
 listen 소켓이 127.0.0.1 전용이고 출력 폴더와 임시 디렉터리 밖에는 아무것도 쓰이지 않음을 보여야 한다.
 
 ## 5. 웹 UI v1 계획과 열린 카드
 
 계획 `docs/superpowers/plans/2026-10-21-svf-maker.md`(16개 작업). 체크박스는 모두 비어 있고(`- [ ]` 82개, `- [x]` 0개)
 "Implemented" 노트도 없다; 아래 상태는 파일과 `docs/STATUS.md:29, 120`에서 얻었다
-("대부분 done, systemd unit·문서·end-to-end 시험과 web UI v1 남음"; 10-23에 837f525로 병합, LIST 지원은 10-28에 0d73568; 두 커밋 모두 이 선별된 이력에는 없다).
+("대부분 done, systemd unit·문서·end-to-end 테스트와 web UI v1 남음"; 10-23에 837f525로 병합, LIST 지원은 10-28에 0d73568; 두 커밋 모두 이 선별된 이력에는 없다).
 
 | 계획 작업 | 이 트리에서의 상태 |
 |---|---|
-| 1-13 (cmap_has, 픽스처, detect, scan, presets/routes, naming, settings, quality, zip, previews, archive, jobs, server) | 완료: 모듈과 시험이 있다; 시험 통과(아래) |
+| 1-13 (cmap_has, 픽스처, detect, scan, presets/routes, naming, settings, quality, zip, previews, archive, jobs, server) | 완료: 모듈과 테스트가 있다; 테스트 통과(아래) |
 | 14 페이지 | 완료: `maker/static/index.html`, `maker.js`(1,327줄), `style.css`; 계획이 나열한 id가 모두 있다(`files`, `folder`, `upload`, `state`, `notice`, `fonts`, `settings`, `advanced`, `save`, `run`, `cancel`, `download`, `steps`, `jobs`, `position`) |
-| 15 systemd unit, README, `.gitignore`, docs 줄 | **재조정됨(t_bbceabe9, 2026-11-09)**: 서버 배포가 없으므로 `maker/svf-maker.service`는 없다; `maker/README.md`가 있다(실행, 토큰, local 모드, 데스크톱 앱, 시험); `docs/tools.md` 포인터가 반영되었다 |
-| 16 end-to-end, 프리셋 인수, 느린 fit, UI smoke | **완료(t_e073891a)**: `maker/test/test_e2e.py`(upload와 local 모드의 혼합 폴더, facecheck, 병합된 `mkindex --check`, 그리기; `dos-u-2bpp`가 GBATB17과 바이트 동일; 느린 fit은 `SVF_MAKER_SLOW=1` 뒤에), `maker/test/test_ui_smoke.py`; `smoke.mjs`/playwright는 `pagedrive.mjs --files`로 대체되었다 |
+| 15 systemd unit, README, `.gitignore`, docs 줄 | **재조정됨(t_bbceabe9, 2026-11-09)**: 서버 배포가 없으므로 `maker/svf-maker.service`는 없다; `maker/README.md`가 있다(실행, 토큰, 로컬 모드, 데스크톱 앱, 테스트); `docs/tools.md` 포인터가 반영되었다 |
+| 16 end-to-end, 프리셋 인수, 느린 fit, UI smoke | **완료(t_e073891a)**: `maker/test/test_e2e.py`(upload와 로컬 모드의 혼합 폴더, facecheck, 병합된 `mkindex --check`, 그리기; `dos-u-2bpp`가 GBATB17과 바이트 동일; 느린 fit은 `SVF_MAKER_SLOW=1` 뒤에), `maker/test/test_ui_smoke.py`; `smoke.mjs`/playwright는 `pagedrive.mjs --files`로 대체되었다 |
 
 카드: t_a1cf496b(web UI v1 목표)는 2026-11-09에 재조정되었다: tailnet 서비스 없음; maker를 로컬(데스크톱 앱, 또는 loopback의 `maker/server.py`)에서 실행해
-TTF+BDF+PCF+DOS Johab 시험 폴더를 `facecheck.py`를 통과하는 페이스로 변환하고, T16이 통과하며, 리뷰를 마치면 닫힌다. T15(t_bbceabe9)는 재조정되어 닫혔다; T16(t_e073891a)은 위 16행이다.
+TTF+BDF+PCF+DOS Johab 테스트 폴더를 `facecheck.py`를 통과하는 페이스로 변환하고, T16이 통과하며, 리뷰를 마치면 닫힌다. T15(t_bbceabe9)는 재조정되어 닫혔다; T16(t_e073891a)은 위 16행이다.
 
 ## 6. 실행 상태 (2026-11-03, 이 worktree)
 
 - `~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'`: **Ran 431 tests in 77.3 s, OK**
-  (tools/jamoset.py:1808에서 ResourceWarning 하나, 시험에서 닫히지 않은 파일).
-- `tools/test_web_picker.py`(WASM 대 svfline 오라클): 44개 시험 OK, 1개 건너뜀(TestPage, playwright-core 없음).
+  (tools/jamoset.py:1808에서 ResourceWarning 하나, 테스트에서 닫히지 않은 파일).
+- `tools/test_web_picker.py`(WASM 대 svfline 오라클): 44개 테스트 OK, 1개 건너뜀(TestPage, playwright-core 없음).
 - 서버: `SVF_MAKER_REPO=<worktree> SVF_MAKER_DATA=<tmp> SVF_MAKER_BIND=127.0.0.1:18766 python3 -P maker/server.py`가
   "svf-maker listening on 127.0.0.1:18766"을 출력했다; `GET /` 200, 4,910바이트, 제목 "SVF maker"; `GET /api/repo`
   200(폴더 `dos`, `jamo-extra`); `POST /api/jobs` 200 `{"id": ...}`; `Origin:
   http://evil.example`를 붙인 같은 POST는 403 "cross-origin request". 서버를 통한 업로드나 변환은 실행하지 않았다.
 
-**마감 실행 상태(Task 15, maker-controls 브랜치).** heavy를 통한 maker 스위트: 666개 시험 OK(10개 건너뜀: playwright, freetype-py/uharfbuzz, numpy, `SVF_MAKER_REAL_*` 없음); heavy를 통한 `tools/test_*.py`: 967개 시험 OK(17개 건너뜀), `test_web_picker` 포함;
+**마감 실행 상태(Task 15, maker-controls 브랜치).** heavy를 통한 maker 스위트: 666개 테스트 OK(10개 건너뜀: playwright, freetype-py/uharfbuzz, numpy, `SVF_MAKER_REAL_*` 없음); heavy를 통한 `tools/test_*.py`: 967개 테스트 OK(17개 건너뜀), `test_web_picker` 포함;
 heavy를 통한 `make -C c check`: exit 0; `sh c/cross/test-check-features.sh`: OK; google-chrome에서 `maker/test/smoke_dom.py`: exit 0;
 `git diff 01a943f -- c/src c/include`: 비어 있음.
 
 ## 7. 격차 목록(우선순위 순)과 각각이 속한 카드
 
 1. **t_9acea7ab** - 완료(Tasks 6-8): 페이지가 생성된 페이스를 WASM 렌더러로 그린다; `GET .../face/<step>.svf`;
-   `svfline` PNG는 시험 오라클일 뿐이다.
+   `svfline` PNG는 테스트 오라클일 뿐이다.
 2. **t_9acea7ab** - 완료(Tasks 1, 7): export `svfw_metrics`, `svfw_glyph`, `svfw_pieces`, `svfw_cmap_cp`,
    `svfw_line_box`; ascent와 dy 재정의는 페이지의 컴포지터가 처리한다(`c/src`에 훅 없음).
 3. **t_9acea7ab** - 완료(Tasks 4, 5, 9, 10, 11): 도구별 ascent 키, `--fit-cell`, `--width`, `--latin`,
@@ -171,9 +171,9 @@ heavy를 통한 `make -C c check`: exit 0; `sh c/cross/test-check-features.sh`: 
    KSC/johab PCF, `johab844.py`, 12x24 `--eng`, `bdfface` 뒤의 `--from-svf`, 스트라이크 크기). 남은 것: 원본 및
    인스턴스 미리보기(t_9acea7ab), local 전용 모드와 Mac `fbit`(t_cbd14d61), Electron, 패키징, 자모 인식기.
 6. **t_cbd14d61** - 완료(Tasks 1-15, maker-local 브랜치): 경로 기반 원본을 쓰는 local 전용 모드, Mac `fbit`(두 세대 모두)와 HWP 줄은 그곳에만;
-   출력은 선택한 폴더에만; 127.0.0.1은 시험으로 증명됨. 마감 근거와 열린 항목은 8절에 있다.
+   출력은 선택한 폴더에만; 127.0.0.1은 테스트로 증명됨. 마감 근거와 열린 항목은 8절에 있다.
 7. **t_f04f1355** - Electron: 포트 0 + stdout 핸드셰이크, 실행마다 토큰, http로 로드(file:// 아님), userData를
-   데이터 루트로, 경로를 local 모드에 넘기는 네이티브 대화상자, 창과 함께 멈추는 사이드카.
+   데이터 루트로, 경로를 로컬 모드에 넘기는 네이티브 대화상자, 창과 함께 멈추는 사이드카.
 8. **t_e64a56a7** - 패키징: `[sys.executable, "-P", tool]`(routes.py:20)을 사이드카 도구 진입점으로 대체;
    `tools/`, `svf/` 부분집합, `web/mkindex.py`를 싣는다; repo head를 빌드 id로; Pillow/FreeType/fontTools를
    번들에 포함.
@@ -181,13 +181,13 @@ heavy를 통한 `make -C c check`: exit 0; `sh c/cross/test-check-features.sh`: 
    페이스를 그것이 재현하는 배포 페이스와 바이트 단위로 동일하게 만들었다: 경로가 `svf2to3.py --profile default`로 끝나며
    `PresetAcceptanceTest`가 바이트 단위로 고정한다); T15의 unit/README와 t_a1cf496b의 tailnet 조항은 데스크톱 방향으로 재조정해야 한다.
 
-## 8. Local 모드: 마감 근거, 셸 계약, 검증하지 못한 것(카드 t_cbd14d61)
+## 8. 로컬 모드: 마감 근거, 셸 계약, 검증하지 못한 것(카드 t_cbd14d61)
 
-**카드의 마감 측정과 시험의 대응**(모두 합성; 저장소에 독점 바이트는 없다):
+**카드의 마감 측정과 테스트의 대응**(모두 합성; 저장소에 독점 바이트는 없다):
 
 | 마감 측정 | 근거 |
 |---|---|
-| 합성 Mac/HWP 유사 파일이 local 모드로 변환된다 | `MacEndToEndTest`(test_plan_inputs.py: 7.1 direct, derived, bdf + mkfont, wrapped, JM, gz, 동반 파일 실패 연쇄, 1.0 end to end); `test_ascii_pft_from_another_folder`(감지)와 `LocalRunTest`의 DOS raw 작업 |
+| 합성 Mac/HWP 유사 파일이 로컬 모드로 변환된다 | `MacEndToEndTest`(test_plan_inputs.py: 7.1 direct, derived, bdf + mkfont, wrapped, JM, gz, 동반 파일 실패 연쇄, 1.0 end to end); `test_ascii_pft_from_another_folder`(감지)와 `LocalRunTest`의 DOS raw 작업 |
 | 네트워크 꺼짐, 127.0.0.1만 | `LocalBindTest`(토큰, loopback 전용 bind, `main()` 거부); `NoNetworkTest.test_static_no_network_imports`, `test_network_off_in_process`, `test_network_off_namespace`(`unshare -rn`이 거부되는 곳에서는 건너뜀) |
 | README가 독점 폰트를 배포하지 않음을 밝힌다 | `test_readme_and_notice_wording` (test_server.py) |
 | 선택한 출력 폴더 밖에는 아무것도 쓰이지 않는다 | `LocalSweepTest.test_no_write_outside_output`, `WriteTreeTest`(디스크립터 상대 쓰기, 링크되거나 바뀐 폴더, 교체되거나 제거된 출력 폴더) |
@@ -208,13 +208,13 @@ heavy를 통한 `make -C c check`: exit 0; `sh c/cross/test-check-features.sh`: 
   (시작 시 정리가 이를 제거하며, 보류 정리 기록이 실패한 제거를 보존한다).
 - 페이지는 세션마다 한 번, 폰트 변환은 사용자의 책임이라는 확인을 요청한다; 셸은 그럴 필요가 없다.
 
-**Not verified**(이것을 빌드한 호스트에서는 실행할 수 없었다; 각각 코드와 시험의 해당 위치에 명시되어 있다):
+**Not verified**(이것을 빌드한 호스트에서는 실행할 수 없었다; 각각 코드와 테스트의 해당 위치에 명시되어 있다):
 `unshare -rn` 실행(호스트에서 거부됨; 정적 import 검사와 프로세스 내 소켓 가드가 관문이며,
 가드는 도구 서브프로세스도, `SVF_RECOG_DIR`가 가리키는 사용자 자신의 `recog.py`도 볼 수 없다); 실제 Apple HangulTalk
-7.1.2 및 1.0 파일, 실제 HWP `.PFT` 파일, 실제 7.1.2 HTBL(`SVF_MAKER_REAL_*` 시험은 건너뜀); Mac의 macOS 이름 있는
+7.1.2 및 1.0 파일, 실제 HWP `.PFT` 파일, 실제 7.1.2 HTBL(`SVF_MAKER_REAL_*` 테스트는 건너뜀); Mac의 macOS 이름 있는
 resource fork; Electron, 그 preload, `contextIsolation`, 네이티브 대화상자, `shell.showItemInFolder`(가짜
 `window.svfMaker`가 대신한다); FAT, exFAT, SMB/NAS 마운트(하드 링크 없음 대체와 거부된 `chmod`는
-목으로 시험한다); 실제 디스크 가득 참 상황(목); 대소문자를 구분하지 않는 파일 시스템; 심볼릭 링크된 부모 외의 방식으로 표기된
+목으로 테스트한다); 실제 디스크 가득 참 상황(목); 대소문자를 구분하지 않는 파일 시스템; 심볼릭 링크된 부모 외의 방식으로 표기된
 inode 겹침; `.svf-maker-<id>/`를 읽는 동기화 클라이언트; 실제
 Electron 재실행에 걸친 `sessionStorage` 유지.
 
@@ -277,9 +277,9 @@ the cleanup"을 대체한다. 이제 무엇이 제한되고 무엇이 제한되�
 - **제한되지 않는 것.** 데이터 루트; 돌아오지 않는 rename 또는 mkdir(위); 볼륨 자체의 회복(멈춘 호출은
   돌아올 때까지 데몬 스레드를 유지한다).
 
-근거(별도 언급이 없으면 `maker/test/test_local_bounds.py`의 시험):
+근거(별도 언급이 없으면 `maker/test/test_local_bounds.py`의 테스트):
 
-| 한도 | 시험 |
+| 한도 | 테스트 |
 |---|---|
 | 펜스, 공유 읽기, 보류 쓰기 스레드 | `test_rename_bounded_abandons_a_hung_rename_and_fences_the_path`, `test_a_read_only_call_waits_for_the_one_in_flight`, `test_pending_op_returns_by_the_deadline_while_the_pending_lock_is_held`, `test_pending_op_returns_by_the_deadline_while_fsync_hangs`, `test_pending_op_with_an_expired_deadline_still_lands_on_a_healthy_disk`, `test_records_after_a_stalled_one_do_not_wait_the_floor`, `test_the_pending_writer_exits_when_idle_and_restarts` |
 | 정지와 스윕 | `test_stop_returns_by_the_deadline_although_a_rename_hangs`, `test_an_abandoned_rename_never_moves_a_later_generation`, `test_stop_returns_by_the_deadline_while_fsync_hangs`, `test_stop_lands_its_pending_records_before_returning`, `test_an_idle_sweep_does_not_wait_beyond_its_deadline_for_the_lifecycle_lock`, `test_a_retry_starts_no_filesystem_call_after_its_deadline` |
@@ -293,10 +293,10 @@ the cleanup"을 대체한다. 이제 무엇이 제한되고 무엇이 제한되�
 | 마감 측정 | 근거 |
 |---|---|
 | 셸이 Linux에서 앱을 열고, 브리지를 통해 파일과 폴더를 고르고, 샘플을 출력 폴더로 변환하고, 고아 프로세스 없이 깔끔하게 종료한다 | `desktop/test/e2e.js`(`bridge`, `flow`, `open-folder`, 가드, 재시작, privacy; dev와 패키지 패스, 30개 검사)와 `desktop/test/lifecycle.test.js`(close, SIGTERM, 셸의 SIGKILL, 두 번째 인스턴스); 릴리스 검사의 `smoke` |
-| 동결된 사이드카가 python이 PATH에 없는 깨끗한 환경에서 OFL 샘플 세트를 source 모드와 바이트 단위로 동일하게 변환한다 | `maker/test/test_frozen.py`(26개 시험, `FrozenByteEqualTest`, 빈 PATH와 `env -i` 아래의 `test_frozen_jobs_match_source`, `test_frozen_notes_equal_source`), 추출된 AppImage에서 건너뜀 없이 다시(`release-check.sh` `frozen`) |
+| 동결된 사이드카가 python이 PATH에 없는 깨끗한 환경에서 OFL 샘플 세트를 source 모드와 바이트 단위로 동일하게 변환한다 | `maker/test/test_frozen.py`(26개 테스트, `FrozenByteEqualTest`, 빈 PATH와 `env -i` 아래의 `test_frozen_jobs_match_source`, `test_frozen_notes_equal_source`), 추출된 AppImage에서 건너뜀 없이 다시(`release-check.sh` `frozen`) |
 | AppImage가 로컬 스크립트로 빌드되고 실행된다 | `desktop/build/build-appimage.sh`; 추출된 `AppRun` smoke(호스트에 FUSE 없음) |
-| THIRD-PARTY 생성 | `desktop/test/third-party.test.js`(12개 시험)와 추출본에 대한 `licences` 검사 |
+| THIRD-PARTY 생성 | `desktop/test/third-party.test.js`(12개 테스트)와 추출본에 대한 `licences` 검사 |
 | Windows와 macOS 단계는 UNVERIFIED로 문서화됨 | `docs/maker-desktop.md` |
 
 고아 프로세스와 수명 주기 규칙(`maker/toolreg.py`, `--exit-with-parent`, `instance.lock`)은 `test_toolreg.py`,
-`test_server_signals.py`, `test_frozen.py`에서 시험한다. Not verified: `docs/maker-desktop.md`를 참조한다.
+`test_server_signals.py`, `test_frozen.py`에서 테스트한다. Not verified: `docs/maker-desktop.md`를 참조한다.

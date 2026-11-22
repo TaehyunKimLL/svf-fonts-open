@@ -125,9 +125,9 @@ Pillow와 fontTools를 import할 수 있어야 한다):
 |---|---|---|
 | 셸 | Electron 프로그램: 창 하나, 네이티브 메뉴, 네이티브 대화상자 넷. 나머지 두 계층을 시작하고 중지하며 페이지에 아주 작은 브리지를 건네 준다. | `desktop/main.js`, `desktop/preload.js`, `desktop/lib/*.js` |
 | Maker 서버("사이드카") | `127.0.0.1`의 임의 포트에 바인딩되는 Python HTTP 서버. 폰트를 감지하고, 경로를 계획하고, 도구를 작업(job)으로 실행하며, 페이지를 제공한다. 패키지에서는 PyInstaller one-directory 번들 `svf-maker-sidecar`이며, 모든 도구는 같은 실행 파일을 `svf-maker-sidecar run-tool <name>`으로 호출한 것이다. | `maker/*.py`, `tools/*.py` |
-| 페이지 | 사용자 인터페이스. sidecar가 제공하는 순수 HTML과 ES 모듈이다. WebAssembly로 컴파일한 C 렌더러(`maker/static/wasm/svf.wasm`)를 페이지 안에서 직접 실행하여 페이스를 미리 본다. | `maker/static/` |
+| 페이지 | 사용자 인터페이스. 사이드카가 제공하는 순수 HTML과 ES 모듈이다. WebAssembly로 컴파일한 C 렌더러(`maker/static/wasm/svf.wasm`)를 페이지 안에서 직접 실행하여 페이스를 미리 본다. | `maker/static/` |
 
-창 제목은 "SVF maker"이다. shell은 정확히 한 페이지 `http://127.0.0.1:<port>/`만 로드한다. sidecar가 아직 시작되는 중이면
+창 제목은 "SVF maker"이다. 셸은 정확히 한 페이지 `http://127.0.0.1:<port>/`만 로드한다. 사이드카가 아직 시작되는 중이면
 (2초 넘게) 창에는 작은 "starting the maker..." 페이지가 표시된다.
 
 ## 2. 앱 시작
@@ -148,7 +148,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
   렌더러는 Chromium의 샌드박스 없이 실행된다(자동이며 아무것도 넘길 필요가 없다). Help > About에 이 사실이 표시된다. 8절을 참조한다.
 - AppImage는 아무것도 설치하지 않는다. 메뉴 항목도, 아이콘 테마 항목도 없다. 추가하는 방법은 12절에 있다.
 
-시작 순서(궁금한 사람을 위해): shell이 단일 인스턴스 잠금을 얻고, 로그를 열고, 새 임의 토큰과 `127.0.0.1:0`으로 sidecar를
+시작 순서(궁금한 사람을 위해): 셸이 단일 인스턴스 잠금을 얻고, 로그를 열고, 새 임의 토큰과 `127.0.0.1:0`으로 사이드카를
 시작하고, `svf-maker listening on 127.0.0.1:<port>` 줄을 기다린 뒤(최대 75초이며, 정상적인 시작은 2초 안에 이 줄을
 출력한다) 창을 열고 페이지를 로드한다. 페이지는 `/api/caps`를 한 번 요청하여 로컬 모드로 실행 중인지, 어떤 선택적
 부분이 있는지를 알아낸다.
@@ -309,23 +309,23 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 
 - **File**: Open output folder; Quit.
 - **View**: Reload; Actual size; Zoom in과 Zoom out(Ctrl과 `+` 또는 `-`, 50%에서 300%까지).
-- **Help**: About은 앱 버전, 빌드 id, Electron, Chromium, Node 버전, sidecar의 버전과 Python, 렌더러 샌드박스 상태,
+- **Help**: About은 앱 버전, 빌드 id, Electron, Chromium, Node 버전, 사이드카의 버전과 Python, 렌더러 샌드박스 상태,
   그리고 서드파티 라이선스(`THIRD-PARTY.txt`) 버튼을 보여 준다.
 
-shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크기, 확대 배율, 마지막 출력 폴더, 그리고 내준 출력
+셸은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크기, 확대 배율, 마지막 출력 폴더, 그리고 내준 출력
 폴더들(마지막 32개, 실제 경로로 저장하며 이것들만 "Open output folder"로 열 수 있다). 토큰과 입력 경로는 저장하지
 않는다.
 
 ## 8. 프라이버시와 보안
 
-- **네트워크 없음.** 페이지의 Content-Security-Policy는 자기 origin만 허용한다. shell은 sidecar로 가지 않는 모든 요청을
+- **네트워크 없음.** 페이지의 Content-Security-Policy는 자기 origin만 허용한다. 셸은 사이드카로 가지 않는 모든 요청을
   취소한다(새 창, 탐색, 다운로드, 장치 및 권한 요청은 모두 거부된다). maker 자체 코드는 네트워크 라이브러리를 import하지
   않는다. 텔레메트리, 충돌 업로드, 업데이트 확인은 없다.
-- **토큰.** sidecar는 실행할 때마다 새 임의 토큰으로 시작한다. shell이 이를 페이지의 `/api/` 요청에 `X-Maker-Token`으로
+- **토큰.** 사이드카는 실행할 때마다 새 임의 토큰으로 시작한다. 셸이 이를 페이지의 `/api/` 요청에 `X-Maker-Token`으로
   덧붙이며, 페이지 자신은 토큰을 보지 못한다. 모든 요청은 이 서버의 `Host`도 실어야 한다. 서버는 loopback에만
   바인딩되며 그 밖의 것은 거부한다.
 - **브리지.** 페이지는 네 함수가 있는 `window.svfMaker`를 받는다: `pickFiles()`, `pickFolder()`, `pickOutputDir()`,
-  `openOutputFolder()`(그리고 읽기 전용 `platform`). shell은 maker 자신의 origin의 프레임에만 응답한다. 경로는
+  `openOutputFolder()`(그리고 읽기 전용 `platform`). 셸은 maker 자신의 origin의 프레임에만 응답한다. 경로는
   절대 경로이며, 취소된 대화상자는 빈 목록 또는 `null`을 반환한다.
 - **파일.** 폰트는 제자리에서 읽히며 수정되지 않는다. 출력은 사용자가 고른 폴더 아래에만 쓰인다.
 - **샌드박스.** 페이지는 context isolation, Node 통합 없음, 샌드박스된 preload로 실행된다. 시스템이 사용자
@@ -352,7 +352,7 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 | `JAMOSET_PYLIB` | `freetype-py`와 `uharfbuzz`가 있는 폴더. `mask fit` 경로와 `binarize mono`를 활성화한다. |
 | `JAMOSET_MASK_FONT` | `mask fit`이 조각을 한정하는 데 쓰는, OpenType 자모 치환(`ljmo`, `vjmo`, `tjmo`)이 있는 폰트 파일. 없으면 도구는 ScummVM 트리 옆의 NotoSansKR을 찾는데 패키지된 앱에는 그것이 없으므로, `mask fit`을 쓸 때는 지정한다. |
 | `SVF_MAKER_ROOTS` | 콜론으로 구분한 절대 경로 폴더들. 모든 소스와 **출력 폴더**가 이 중 하나 안에 있어야 한다(밖의 경로는 "outside SVF_MAKER_ROOTS"로 거부된다). 루트를 나눈 예: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. 설정하지 않으면 3.2절의 규칙 외에 제한이 없다. |
-| `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | 인터프리터(절대 경로, numpy, torch, PIL, fontTools 포함)와, 조각 정체 검사를 위한 사용자 자신의 `recog.py`가 있는 폴더. 점수 계산 전용이며 아무것도 함께 배포되지 않는다. 이것이 없으면 페이지는 검사를 쓸 수 없다고 표시한다. |
+| `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | 인터프리터(절대 경로, numpy, torch, PIL, fontTools 포함)와, 조각 정체성 검사를 위한 사용자 자신의 `recog.py`가 있는 폴더. 점수 계산 전용이며 아무것도 함께 배포되지 않는다. 이것이 없으면 페이지는 검사를 쓸 수 없다고 표시한다. |
 | `SVF_MAKER_DEV=1` | 개발 모드: frozen 사이드카 대신 체크아웃에서 `python3 maker/server.py`를 실행한다. `SVF_MAKER_DEV_REPO`가 체크아웃을 지정한다. |
 | `SVF_MAKER_DEVTOOLS=1` | 개발자 도구와 View > Toggle DevTools 항목을 활성화한다. |
 | `SVF_MAKER_SHELL_LOG=stderr` | 셸 로그가 표준 오류에도 출력된다. |
@@ -365,7 +365,7 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 - **앱이 실행 중일 때 서버가 멈춤**: 대화상자가 Restart 또는 Quit를 제안한다. 재시작에는 횟수 제한이 있으며, 짧은 시간에
   너무 많이 재시작하면 앱이 종료된다.
 - **창이 충돌함**: 앱은 같은 페이지를 한 번 다시 로드하며, 두 번째 충돌이 나면 메시지를 보여 주고 종료한다.
-- **종료**: shell은 sidecar에 중지를 요청하고(최대 45초) 실행 중인 작업을 취소하며 그 도구 프로세스를 종료한다. 그 시점에
+- **종료**: 셸은 사이드카에 중지를 요청하고(최대 45초) 실행 중인 작업을 취소하며 그 도구 프로세스를 종료한다. 그 시점에
   대기 중이거나 실행 중이던 작업은 작업 파일이 프로세스와 함께 사라지므로 실패(`interrupted`)로 표시된다. 출력 폴더에
   이미 쓰인 페이스는 남는다.
 - **디스크 가득 참, 특이한 파일 시스템, 대소문자를 구분하지 않는 디스크, 동기화 클라이언트**: 테스트하지 않았다(아래
@@ -431,7 +431,7 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 - */tmp에서 실행이 가능해야 한다.* AppImage는 `/tmp/.mount_*` 아래에 스스로를 마운트하고 거기서 프로그램을 실행한다. `/tmp`가 `noexec`로
   마운트되어 있으면 시작이 실패한다(보통 "permission denied" 메시지. 여기서 재현하지는 않았다). `/tmp`를 `noexec` 없이 다시
   마운트하거나, `--appimage-extract`를 쓰고 실행이 허용되는 곳에서 `squashfs-root/AppRun`을 실행한다.
-- *샌드박스 없음.* 권한 없는 사용자 네임스페이스를 쓸 수 없으면 런처가 이를 알아차리고(`unshare -Ur true`를 시험한다) 스스로 `--no-sandbox`를
+- *샌드박스 없음.* 권한 없는 사용자 네임스페이스를 쓸 수 없으면 런처가 이를 알아차리고(`unshare -Ur true`를 테스트한다) 스스로 `--no-sandbox`를
   붙인다. 사용자가 할 일은 없다. 그러면 Help > About에 "renderer sandbox: off"가 표시된다.
 - *그 밖의 경우.* 터미널에서 `SVF_MAKER_SHELL_LOG=stderr ./svf-maker-0.1.0.AppImage`로 시작해 메시지를 읽고,
   `~/.config/svf-maker/logs/shell.log`도 본다.
@@ -462,7 +462,7 @@ shell은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크�
 - Windows와 macOS: 빌드하지도 실행하지도 않았다. 서버는 Windows에 대응하지 않는다(프로세스 그룹, 잠금, 파일 링크 호출이
   POSIX이다). macOS 계획(서명, notarisation)은 [maker-desktop.ko.md](maker-desktop.ko.md)에 적혀 있다.
 - `mask fit` 경로는 작성자의 호스트에서 작업을 한 번도 실행한 적이 없다(그곳에는 라이브러리가 설치되어 있지 않다).
-  정체 검사는 스텁으로만 테스트했다. `vector fit`은 폰트당 수 분이 걸린다.
+  정체성 검사는 스텁으로만 테스트했다. `vector fit`은 폰트당 수 분이 걸린다.
 - 네이티브 대화상자, 파일 관리자 연동, 실제 FUSE 마운트를 통한 창 시작, GPU 경로, 샌드박스된 렌더러는 손으로만
   확인했다. 자동화된 테스트는 대화상자를 스텁으로 대체하고 GPU를 끈 채 실행한다.
 - 실제 Mac, HWP, Johab 파일은 환경 변수가 사용자 자신의 사본을 가리키는 곳에서만 테스트한다. 저장소의 테스트는 합성

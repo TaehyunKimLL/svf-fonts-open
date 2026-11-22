@@ -217,7 +217,7 @@ if (need && need <= sizeof tables)
 알아 둘 규칙은 다음과 같다.
 
 - `svf_stream_tables_size`는 `tables`가 얼마나 커야 하는지 알려 준다. 이는 페이스에, 그리고 빌드가 어떤 리더를 컴파일했는지에 달려 있다.
-  `NEODG16A.SVF`(자모 페이스)는 8,153바이트이고, 미리 조합된 `NEODG16.SVF`는 46,492바이트이다(측정값).
+  `NEODG16A.SVF`(자모 페이스)는 8,153바이트이고, 완성형 `NEODG16.SVF`는 46,492바이트이다(측정값).
 - 블록 캐시는 선택 사항이다(`cache_len`이 0이면 없음). 캐시가 있으면 라이브러리는 `block_size`바이트 블록(64에서 4096 사이의 2의 거듭제곱)
   전체를 읽고 가장 최근에 쓴 것들을 유지한다. 슬롯 하나는 `block_size + 8`바이트이며 캐시는 최소 두 슬롯을 담아야 한다.
   `cache_len`으로 `sizeof cache`를 넘긴다.
@@ -544,7 +544,7 @@ svf_draw_utf8(&chain, "가A", 4, 2, 16, &t, scratch, scratch_len);
 
 ## 10. 한글: 자모 페이스와 음절 조합
 
-**미리 조합된(precomposed)** 페이스는 담당하는 음절마다 글리프 하나를 저장한다. **자모 세트(jamo-set)** 페이스(헤더 플래그 비트 1,
+**완성형** 페이스는 담당하는 음절마다 글리프 하나를 저장한다. **자모 세트(jamo-set)** 페이스(헤더 플래그 비트 1,
 `svf_is_jamo(f)`)는 수백 개의 작은 조각과, 어떤 조각들이 각 음절을 이루는지 알려 주는 테이블을 저장한다. `svf_draw_utf8`는 조각들로부터
 U+AC00..U+D7A3(그리고 호환 자모 U+3131..U+3163)을 즉석에서 조합한다. 두세 조각의 최대 커버리지이다. 특별히 할 일은 없다. 그냥 한글
 텍스트를 그리면 된다. 한 가지 단서가 있다. 음절 테이블은 일부만 담을 수 있다. SPARSE(비트맵과 그 항목들) 또는 LIST(예외 최대 255개의 정렬된 목록)인
@@ -567,7 +567,7 @@ svf_glyph(&face, 0xD55C, cell, sizeof cell);           /* 조합된 셀, MSB 우
 ### 10.1 사용자의 빌드가 읽는 것
 
 자모 블록은 버전 1, 2, 3(LIST 형식이 있는 JMAP)이 있다. 기본 데스크톱/DOS/WASM/SDL 빌드는 모두 읽는다(`-DSVF_SMALL`에서는 읽지 않는다. 12절). 작은 MCU 빌드는 더 적게 읽는다
-([c/README.ko.md](../c/README.ko.md)의 표 "Jamo sets: what each build reads" 참조). 빌드가 읽지 못하는 페이스도 상태 비트와 함께 **일반**
+([c/README.ko.md](../c/README.ko.md)의 표 "자모 세트: 각 빌드가 읽는 것" 참조). 빌드가 읽지 못하는 페이스도 상태 비트와 함께 **일반**
 페이스로 열리며, 다만 한글을 조합하지 않는다. 자신의 애플리케이션용 페이스는 저장소의 도구와 같은 방식으로 빌드하고, 로드 시점에
 `svf_status`를 확인하라.
 
@@ -616,7 +616,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
   않는다. 그것을 필요로 하는 페이스는 `SVF_FACE_JSET_BAD`가 설정된(`SVF_FACE_JMAP_UNREAD`는 `-DSVF_JMAP_RECOG=1`일 때만) **일반 페이스**로 열리고 한글을 그리지 않는다. 필요하면
   `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`을 더하라(`SVF_JMAP_LIST`는 `SVF_JMAP`을 따른다).
 
-툴체인별 기본값이 있는 전체 스위치 표는 [c/README.ko.md](../c/README.ko.md)의 "Compile-time switches"에 있고, 각 구성이 만드는 크기는
+툴체인별 기본값이 있는 전체 스위치 표는 [c/README.ko.md](../c/README.ko.md)의 "컴파일 시점 스위치"에 있고, 각 구성이 만드는 크기는
 `c/cross/SIZES.md`에 있다.
 
 ## 13. 플랫폼
@@ -692,7 +692,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
 - **메모리(측정).** `.bin` 21,068바이트. text 22,456(페이스 10,124), data 20, bss 1,232, `.highcode` 2,576(RAM에 산다). 사용 RAM은 32,768 중
   5,876이며 스택은 2,048바이트이고, `main`의 스택 최고치는 640이다.
 - **한계.** 이미지는 24 MHz로 돈다(I2C 모듈 클럭은 2..36 MHz여야 한다). Makefile의 `FREQ_SYS`는 `SetSysClock`과 일치해야 한다. **패널에서
-  아직 시험하지 않았다.** 핀 매핑, 패널 변종(SH1106 또는 진짜 SSD1306, 열 오프셋), LED 결과 코드는 README에 있다. 세부 내용은
+  아직 테스트하지 않았다.** 핀 매핑, 패널 변종(SH1106 또는 진짜 SSD1306, 열 오프셋), LED 결과 코드는 README에 있다. 세부 내용은
   [c/ports/ch582/README.ko.md](../c/ports/ch582/README.ko.md)에 있다.
 
 ### 13.3 DOS(DJGPP)
@@ -1017,7 +1017,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
 `width(str)` 및 `draw(str, x, y_top)` 메서드로 이루어진다.
 
 ScummVM에 대한 참고: 저장소의 ScummVM 작업은 현재 자체 SVF 리더(`jamo_set.h`)를 쓰며, 이는 버전 3 자모 블록을 읽지 못한다. 이를 이
-라이브러리로 교체하는 일은 따로 추적된다([c/README.ko.md](../c/README.ko.md)의 "Who uses it" 참조). 이 절의 모든 내용은 그 통합에
+라이브러리로 교체하는 일은 따로 추적된다([c/README.ko.md](../c/README.ko.md)의 "사용처" 참조). 이 절의 모든 내용은 그 통합에
 적용된다.
 
 ## 15. 통합 테스트

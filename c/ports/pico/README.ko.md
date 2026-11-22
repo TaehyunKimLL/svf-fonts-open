@@ -50,7 +50,7 @@ PATH에 `picotool` 바이너리만 있는 것으로는 찾지 못한다), 없으
 
     picotool uf2 convert build-pico-colour/svf_pico_colour.elf build-pico-colour/svf_pico_colour.uf2 --family rp2040 --platform rp2040
 
-가정한 모듈(데이터시트와 흔한 브레이크아웃 보드에 맞춰 작성했으며 패널에서는 시험하지 않았다)과, 흔한 변형을 위해
+가정한 모듈(데이터시트와 흔한 브레이크아웃 보드에 맞춰 작성했으며 패널에서는 테스트하지 않았다)과, 흔한 변형을 위해
 바꿀 바이트 하나는 다음과 같다.
 
 - ST7789, 240 x 240: init의 `MADCTL`(`0x36`)을 `0x00`(기본 방향, RGB 순서)으로 하고 `INVON`(`0x21`, 일반적인
