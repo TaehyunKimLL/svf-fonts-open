@@ -38,10 +38,11 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
 토큰을 설정하면(위 참조) maker는 폰트를 **있는 자리에서** 읽고, 사용자가 고른 출력 폴더에만 페이스를 쓴다.
 아무것도 업로드하지 않고, 데이터 디렉터리로 복사하지 않으며, zip도 만들지 않는다. 데스크톱 앱이 이를 구동한다:
 
-- `POST /api/jobs {"source": "local", "output_dir": "/abs/folder"}`가 작업을 만든다(토큰이 없으면 403).
+- `POST /api/jobs {"source": "local", "output_dir": "/abs/folder"}`가 작업을 만든다(토큰이 없으면 403. 폴더는 이미 있어야 하며, 없으면 400
+  `{"error": "output folder: no such file or folder"}`이다. 서버의 모든 거부는 `error` 문장이 있는 JSON이다).
   `PUT /api/jobs/<id>/sources {"paths": [...]}`가 읽을 파일이나 폴더를 알려 준다(각각 검사한다: 절대 경로일 것, 링크가
   아닐 것, 데이터 폴더가 아닐 것, 출력 폴더나 다른 입력과 겹치지 않을 것. 선택적인 `SVF_MAKER_ROOTS`
-  허용 목록이 더 제한한다). 그다음 평소대로 `POST detect`, `PUT settings`, `POST run`. 고른 경로는 제자리에서 읽으며,
+  허용 목록이 더 제한하며 출력 폴더에도 적용된다). 그다음 평소대로 `POST detect`, `PUT settings`, `POST run`. 고른 경로는 제자리에서 읽으며,
   아카이브는 목록만 보이고 풀지 않는다.
 - 실행하면 `svf/<dest>/<NAME>.SVF`와 그 노트(라이선스 본문을 골랐다면 그것도), 그리고 `build-<id>/`
   (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`)를 출력 폴더에 쓰며, 그 밖에는 쓰지 않는다.
@@ -81,15 +82,25 @@ argv를 만들며, 소스 모드는 여전히 `python3 -P tools/<name>.py`를 �
 인터프리터에서 `SVF_RECOG_DIR`과 함께 실행되고, mask-fit 라이브러리는 `JAMOSET_PYLIB`에서 가져온다. 패키징된 저장소 트리는
 그 인터프리터를 위해 `maker/*.py`와 `tools/*.py`를 소스로 담고 있다.
 
-Linux에서의 빌드(전체 순서, 버전, 수치: `docs/maker-desktop.md`): `~/.local/bin/heavy bash
-desktop/build/build-appimage.sh`는 emsdk(WASM 모듈), pip가 있는 Python 3.12, npm이 있는 node 22가 필요하다. 동결된
-사이드카를 빌드하고 `THIRD-PARTY.txt`와 AppImage를 생성하며 릴리스 검사를 실행한다. Windows와 macOS 패키지는
-빌드하지도 검증하지도 않았다. 절차는 `docs/maker-desktop.md`에 적혀 있으며 서버는 Windows에 대응하지 않는다.
+Linux에서 git 체크아웃으로 빌드한다(설치와 첫 실행: `docs/desktop-app.ko.md`의 빠른 시작, 기록, 버전, 수치:
+`docs/maker-desktop.ko.md`). `cd desktop && npm ci && node node_modules/electron/install.js` 다음에 체크아웃 루트에서
+`bash desktop/build/build-appimage.sh`를 실행한다(작성자는 `~/.local/bin/heavy` 아래에서 실행하지만 이는 선택 사항이다).
+emsdk(`$EMSDK`, 기본값 `~/opt/emsdk`, 스크립트가 WASM 모듈을 직접 빌드함), pip가 있는 Python 3.12, npm이 있는 node 22,
+`xvfb-run`(스모크 검사용), 시스템 `python3`용 Pillow와 fontTools(동결 테스트와 개발 실행이 maker를 import한다. apt:
+`python3-pil python3-fonttools`)가 필요하다. 동결된 사이드카를 빌드하고 `THIRD-PARTY.txt`와
+`desktop/dist/svf-maker-<version>.AppImage`를 생성하며 릴리스 검사를 실행한다. 패키징 없이 체크아웃에서 앱을 실행하려면:
+`cd desktop && npm ci && node node_modules/electron/install.js && bash ../maker/build-wasm.sh &&
+node_modules/.bin/electron --no-sandbox .`(`--no-sandbox`는 사용자 네임스페이스가 막힌 곳에서만). Windows와 macOS 패키지는
+빌드하지도 검증하지도 않았다. 절차는 `docs/maker-desktop.ko.md`에 적혀 있으며 서버는 Windows에 대응하지 않는다.
 
 ## 선택적 환경 변수
 
 - `JAMOSET_PYLIB` - freetype-py와 uharfbuzz가 들어 있는 폴더. `mask fit` 경로와 `binarize mono`용이다
   (없으면 둘은 제공되지 않는다).
+- `JAMOSET_MASK_FONT` - `mask fit`이 쓰는, OpenType `ljmo`/`vjmo`/`tjmo`가 있는 폰트(`jamoset.py --mask-font`). `JAMOSET_PYLIB`처럼
+  도구에 그대로 전달된다.
+- `SVF_MAKER_ROOTS` - 콜론으로 구분한 절대 경로 폴더들. 로컬 모드에서는 모든 소스와 출력 폴더가 이 중 하나 안에 있어야 한다
+  (예: `$HOME/fonts:$HOME/svf-out`).
 - `SVF_RECOG_PYTHON` - maker가 동결되었을 때 정체성 검사를 실행하는 인터프리터(데스크톱 앱 참조).
 - `SVF_RECOG_DIR` - 자모 세트의 조각 정체성 검사를 위한 `recog.py`와 그 가중치가 있는 폴더(numpy와 torch 필요).
   채점 전용이다. 인식기나 가중치는 이 저장소에 없으며, 이 폴더가 없으면 페이지는

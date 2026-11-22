@@ -38,10 +38,11 @@ built: run maker/build-wasm.sh" and every preview cell shows that text; nothing 
 With the token set (above) the maker reads fonts **where they are** and writes the faces only into an output folder the
 user picked. Nothing is uploaded, nothing is copied into the data directory, no zip is made. The desktop app drives it:
 
-- `POST /api/jobs {"source": "local", "output_dir": "/abs/folder"}` creates the job (403 without the token);
+- `POST /api/jobs {"source": "local", "output_dir": "/abs/folder"}` creates the job (403 without the token; the folder must already exist, else 400
+  `{"error": "output folder: no such file or folder"}`: every refusal of the server is JSON with an `error` text);
   `PUT /api/jobs/<id>/sources {"paths": [...]}` gives it the files or folders to read (each is checked: absolute, not a
   link, not the data folder, not overlapping the output folder or another input; an optional `SVF_MAKER_ROOTS`
-  allow-list limits them further); then the usual `POST detect`, `PUT settings`, `POST run`. A picked path is read in
+  allow-list limits them further, the output folder too); then the usual `POST detect`, `PUT settings`, `POST run`. A picked path is read in
   place; an archive is listed, not unpacked.
 - A run writes `svf/<dest>/<NAME>.SVF` and its note (and a licence text when one was chosen) and `build-<id>/`
   (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`) into the output folder, and nothing else.
@@ -82,15 +83,25 @@ Optional pieces stay outside the bundle: the identity check runs under an interp
 `SVF_RECOG_DIR`, and the mask-fit libraries come from `JAMOSET_PYLIB`; the packaged repo tree carries
 `maker/*.py` and `tools/*.py` as source for that interpreter.
 
-Build on Linux (the whole sequence, versions and numbers: `docs/maker-desktop.md`): `~/.local/bin/heavy bash
-desktop/build/build-appimage.sh` needs emsdk (the WASM module), Python 3.12 with pip, and node 22 with npm. It builds
-the frozen sidecar, generates `THIRD-PARTY.txt` and an AppImage, and runs the release check. Windows and macOS packages
+Build on Linux from a git checkout (install and first run: the Quick start of `docs/desktop-app.md`; the record, versions
+and numbers: `docs/maker-desktop.md`): after `cd desktop && npm ci && node node_modules/electron/install.js` run
+`bash desktop/build/build-appimage.sh` from the checkout root (the author runs it under `~/.local/bin/heavy`, which is
+optional). It needs emsdk (`$EMSDK`, default `~/opt/emsdk`; the script builds the WASM module itself), Python 3.12 with pip,
+node 22 with npm and `xvfb-run` (for the smoke check), plus Pillow and fontTools for the system `python3` (the frozen
+tests and the development run import the maker with it; apt: `python3-pil python3-fonttools`). It builds the frozen sidecar, generates `THIRD-PARTY.txt` and
+`desktop/dist/svf-maker-<version>.AppImage`, and runs the release check. To run the app from the checkout without
+packaging: `cd desktop && npm ci && node node_modules/electron/install.js && bash ../maker/build-wasm.sh &&
+node_modules/.bin/electron --no-sandbox .` (`--no-sandbox` only where user namespaces are denied). Windows and macOS packages
 are not built or verified: the steps are written down in `docs/maker-desktop.md` and the server is not Windows-ready.
 
 ## Optional environment
 
 - `JAMOSET_PYLIB` - the folder holding freetype-py and uharfbuzz, for the `mask fit` route and `binarize mono`
   (without them those are not offered).
+- `JAMOSET_MASK_FONT` - the font with OpenType `ljmo`/`vjmo`/`tjmo` that `mask fit` uses (`jamoset.py --mask-font`); passed
+  on to the tools like `JAMOSET_PYLIB`.
+- `SVF_MAKER_ROOTS` - colon-separated absolute folders; in local mode every source and the output folder must be inside
+  one of them (for example `$HOME/fonts:$HOME/svf-out`).
 - `SVF_RECOG_PYTHON` - the interpreter that runs the identity check when the maker is frozen (see Desktop app).
 - `SVF_RECOG_DIR` - a folder with `recog.py` and its weights (numpy and torch needed) for the piece identity check of
   a jamo set. Scoring only: no recogniser or weights are in this repository, and without the folder the page says the

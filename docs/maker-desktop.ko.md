@@ -20,12 +20,26 @@ t_f04f1355(셸)와 t_e64a56a7(패키징). 설계: `docs/superpowers/specs/2026-1
 
 ## 빌드 (Linux)
 
-빌드 호스트의 선결 조건: emsdk(`~/opt/emsdk`, 마지막으로 쓴 것은 emcc 6.0.13), pip이 있는 Python 3.12.3(Ubuntu에서는
-`python3-venv` 없이 `python3 -m venv`가 동작하지 않는다. 빌드는 `pip install --target`과 `python3 -S`를 쓴다), node 22와 npm 12,
-릴리스 점검의 smoke 실행을 위한 `xvfb-run`, 고정된 wheel과 Electron을 위해 한 번의 네트워크 접근.
+사용자용 안내(무엇을 설치하는지, AppImage가 어디에 생기는지, 첫 실행)는 [desktop-app.ko.md](desktop-app.ko.md)의 빠른 시작이고,
+이 절은 그 기록이다.
 
-    cd desktop && npm ci && node node_modules/electron/install.js && cd ..   # npm 12 blocks Electron's postinstall
-    ~/.local/bin/heavy bash desktop/build/build-appimage.sh [--release]
+빌드 호스트의 선결 조건: git 체크아웃(스크립트가 `git log`와 `git describe`를 읽는다), emsdk(`$EMSDK`, 기본값 `~/opt/emsdk`.
+`maker/build-wasm.sh`가 미리 보기 모듈을 직접 컴파일한다. 마지막으로 쓴 것은 emcc 6.0.13이며 설치는
+`sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`), pip이 있는 Python 3.12.3(wheel은 cp312이다. Ubuntu에서는
+`python3-venv` 없이 `python3 -m venv`가 동작하지 않는다. 빌드는 `pip install --target`과 `python3 -S`를 쓴다), 시스템 `python3`용(동결 테스트와 개발 실행이 쓴다) Pillow와 fontTools(apt의 `python3-pil`, `python3-fonttools`. apt의
+fontTools 4.46.0은 고정된 4.66.1보다 오래되었다. desktop-app.ko.md 참조), node 22.12 이상(apt에는 18이 있다. NodeSource나 nvm)과 npm 12
+(마지막으로 22.23.4와 12.0.2), 릴리스 점검의 smoke 실행을 위한 `xvfb-run`과 `flock`(`xvfb-run`이 없으면 `smoke` 점검이 실패하고 스크립트는
+종료 코드 1로 끝나지만 AppImage는 이미 `desktop/dist/`에 있다), `~/work/tmp`(브라우저 락 파일이 거기에 있다), 고정된 wheel,
+Electron, AppImage 도구 세트를 위해 한 번의 네트워크 접근.
+
+    # in the checkout root
+    cd desktop && npm ci && node node_modules/electron/install.js && cd ..   # npm 12 blocks install scripts (Electron's download)
+    bash desktop/build/build-appimage.sh [--release]                         # any directory; it changes to the root itself
+
+`npm ci`는 차단된 설치 스크립트(`electron-winstaller`의 `select-7z-arch.js`)에 대한 경고를 출력한다. Linux 빌드에는 무해하다.
+`~/.local/bin/heavy`는 작성자의 자원 보호 장치일 뿐 필수가 아니다. 빌드는 이것 없이도 돈다(작성자는
+`~/.local/bin/heavy bash desktop/build/build-appimage.sh`로 실행한다). AppImage는
+`desktop/dist/svf-maker-<version>.AppImage`이다.
 
 마지막으로 쓴 버전(모두 고정: 해시가 있는 `desktop/build/requirements.lock`, `desktop/package-lock.json`): PyInstaller 6.22.3,
 Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
@@ -54,7 +68,7 @@ Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
 | 항목 | 값 |
 |---|---|
 | Sidecar one-dir | 47 MB; 빌드 8-9 초(동결 시험 포함 약 30 초); 시작 후 포트 줄까지 2 초 훨씬 미만 |
-| AppImage | 149.7 MB (142 MiB); `linux-unpacked` 335 MB; electron-builder 약 50 초 |
+| AppImage | 140 MB (133.9 MiB, 커밋 3d40de8, 2026-11-22. 정적 runtime과 zstd 이전에는 149.7 MB); `linux-unpacked` 335 MB; electron-builder 약 50 초; 캐시가 따뜻할 때 스크립트 전체 1분 26초 |
 | 동결 시험 | 시험 26개, 건너뜀 0: `env -i`에서 고정된 wheel과 바이트 단위로 같음, 동결된 작업과 노트가 소스 모드와 같음 |
 | Electron 태스크 수 (xvfb 아래 `--no-sandbox --disable-gpu`) | 인스턴스 하나 87, 두 번째 인스턴스 경우 114 (계획 단계 측정, GPU 포함 143과 170); 수명 주기 시험의 최대값은 79-80 |
 | Debian Pillow 비교 | 같음 |
@@ -81,7 +95,7 @@ API로 실행하고 각 점검이 변이에서 실패함을 증명한다.
 
 AppImage는 Chromium의 SUID 샌드박스 도우미를 실을 수 없다(FUSE 마운트는 `nosuid`이다). 따라서 가질 수 있는 샌드박스는 사용자
 네임스페이스 샌드박스뿐인데, Ubuntu 24.04는 권한 없는 사용자 네임스페이스를 거부한다. electron-builder의 `AppRun`은 `unshare -Ur
-true`를 시험하고 실패하면 `--no-sandbox`를 붙인다. 여기서 `.desktop` 항목은 `Exec=AppRun --no-sandbox %U`로 되어 있다. 따라서 이
+true`를 시험하고 실패하면 `--no-sandbox`를 붙인다. AppImage의 `.desktop` 항목은 `Exec=AppRun %U`이다(사용자 네임스페이스가 있든 없든 항목은 같고, 플래그는 `AppRun`이 스스로 붙인다. 아래 참조). 따라서 이
 호스트와 Ubuntu 24.04급의 모든 시스템에서 렌더러는 샌드박스 **없이** 실행된다(셸이 로그를 남기고 About에 "renderer sandbox: off
 (--no-sandbox; user namespaces unavailable)"이 표시된다). 사용자 네임스페이스가 있는 시스템에서는 샌드박스 안에서 실행될 것이다
 (검증하지 않음). 렌더러는 엄격한 CSP를 가진 루프백 서버의 앱 자체 페이지와 사용자가 고른 파일만 불러오며, 원격 콘텐츠는 불러오지
@@ -140,9 +154,8 @@ Ubuntu 24.04)가 필요하다. Ubuntu 22.04(glibc 2.35)의 컨테이너 빌드�
 
 ## 수동 점검 (실제 데스크톱이 있는 사람)
 
-네이티브 파일 및 폴더 대화상자(시험은 이를 스텁으로 대체한다), 데스크톱 파일 관리자에서 "폴더 열기", FUSE로 창과 함께 AppImage
-시작(`./svf-maker-0.1.0.AppImage`; 빌드 호스트에는 FUSE가 없어 거기서는 `--appimage-extract`와 추출된 `AppRun`만 실행된다. 마운트
-자체는 깨끗한 호스트에서 보였으며 아래 참고), GPU 경로(시험은 `--disable-gpu`를 쓴다), 사용자 네임스페이스가 있는 호스트에서
+네이티브 파일 및 폴더 대화상자(시험은 이를 스텁으로 대체한다), 데스크톱 파일 관리자에서 "폴더 열기", 창 관리자가 있는 실제 데스크톱에서
+AppImage 시작(`./svf-maker-0.1.0.AppImage`; 마운트와 Xvfb 아래의 창은 깨끗한 호스트에서 보였으며 아래 참고), GPU 경로(시험은 `--disable-gpu`를 쓴다), 사용자 네임스페이스가 있는 호스트에서
 샌드박스된 렌더러.
 
 ## 깨끗한 머신에서의 시작 (t_ea7dcc8e, 2026-11-20)
@@ -157,8 +170,15 @@ PATH=/usr/bin:/bin`으로 실행했다.
     ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY          (exit 1)
     $ ./svf-maker-0.1.0.AppImage --appimage-mount     # the squashfs is mounted: AppRun, chrome_100_percent.pak, ... listed
 
-libfuse 오류는 사라졌다. 이제는 FUSE 마운트 뒤에(마운트된 이미지에서 Electron이 시작됨) 디스플레이가 없다는 이유로만 실패한다. 그
-호스트에서 xvfb 아래의 창 실행은 별도의 점검이다.
+libfuse 오류는 사라졌다. 이제는 FUSE 마운트 뒤에(마운트된 이미지에서 Electron이 시작됨) 디스플레이가 없다는 이유로만 실패한다.
+
+### Xvfb 아래의 창 (t_9b9e0bd8 기록, 2026-11-22)
+
+같은 호스트 `pc`(Ubuntu 24.04.5, `libfuse2t64` 없음)에서 커밋 3d40de8로 빌드한 AppImage가 Xvfb 아래에서 시작되었다. 창이 그려졌고
+로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 검증하지 않음: 창 관리자와 GPU가 있는 실제 데스크톱, Windows와 macOS. 이 문서화
+작업에서는 같은 커밋을 빠른 시작대로 깨끗한 체크아웃에서 빌드했고(캐시가 따뜻할 때 1분 26초, 모든 `CHECK` 줄 ok, AppImage
+140,426,554 바이트), 추출한 `AppRun`과 AppImage 자체가 Xvfb 아래에서 smoke 줄 `svf-maker smoke ok SVF maker`를 출력했으며, 개발 실행(`desktop/`에서
+`node_modules/.bin/electron --no-sandbox .`, Xvfb 아래)은 `sidecar start mode=dev`와 사이드카의 포트 줄을 기록했다.
 
 ## Windows와 macOS (UNVERIFIED)
 
@@ -181,7 +201,7 @@ libfuse 오류는 사라졌다. 이제는 FUSE 마운트 뒤에(마운트된 이
 
 ## 여기서 검증하지 않은 것
 
-Windows와 macOS 전체; FUSE로 마운트한 AppImage의 창 있는 시작; 샌드박스된 렌더러; 2.39보다 오래된 glibc; 동결된 프로세스에서 3.12
+Windows와 macOS 전체; 실제 데스크톱(창 관리자, GPU)에서의 AppImage 시작(위의 Xvfb 창 실행은 했음); 샌드박스된 렌더러; 2.39보다 오래된 glibc; 동결된 프로세스에서 3.12
 wheel을 쓰는 `JAMOSET_PYLIB`과 실제 인식기(시험은 스텁 인터프리터를 쓴다); 디스플레이가 있는 네이티브 대화상자; AppImage runtime의
 바이너리가 밝히는 것 이상의 구성(내장된 라이선스 목록과 버전 문자열: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2,
 libzstd 1.5.6, zlib 1.3.1; musl 자체의 버전은 내장되어 있지 않으므로 그 COPYRIGHT는 v1.2.5의 것을 가져왔다); AppImage의

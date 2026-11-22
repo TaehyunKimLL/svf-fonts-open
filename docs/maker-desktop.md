@@ -22,12 +22,26 @@ plan: `docs/superpowers/plans/2026-11-05-maker-desktop.md`. The package is priva
 
 ## Build (Linux)
 
-Prerequisites on the build host: emsdk (`~/opt/emsdk`, emcc 6.0.13 last used), Python 3.12.3 with pip (`python3 -m venv`
-does not work on Ubuntu without `python3-venv`; the build uses `pip install --target` and `python3 -S`), node 22 and
-npm 12, `xvfb-run` for the release check's smoke run, network access once for the pinned wheels and Electron.
+The user-facing version of this (what to install, where the AppImage lands, the first run) is the Quick start of
+[desktop-app.md](desktop-app.md); this section is the record.
 
-    cd desktop && npm ci && node node_modules/electron/install.js && cd ..   # npm 12 blocks Electron's postinstall
-    ~/.local/bin/heavy bash desktop/build/build-appimage.sh [--release]
+Prerequisites on the build host: a git checkout (the scripts read `git log` and `git describe`), emsdk (`$EMSDK`, default
+`~/opt/emsdk`; `maker/build-wasm.sh` compiles the preview module itself; emcc 6.0.13 last used; install with
+`sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`), Python 3.12.3 with pip (the wheels are cp312; `python3 -m venv`
+does not work on Ubuntu without `python3-venv`; the build uses `pip install --target` and `python3 -S`) and, for the
+system `python3` that runs the frozen tests and the development run, Pillow and fontTools (`python3-pil`,
+`python3-fonttools` from apt; apt's fontTools 4.46.0 is older than the pinned 4.66.1, see desktop-app.md), node 22.12 or
+newer (apt has 18: NodeSource or nvm) and npm 12 (22.23.4 and 12.0.2 last used), `xvfb-run` and `flock` for the release check's smoke run (without `xvfb-run` the
+`smoke` check fails and the script exits 1, but the AppImage is already in `desktop/dist/`), `~/work/tmp` (the browser lock
+file lives there), network access once for the pinned wheels, Electron and the AppImage toolset.
+
+    # in the checkout root
+    cd desktop && npm ci && node node_modules/electron/install.js && cd ..   # npm 12 blocks install scripts (Electron's download)
+    bash desktop/build/build-appimage.sh [--release]                         # any directory; it changes to the root itself
+
+`npm ci` prints a warning about blocked install scripts (`electron-winstaller`'s `select-7z-arch.js`); it is harmless for a
+Linux build. `~/.local/bin/heavy` is the author's resource guard, not a requirement: the build runs without it (the author
+runs `~/.local/bin/heavy bash desktop/build/build-appimage.sh`). The AppImage is `desktop/dist/svf-maker-<version>.AppImage`.
 
 Versions last used (all pinned: `desktop/build/requirements.lock` with hashes, `desktop/package-lock.json`):
 PyInstaller 6.22.3, Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
@@ -53,7 +67,7 @@ deadlock them.
 | Item | Value |
 |---|---|
 | Sidecar one-dir | 47 MB; build 8-9 s (about 30 s with the frozen test); startup port line well under 2 s |
-| AppImage | 149.7 MB (142 MiB); `linux-unpacked` 335 MB; electron-builder about 50 s |
+| AppImage | 140 MB (133.9 MiB, commit 3d40de8, 2026-11-22; 149.7 MB before the static runtime and zstd); `linux-unpacked` 335 MB; electron-builder about 50 s; the whole script 1 min 26 s with warm caches |
 | Frozen test | 26 tests, 0 skipped: byte-equal to the pinned wheels under `env -i`, frozen jobs and notes equal source mode |
 | Electron task counts (`--no-sandbox --disable-gpu` under xvfb) | one instance 87, second-instance case 114 (planning measurements, with the GPU 143 and 170); the lifecycle test's peak was 79-80 |
 | Debian Pillow comparison | equal |
@@ -81,8 +95,8 @@ JOHA16J, KSC16, MUNJ16J); a difference in an outline face (NEODU16, NANUM17A, GO
 
 An AppImage cannot carry Chromium's SUID sandbox helper (FUSE mounts are `nosuid`), so the only sandbox it can have is
 the user-namespace one, and Ubuntu 24.04 denies unprivileged user namespaces. electron-builder's `AppRun` probes
-`unshare -Ur true` and adds `--no-sandbox` when that fails; its `.desktop` entry here reads
-`Exec=AppRun --no-sandbox %U`. So on this host and on every Ubuntu 24.04-class system the renderer runs **without** a
+`unshare -Ur true` and adds `--no-sandbox` when that fails; the AppImage's `.desktop` entry reads
+`Exec=AppRun %U` (the entry is the same with or without user namespaces; `AppRun` adds the flag by itself, see below). So on this host and on every Ubuntu 24.04-class system the renderer runs **without** a
 sandbox (the shell logs and About shows "renderer sandbox: off (--no-sandbox; user namespaces unavailable)"); on a system
 with user namespaces it would run sandboxed (not verified). The renderer only ever loads the app's own page from a
 loopback server with a strict CSP, plus files the user picked; no remote content is loaded (D7, spec section 17). A `.deb`
@@ -140,8 +154,8 @@ host's (2.39, Ubuntu 24.04). A container build on Ubuntu 22.04 (glibc 2.35) woul
 ## Manual checks (a human with a real desktop)
 
 Native file and folder dialogs (the tests stub them), "open folder" in the desktop's file manager, starting the AppImage
-through FUSE with a window (`./svf-maker-0.1.0.AppImage`; no FUSE on the build host, so there only `--appimage-extract` and the
-extracted `AppRun` run; the mount itself was shown on the clean host, see below), the GPU path (the tests use `--disable-gpu`), a sandboxed renderer on a host with user namespaces.
+through FUSE with a window on a real desktop with a window manager (`./svf-maker-0.1.0.AppImage`; the mount and a window
+under Xvfb were shown on the clean host, see below), the GPU path (the tests use `--disable-gpu`), a sandboxed renderer on a host with user namespaces.
 
 ## Clean-machine start (t_ea7dcc8e, 2026-11-20)
 
@@ -156,7 +170,17 @@ with `env -i HOME=$HOME PATH=/usr/bin:/bin`:
     $ ./svf-maker-0.1.0.AppImage --appimage-mount     # the squashfs is mounted: AppRun, chrome_100_percent.pak, ... listed
 
 The libfuse error is gone; the run now fails only for the missing display, after the FUSE mount (Electron started from the
-mounted image). A window run under xvfb on that host is a separate check.
+mounted image).
+
+### The window under Xvfb (t_9b9e0bd8 record, 2026-11-22)
+
+On the same host `pc` (Ubuntu 24.04.5, no `libfuse2t64`) the AppImage built from commit 3d40de8 started under Xvfb: the
+window rendered, and a conversion in local mode ran through the packaged sidecar. Not verified: a real desktop with a
+window manager and a GPU, and Windows and macOS. In this documentation task the same commit was built from a clean
+checkout following the Quick start (1 min 26 s with warm caches, every `CHECK` line ok, AppImage 140,426,554 bytes), the
+extracted `AppRun` and the AppImage itself printed the smoke line `svf-maker smoke ok SVF maker` under Xvfb, and the
+development run (`node_modules/.bin/electron --no-sandbox .` in `desktop/`, under Xvfb) logged `sidecar start mode=dev`
+and the sidecar's port line.
 
 ## Windows and macOS (UNVERIFIED)
 
@@ -180,7 +204,7 @@ Nothing below was run. It is the plan a builder on those hosts follows, and what
 
 ## Not verified here
 
-Windows and macOS entirely; a FUSE-mounted AppImage start with a window; a sandboxed renderer; glibc older than 2.39; `JAMOSET_PYLIB` with
+Windows and macOS entirely; an AppImage start on a real desktop (window manager, GPU; the Xvfb window run above is done); a sandboxed renderer; glibc older than 2.39; `JAMOSET_PYLIB` with
 3.12 wheels in the frozen process and any real recogniser (the tests use a stub interpreter); native dialogs with a display;
 the composition of the AppImage runtime beyond what its binary states (its embedded licence list and version strings: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2, libzstd 1.5.6, zlib 1.3.1; musl's own version is not embedded, so its COPYRIGHT is taken from v1.2.5);
 `SOURCE_DATE_EPOCH` determinism of the AppImage (the sidecar is not bit-reproducible: `base_library.zip` member order
