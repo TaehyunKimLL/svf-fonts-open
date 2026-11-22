@@ -311,7 +311,7 @@ const uint32_t neodg16g_len = 10124u;
 ### 5.2 After opening: check the face
 
 `svf_open_mapped` tells you the file is valid, not that this build can compose its Hangul. Check both, once, at start-up
-(this is `text_cb.c`; it compiles on the host, for Cortex-M0+ and, with the flags of section 13.1, for AVR):
+(this is `text_cb.c`; it compiles on the host, for Cortex-M0+ and, with the Uno flags of section 13.1 but `-DSVF_TARGETS=0x10` (this example draws through the callback kind; `0x02` would make `text_init` return -3), for AVR):
 
 ```c
 /* text_cb.c - draw UTF-8 with a face embedded by c/bench/mkface.py through your own pixel routine. */
@@ -652,7 +652,7 @@ matter for choosing a recipe:
   reads**: it flips the *defaults* of `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG` and `SVF_JSET_BIG` to 0 (they are 1 by
   default only without `SVF_SMALL`; measured with `gcc -dM -E`). A `SVF_SMALL` build on a desktop, DOS or WASM therefore
   no longer reads version 3 (JMAP, LIST) jamo blocks or the BIG limits: a face that needs them opens **plain**, with
-  `SVF_FACE_JSET_BAD` or `SVF_FACE_JMAP_UNREAD` set, and draws no Hangul. Add `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`
+  `SVF_FACE_JSET_BAD` set (`SVF_FACE_JMAP_UNREAD` only with `-DSVF_JMAP_RECOG=1`), and draws no Hangul. Add `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`
   (`SVF_JMAP_LIST` follows `SVF_JMAP`) if you need them.
 
 The complete switch table with defaults per toolchain is in [c/README.md](../c/README.md), "Compile-time switches", and
@@ -669,7 +669,7 @@ guide from a clean `git archive` of the repository.
 
 ### 13.1 Arduino Uno and other Arduino cores
 
-- **Toolchain.** avr-gcc 16.1.0 with AVR-LibC 2.3.2 (the Zak Kemble build that `c/cross/install-toolchains.sh avr`
+- **Toolchain.** avr-gcc 16.1.0 with AVR-LibC 2.3.2 (the Zak Kemble build that `sh c/cross/install-toolchains.sh "$HOME/opt" avr`
   installs under `~/opt`), `-Os`. arduino-cli is not installed here, so the commands below were not run against a stock
   AVR core: they are the settings `c/cross/build-all.sh --ports` uses for the same sources, which it compiles and links
   against `c/ports/arduino/stub/`. Record your own core's avr-gcc version; the library is C99 and needs no more.
@@ -706,7 +706,7 @@ guide from a clean `git archive` of the repository.
   adds about 200 bytes of buffers and the core a few dozen, leaving about 700 bytes of stack.
 - **Limits.** Scaling is off (`-DSVF_NO_SCALE`): a scaled draw needs about 864 bytes of stack beside a 1 KB page buffer,
   so build with `-DSVF_SCALE_FAST=0` (451 bytes, measured statically) if you must. A version 2 face opens plain without
-  the version 2 reader; a version 3 face opens through its fallback JSET or plain. Streaming does not fit: the tables
+  the version 2 reader; a version 3 face opens **plain** (`SVF_FACE_JSET_BAD`: `SVF_JMAP` and `SVF_JMAP_RECOG` are 0 on AVR); add `-DSVF_JMAP_RECOG=1` to recognise the block (`JMAP_UNREAD`) and read a version 1 fallback JSET it carries (from `svf.h` and `c/README.md`; not built here). Streaming does not fit: the tables
   alone are 5,129 bytes. **Arduino Mega 2560**: the same sketch links for the ATmega2560 (23,820 bytes of flash), but faces
   and data above 64 KB of flash need far reads (`pgm_read_byte_far`), which the library does not do: not supported, not
   tested (the build prints a `FLAG` line when a Mega image's flash end reaches 65,536). **Other cores** (SAMD, RP2040,
@@ -716,7 +716,7 @@ guide from a clean `git archive` of the repository.
 
 ### 13.2 WCH CH582 (RISC-V, bare metal)
 
-- **Toolchain.** `riscv32-esp-elf-gcc` 16.1.0 (crosstool-NG esp-16.1.0_20260609, `c/cross/install-toolchains.sh ... esp`),
+- **Toolchain.** `riscv32-esp-elf-gcc` 16.1.0 (crosstool-NG esp-16.1.0_20260609, `sh c/cross/install-toolchains.sh "$HOME/opt" esp`),
   the WCH CH583 EVT sources that this port uses for the CH582M (commit `bd508ad` of
   github.com/openwch/ch583) and `wchisp` 0.3.0 to flash. xPack `riscv-none-elf-gcc` 15.2.0-1 is documented as an
   alternative (`CROSS=riscv-none-elf-`), not installed here.
@@ -727,7 +727,7 @@ guide from a clean `git archive` of the repository.
       make -C c/ports/ch582 flash
 
 - **For your own project.** Compile `c/src/*.c` and your generated `face.c` with
-  `-march=rv32imac_zicsr_zifencei -mabi=ilp32 -mstrict-align -Os -std=c99` and
+  `-march=rv32imac_zicsr_zifencei -mabi=ilp32 -mcmodel=medany -msmall-data-limit=8 -mstrict-align -Os -std=c99` and
   `-DSVF_NO_SCALE -DSVF_NO_STREAM -DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT -DSVF_TARGETS=0x02 -DSVF_JSET_V2=0` (the same
   switches as the Uno: mapped face, one layout, `MONO_PAGE`, the version 1 reader). The WCH start-up code, the SDK
   sources (`CH58x_gpio.c`, `CH58x_i2c.c`, `CH58x_sys.c`) and `link.ld` come from the EVT tree; read the port's Makefile for
@@ -815,7 +815,7 @@ guide from a clean `git archive` of the repository.
       idf.py -B build-mono   -DSVF_PROFILE=mono   set-target esp32c3 && idf.py -B build-mono build
 
   `idf.py` writes `sdkconfig` and `sdkconfig.old` into the project directory (`c/ports/esp32/.gitignore` lists them).
-- **For your own project.** Make the library a component: copy `svf.h` and `svf_*.c` into `main/svf/` and
+- **For your own project.** Make the library a component: copy `svf.h`, `svf_internal.h` and `svf_*.c` into `main/svf/` and
   generate `face.c`:
 
   ```cmake
@@ -842,6 +842,7 @@ guide from a clean `git archive` of the repository.
   /* (a) partitions.csv:  font, data, 0x40, , 256K   then: parttool.py write_partition --partition-name font --input FACE.SVF */
   static esp_partition_mmap_handle_t font_map;
 
+  /* face_len: the face's size in bytes (store it when you write the partition); passing p->size also works: the 0xFF padding after the face opens with status 0 */
   svf_err face_from_partition(svf_face *f, uint32_t face_len)
   {
   	const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "font");
@@ -853,33 +854,47 @@ guide from a clean `git archive` of the repository.
   	return svf_open_mapped(f, (const uint8_t *)ptr, face_len);   /* keep the mapping for the face's lifetime */
   }
 
-  /* (b) streamed from SPIFFS */
+  /* (b) streamed from SPIFFS: mount once at start-up, then open faces */
   static long rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
   {
   	FILE *fp = ctx;
   	return fseek(fp, (long)off, SEEK_SET) == 0 ? (long)fread(dst, 1, len, fp) : -1;
   }
-  static uint8_t tables[16 * 1024], cache[8 * (512 + 8)];
+  static uint8_t tables[16 * 1024], cache[8 * (512 + 8)];   /* one face at a time */
 
-  svf_err face_from_spiffs(svf_face *f, const char *path)
+  esp_err_t spiffs_mount(void)                                /* call once */
   {
   	esp_vfs_spiffs_conf_t conf = {.base_path = "/spiffs", .partition_label = NULL, .max_files = 2,
   	                              .format_if_mount_failed = false};
-  	FILE *fp;
+  	return esp_vfs_spiffs_register(&conf);
+  }
+
+  svf_err face_from_spiffs(svf_face *f, const char *path)
+  {
+  	FILE *fp = fopen(path, "rb");
   	long len;
   	size_t need;
   	svf_err e;
 
-  	if (esp_vfs_spiffs_register(&conf) != ESP_OK || !(fp = fopen(path, "rb")))
+  	if (!fp)
   		return SVF_E_IO;
-  	fseek(fp, 0, SEEK_END);
-  	len = ftell(fp);                                   /* fp stays open: the face reads it while drawing */
+  	if (fseek(fp, 0, SEEK_END) != 0 || (len = ftell(fp)) <= 0) {
+  		fclose(fp);
+  		return SVF_E_IO;
+  	}
   	need = svf_stream_tables_size(rd, fp, (uint32_t)len, &e);
-  	if (!need)
+  	if (!need) {
+  		fclose(fp);
   		return e;
-  	if (need > sizeof tables)
+  	}
+  	if (need > sizeof tables) {
+  		fclose(fp);
   		return SVF_E_NOMEM;
-  	return svf_open_stream(f, rd, fp, (uint32_t)len, tables, sizeof tables, cache, sizeof cache, 512);
+  	}
+  	e = svf_open_stream(f, rd, fp, (uint32_t)len, tables, sizeof tables, cache, sizeof cache, 512);
+  	if (e != SVF_OK)
+  		fclose(fp);                                          /* on success keep fp open: the face reads it while drawing */
+  	return e;
   }
   ```
 
@@ -903,8 +918,8 @@ guide from a clean `git archive` of the repository.
 - **Build.** One directory per profile; `-DPICO_NO_PICOTOOL=1` makes the `.elf` only. For a **Pico 2** (RP2350, Arm
   cores) add `-DPICO_BOARD=pico2`:
 
-      cmake -S c/ports/pico -B build-pico-mono  -DSVF_PROFILE=mono -DPICO_SDK_PATH=~/opt/pico-sdk-2.3.1 -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
-      cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH=~/opt/pico-sdk-2.3.1 -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
+      cmake -S c/ports/pico -B build-pico-mono  -DSVF_PROFILE=mono -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
+      cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
       cmake --build build-pico-mono
 
 - **For your own project.** The port's `CMakeLists.txt` is the template: generate the face with an `add_custom_command`
@@ -1007,7 +1022,7 @@ guide from a clean `git archive` of the repository.
 
 ### 13.7 Web (WebAssembly, emscripten)
 
-- **Toolchain.** emsdk tag **6.0.13** (emcc 6.0.13, installed by `c/cross/install-toolchains.sh emsdk`, with
+- **Toolchain.** emsdk tag **6.0.13** (emcc 6.0.13, installed by `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`, with
   node 24.19.0), `-O2`, `-std=c99 -Wall -Wextra -Werror`.
 - **Build** (the line `web/build.sh` runs, kept in `c/ports/web/emcc-flags.sh`; measured `svf.wasm` 39,808 bytes,
   `svf.js` 6,937):
@@ -1105,7 +1120,7 @@ it"). Everything in this section applies to that integration.
 | Glyphs one row too high or low | passed the top row instead of the baseline | `y_baseline = top + ascent` |
 | `svf_open_mapped` returns `SVF_E_MAGIC` on an AVR build, the face being a `PROGMEM` array | the library was built without `-DSVF_RD8(p)=pgm_read_byte(p)`, so it reads flash addresses as RAM | build every library source with `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'` (section 5.1; simavr: 1 without, 0 with) |
 | The face array eats RAM, or the link overflows RAM | the array was made with `xxd -i` (not `const`, so `.data`) | generate it with `c/bench/mkface.py` (section 5); check `size` shows the face under text, not data |
-| Hangul draws nothing after adding `-DSVF_SMALL` | `SVF_SMALL` turns the defaults of `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG` and `SVF_JSET_BIG` off: a version 3 or BIG face opens plain (`JSET_BAD` / `JMAP_UNREAD`) | add `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`, or write the face in a form the build reads (section 10.1, section 12) |
+| Hangul draws nothing after adding `-DSVF_SMALL` | `SVF_SMALL` turns the defaults of `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG` and `SVF_JSET_BIG` off: a version 3 or BIG face opens plain (`JSET_BAD`; `JMAP_UNREAD` only with `-DSVF_JMAP_RECOG=1`) | add `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`, or write the face in a form the build reads (section 10.1, section 12) |
 | Only some Hangul syllables draw, the rest are missing | the face's JMAP is SPARSE or LIST with no fallback block: it composes only the syllables it lists | `svf_has(face, cp)` per syllable; rebuild the face with a fallback or a dense table (section 10) |
 | Text ends cut off at the right of the buffer | the buffer was sized from `e.width`, the pen's travel, but the last glyph's ink reaches past it | `e.width + svf_cell_w(face)` (section 3) |
 | Crashes or garbage after upgrading | translation units built with different `-D` switches (`SVF_JMAP` changes `svf_face`) | rebuild everything with one flag set |

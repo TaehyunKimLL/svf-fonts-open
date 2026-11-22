@@ -18,7 +18,7 @@
 캐시 STRING이다.
 
 툴체인(여기서 빌드하고 측정함): pico-sdk **2.3.1**(`~/opt/pico-sdk-2.3.1`), arm-none-eabi-gcc 15.2.1(Arm GNU Toolchain 15.2.Rel1.
-`c/cross/install-toolchains.sh arm`이 `~/opt/arm-gnu-toolchain-15.2.rel1/bin`에 넣으며 이것이 `PATH`에 있어야 한다), CMake, 페이스 배열용 python3,
+`sh c/cross/install-toolchains.sh "$HOME/opt" arm`이 `~/opt/arm-gnu-toolchain-15.2.rel1/bin`에 넣으며 이것이 `PATH`에 있어야 한다), CMake, 페이스 배열용 python3,
 `.uf2`용 picotool 2.3.1.
 
 빌드(pico-sdk 설치됨. 페이스 배열용 python3 필요). 프로필마다 빌드 디렉터리 하나를 쓴다.

@@ -35,7 +35,7 @@ to 14x); a draw that needs more mallocs a buffer of exactly the need before draw
 frees the previous one if it was malloced. A failed malloc returns SVF_E_NOMEM, draws nothing and keeps the previous
 buffer. Only this port allocates: `c/src` never does (`make -C c check`, no-malloc).
 
-Build (emsdk **6.0.13**, emcc 6.0.13, as `c/cross/install-toolchains.sh emsdk` installs it under `~/opt/emsdk`; measured
+Build (emsdk **6.0.13**, emcc 6.0.13, as `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk` installs it under `~/opt/emsdk`; measured
 `svf.wasm` 39,808 bytes and `svf.js` 6,937 with this line; this is the line `web/build.sh` and `maker/build-wasm.sh` run, kept in `emcc-flags.sh`):
 
     EM_CONFIG=~/opt/emsdk/.emscripten ~/opt/emsdk/upstream/emscripten/emcc -std=c99 -Wall -Wextra -Werror -O2 \

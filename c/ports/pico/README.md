@@ -18,7 +18,7 @@ driver packs it to the SSD1327's 4 bits a pixel; `-DSVF_GREY_KIND=GRAY8` (the on
 STRING that names the kind.
 
 Toolchain (built and measured here): pico-sdk **2.3.1** (`~/opt/pico-sdk-2.3.1`), arm-none-eabi-gcc 15.2.1 (Arm GNU Toolchain
-15.2.Rel1; `c/cross/install-toolchains.sh arm` puts it in `~/opt/arm-gnu-toolchain-15.2.rel1/bin`, which must be on `PATH`),
+15.2.Rel1; `sh c/cross/install-toolchains.sh "$HOME/opt" arm` puts it in `~/opt/arm-gnu-toolchain-15.2.rel1/bin`, which must be on `PATH`),
 CMake, python3 for the face arrays, picotool 2.3.1 for the `.uf2`.
 
 Build (pico-sdk installed; python3 for the face arrays), one build directory per profile:

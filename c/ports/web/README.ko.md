@@ -35,7 +35,7 @@ JavaScript가 소유한 버퍼 위에 타깃(GRAY8, MONO_PAGE, MONO_ROW 또는 R
 malloc된 것이었다면 해제한다. malloc이 실패하면 SVF_E_NOMEM을 반환하고 아무것도 그리지 않으며 이전
 버퍼를 유지한다. 할당하는 것은 이 포트뿐이다. `c/src`는 절대 할당하지 않는다(`make -C c check`, no-malloc).
 
-빌드(emsdk **6.0.13**, emcc 6.0.13. `c/cross/install-toolchains.sh emsdk`가 `~/opt/emsdk` 아래에 설치한다. 이 줄로 측정: `svf.wasm` 39,808바이트, `svf.js` 6,937. 이것이 `web/build.sh`와 `maker/build-wasm.sh`가 실행하는 줄이며 `emcc-flags.sh`에 있다):
+빌드(emsdk **6.0.13**, emcc 6.0.13. `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`가 `~/opt/emsdk` 아래에 설치한다. 이 줄로 측정: `svf.wasm` 39,808바이트, `svf.js` 6,937. 이것이 `web/build.sh`와 `maker/build-wasm.sh`가 실행하는 줄이며 `emcc-flags.sh`에 있다):
 
     EM_CONFIG=~/opt/emsdk/.emscripten ~/opt/emsdk/upstream/emscripten/emcc -std=c99 -Wall -Wextra -Werror -O2 \
         -Ic/include c/ports/web/svf_web.c c/src/*.c -o svf.js -sMODULARIZE -sEXPORT_ES6 -sEXPORT_NAME=SvfModule \

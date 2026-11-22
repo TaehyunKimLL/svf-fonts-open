@@ -16,7 +16,7 @@
 텍스트 줄도 PROGMEM에 있으며 그리기 전에 RAM 버퍼로 복사된다(라이브러리는 텍스트를 일반 로드로 읽는다). MONO_PAGE 타깃은 SSD1306의 레이아웃인 128 x 64 페이지 버퍼에 그린다:
 **1 KB이며, Uno의 RAM 2 KB의 절반이다.** Wire는 한 번 전송에 32 바이트를 보내므로 프레임은 16 바이트씩 나간다. 배선: SDA A4, SCL A5, 디스플레이 주소 0x3C.
 
-아래 수치에 쓴 툴체인: avr-gcc 16.1.0과 AVR-LibC 2.3.2(`c/cross/install-toolchains.sh avr`이 `~/opt` 아래에 설치하는 Zak Kemble 빌드). 여기에는 Arduino 코어가 설치되어 있지 않으므로
+아래 수치에 쓴 툴체인: avr-gcc 16.1.0과 AVR-LibC 2.3.2(`sh c/cross/install-toolchains.sh "$HOME/opt" avr`이 `~/opt` 아래에 설치하는 Zak Kemble 빌드). 여기에는 Arduino 코어가 설치되어 있지 않으므로
 코어 버전은 기록하지 않았다. Uno의 쓸 수 있는 플래시 32,256바이트는 32 KB에서 Optiboot의 512바이트를 뺀 값이다. `face.c`는 스케치 폴더에 **C** 파일로 생성되며(`.gitignore`에 올라 있다)
 스케치는 `arduino.ino`처럼 이를 `extern "C"`로 선언한다.
 
@@ -32,7 +32,7 @@ arduino-cli로 빌드한다(저장소 루트에서. 라이브러리는 Arduino �
 `-DSVF_JSET_V2=0`(svf.h의 AVR 기본값이기도 하며 여기에 명시했다)은 JSET 버전 1 리더만 빌드한다. NEODG16G의 작은
 자모 세트는 버전 1 블록이며, 버전 2 리더를 더하면 이 스케치에 필요 없는 플래시가 약 2.4 KB 늘어난다(`c/cross/SIZES.md`
 "Size switches"의 P1)(그러면 버전 2 페이스는 음절 없는 일반 페이스로 열린다). `SVF_JMAP`(버전 3 리더)은 AVR에서 기본적으로 0이며 여기서도
-꺼 둔다. 버전 3 페이스는 JSET 폴백을 통해 열리거나 일반 페이스로 열린다.
+꺼 둔다. 버전 3 페이스는 일반 페이스로 열린다(`SVF_FACE_JSET_BAD`. `-DSVF_JMAP_RECOG=1`이면 블록을 인식하여 그것이 담은 버전 1 폴백 JSET을 읽는다).
 
 플래그는 C와 C++ 컴파일에만 준다(`compiler.c.extra_flags`, `compiler.cpp.extra_flags`). `build.extra_flags`에는 주지 않는다.
 AVR 코어의 레시피는 `build.extra_flags`를 어셈블러 소스(`.S`)에도 넘기는데, 거기서 `-include avr/pgmspace.h`는 C 선언을 어셈블러에 먹여서

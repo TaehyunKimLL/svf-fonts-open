@@ -19,7 +19,7 @@ MONO_PAGE target draws into a 128 x 64 page buffer in the SSD1306's layout: **1 
 32 bytes a transmission, so the frame goes out 16 bytes at a time. Wiring: SDA A4, SCL A5, display address 0x3C.
 
 Toolchain used for the figures below: avr-gcc 16.1.0 with AVR-LibC 2.3.2 (the Zak Kemble build that
-`c/cross/install-toolchains.sh avr` installs under `~/opt`). No Arduino core is installed here, so no core version is
+`sh c/cross/install-toolchains.sh "$HOME/opt" avr` installs under `~/opt`). No Arduino core is installed here, so no core version is
 recorded; the Uno's 32,256 usable bytes of flash are 32 KB less Optiboot's 512 bytes. `face.c` is generated into the sketch
 folder as a **C** file (it is in `.gitignore`); the sketch declares it `extern "C"`, as `arduino.ino` does.
 
@@ -35,8 +35,8 @@ generated into the sketch folder, `face.c`, not committed):
 `-DSVF_JSET_V2=0` (also svf.h's AVR default, spelled out here) builds only the JSET version 1 reader: NEODG16G's small
 jamo set is a version 1 block, and adding the version 2 reader would cost about 2.4 KB of flash (P1 in
 `c/cross/SIZES.md` "Size switches") that this sketch does not need (a version 2 face then opens as a plain face, without
-syllables). `SVF_JMAP` (the version 3 reader) is 0 on AVR by default and stays off here: a version 3 face opens through its
-JSET fallback, or as a plain face.
+syllables). `SVF_JMAP` (the version 3 reader) is 0 on AVR by default and stays off here: a version 3 face opens as a plain
+face (`SVF_FACE_JSET_BAD`; `-DSVF_JMAP_RECOG=1` would recognise the block and read a version 1 fallback JSET it carries).
 
 The flags go to the C and C++ compiles only (`compiler.c.extra_flags`, `compiler.cpp.extra_flags`), not to
 `build.extra_flags`: the AVR core's recipes pass `build.extra_flags` to its assembler sources (`.S`) too, and

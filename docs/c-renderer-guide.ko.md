@@ -294,7 +294,7 @@ const uint32_t neodg16g_len = 10124u;
 ### 5.2 연 뒤에: 페이스를 확인하라
 
 `svf_open_mapped`는 파일이 유효하다는 것만 알려 줄 뿐, 이 빌드가 그 한글을 조합할 수 있다는 것은 알려 주지 않는다. 시작할 때 한 번 둘 다
-확인하라(이것이 `text_cb.c`이다. 호스트와 Cortex-M0+에서, 그리고 13.1절의 플래그를 주면 AVR에서도 컴파일된다).
+확인하라(이것이 `text_cb.c`이다. 호스트와 Cortex-M0+에서, 그리고 13.1절의 Uno 플래그에 `-DSVF_TARGETS=0x10`을 주면 AVR에서도 컴파일된다. 이 예제는 콜백 종류로 그리므로 `0x02`이면 `text_init`이 -3을 반환한다).
 
 ```c
 /* text_cb.c - mkface.py로 내장한 페이스로, 자신의 픽셀 루틴을 통해 UTF-8을 그린다. */
@@ -613,7 +613,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
 - **어느 CPU에서든 가장 작은 코드:** `-DSVF_SMALL`은 속도 중심의 빠른 경로(워드 병합, GRAY8 테이블, 빠른 스케일러, 니블 popcount 테이블)를 끈다. 픽셀은 동일하며
   속도만 잃는다. **그리고 빌드가 읽는 것도 바꾼다.** `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG`, `SVF_JSET_BIG`의 *기본값*을 0으로 뒤집는다(`SVF_SMALL`이 없을
   때에만 기본값이 1이다. `gcc -dM -E`로 측정). 따라서 데스크톱, DOS, WASM의 `SVF_SMALL` 빌드는 버전 3(JMAP, LIST) 자모 블록이나 BIG 한계를 더는 읽지
-  않는다. 그것을 필요로 하는 페이스는 `SVF_FACE_JSET_BAD` 또는 `SVF_FACE_JMAP_UNREAD`가 설정된 **일반 페이스**로 열리고 한글을 그리지 않는다. 필요하면
+  않는다. 그것을 필요로 하는 페이스는 `SVF_FACE_JSET_BAD`가 설정된(`SVF_FACE_JMAP_UNREAD`는 `-DSVF_JMAP_RECOG=1`일 때만) **일반 페이스**로 열리고 한글을 그리지 않는다. 필요하면
   `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`을 더하라(`SVF_JMAP_LIST`는 `SVF_JMAP`을 따른다).
 
 툴체인별 기본값이 있는 전체 스위치 표는 [c/README.ko.md](../c/README.ko.md)의 "Compile-time switches"에 있고, 각 구성이 만드는 크기는
@@ -628,7 +628,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
 
 ### 13.1 Arduino Uno와 그 밖의 Arduino 코어
 
-- **툴체인.** avr-gcc 16.1.0과 AVR-LibC 2.3.2(`c/cross/install-toolchains.sh avr`이 `~/opt` 아래에 설치하는 Zak Kemble 빌드), `-Os`.
+- **툴체인.** avr-gcc 16.1.0과 AVR-LibC 2.3.2(`sh c/cross/install-toolchains.sh "$HOME/opt" avr`이 `~/opt` 아래에 설치하는 Zak Kemble 빌드), `-Os`.
   arduino-cli는 여기에 설치되어 있지 않으므로 아래 명령은 표준 AVR 코어에 대해 실행해 보지 않았다. 같은 소스에 대해
   `c/cross/build-all.sh --ports`가 쓰는 설정이며, 이것은 `c/ports/arduino/stub/`에 대해 컴파일하고 링크한다. 사용하는 코어의 avr-gcc 버전을
   기록해 두라. 라이브러리는 C99이며 그 이상을 요구하지 않는다.
@@ -660,8 +660,9 @@ svf_chain_cache(&chain, syl, sizeof syl);
   스택 이전 RAM은 1,103바이트이며 그중 페이지 버퍼가 1,024바이트이다. 실제 `Wire`는 버퍼로 약 200바이트를, 코어는 수십 바이트를 더하므로 스택에는 약
   700바이트가 남는다.
 - **한계.** 스케일링은 꺼져 있다(`-DSVF_NO_SCALE`). 스케일된 그리기는 1 KB 페이지 버퍼 옆에서 스택이 약 864바이트 필요하므로, 꼭 해야 한다면
-  `-DSVF_SCALE_FAST=0`으로 빌드한다(451바이트, 정적으로 측정). 버전 2 리더가 없으면 버전 2 페이스는 일반 페이스로 열린다. 버전 3 페이스는 폴백 JSET을
-  통해 열리거나 일반 페이스가 된다. 스트리밍은 들어가지 않는다. 테이블만 5,129바이트이다. **Arduino Mega 2560**: 같은 스케치가 ATmega2560용으로도
+  `-DSVF_SCALE_FAST=0`으로 빌드한다(451바이트, 정적으로 측정). 버전 2 리더가 없으면 버전 2 페이스는 일반 페이스로 열린다. 버전 3 페이스는 **일반 페이스**로
+  열린다(`SVF_FACE_JSET_BAD`. AVR에서는 `SVF_JMAP`과 `SVF_JMAP_RECOG`가 0이다). 블록을 인식하여(`JMAP_UNREAD`) 그것이 담은 버전 1 폴백 JSET을 읽게 하려면
+  `-DSVF_JMAP_RECOG=1`을 더한다(`svf.h`와 `c/README.md`에서. 여기서 빌드하지는 않았다). 스트리밍은 들어가지 않는다. 테이블만 5,129바이트이다. **Arduino Mega 2560**: 같은 스케치가 ATmega2560용으로도
   링크된다(플래시 23,820바이트). 그러나 플래시 64 KB 위의 페이스와 데이터는 far 읽기(`pgm_read_byte_far`)가 필요한데 라이브러리는 이를 하지
   않는다. 지원하지 않으며 테스트하지 않았다(Mega 이미지의 플래시 끝이 65,536에 닿으면 빌드가 `FLAG` 줄을 출력한다). **그 밖의 코어**(Arduino
   IDE의 SAMD, RP2040, ESP32): 플래시가 메모리에 매핑되어 있으므로 라이브러리를 `SVF_RD8` 재정의와 `PROGMEM` 없이 평범한 C로 빌드한다.
@@ -670,7 +671,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
 
 ### 13.2 WCH CH582(RISC-V, 베어메탈)
 
-- **툴체인.** `riscv32-esp-elf-gcc` 16.1.0(crosstool-NG esp-16.1.0_20260609, `c/cross/install-toolchains.sh ... esp`), 이 포트가 CH582M에
+- **툴체인.** `riscv32-esp-elf-gcc` 16.1.0(crosstool-NG esp-16.1.0_20260609, `sh c/cross/install-toolchains.sh "$HOME/opt" esp`), 이 포트가 CH582M에
   쓰는 WCH CH583 EVT 소스(github.com/openwch/ch583의 커밋 `bd508ad`), 플래시용 `wchisp` 0.3.0이다. xPack `riscv-none-elf-gcc` 15.2.0-1은 대안으로
   문서화되어 있으나(`CROSS=riscv-none-elf-`) 여기에 설치되어 있지 않다.
 - **빌드와 플래시**(24 MHz. Type-C 케이블을 꽂는 동안 보드의 BOOT 버튼을 누른다).
@@ -680,7 +681,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
       make -C c/ports/ch582 flash
 
 - **자신의 프로젝트에서.** `c/src/*.c`와 생성한 `face.c`를
-  `-march=rv32imac_zicsr_zifencei -mabi=ilp32 -mstrict-align -Os -std=c99` 및
+  `-march=rv32imac_zicsr_zifencei -mabi=ilp32 -mcmodel=medany -msmall-data-limit=8 -mstrict-align -Os -std=c99` 및
   `-DSVF_NO_SCALE -DSVF_NO_STREAM -DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT -DSVF_TARGETS=0x02 -DSVF_JSET_V2=0`으로 컴파일한다(Uno와 같은 스위치이다. 매핑된
   페이스, 레이아웃 하나, `MONO_PAGE`, 버전 1 리더). WCH 스타트업 코드, SDK 소스(`CH58x_gpio.c`, `CH58x_i2c.c`, `CH58x_sys.c`), `link.ld`는 EVT
   트리에서 온다. 그 플래그(`-DINT_SOFT -w`, 포트 자체 파일의 `-std=gnu99`)는 포트의 Makefile을 보라. 페이스는 CodeFlash의 `const` 배열이다.
@@ -764,7 +765,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
       idf.py -B build-mono   -DSVF_PROFILE=mono   set-target esp32c3 && idf.py -B build-mono build
 
   `idf.py`는 `sdkconfig`와 `sdkconfig.old`를 프로젝트 디렉터리에 쓴다(`c/ports/esp32/.gitignore`에 올라 있다).
-- **자신의 프로젝트에서.** 라이브러리를 컴포넌트로 만든다. `svf.h`와 `svf_*.c`를 `main/svf/`로 복사하고 `face.c`를 생성한다.
+- **자신의 프로젝트에서.** 라이브러리를 컴포넌트로 만든다. `svf.h`, `svf_internal.h`, `svf_*.c`를 `main/svf/`로 복사하고 `face.c`를 생성한다.
 
   ```cmake
   # main/CMakeLists.txt
@@ -789,6 +790,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
   /* (a) partitions.csv:  font, data, 0x40, , 256K   그다음: parttool.py write_partition --partition-name font --input FACE.SVF */
   static esp_partition_mmap_handle_t font_map;
 
+  /* face_len: 페이스의 바이트 크기(예: 기록할 때 저장해 둔 값). p->size를 넘겨도 된다. 0xFF로 채워진 뒤쪽 영역도 status 0으로 열린다 */
   svf_err face_from_partition(svf_face *f, uint32_t face_len)
   {
   	const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "font");
@@ -800,33 +802,47 @@ svf_chain_cache(&chain, syl, sizeof syl);
   	return svf_open_mapped(f, (const uint8_t *)ptr, face_len);   /* 페이스의 수명 동안 매핑을 유지하라 */
   }
 
-  /* (b) SPIFFS에서 스트리밍 */
+  /* (b) SPIFFS에서 스트리밍: 시작할 때 한 번 마운트하고, 그다음 페이스를 연다 */
   static long rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
   {
   	FILE *fp = ctx;
   	return fseek(fp, (long)off, SEEK_SET) == 0 ? (long)fread(dst, 1, len, fp) : -1;
   }
-  static uint8_t tables[16 * 1024], cache[8 * (512 + 8)];
+  static uint8_t tables[16 * 1024], cache[8 * (512 + 8)];   /* 한 번에 페이스 하나 */
 
-  svf_err face_from_spiffs(svf_face *f, const char *path)
+  esp_err_t spiffs_mount(void)                                /* 한 번만 호출한다 */
   {
   	esp_vfs_spiffs_conf_t conf = {.base_path = "/spiffs", .partition_label = NULL, .max_files = 2,
   	                              .format_if_mount_failed = false};
-  	FILE *fp;
+  	return esp_vfs_spiffs_register(&conf);
+  }
+
+  svf_err face_from_spiffs(svf_face *f, const char *path)
+  {
+  	FILE *fp = fopen(path, "rb");
   	long len;
   	size_t need;
   	svf_err e;
 
-  	if (esp_vfs_spiffs_register(&conf) != ESP_OK || !(fp = fopen(path, "rb")))
+  	if (!fp)
   		return SVF_E_IO;
-  	fseek(fp, 0, SEEK_END);
-  	len = ftell(fp);                                   /* fp는 열어 둔다: 그리는 동안 페이스가 읽는다 */
+  	if (fseek(fp, 0, SEEK_END) != 0 || (len = ftell(fp)) <= 0) {
+  		fclose(fp);
+  		return SVF_E_IO;
+  	}
   	need = svf_stream_tables_size(rd, fp, (uint32_t)len, &e);
-  	if (!need)
+  	if (!need) {
+  		fclose(fp);
   		return e;
-  	if (need > sizeof tables)
+  	}
+  	if (need > sizeof tables) {
+  		fclose(fp);
   		return SVF_E_NOMEM;
-  	return svf_open_stream(f, rd, fp, (uint32_t)len, tables, sizeof tables, cache, sizeof cache, 512);
+  	}
+  	e = svf_open_stream(f, rd, fp, (uint32_t)len, tables, sizeof tables, cache, sizeof cache, 512);
+  	if (e != SVF_OK)
+  		fclose(fp);                                          /* 성공하면 fp를 열어 둔다: 그리는 동안 페이스가 읽는다 */
+  	return e;
   }
   ```
 
@@ -847,8 +863,8 @@ svf_chain_cache(&chain, syl, sizeof syl);
   쓴다(포트 README 참조).
 - **빌드.** 프로필마다 디렉터리 하나이다. `-DPICO_NO_PICOTOOL=1`은 `.elf`만 만든다. **Pico 2**(RP2350, Arm 코어)에는 `-DPICO_BOARD=pico2`를 더한다.
 
-      cmake -S c/ports/pico -B build-pico-mono  -DSVF_PROFILE=mono -DPICO_SDK_PATH=~/opt/pico-sdk-2.3.1 -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
-      cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH=~/opt/pico-sdk-2.3.1 -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
+      cmake -S c/ports/pico -B build-pico-mono  -DSVF_PROFILE=mono -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
+      cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
       cmake --build build-pico-mono
 
 - **자신의 프로젝트에서.** 포트의 `CMakeLists.txt`가 템플릿이다. `mkface.py`를 실행하는 `add_custom_command`로 페이스를 생성하고, `c/src/*.c`를 더하고,
@@ -943,7 +959,7 @@ svf_chain_cache(&chain, syl, sizeof syl);
 
 ### 13.7 웹(WebAssembly, emscripten)
 
-- **툴체인.** emsdk 태그 **6.0.13**(emcc 6.0.13, `c/cross/install-toolchains.sh emsdk`가 node 24.19.0과 함께 설치), `-O2`, `-std=c99 -Wall -Wextra -Werror`.
+- **툴체인.** emsdk 태그 **6.0.13**(emcc 6.0.13, `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`가 node 24.19.0과 함께 설치), `-O2`, `-std=c99 -Wall -Wextra -Werror`.
 - **빌드**(`web/build.sh`가 실행하는 줄이며 `c/ports/web/emcc-flags.sh`에 있다. 측정: `svf.wasm` 39,808바이트, `svf.js` 6,937).
 
       EM_CONFIG=~/opt/emsdk/.emscripten ~/opt/emsdk/upstream/emscripten/emcc -std=c99 -Wall -Wextra -Werror -O2 \
@@ -1034,7 +1050,7 @@ ScummVM에 대한 참고: 저장소의 ScummVM 작업은 현재 자체 SVF 리�
 | 글리프가 한 행 높거나 낮음 | 베이스라인 대신 상단 행을 넘김 | `y_baseline = top + ascent` |
 | `PROGMEM` 배열 페이스인 AVR 빌드에서 `svf_open_mapped`가 `SVF_E_MAGIC`을 반환 | 라이브러리를 `-DSVF_RD8(p)=pgm_read_byte(p)` 없이 빌드하여 플래시 주소를 RAM으로 읽음 | 모든 라이브러리 소스를 `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'`로 빌드(5.1절. simavr: 없으면 1, 있으면 0) |
 | 페이스 배열이 RAM을 먹거나 링크가 RAM 초과로 실패 | 배열을 `xxd -i`로 만들었음(`const`가 아니라 `.data`) | `c/bench/mkface.py`로 생성(5절). `size`에서 페이스가 data가 아니라 text에 잡히는지 확인 |
-| `-DSVF_SMALL`을 넣은 뒤 한글이 그려지지 않음 | `SVF_SMALL`이 `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG`, `SVF_JSET_BIG`의 기본값을 꺼서 버전 3 또는 BIG 페이스가 일반 페이스로 열림(`JSET_BAD` / `JMAP_UNREAD`) | `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`을 더하거나, 빌드가 읽는 형식으로 페이스를 작성(10.1절, 12절) |
+| `-DSVF_SMALL`을 넣은 뒤 한글이 그려지지 않음 | `SVF_SMALL`이 `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG`, `SVF_JSET_BIG`의 기본값을 꺼서 버전 3 또는 BIG 페이스가 일반 페이스로 열림(`JSET_BAD`. `JMAP_UNREAD`는 `-DSVF_JMAP_RECOG=1`일 때만) | `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`을 더하거나, 빌드가 읽는 형식으로 페이스를 작성(10.1절, 12절) |
 | 일부 한글 음절만 그려지고 나머지는 누락됨 | 페이스의 JMAP이 SPARSE 또는 LIST이고 폴백 블록이 없어서 나열된 음절만 조합됨 | 음절마다 `svf_has(face, cp)` 확인. 폴백이나 조밀한 테이블로 페이스를 다시 만듦(10절) |
 | 텍스트의 오른쪽 끝이 버퍼에서 잘림 | 버퍼 크기를 펜 이동 거리인 `e.width`로 정했는데 마지막 글리프의 잉크가 그 너머까지 닿음 | `e.width + svf_cell_w(face)`(3절) |
 | 업그레이드 뒤 크래시나 쓰레기 값 | 번역 단위들이 서로 다른 `-D` 스위치로 빌드됨(`SVF_JMAP`은 `svf_face`를 바꿈) | 하나의 플래그 집합으로 전부 다시 빌드 |
