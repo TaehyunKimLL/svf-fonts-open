@@ -69,7 +69,7 @@ outline font or an existing precomposed face. It also writes SVFN v3 (`write_svf
 composes syllables for checking.
 
 **Status.** General-purpose. It names game-specific set systems (SAGA IHNM, hanterm, Dokkaebi printer, Kyra LoK, Mac
-HangulTalk) but is not tied to one game.
+HangulTalk, HWP 1.x) but is not tied to one game.
 
 **Inputs.** Depends on the mode:
 - a DOS Johab raw font read by its own parser: raw 8x4x4 (`844`, 16/24/40/48 px, 11520/11522/25920/72000/103680/15584
@@ -79,7 +79,10 @@ HangulTalk) but is not tied to one game.
 - a hanterm BDF (`hanterm-johab`) whose `ENCODING` is the johab-1 glyph number, parsed with a regular-expression
   reader;
 - a Mac HangulTalk 1.0 `fbit` resource fork (`mac-fbit-45sets`), parsed from its raw resource map;
-- `--eng` a raw 8x16 DOS English font (2048 or 4096 bytes), or an HBIOS 12x24 (15360) / PFT 12x24 (12288) / Taebaek PFT 20x40 (30720, GASCII40) / 24x48 (49152, GASCII48);
+- an HWP 1.x `HANGUL.SFT` / `HANGUL1/2/3.PFT` (`hwp1`, `--face 0..2`): the JSET tables are HWP.EXE's own rule for the
+  face, read through `hwpfont.py`; an HWP 3.0 `HAN16_*.FNT` (`844-hwp3`: the 360-glyph 8x4x4 set after its 2,350
+  syllables);
+- `--eng` a raw 8x16 DOS English font (2048 or 4096 bytes), or an HBIOS 12x24 (15360) / PFT 12x24 (12288) / Taebaek PFT 20x40 (30720, GASCII40) / 24x48 (49152, GASCII48), or an HWP English font: an HWP 1.x `ASCII.SFT` (8x16) / `ASCII.PFT` (14x24, step 14; face `--eng-face` of six) or an HWP 3.0 `ENG*.FNT` (8x16, 12x24, 20x40), recognised by its header;
 - `--base` an SVFN v3 face (its non-syllable glyphs are kept; a v2 face is refused with the convert message (`tools/svf2to3.py`));
 - `--from-ttf` an outline TTF/OTF, read with freetype-py for 1 bpp `mono` targets and with fontTools (via `jamoaa.py`)
   for 2 bpp and for `--binarize threshold|ridge`;
@@ -97,26 +100,28 @@ rewrites an existing jamo set instead.
     python3 tools/jamoset.py --layout LAYOUT --blank-compat FACE.SVF -o OUT.SVF
 
 Options (default in parentheses). The **Modes** column says which mode the option belongs to: `source` (a positional
-DOS Johab, hanterm BDF, Kyra `.BIT` or Dokkaebi FNT file), `mac-fbit-45sets` (a positional Mac HangulTalk `fbit`
-resource fork, a mode of its own: it takes no `--from-*`, `--eng` or `--base`), `--from-ttf`, `--from-svf`, `--bpp 2`
-(only with `--from-ttf`) and `--blank-compat`. An option not listed for a mode is ignored there (not refused), except
+DOS Johab, hanterm BDF, Kyra `.BIT`, Dokkaebi FNT or HWP 3.0 HAN16 FNT file), `mac-fbit-45sets` (a positional Mac
+HangulTalk `fbit` resource fork, a mode of its own: it takes no `--from-*`, `--eng` or `--base`), `hwp1` (a positional HWP
+1.x Hangul file, a mode of its own: no `--from-*`; it takes `--eng` and `--base` as `source` does), `--from-ttf`,
+`--from-svf`, `--bpp 2` (only with `--from-ttf`) and `--blank-compat`. An option not listed for a mode is ignored there (not refused), except
 where the table says "refused".
 
 | Option (default) | Modes | Meaning |
 |---|---|---|
-| `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` is a mode of its own (the positional file is the `fbit` resource fork) |
-| `--face N` (0) | `source` | typeface of a printer font (0 or 1) |
-| `--eng FILE` (none) | `source`, `--from-ttf`, `--from-svf` | raw 8x16 English font for ASCII (2048 or 4096 bytes; the 12x24, 20x40 and 24x48 faces above also read); refused with `--bpp 2` and with `mac-fbit-45sets` |
-| `--base FILE` (none) | `source`, `--from-ttf` | SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp); ignored by `--from-svf` (the input face is the base); refused with `--bpp 2` and with `mac-fbit-45sets` |
+| `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` and `hwp1` are modes of their own (the positional file is the `fbit` resource fork, the HWP 1.x Hangul file) |
+| `--face N` (0) | `source`, `hwp1` | typeface of a Dokkaebi printer font (0 or 1), of an HWP 1.x Hangul file (0, 1, 2) |
+| `--eng FILE` (none) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | raw 8x16 English font for ASCII (2048 or 4096 bytes; the 12x24, 20x40 and 24x48 faces and the HWP English fonts above also read); refused with `--bpp 2` and with `mac-fbit-45sets` |
+| `--eng-face N` (0) | where `--eng` is | the face of an HWP 1.x `ASCII.SFT` / `ASCII.PFT` given as `--eng` (0..5: Myeongjo, Gothic, superscript, subscript, italic, script by HWP's menu) |
+| `--base FILE` (none) | `source`, `hwp1`, `--from-ttf` | SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp); ignored by `--from-svf` (the input face is the base); refused with `--bpp 2` and with `mac-fbit-45sets` |
 | `-o`, `--output` (required) | all | output path |
 | `--profile NAME` (`default`), `--box x\|y\|full` (the profile's) | all | the SVFN v3 layout profile and ink box policy of the output (see `svf2to3.py`) |
 | `--jset-version 1\|2\|auto` (1; `--blank-compat`: the input's) | all | the JSET block version written (see "JSET versions" below) |
 | `--jset-big` (off) | all | allow a JSET over the standard limits (19 x 28 classes, 128/128/64 sets; the reader needs `SVF_JSET_BIG`); output within the standard limits is identical with or without it (see "JSET versions") |
-| `--advance N` (none) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | the composed syllable's step (JSET advance byte; the layout's value, 0 = cell width) |
-| `--ascent N` (none) | `source`, `mac-fbit-45sets` | the SVF's baseline row (the `--eng` face's baseline for a 12x24, 20x40 or 24x48 face, else 7/8 of the cell); ignored by the fit modes, which take it from the fitted face |
-| `--embolden` (off) | `source`, `mac-fbit-45sets` | OR every piece and ASCII glyph with itself shifted right 1 px; ignored by the fit modes, refused with `--bpp 2` |
-| `--symbols` (off) | `source`, `mac-fbit-45sets`, `--bpp 2` | add U+2026 and U+25A1; ignored by 1 bpp `--from-ttf`/`--from-svf` |
-| `--check` (off) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | compose all 11,172 syllables from the output and verify |
+| `--advance N` (none) | `source`, `mac-fbit-45sets`, `hwp1`, `--from-ttf`, `--from-svf`, `--bpp 2` | the composed syllable's step (JSET advance byte; the layout's value, 0 = cell width) |
+| `--ascent N` (none) | `source`, `mac-fbit-45sets`, `hwp1` | the SVF's baseline row (the `--eng` face's baseline for a 12x24, 20x40 or 24x48 face, else 7/8 of the cell); ignored by the fit modes, which take it from the fitted face |
+| `--embolden` (off) | `source`, `mac-fbit-45sets`, `hwp1` | OR every piece and ASCII glyph with itself shifted right 1 px; ignored by the fit modes, refused with `--bpp 2` |
+| `--symbols` (off) | `source`, `mac-fbit-45sets`, `hwp1`, `--bpp 2` | add U+2026 and U+25A1; ignored by 1 bpp `--from-ttf`/`--from-svf` |
+| `--check` (off) | `source`, `mac-fbit-45sets`, `hwp1`, `--from-ttf`, `--from-svf`, `--bpp 2` | compose all 11,172 syllables from the output and verify (`844` and `844-hwp3` at 16 px: also against `johab844.py`; `hwp1`: also against `hwpfont.py`'s HWP rule, printing `hwp1: 11172 syllables identical to the HWP 1.x rule (hwpfont.py)`) |
 | `--from-ttf FONT` (none) | mode | fit the pieces to the outline font's syllables at `--size` |
 | `--from-svf FACE.SVF` (none) | mode | decompose a 1 bpp precomposed SVFN face (refused at any other bpp) |
 | `--size N` (none) | `--from-ttf` | pixel size |
@@ -171,13 +176,13 @@ use as a JMAP fallback; version 2 walks each row greedily from its first piece, 
 ("a JMAP block has no set tables"); `blank_compat` and `blank_whole_compat` blank a JMAP's own compat entries and its fallback's (`blank_compat` re-encodes `fallback_block` with `pack_fallback`, same version and numbering, when that changed the fallback (a BIG fallback is re-encoded with its own size whether or not `--jset-big` is given, so `jamoset.py --blank-compat` preserves it); `blank_whole_compat` keeps every piece of a JMAP and drops unused pieces of set tables only). LIST mode (flag 0x08): `Jmap(..., list_mode=True)` keeps `entries` as syllable index -> three piece numbers of one shared pool (BLANK = none; `pi`/`pm`/`pf` are 0); constants `JMAP_FLAG_LIST`, `JMAP_LIST_MAX` (255), `JMAP_LIST_ENTRIES` (118), `JMAP_LIST_ENTRY` (8); `jmap_size(ns, four, sparse, fallback_len, list_mode)`; `pack_jmap` writes a LIST for a list-mode `Jmap` (no overlap refusal, over 255 entries refused with a SPARSE hint), `unpack_jmap` reads it (rules R1', L2, L3, R4, L6; L5/L7 are `parse_svfn`'s usable rule) and `jset_line` prints `list=1`. `unpack` returns a `Jmap` for a version 3 block, `pieces_of`, `used_pieces`, `compose` and
 `jset_line` (`jset=v3 jmap=BYTES ns=NS fallback=v1|v2|none`, then ` big=1` when the fallback needs BIG) accept one. `jmap_list(f, exceptions, compat=None, jset_version=None, fallback=True, advance=0)` builds a LIST over a parsed jamo face `f`: `exceptions` maps a syllable index (0..11171) to 1-3 piece numbers (padded with BLANK) or a whole cell (bytes, packed rows), `compat` maps a compat index (0..50) to one piece number or a whole cell (every other k stays BLANK and falls to the fallback). A whole cell becomes a new piece numbered above the highest U+F0000 + n code point of the face (syllables in ascending s, then compat in ascending k); a number that would reach 0xFFFF is refused. With `fallback` the face's JSET (version 1 or 2) is kept verbatim as the fallback (or re-encoded by `pack_fallback`, numbers kept, when `jset_version` differs) and the LIST advance is its advance byte, `advance` being ignored; `fallback=False` builds a LIST without one, with `advance`. A field may be BLANK (0xFFFF; a compat given as the number BLANK means not given); a piece number without a glyph in the face is refused. It refuses over 255 entries, a version 3 source (also with `fallback=False`), `jset_version` with `fallback=False`, a face without a usable JSET (unless `fallback=False`), an s or k out of range, a value that is neither a cell nor a list of 1-3 pieces, and a cell of the wrong size. It returns `(Jmap, {cp: cell})`; the caller writes `pack_jmap(jm, jm.fallback_block)`. `jamoset.py` has no option that writes JMAP; `jamoexc.py build` writes a LIST.
 
-**Repository modules imported.** `johab844.py` (for the 844 identity check), `jamoaa.py`, `jamofit.py`,
-`jamoadapt.py`. **Third-party.** fontTools (for `--bpp 2`, `--binarize threshold|ridge`, and the `--clean` contour
+**Repository modules imported.** `johab844.py` (for the 844 identity check), `hwpfont.py` (`hwp1`, `844-hwp3` and the
+HWP English fonts), `jamoaa.py`, `jamofit.py`, `jamoadapt.py`. **Third-party.** fontTools (for `--bpp 2`, `--binarize threshold|ridge`, and the `--clean` contour
 donors), freetype-py and uharfbuzz (for the mask font and for `--from-ttf` at 1 bpp `mono`). Both are optional:
 without them, `--from-ttf` fails unless `--binarize threshold|ridge` or `--bpp 2` is given, and the mask font is
 skipped with a message.
 
-**Test.** `tools/test_jamoset.py`.
+**Test.** `tools/test_jamoset.py`; `tools/test_hwpfont.py` (`hwp1`, `844-hwp3`, the HWP `--eng`).
 
 ### `tools/mkfont.py`
 
@@ -1159,6 +1164,56 @@ syllables>` to 2,350 syllables, 0 absent, 0 clipped.
 files).
 
 
+### `tools/hwpfont.py`
+
+**Purpose.** Read the bitmap fonts of Hangul (HWP) 1.x and 3.0 for DOS and headerless KS X 1001 syllable dumps: say
+what a file is, compose an HWP 1.x face's syllables by HWP.EXE's rule, and write a file's glyphs as a Unicode BDF that
+`mkfont.py` and `bdfface.py` take. `jamoset.py --layout hwp1` / `844-hwp3` and its HWP `--eng` read the files through it.
+
+**Status.** Research reader made a repository tool. The fonts are Hancom's (proprietary): the tool reads the user's own
+copies; no font, glyph or table of a real file is in this repository (the HWP.EXE selection tables, which are a rule, are
+carried as data, from the johab-fonts research notes). It reads bytes only (run it with `python3 -I`).
+
+**Inputs.** HWP 1.x `.SFT` / `.PFT` (a 32-byte "HWP Font Editor v1.0" or "FE" header, the size exactly 32 + count x glyph
+bytes; screen fonts row-major, printer fonts column-major): `HANGUL.SFT` (16x16, 1,193 glyphs, three faces of 10/4/4,
+7/2/2, 6/2/2 initial/vowel/final sets of 31/29/31 pieces), `HANGUL1/2/3.PFT` (24x24, 980; 7/2/3, 7/2/2, 5/2/2),
+`ASCII.SFT` / `ASCII.PFT` (8x16 / 14x24, 991: six faces of 147), `HANJA.SFT` (4,888), the symbol files (`other`). HWP 3.0
+`.FNT` (a 72-byte "FNT" 01 header: type 0 English, 1 Hangul, 2 hanja; LE16 width and height at 6 and 8; row-major
+glyphs): `HAN*.FNT` the 2,350 KS X 1001 syllables (+ a 360-glyph 8x4x4 set at 16 px), `ENG*.FNT` codes from 0x20,
+`HAJ16_0.FNT` the hanja. KS raw: a headerless file of exactly 2,350 square glyphs of 16, 24, 32, 40 or 48 px (75,200 /
+169,200 / 300,800 / 470,000 / 676,800 bytes), its first and last glyph inked and different. Anything else is refused,
+as is a file over 16 MB. `--ascii` takes any English font `jamoset.py --eng` reads.
+
+**Outputs.** `info`: one line (family `HWP 1.x font` / `HWP 3.0 FNT` / `KS X 1001 raw dump`, kind, glyph count and size,
+the faces' set counts, an HWP 3.0 font's name, the 8x4x4 tail). `bdf`: a BDF 2.1 (`CHARSET_REGISTRY "ISO10646"`,
+`PIXEL_SIZE` = the cell height, `ENCODING` = the code point, `STARTCHAR U+XXXX`): a Hangul file's syllables (the 2,350
+of KS X 1001; `--syllables all` all 11,172 of an HWP 1.x face), an English file's U+0020..U+007E (advance = glyph width),
+a hanja file's 4,888 hanja; with `--ascii` the English font's ASCII too (centred in height when shorter than the cell, its
+own advance). The ascent is `--ascent`, else the English face's baseline (the row below the ink of `H`), else 7/8 of the
+cell. One summary line (`wrote OUT: 2350 Hangul syllables, 95 ASCII of 14x24 from ASCII.PFT; cell 24x24, ascent 20`).
+
+**Synopsis.**
+
+    python3 -I tools/hwpfont.py info FILE
+    python3 -I tools/hwpfont.py bdf FILE [--face N] [--syllables ks|all] [--ascii ENG [--ascii-face N]] [--ascent A] [--name NAME] -o OUT.bdf
+
+`--face` is the Hangul face (0..2) of an HWP 1.x Hangul file or the face (0..5) of an HWP 1.x ASCII file. Exit 0, or 1
+with `hwpfont.py: <reason>` (not one of the formats, a size that does not match the header, a face out of range, a
+file with nothing to write).
+
+As a library: `read(data)` (a `Font`: `family`, `kind`, `w`, `h`, `count`, `glyph(i)` as row ints, `jamo844`, `table`),
+`Hwp1Hangul(font, face)` (`pieces(cp)`, `syllable(cp)`, and the rule as JSET set functions `lead_class`, `init_set`,
+`med_set`, `fin_set`, `init_src`, `med_src`, `fin_src`), `syllables`, `ascii_glyphs`, `hanja_glyphs`, `english(path)`,
+`ks_hangul()`, `ks_hanja()`, `ks_raw_px(size)`.
+
+Run on the user's HWP 1.20, HWP 3.0 and Taebaek 3.5.1 files (2026-11-23; numbers in recipes.md, "HWP 1.x and 2.x
+fonts", "HWP 3.0 FNT fonts", "KS X 1001 raw dumps"): all 11,172 syllables of the seven HWP 1.x Hangul files at hand,
+three faces each, equal the research renderer's (`hwp1_fnt.py` of the johab-fonts notes).
+
+**Repository modules imported.** `rawcarve.py` (`bdf_text`), `jamoset.py` (`read_eng`, for `--ascii`). **Third-party.**
+None. **Test.** `tools/test_hwpfont.py` (synthetic files; `JOHAB_FONTS=<research tree>` adds hash checks of the real
+HWP 1.20, HWP 3.0 and Taebaek files).
+
 ### `tools/macsfnt.py`
 
 **Purpose.** Make Mac-format TrueType usable by the other tools: list and extract the 'sfnt' resources of a resource fork
@@ -1217,10 +1272,13 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
   Windows 95 Korean FONs `mkfont.py` exits with "no `--unicode` character is in the font", and the maker offers no route
   for them ("no Unicode character map, mkfont cannot read it"). No FNT or FON with Hangul glyphs was found either
   (recipes.md, Windows FNT and FON).
-- **No reader** for the HWP `.PFT` Hangul files (run on HWP 1.20's HANGUL1.PFT: refused, `is not an 8x4x4 size`). Raw
-  KS X 1001 syllable dumps, KS code grids and fonts inside programs and ROMs are cut by `rawcarve.py` into a BDF (no
-  builder reads them directly); a jamo-piece font in a layout no `jamoset.py` layout names needs its rule written as a
-  `rawcarve.py compose` spec. `--eng` takes the 8x16, 12x24, 20x40 and 24x48 English fonts.
+- **No reader** for the HWP 2.x / 3.0 `.HFT` fonts (scalable outline or stroke fonts, not bitmaps). The HWP 1.x
+  `.SFT` / `.PFT`, HWP 3.0 `.FNT` and headerless KS X 1001 syllable dumps of 16-48 px are read by `hwpfont.py`
+  (`jamoset.py --layout hwp1` / `844-hwp3`); KS code grids, dumps of other sizes or inside a bigger file and fonts inside
+  programs and ROMs are cut by `rawcarve.py` into a BDF (no builder reads them directly); a jamo-piece font in a layout
+  no `jamoset.py` layout names needs its rule written as a `rawcarve.py compose` spec. `--eng` takes the 8x16, 12x24,
+  20x40 and 24x48 English fonts and the HWP ones. The HWP 1.x symbol files and the hanja files have no route to a face
+  (`hwpfont.py bdf` writes the hanja as a BDF).
 - **No 1 bpp to anti-aliased conversion at the same size.** No tool makes a 2 bpp face from a 1 bpp face of the same
   size; `svfscale.py --bpp 2` makes one from a larger bitmap face (a box filter), and the other 2 bpp faces come from an
   outline font (`mkfont.py --bpp 2`, `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`). A 2 bpp jamo set from a bitmap

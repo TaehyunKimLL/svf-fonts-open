@@ -246,7 +246,7 @@ def sel_dkb40(L, V, T):
 
 REFERENCE = {"844": sel_844, "844-ihnm": sel_ihnm, "1044-san": sel_1044, "621": sel_621, "hanterm-johab": sel_hanterm,
              "dkb-printer-7x2x2": sel_dkb16, "dkb-printer-12x4x4": sel_dkb40, "kyra-lok": sel_kyra,
-             "844-hbios24": sel_844}
+             "844-hbios24": sel_844, "844-hwp3": sel_844}
 
 # 가 각 한 의 뷁 흙, by hand from the research doc's formulas (3.2, 3.3, 3.4, 6.1, formats 2.5-2.9).
 SAMPLES = (0xAC00, 0xAC01, 0xD55C, 0xC758, 0xBDC1, 0xD759)
@@ -272,6 +272,11 @@ def make_source(layout_name, seed=1):
         gb, n, blanks = 32, 360, [s * 20 for s in range(8)] + [160 + s * 22 for s in range(4)] + [248 + s * 28 for s in range(4)]
     elif layout_name == "844-hbios24":
         return DosFace24.hbios(seed)
+    elif layout_name == "844-hwp3":		# an HWP 3.0 HAN16 FNT: header, 2,350 syllables, then the 8x4x4 set
+        head = bytearray(72)
+        head[:6] = b"FNT\x01\x01\x01"
+        struct.pack_into("<HHHHHI", head, 6, 16, 16, 8, 4, 4, 2710)
+        return bytes(head) + rnd.randbytes(2350 * 32) + make_source("844", seed)
     elif layout_name == "1044-san":
         gb, n, blanks = 32, 400, [s * 20 for s in range(10)] + [200 + s * 22 for s in range(4)] + [288 + s * 28 for s in range(4)]
     elif layout_name == "621":
@@ -312,6 +317,8 @@ def raw_piece(name, data, i):
     """Glyph i of a synthetic source as the SVFN 1bpp rows, read straight from the bytes (not through jamoset)."""
     if name in ("844", "844-ihnm", "1044-san"):
         return data[i * 32:(i + 1) * 32]
+    if name == "844-hwp3":
+        return data[jamoset.HWP3_JAMO_OFFSET + i * 32:jamoset.HWP3_JAMO_OFFSET + (i + 1) * 32]
     if name == "844-hbios24":			# 90 byte glyphs of a 24x30 cell: ink rows 3-26 are the 24 rows
         return data[i * 90 + 9:i * 90 + 81]
     if name == "kyra-lok":			# 15 columns: two bytes a row, the 16th bit is padding (zero in make_source)

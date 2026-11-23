@@ -245,6 +245,29 @@ def open_dkb40(d, face=0, path=""):
     return Source(px, px, 440, lambda i: g_rowmajor(d, (face * 440 + i) * gb, px, px))
 
 
+def _hwpfont():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
+    import hwpfont
+    return hwpfont
+
+
+HWP3_JAMO_OFFSET = 72 + 2350 * 32	# an HWP 3.0 HAN16 FNT: the 72-byte header, 2,350 syllables, then the 8x4x4 set
+
+
+def open_hwp3_844(d, face=0, path=""):
+    """The 8x4x4 jamo set of an HWP 3.0 HAN16_*.FNT (86,792 bytes: a 72-byte header, the 2,350 KS X 1001 syllables of
+    16x16, then 360 jamo glyphs); the syllables before it are not read."""
+    hwpfont = _hwpfont()
+    try:
+        f = hwpfont.read(d)
+    except hwpfont.HwpError as e:
+        raise SourceError(str(e))
+    if f.family != "hwp3" or not f.jamo844:
+        raise SourceError("no 8x4x4 jamo set: only an HWP 3.0 16x16 Hangul FNT of 2,710 glyphs (HAN16_*.FNT) holds one")
+    check_blank_slots(d, HWP3_JAMO_OFFSET, 32, slots_of(8, 4, 4, 160, 248))
+    return Source(16, 16, 360, lambda i: g_rowmajor(d, HWP3_JAMO_OFFSET + i * 32, 16, 16))
+
+
 def open_bdf_glyphs(d, face=0, path=""):
     """A hanterm BDF whose ENCODING is the glyph number (johab-1); cells are the font's box."""
     t = d.decode("latin-1")
@@ -408,7 +431,8 @@ def _dkb12():
                   lambda s, T: 328 + s * 28 + T)
 
 
-LAYOUTS = {l.name: l for l in (_844("844", 0), _844("844-ihnm", 1), _844("844-hbios24", 0, open_hbios24), _san1044(), _621(), _hanterm(), _dkb7(),
+LAYOUTS = {l.name: l for l in (_844("844", 0), _844("844-ihnm", 1), _844("844-hbios24", 0, open_hbios24),
+                               _844("844-hwp3", 0, open_hwp3_844), _san1044(), _621(), _hanterm(), _dkb7(),
                                _dkb12(), _kyra())}
 
 
@@ -1993,13 +2017,37 @@ class EngCell:
         return self._get(cp)
 
 
-def read_eng(d):
+def read_hwp_eng(d, face=0):
+    """An HWP English font as read_eng returns one, or None when @p d is not an HWP 1.x / 3.0 font: an HWP 1.x
+    ASCII.SFT (8x16) or ASCII.PFT (14x24), face @p face of its six, or an HWP 3.0 ENG*.FNT (8x16, 12x24, 20x40). An 8x16
+    face becomes the 4,096-byte table (code x 16 rows), the others an EngCell stepping by the glyph width."""
+    hwpfont = _hwpfont()
+    if not (d.startswith(hwpfont.HWP1_MAGIC) or d.startswith(hwpfont.HWP1_FE) or d.startswith(hwpfont.HWP3_MAGIC)):
+        return None
+    try:
+        f = hwpfont.read(d)
+        glyphs = hwpfont.ascii_glyphs(f, face)
+    except hwpfont.HwpError as e:
+        raise SourceError(f"not an HWP English font: {e}")
+    if (f.w, f.h) == (8, 16):
+        out = bytearray(4096)
+        for cp, rows in glyphs.items():
+            out[cp * 16:cp * 16 + 16] = bytes(rows)
+        return bytes(out)
+    blank = [0] * f.h
+    return EngCell(f.w, f.h, lambda cp: glyphs.get(cp, blank), f"{f.family}-{f.w}x{f.h}", f.w)
+
+
+def read_eng(d, face=0):
     """A raw 8x16 English font (2048 or 4096 bytes, row major) as bytes, or an EngCell for the 12x24, 20x40 and 24x48
-    faces: an HBIOS
+    faces; or an HWP English font (read_hwp_eng, @p face of an HWP 1.x ASCII file). The raw faces: an HBIOS
     $KROHN24 / Taebaek ROMAN24 / SANS24 (15,360 bytes: 256 glyphs of 60 bytes in a 16x30 cell, ink 12x24 in rows 3-26) or a
     Taebaek GASCII24 / MASCII24 .PFT (12,288 bytes: 256 glyphs of 48 bytes, 12x24 in 2 bytes a row), or a Taebaek 3.5.1 GASCII40 / MASCII40 .PFT
     (30,720 bytes: 40 rows of 3 bytes, step 20, ink up to 24 wide) or GASCII48 / MASCII48 (49,152 bytes: 48 rows of 4 bytes,
     step 24, ink up to 32 wide)."""
+    hwp = read_hwp_eng(d, face)
+    if hwp is not None:
+        return hwp
     if len(d) == 15360:
         return EngCell(16, 24, lambda cp: g_rowmajor(d, cp * 60, 16, 30).rows[3:27], "hbios12x24", 12)
     if len(d) == 12288:
@@ -2010,7 +2058,7 @@ def read_eng(d):
         return EngCell(32, 48, lambda cp: g_rowmajor(d, cp * 192, 32, 48).rows, "pft24x48", 24)
     if len(d) not in (2048, 4096):
         raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), "
-                          f"30720 (PFT 20x40) or 49152 (PFT 24x48), not {len(d)}")
+                          f"30720 (PFT 20x40) or 49152 (PFT 24x48), or is an HWP ASCII / ENG font, not {len(d)} bytes")
     return d
 
 
@@ -2266,10 +2314,10 @@ def check(out_bytes, layout, src_bytes):
             if getattr(t, attr) != getattr(want, attr):
                 raise ValueError(f"the written JSET {attr} differs from the adaptive layout")
         msg += f"; tables are the adaptive layout's ({t.ni}/{t.nm}/{t.nf} sets, {t.lc}x{t.tc} classes)"
-    if layout.name == "844" and (f.cell_w, f.cell_h) == (16, 16) and src_bytes is not None:
+    if layout.name in ("844", "844-hwp3") and (f.cell_w, f.cell_h) == (16, 16) and src_bytes is not None:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
         import johab844
-        off = 2 if len(src_bytes) == 11522 else 0
+        off = 2 if len(src_bytes) == 11522 else HWP3_JAMO_OFFSET if layout.name == "844-hwp3" else 0
         jamo = src_bytes[off:off + 360 * 32]
         bad = [cp for cp in composed if composed[cp] != johab844.compose(jamo, cp)]
         if bad:
@@ -2750,6 +2798,74 @@ def mac_compare(out, targets, w, h):
     return _jamofit().quality_report(targets, composed, w, h), [s for s in range(11172) if composed[s] != targets[s]]
 
 
+# ---- HWP 1.x Hangul fonts (--layout hwp1) ----------------------------------------------------------------------------
+#
+# HANGUL.SFT (16x16) and HANGUL1/2/3.PFT (24x24) of Hangul 1.x for DOS hold three faces of initial, vowel and final
+# piece sets; HWP.EXE picks a syllable's three pieces by its own tables (hwpfont.py holds them). The rule is a set rule of
+# the JSET kind: the lead class is HWP's initial class (g and k, the rest), the tail class "has a final", and the sets
+# depend on the vowel's shape class - so the tables below say exactly what HWP.EXE does, for each face (--face 0..2).
+
+HWP1_LAYOUT = "hwp1"
+
+
+def hwp1_layout(data, face=0):
+    """(Layout, Source, hwpfont.Hwp1Hangul) of face @p face of an HWP 1.x Hangul file's bytes."""
+    hwpfont = _hwpfont()
+    try:
+        font = hwpfont.read(data)
+        h = hwpfont.Hwp1Hangul(font, face)
+    except hwpfont.HwpError as e:
+        raise SourceError(str(e))
+    ni, nm, nf = h.nsets
+    layout = Layout(HWP1_LAYOUT, None, 2, 2, ni, nm, nf, h.lead_class, _has_tail, h.init_set, h.med_set, h.fin_set,
+                    h.init_src, h.med_src, h.fin_src)
+    src = Source(font.w, font.h, font.count, lambda i: Glyph(font.w, font.h, font.glyph(i)))
+    return layout, src, h
+
+
+def hwp1_compare(out, h):
+    """The syllables (U+AC00 + n) whose composition from the written font differs from hwpfont's own HWP rule."""
+    f = parse_svfn(out)
+    t = unpack(f.jset)
+    nb = (h.w + 7) // 8
+    bad = []
+    for s in range(11172):
+        want = b"".join((r << (nb * 8 - h.w)).to_bytes(nb, "big") for r in h.syllable(0xAC00 + s))
+        if compose(f, t, 0xAC00 + s) != want:
+            bad.append(s)
+    return bad
+
+
+def main_hwp1(ap, args):
+    """--layout hwp1 HANGUL.SFT|HANGULn.PFT --face N: the JSET tables of HWP.EXE's rule, compared with hwpfont.py's."""
+    if not args.source or args.from_ttf or args.from_svf or args.blank_compat:
+        ap.error(f"{HWP1_LAYOUT} takes the HWP 1.x Hangul file as its source (no --from-*)")
+    try:
+        with open(args.source, "rb") as fh:
+            data = fh.read()
+        layout, src, h = hwp1_layout(data, args.face)
+        eng = read_eng(open(args.eng, "rb").read(), args.eng_face) if args.eng else None
+        base = open(args.base, "rb").read() if args.base else None
+        out, mapping, _ = build_from_source(layout, src, eng, base, args.ascent, None, False, args.advance,
+                                            args.embolden, args.symbols, profile=profile_arg(ap, args),
+                                            jset_version=args.jset_version or 1, jset_big=args.jset_big)
+        with open(args.output, "wb") as fh:
+            fh.write(out)
+        print(f"{args.output}: {len(out)} bytes, {len(mapping)} pieces of {src.w}x{src.h} from {args.source} face "
+              f"{args.face}; {layout.ni}/{layout.nm}/{layout.nf} sets; " + jset_line(out))
+        if args.check:
+            print("check:", check(out, layout, None))
+            if args.embolden:
+                print("hwp1: comparison skipped (--embolden changes the pieces)")
+            else:
+                bad = hwp1_compare(out, h)
+                if bad:
+                    raise ValueError(f"{len(bad)} syllables differ from the HWP 1.x rule, first U+{0xAC00 + bad[0]:04X}")
+                print("hwp1: 11172 syllables identical to the HWP 1.x rule (hwpfont.py)")
+    except (SourceError, ValueError, OSError) as e:
+        sys.exit(f"{args.source}: {e}")
+
+
 def ink_clipped(iw, ih, w, h, oy, top, bottom):
     """Whether the union ink box (iw x ih, pen-relative @p top and @p bottom rows) does not fit the w x h cell with the baseline
     at row @p oy: its top row is oy - top and its bottom row oy - bottom, which must be 0..h-1 (so oy - bottom == h is clipped)."""
@@ -2813,7 +2929,7 @@ def summary_line(label, q):
 
 
 def _layout_arg(v):
-    if v in LAYOUTS or v == MAC_LAYOUT:
+    if v in LAYOUTS or v in (MAC_LAYOUT, HWP1_LAYOUT):
         return v
     m = re.fullmatch(r"adaptive(?::(\d+),(\d+),(\d+))?", v)
     if m:
@@ -2834,13 +2950,15 @@ def adaptive_limits(name):
 def make_parser():
     ap = argparse.ArgumentParser(description="DOS Johab jamo-set font or outline font / precomposed face -> jamo-set SVF")
     ap.add_argument("source", nargs="?", help="the source font file (DOS Johab sources; not with --from-ttf/--from-svf)")
-    ap.add_argument("--layout", required=True, type=_layout_arg, metavar="{" + ",".join(sorted(LAYOUTS) + [MAC_LAYOUT]) + ",adaptive[:NI,NM,NF]}",
-                    help=f"a set system; {MAC_LAYOUT} takes a HangulTalk 1.0 'fbit' resource fork (see MacFbit); "
+    ap.add_argument("--layout", required=True, type=_layout_arg, metavar="{" + ",".join(sorted(list(LAYOUTS) + [MAC_LAYOUT, HWP1_LAYOUT])) + ",adaptive[:NI,NM,NF]}",
+                    help=f"a set system; {MAC_LAYOUT} takes a HangulTalk 1.0 'fbit' resource fork (see MacFbit), "
+                    f"{HWP1_LAYOUT} an HWP 1.x HANGUL.SFT / HANGULn.PFT (--face 0..2); "
                     "adaptive (--from-ttf/--from-svf) starts from 844 and splits sets where the syllables sharing a "
                     "piece disagree, up to NI,NM,NF sets (default 32,24,12, most 32,24,16; jamoadapt.py)")
-    ap.add_argument("--face", type=int, default=0, help="typeface of a printer font (0 or 1)")
+    ap.add_argument("--face", type=int, default=0, help="typeface of a printer font (0 or 1), of an HWP 1.x Hangul file (0..2)")
     ap.add_argument("--eng", help="English font for ASCII: raw 8x16 (2048 or 4096 bytes), HBIOS 12x24 (15360), Taebaek PFT 12x24 (12288), "
-                    "20x40 (30720) or 24x48 (49152)")
+                    "20x40 (30720) or 24x48 (49152), an HWP 1.x ASCII.SFT / ASCII.PFT or an HWP 3.0 ENG*.FNT")
+    ap.add_argument("--eng-face", type=int, default=0, help="--eng of an HWP 1.x ASCII file: its face (0..5, default 0)")
     ap.add_argument("--base", help="SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp)")
     ap.add_argument("-o", "--output", required=True)
     ap.add_argument("--advance", type=int, help="the step of a composed syllable (JSET advance byte; default: the layout's, "
@@ -3018,6 +3136,8 @@ def main():
     profile_arg(ap, args)
     if args.layout == MAC_LAYOUT:
         return main_mac(ap, args)
+    if args.layout == HWP1_LAYOUT:
+        return main_hwp1(ap, args)
     limits = adaptive_limits(args.layout)
     if limits and not (args.from_ttf or args.from_svf):
         ap.error("--layout adaptive fits pieces: give --from-ttf or --from-svf")
@@ -3033,7 +3153,7 @@ def main():
             open(args.output, "wb").write(out)
             print(f"{args.output}: {len(out)} bytes, compat jamo with a whole glyph left to the glyph; {jset_line(out)}")
             return
-        eng = read_eng(open(args.eng, "rb").read()) if args.eng else None
+        eng = read_eng(open(args.eng, "rb").read(), args.eng_face) if args.eng else None
         base = open(args.base, "rb").read() if args.base else None
         if args.bpp == 2:
             return main_aa(ap, args, layout, eng, base, time.time(), limits, clean)
