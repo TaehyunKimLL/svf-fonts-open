@@ -186,18 +186,19 @@ def _default_companion(font, fmap):
     companions = font.get("companions") or []
     px = (font.get("sizes") or [None])[0]
     if font.get("source_kind") in ENG_FONT_KINDS and isinstance(px, int) and fmap:
-        def h_of(fid):                          # an 8x16 font (eng_cell_h 0) is 16 rows
-            return eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell")) or 16
+        def cell_h(fid):                        # 0 for an 8x16 font, which goes with any face (validation's rule)
+            return eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell"))
 
         def family(path):
             return os.path.basename(path or "")[:1].upper()
 
-        fits = [f for f in companions if h_of(f) <= px]
-        if fits:
-            best = max(h_of(f) for f in fits)
-            tied = [f for f in fits if h_of(f) == best]
-            return ([f for f in tied if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))]
-                    or tied)[0]
+        fits = [f for f in companions if cell_h(f) <= px]
+        if not fits:
+            return None                         # none would validate: the face converts without one
+        best = max(cell_h(f) or 16 for f in fits)       # an 8x16 font ranks as 16 rows
+        tied = [f for f in fits if (cell_h(f) or 16) == best]
+        return ([f for f in tied if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))]
+                or tied)[0]
     return companions[0] if companions else None
 
 

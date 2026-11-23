@@ -1823,7 +1823,10 @@ function previewCell(step) {
   toggle.onclick = () => { grid.box.hidden = !grid.box.hidden; if (!grid.box.hidden) grid.show(); };
   controls.append(toggle);
 
-  if (step.kind === "jamo" && (font.source_kind === "dos-raw" || font.source_kind === "bdf-johab")) {
+  // the jamo steps whose jamoset.py command takes the panel's header ascent (`jamo_ascent`): the source's own pieces
+  // (dos raw, hanterm, hwp1, hwp3 844), not a fit
+  if (step.kind === "jamo" && (font.source_kind === "dos-raw" || font.source_kind === "bdf-johab"
+                               || font.source_kind === "hwp1" || step.layout === "844-hwp3")) {
     const ascent = el("input", {type: "text", inputmode: "numeric", size: "3", "aria-label": "ascent to try"});
     ascent.onchange = () => {
       const v = ascent.value.trim() === "" ? null : Number(ascent.value);

@@ -62,8 +62,8 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   무엇이 빠졌는지와 함께 목록에 나온다. HWP 1.x: `HANGUL.SFT` / `HANGULn.PFT`의 페이스(파일마다 셋)를 `jamoset.py --layout
   hwp1`(HWP 자체의 조합 규칙, 정확)이나 `hwpfont.py bdf` + `mkfont.py`로 읽고, `ASCII.SFT` / `ASCII.PFT`가 영문 짝이다. HWP 3.0:
   `HAN*.FNT` 한글 폰트(음절 2,350자. 16 px 파일은 8x4x4 세트로도, `--layout 844-hwp3`)와 `ENG*.FNT` 짝(`tools/hwpfont.py`,
-  recipes.ko.md "HWP 1.x와 2.x 폰트"). 헤더 없는 KS X 1001 음절 덤프(태백 `GHAN24.PFT`)는 두 모드 모두 크기로 읽는다. 12x24 영문
-  폰트(태백 `GASCII24.PFT`, HWP 1.x `ASCII.PFT`)는 24 px 페이스의 동반 파일이며 배치의 어느 폴더에 있어도 된다. 단일 파일로 고른 폰트 옆의 라이선스 파일은
+  recipes.ko.md "HWP 1.x와 2.x 폰트"). 헤더 없는 KS X 1001 음절 덤프(태백 `GHAN24.PFT`)는 두 모드 모두 크기로 읽는다. 12x24나 14x24 영문
+  폰트(태백 `GASCII24.PFT`는 12x24, HWP 1.x `ASCII.PFT`는 14x24)는 24 px 페이스의 동반 파일이며 배치의 어느 폴더에 있어도 된다. 단일 파일로 고른 폰트 옆의 라이선스 파일은
   그것도 함께 골랐을 때(또는 폴더를 골랐을 때)만 사용한다.
 - **독점 폰트는 배포하지 않는다**: 독점 폰트, 비트맵, 테이블은 이 저장소와 maker 어디에도 없다.
   테스트는 합성 입력을 만들며, 실제 파일에 대한 검사는 환경 변수가 사용자 본인의 사본을 가리킬 때만 실행된다

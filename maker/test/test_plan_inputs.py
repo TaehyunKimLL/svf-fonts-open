@@ -391,7 +391,9 @@ class Johab844Test(Case):
         fonts = detect.scan(d)
         fid = fid_of(fonts, kind="dos-raw")
         s = settings.defaults(fonts)
-        s["fonts"][fid].update(selected=True, kinds=["precomposed"], dos_layout="844-ihnm", bpp=[1])
+        self.assertIsNone(s["fonts"][fid]["latin_companion"])               # the 12x24 one does not fit: no default
+        eng = fid_of(fonts, path="ASCII.PFT")
+        s["fonts"][fid].update(selected=True, kinds=["precomposed"], dos_layout="844-ihnm", bpp=[1], latin_companion=eng)
         self.assertIn("%s: johab844 needs layout 844" % fid, settings.validate(fonts, s))
         s["fonts"][fid]["dos_layout"] = "844"
         errors = settings.validate(fonts, s)
@@ -438,7 +440,8 @@ class Eng12x24Test(Case):
             fonts = self.scan_dos(fh.read(), inputfx.pft_eng())
         fid = fid_of(fonts, kind="dos-raw")
         s = settings.defaults(fonts)
-        s["fonts"][fid].update(selected=True, dos_layout="844")
+        self.assertIsNone(s["fonts"][fid]["latin_companion"])               # not the default; chosen by hand it is refused
+        s["fonts"][fid].update(selected=True, dos_layout="844", latin_companion=fid_of(fonts, path="ASCII.PFT"))
         self.assertIn("%s: a 12x24 English font needs a face of 24 px or more" % fid, settings.validate(fonts, s))
 
     def test_the_default_companion_is_the_8x16_one_for_a_16px_face(self):

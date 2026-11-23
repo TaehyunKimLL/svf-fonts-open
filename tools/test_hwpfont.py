@@ -338,6 +338,13 @@ class ReviewFixes(unittest.TestCase):
         self.assertIsNone(hwpfont.sniff(hwpfont.HWP1_MAGIC + bytes(12), 2048))     # the magic alone is not an HWP font
         self.assertIsNone(hwpfont.sniff(b"FNT\x01" + bytes(100), 4096))
 
+    def test_a_zero_count_header_is_refused(self):
+        with self.assertRaisesRegex(hwpfont.HwpError, "glyph count of 0"):
+            hwpfont.read(hwp1(16, 16, 0))
+        with self.assertRaisesRegex(hwpfont.HwpError, "glyph count of 0"):
+            hwpfont.read(hwp3(0, 8, 16, 147, count=0))
+        self.assertIsNone(hwpfont.sniff(hwp1(16, 16, 0), 32))
+
     def test_hwp3_english_count(self):
         eng40 = hwpfont.read(hwp3(0, 20, 40, 96, count=147, glyph=ascii_glyph))   # ENG40_0: declares 147, holds 96
         self.assertIn("the header declares 147", eng40.describe())

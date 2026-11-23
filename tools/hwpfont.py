@@ -200,6 +200,8 @@ def _hwp1_geometry(head):
     if len(head) < 32:
         raise HwpError("shorter than the 32-byte HWP 1.x header")
     count = struct.unpack_from(">H", head, 0x1C)[0]
+    if count < 1:
+        raise HwpError("an HWP 1.x header with a glyph count of 0")
     w, h = head[0x1E] + 1, head[0x1F] + 1
     col = h == 24
     return count, w, h, col, w * 3 if col else (w + 7) // 8 * h
@@ -212,7 +214,10 @@ def _hwp3_geometry(head):
     w, h = struct.unpack_from("<HH", head, 6)
     if not (1 <= w <= 128 and 1 <= h <= 128):
         raise HwpError(f"HWP 3.0 FNT glyph size {w}x{h} is out of range")
-    return head[4], w, h, (w + 7) // 8 * h, struct.unpack_from("<I", head, 0x10)[0]
+    declared = struct.unpack_from("<I", head, 0x10)[0]
+    if declared < 1:
+        raise HwpError("an HWP 3.0 header with a glyph count of 0")
+    return head[4], w, h, (w + 7) // 8 * h, declared
 
 
 def sniff(head, size):

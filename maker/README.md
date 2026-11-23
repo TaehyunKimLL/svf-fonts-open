@@ -63,8 +63,8 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   hwp1` (HWP's own composition rule, exact) or `hwpfont.py bdf` + `mkfont.py`, with `ASCII.SFT` / `ASCII.PFT` as its English
   companion; HWP 3.0: the `HAN*.FNT` Hangul fonts (2,350 syllables; a 16 px one also through its 8x4x4 set, `--layout
   844-hwp3`) with `ENG*.FNT` companions (`tools/hwpfont.py`, recipes.md "HWP 1.x and 2.x fonts"). A headerless KS X 1001
-  syllable dump (Taebaek `GHAN24.PFT`) is read by its size in both modes. A 12x24 English font (Taebaek `GASCII24.PFT`,
-  HWP 1.x `ASCII.PFT`) is a companion for a 24 px face from any folder of the batch. A licence file next to a font picked as a single file is used only
+  syllable dump (Taebaek `GHAN24.PFT`) is read by its size in both modes. A 12x24 or 14x24 English font (Taebaek `GASCII24.PFT`
+  is 12x24, HWP 1.x `ASCII.PFT` 14x24) is a companion for a 24 px face from any folder of the batch. A licence file next to a font picked as a single file is used only
   when it is picked too (or the folder is chosen).
 - **No proprietary font is distributed**: no proprietary font, bitmap or table is in this repository or in the maker.
   The tests build synthetic inputs; checks on real files run only where an environment variable names your own copy

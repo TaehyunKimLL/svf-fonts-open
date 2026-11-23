@@ -203,6 +203,30 @@ class ReviewFixTest(Tree):
         self.assertEqual(st["fonts"][by[(0, "MHAN24.PFT", 0)]["id"]]["latin_companion"], by[(0, "MASCII24.PFT", 0)]["id"])
         self.assertEqual(st["fonts"][by[(1, "96MT.FNT", 0)]["id"]]["latin_companion"], by[(1, "ENG24_0.FNT", 0)]["id"])
 
+    def test_no_default_companion_when_none_fits(self):
+        """A 16-row HANGUL.SFT with only the 14x24 ASCII.PFT beside it gets no default (it would fail validation); a 15 px
+        face keeps the 8x16 font that goes with any face over a 12x24 one that sorts first."""
+        self.put("lone/HANGUL.SFT", FILES["h1/HANGUL.SFT"]())
+        self.put("lone/ASCII.PFT", FILES["h1p/ASCII.PFT"]())
+        fonts, by = self.scan("lone")
+        st = settings.defaults(fonts)
+        face = by[(0, "HANGUL.SFT", 1)]
+        self.assertEqual(face["companions"], [by[(0, "ASCII.PFT", 0)]["id"]])
+        self.assertIsNone(st["fonts"][face["id"]]["latin_companion"])
+        st["fonts"][face["id"]]["selected"] = True
+        self.assertEqual([e for e in settings.validate(fonts, st, Sources("local", [os.path.join(self.root, "lone")]))
+                          if e.startswith(face["id"])], [])
+        fmap = {"e24": {"eng": {"cell": "12x24"}, "path": "A24.PFT"}, "e16": {"eng": {"cell": "8x16"}, "path": "SAN.ENG"}}
+        kyra = {"source_kind": "dos-raw", "sizes": [15], "companions": ["e24", "e16"], "path": "MK15.BIT"}
+        self.assertEqual(settings._default_companion(kyra, fmap), "e16")
+
+    def test_the_ascent_control_covers_the_native_hwp_jamo_steps(self):
+        with open(os.path.join(MAKER_DIR, "static", "maker.js"), encoding="utf-8") as fh:
+            js = fh.read()
+        cond = js[js.index('aria-label": "ascent to try"') - 600:js.index('aria-label": "ascent to try"')]
+        for word in ('"dos-raw"', '"bdf-johab"', '"hwp1"', '"844-hwp3"'):
+            self.assertIn(word, cond)
+
     def test_magic_without_the_size_falls_through(self):
         self.put("m/A.BIN", hwpfont.HWP1_MAGIC + bytes(4096 - len(hwpfont.HWP1_MAGIC)))
         self.put("m/B.BIN", b"FNT\x01" + bytes(2044))
