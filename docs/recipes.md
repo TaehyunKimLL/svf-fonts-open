@@ -60,7 +60,7 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | BDF or PCF in KS C 5601 / KS X 1001 (X Window) | `srcprep.py pcf-bdf` (PCF only), then `bdfface.py` | `jamoset.py --from-svf` | [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) |
 | hanterm johab BDF | no | `jamoset.py --layout hanterm-johab` | [hanterm](#hanterm) |
 | HBF | only as the ASCII half of `bdfface.py` | no | [HBF](#hbf) |
-| Windows `.FNT` / `.FON` | `mkfont.py` at its pixel size (opens, but FreeType gives it no Unicode map: draws nothing) | no | [Windows FNT and FON](#windows-fnt-and-fon) |
+| Windows `.FNT` / `.FON` | no reader (FreeType gives it no Unicode map; convert it to a BDF with an outside tool first) | no | [Windows FNT and FON](#windows-fnt-and-fon) |
 | DOS raw jamo-piece font (8x4x4 `HANGUL.FNT`, san, Dokkaebi, Kyra...) | `johab844.py` (16 px 8x4x4) | `jamoset.py --layout L` | [DOS-era raw fonts](#dos-era-raw-fonts) |
 | HWP `.PFT` Hangul | no reader | no reader | [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts) |
 | KS X 1001 raw dump (2,350 syllables in code order, or a 94 x 94 table) | `rawcarve.py bdf --dense`, then `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
@@ -551,8 +551,11 @@ of the Baekmuk 2.0 X11 BDF set, KS C 5601) as the Hangul half:
 
 `206,872 bytes`, 2,350 syllables, ascent 22, step 24, no glyph clipped, `width=216 ascent=22 descent=2` (five 24 px syllables
 and seven 12 px characters), ink 746; with the `.bin` unzipped beside the `.hbf` the face is byte for byte the same. The
-maker lists a bare `12x24.hbf` as kind `hbf` with no route (an HBF is only a companion), and refuses one whose bitmap is
-only `.bin.gz` on disk (label "HBF: unsafe bitmap reference"): unzip the `.bin` first. Synthetic
+maker's `detect.scan` (checked on copies, upload and local mode alike) lists `12x24.hbf` with its `12x24.bin.gz` as format
+`hbf`, label "HBF", 24 px, ASCII coverage 95 and no route of its own: an HBF is only the Latin half of a face. HBFs it
+cannot use as one get a label that says why: a two-byte code range (`uni24.hbf`, `unihan16.hbf`: "HBF: two-byte code range
+not supported"), a gzipped HBF itself ("HBF: gzipped HBF not supported"), a bitmap file that is not there ("HBF: bitmap
+file missing"). Synthetic
 (`tools/test_bdfface.py`): a synthetic HBF as the ASCII half.
 
 ### Windows FNT and FON
@@ -565,9 +568,11 @@ proprietary): VGAFIX.FON "Fixedsys" 16 px, VGASYS.FON "System" 13 px, SERIFF.FON
     python3 tools/mkfont.py VGAFIX.FON $OUT/fon.svf --size 16 --bpp 1 --unicode ascii
 
 exits with `--unicode 의 글자가 글꼴에 하나도 없다` ("no character of --unicode is in the font"), and the same with
-`--unicode ascii,ksx1001-hangul`; Pillow draws "A", "B" and "가" as one and the same notdef glyph. The maker detects them
-(`detect.scan`: kind `bitmap`, label "Windows FON face 0", sizes [16] or [13], route `mkfont`; the later faces `other`,
-"face index 1: not convertible in v1"; MODERN.FON "no openable face"), so the route it offers fails on these files. No
+`--unicode ascii,ksx1001-hangul`; Pillow draws "A", "B" and "가" as one and the same notdef glyph. The maker's `detect.scan`
+(upload and local mode) names them and offers no route: VGAFIX.FON and VGASYS.FON "Windows FON face 0; no Unicode
+character map, mkfont cannot read it" (sizes [16] and [13]), MODERN.FON "Windows FON; no openable face"; a bare
+Windows `.FNT` is labelled the same way ("Windows FNT; no Unicode character map, mkfont cannot read it"). Treat them as
+unsupported, or convert them first. No
 Windows FNT or FON with Hangul glyphs was found: the Windows 95 Korean disks carry only Latin and OEM ones (Fixedsys,
 System, Terminal, MS Serif, MS Sans Serif, Courier, Small Fonts; 25 FONs), and the Korean glyphs of that system are
 TrueType (`gulim.ttc`, with strikes: [Embedded bitmap strikes](#embedded-bitmap-strikes)). A FON would have to be converted
@@ -1042,9 +1047,10 @@ bytes, and its `fdef` 3, 2,398 bytes): `36,660 bytes`, 653 pieces of 24x24, 8 le
 composed 11172 syllables from 655 glyphs`, and the self-consistency line `IoU 1.000, exact 11172` against jamoset's copy of the
 `fdef` rule (no golden file), 1.0 s; `width=120 ascent=24 descent=0` for the sample line (these fonts hold no Latin: only the five
 syllables are drawn), ink 591. `Gotic12` (12 px Gothic): `23,368 bytes`, the same sets, `width=60 ascent=12 descent=0`. The
-maker reads these fonts as "HangulTalk 7.1 type-3 fbit, 24 px, 661 planes (needs HTBL 1)", not as 1.0: a real 1.0 `fbit` header
-carries generation 3 like the 7.1 ones, and `detect.py` tests the generation before the 45 sets (its tests build 1.0 fonts
-with generation 0). The command above is right for them, but the `mac fbit 1.0` route is not offered for a real font.
+maker's local mode (`detect.scan(..., local=True)`, on copies of the four fonts) reads them as "HangulTalk 1.0 fbit (45
+sets), 24 x 24" (Munjo24; Munjo12, Gotic12 12 x 12, Munjo16 16 x 16), source kind `mac-fbit1`, coverage 2,350 KS / 11,172
+syllables and 51 compatibility jamo, and offers the `mac fbit 1.0` route, which runs the command above; upload mode
+says "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)".
 
 **HangulTalk 7.1.x type-3 'fbit' fonts** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): the planes are composed by a
 table, InputBackSupport 'HTBL' 1, and only the 2,350 KS X 1001 syllables and 51 compatibility jamo exist.
@@ -1235,9 +1241,8 @@ Verified: the route labels and kinds of this table were read from `routes.py` an
 The same check on copies of the proprietary sources of the recipes above (2026-11-22; details in each recipe): raw DOS fonts
 are `dos-raw` with `dos raw` (11,520-byte ones also `johab844`); `johabm16.bdf` is `bdf-johab` with `hanterm`; `batang24.bdf`
 is `bdf-ksc5601` with `bdfface` and `bdfface + from-svf fit`; Gulim and Mac Seoul with strikes are `outline-composite` / `outline`
-with `mkfont` (the bitmap-only Seoul `bitmap`, `mkfont` only); Windows FONs `bitmap` with `mkfont` (which fails on them);
-`GHAN24.PFT` and the HWP `.PFT` files `other`, "unknown"; the Mac fonts in local mode as above, where the 1.0 fonts show as
-type 3. The `mask fit` row appears for neodgm.ttf, Noto Sans CJK KR and Malgun Gothic once `mask_ok` is set (the server sets it
+with `mkfont` (the bitmap-only Seoul `bitmap`, `mkfont` only); Windows FONs labelled with no route ("no Unicode character map, mkfont cannot read it");
+`GHAN24.PFT` and the HWP `.PFT` files `other`, "unknown"; the Mac fonts in local mode as above (the 1.0 fonts as `mac-fbit1` with `mac fbit 1.0`). The `mask fit` row appears for neodgm.ttf, Noto Sans CJK KR and Malgun Gothic once `mask_ok` is set (the server sets it
 when `freetype-py` and `uharfbuzz` import).
 
 ## Faces of svf/

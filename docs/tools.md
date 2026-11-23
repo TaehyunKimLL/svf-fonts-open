@@ -1213,12 +1213,10 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
   `--pylib $OUT/pylib`): the mask fit and the `mono` fit were run that way on 2026-11-22 (recipes.md, way 2).
 - **Bitmap fonts open only at their strike size.** A PCF or BDF opens at the pixel size built into the file and at no
   other (`OSError: invalid pixel size`); the tools do not list the strikes (the maker's `detect.bitmap_strikes` does).
-- **Windows `.FNT` / `.FON` draw nothing.** FreeType opens them (the maker routes such a file through `mkfont.py`) but
-  gives them only an `FT_ENCODING_NONE` charmap: on the Windows 95 Korean FONs `mkfont.py` exits with "no `--unicode`
-  character is in the font". No FNT or FON with Hangul glyphs was found either (recipes.md, Windows FNT and FON).
-- **The maker mistakes a real HangulTalk 1.0 `fbit` for type 3.** Real 1.0 fonts (Munjo24, Gotic12) carry generation 3
-  in the header, and `detect.py` tests the generation before the 45 sets, so the `mac fbit 1.0` route is not offered
-  (its test fixtures carry 0 there). `jamoset.py --layout mac-fbit-45sets` itself reads them.
+- **Windows `.FNT` / `.FON` draw nothing.** FreeType opens them but gives them only an `FT_ENCODING_NONE` charmap: on the
+  Windows 95 Korean FONs `mkfont.py` exits with "no `--unicode` character is in the font", and the maker offers no route
+  for them ("no Unicode character map, mkfont cannot read it"). No FNT or FON with Hangul glyphs was found either
+  (recipes.md, Windows FNT and FON).
 - **No reader** for the HWP `.PFT` Hangul files (run on HWP 1.20's HANGUL1.PFT: refused, `is not an 8x4x4 size`). Raw
   KS X 1001 syllable dumps, KS code grids and fonts inside programs and ROMs are cut by `rawcarve.py` into a BDF (no
   builder reads them directly); a jamo-piece font in a layout no `jamoset.py` layout names needs its rule written as a

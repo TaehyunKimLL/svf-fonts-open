@@ -1135,12 +1135,9 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
   2026-11-22에 그렇게 실행했다(recipes.ko.md, 2번 방법).
 - **비트맵 폰트는 스트라이크 크기에서만 열린다.** PCF나 BDF는 파일에 내장된 픽셀 크기에서만 열리고 다른 크기에서는 열리지 않는다
   (`OSError: invalid pixel size`). 도구는 스트라이크를 나열하지 않는다(maker의 `detect.bitmap_strikes`는 나열한다).
-- **Windows `.FNT` / `.FON`은 아무것도 그리지 못한다.** FreeType은 이를 열지만(maker는 이런 파일을 `mkfont.py`로 보낸다) `FT_ENCODING_NONE`
-  맵만 주므로, Windows 95 한글판 FON에서 `mkfont.py`는 "`--unicode`의 글자가 글꼴에 하나도 없다"로 끝난다. 한글 글리프가 있는 FNT나 FON도
-  찾지 못했다(recipes.ko.md, Windows FNT와 FON).
-- **maker는 실제 HangulTalk 1.0 `fbit`를 type 3으로 오인한다.** 실제 1.0 폰트(Munjo24, Gotic12)는 헤더에 세대 3을 담고 있고 `detect.py`가
-  45 세트보다 세대를 먼저 검사하므로 `mac fbit 1.0` 경로가 제공되지 않는다(그 테스트 픽스처는 거기에 0을 담는다). `jamoset.py --layout
-  mac-fbit-45sets` 자체는 이를 읽는다.
+- **Windows `.FNT` / `.FON`은 아무것도 그리지 못한다.** FreeType은 이를 열지만 `FT_ENCODING_NONE` 맵만 주므로, Windows 95 한글판 FON에서
+  `mkfont.py`는 "`--unicode`의 글자가 글꼴에 하나도 없다"로 끝나고, maker는 이들에 경로를 주지 않는다("no Unicode character map, mkfont
+  cannot read it"). 한글 글리프가 있는 FNT나 FON도 찾지 못했다(recipes.ko.md, Windows FNT와 FON).
 - **HWP `.PFT` 한글 파일의 리더가 없다**(HWP 1.20의 HANGUL1.PFT로 실행: `is not an 8x4x4 size`로 거부). KS X 1001 음절 원시 덤프,
   KS 코드 격자, 프로그램과 ROM 안의 폰트는 `rawcarve.py`가 BDF로 잘라 낸다(이를 바로 읽는 빌더는 없다). `jamoset.py`의 어느 배치도
   아닌 자모 조각 폰트는 그 규칙을 `rawcarve.py compose` 명세로 적어야 한다. `--eng`는 8x16, 12x24, 20x40, 24x48 영문 폰트를

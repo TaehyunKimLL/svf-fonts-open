@@ -58,7 +58,7 @@ bpp 페이스(115,684 바이트)의 크기가 그대로이다.
 | KS C 5601 / KS X 1001(X Window) BDF 또는 PCF | `srcprep.py pcf-bdf`(PCF만) 다음 `bdfface.py` | `jamoset.py --from-svf` | [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf) |
 | hanterm johab BDF | 없음 | `jamoset.py --layout hanterm-johab` | [hanterm](#hanterm) |
 | HBF | `bdfface.py`의 ASCII 절반으로만 | 없음 | [HBF](#hbf) |
-| Windows `.FNT` / `.FON` | 그 픽셀 크기로 `mkfont.py`(열리지만 FreeType이 유니코드 맵을 주지 않아 아무것도 그리지 못함) | 없음 | [Windows FNT와 FON](#windows-fnt와-fon) |
+| Windows `.FNT` / `.FON` | 리더 없음(FreeType이 유니코드 맵을 주지 않는다. 먼저 바깥 도구로 BDF로 변환하라) | 없음 | [Windows FNT와 FON](#windows-fnt와-fon) |
 | DOS 원시 자모 조각 폰트(8x4x4 `HANGUL.FNT`, san, 도깨비, Kyra...) | `johab844.py`(16 px 8x4x4) | `jamoset.py --layout L` | [DOS 시대 원시 폰트](#dos-시대-원시-폰트) |
 | HWP `.PFT` 한글 | 리더 없음 | 리더 없음 | [HWP 1.x와 2.x 폰트](#hwp-1x와-2x-폰트) |
 | KS X 1001 원시 덤프(코드 순서의 음절 2,350개, 또는 94 x 94 표) | `rawcarve.py bdf --dense` 다음 `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
@@ -507,8 +507,11 @@ Baekmuk 2.0 X11 BDF 세트의 Baekmuk 바탕 24(`batang24.bdf`, KS C 5601)를 �
     python3 tools/bdfface.py --hangul batang24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/HBF24.SVF
 
 `206,872 바이트`, 음절 2,350자, ascent 22, step 24, 잘린 글리프 없음, `width=216 ascent=22 descent=2`(24 px 음절 다섯 개와 12 px 문자 일곱 개),
-잉크 746. `.hbf` 옆에 `.bin`을 풀어 두면 페이스가 바이트 단위로 같다. maker는 맨 `12x24.hbf`를 경로 없는 종류 `hbf`로 나열하고(HBF는 동반
-파일일 뿐이다), 비트맵이 디스크에 `.bin.gz`로만 있는 것은 거부한다(레이블 "HBF: unsafe bitmap reference"). 먼저 `.bin`을 풀어라.
+잉크 746. `.hbf` 옆에 `.bin`을 풀어 두면 페이스가 바이트 단위로 같다. maker의 `detect.scan`(사본에서 확인, 업로드와 로컬
+모드 모두)은 `12x24.bin.gz`와 함께 있는 `12x24.hbf`를 형식 `hbf`, 레이블 "HBF", 24 px, ASCII 커버리지 95로 나열하고 자기 경로는 주지 않는다.
+HBF는 페이스의 라틴 절반일 뿐이다. 라틴 절반으로 쓸 수 없는 HBF에는 이유를 말하는 레이블이 붙는다: 2 바이트 코드 범위(`uni24.hbf`,
+`unihan16.hbf`: "HBF: two-byte code range not supported"), gzip으로 압축된 HBF 자체("HBF: gzipped HBF not supported"), 없는 비트맵 파일
+("HBF: bitmap file missing").
 Synthetic(`tools/test_bdfface.py`): 합성 HBF를 ASCII 절반으로.
 
 ### Windows FNT와 FON
@@ -521,8 +524,10 @@ SERIFF.FON "MS Serif" 13 px, 8514FIX.FON.
     python3 tools/mkfont.py VGAFIX.FON $OUT/fon.svf --size 16 --bpp 1 --unicode ascii
 
 는 `--unicode 의 글자가 글꼴에 하나도 없다`로 끝나고, `--unicode ascii,ksx1001-hangul`도 같다. Pillow는 "A", "B", "가"를 똑같은 notdef 글리프
-하나로 그린다. maker는 이들을 감지하므로(`detect.scan`: 종류 `bitmap`, 레이블 "Windows FON face 0", 크기 [16] 또는 [13], 경로 `mkfont`. 뒤쪽 페이스는
-`other`, "face index 1: not convertible in v1". MODERN.FON은 "no openable face") 제공하는 경로가 이 파일들에서는 실패한다. 한글 글리프가 있는
+하나로 그린다. maker의 `detect.scan`(업로드와 로컬 모드)은 이들에 이름을 붙이고 경로는 주지 않는다: VGAFIX.FON과
+VGASYS.FON은 "Windows FON face 0; no Unicode character map, mkfont cannot read it"(크기 [16]과 [13]), MODERN.FON은 "Windows FON; no openable
+face". 맨 Windows `.FNT`도 같은 식으로 붙는다("Windows FNT; no Unicode character map, mkfont cannot read it"). 지원하지 않는 것으로 다루거나
+먼저 변환하라. 한글 글리프가 있는
 Windows FNT나 FON은 찾지 못했다. Windows 95 한글판 디스크에는 라틴과 OEM 폰트(Fixedsys, System, Terminal, MS Serif, MS Sans Serif, Courier,
 Small Fonts; FON 25개)뿐이고, 그 시스템의 한글 글리프는 TrueType이다(`gulim.ttc`, 스트라이크 포함: [내장 비트맵 스트라이크](#내장-비트맵-스트라이크)).
 FON은 외부 도구로 먼저 BDF로 변환해야 하며, 이 저장소에는 그런 도구가 없다.
@@ -958,10 +963,10 @@ Apple의 데이터는 이 저장소에 없다. 도구는 직접 마련한 파일
 파일로 있다. `Munjo24`(24 px 문조. `list`는 `fbit` 17409, 47,714 바이트와 그 `fdef` 3, 2,398 바이트를 보여 준다): `36,660 바이트`, 24x24 조각 653개,
 초성 클래스 8개 x 종성 클래스 4개, 세트 20/15/4, `check: composed 11172 syllables from 655 glyphs`, 그리고 jamoset 자체의 `fdef` 규칙 사본에 대한 자기
 일관성 줄 `IoU 1.000, exact 11172`(골든 파일 없음), 1.0초. 샘플 줄은 `width=120 ascent=24 descent=0`(이 폰트들에는 라틴이 없어 음절 다섯 개만
-그려진다), 잉크 591. `Gotic12`(12 px 고딕): `23,368 바이트`, 같은 세트, `width=60 ascent=12 descent=0`. maker는 이 폰트들을 1.0이 아니라
-"HangulTalk 7.1 type-3 fbit, 24 px, 661 planes (needs HTBL 1)"로 읽는다. 실제 1.0 `fbit` 헤더가 7.1 폰트처럼 세대 3을 담고 있는데 `detect.py`가
-45 세트보다 세대를 먼저 검사하기 때문이다(그 테스트는 세대 0으로 1.0 폰트를 만든다). 위 명령은 이 폰트들에 맞지만 실제 폰트에는 `mac fbit 1.0`
-경로가 제공되지 않는다.
+그려진다), 잉크 591. `Gotic12`(12 px 고딕): `23,368 바이트`, 같은 세트, `width=60 ascent=12 descent=0`. maker의 로컬 모드(`detect.scan(..., local=True)`, 네
+폰트의 사본에서)는 이들을 "HangulTalk 1.0 fbit (45 sets), 24 x 24"(Munjo24. Munjo12, Gotic12는 12 x 12, Munjo16은 16 x 16), 소스 종류
+`mac-fbit1`, 커버리지 KS 2,350 / 음절 11,172와 호환 자모 51로 읽고, 위 명령을 실행하는 `mac fbit 1.0` 경로를 제공한다. 업로드 모드는
+"Mac bitmap font (NFNT/fbit): not converted here (local-only mode)"라고 한다.
 
 **HangulTalk 7.1.x type-3 'fbit' 폰트** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): 평면은 표, InputBackSupport 'HTBL' 1로
 조합되며, KS X 1001 음절 2,350자와 호환 자모 51개만 있다.
@@ -1138,8 +1143,8 @@ Verified: 이 표의 경로 레이블과 종류는 `routes.py`에서 읽고, 이
 
 위 레시피의 독점 원본 사본에 같은 점검을 했다(2026-11-22. 자세한 것은 각 레시피에): 원시 DOS 폰트는 `dos-raw`에 `dos raw`(11,520 바이트짜리는 `johab844`도),
 `johabm16.bdf`는 `bdf-johab`에 `hanterm`, `batang24.bdf`는 `bdf-ksc5601`에 `bdfface`와 `bdfface + from-svf fit`, 스트라이크가 있는 굴림과 Mac Seoul은
-`outline-composite` / `outline`에 `mkfont`(비트맵 전용 Seoul은 `bitmap`에 `mkfont`만), Windows FON은 `bitmap`에 `mkfont`(이 파일들에서 실패한다),
-`GHAN24.PFT`와 HWP `.PFT` 파일은 `other`, "unknown", 로컬 모드의 Mac 폰트는 위와 같고 1.0 폰트는 type 3으로 보인다. `mask fit` 행은 `mask_ok`를 설정하면
+`outline-composite` / `outline`에 `mkfont`(비트맵 전용 Seoul은 `bitmap`에 `mkfont`만), Windows FON은 경로 없이 레이블만("no Unicode character map, mkfont cannot read it"),
+`GHAN24.PFT`와 HWP `.PFT` 파일은 `other`, "unknown", 로컬 모드의 Mac 폰트는 위와 같다(1.0 폰트는 `mac-fbit1`에 `mac fbit 1.0`). `mask fit` 행은 `mask_ok`를 설정하면
 (서버가 `freetype-py`와 `uharfbuzz`를 import할 수 있을 때 설정한다) neodgm.ttf, Noto Sans CJK KR, 맑은 고딕에 나타난다.
 
 ## svf/의 페이스
