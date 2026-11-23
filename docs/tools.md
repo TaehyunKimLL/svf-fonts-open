@@ -546,7 +546,11 @@ face (see Outputs) unless `--licence` names one.
   `*.TXT` beside the face whose title line names its file or a pattern matching it plus the licence files it names,
   else the licence column of a `FACES.TSV` beside it; as name 13; the OFL file's copyright paragraph above its header
   as name 0; the OFL URL as name 14 when an OFL text is embedded). No GSUB, GPOS or conjoining-jamo
-  shaping: the output is precomposed. Timestamps from `$SOURCE_DATE_EPOCH` when set.
+  shaping: the output is precomposed. Timestamps from `$SOURCE_DATE_EPOCH` when set. `--composite` (a jamo set): each
+  jamo piece one glyph, every syllable a `glyf` composite of its pieces (`OVERLAP_COMPOUND`) and an `EBDT` compound
+  bitmap (image format 8, its own index subtable); the compatibility jamo map to their piece glyphs. 2 and 8 bpp: piece bitmaps start at the pen, and a syllable whose
+  pieces overlap with levels whose OR is not their maximum keeps an expanded bitmap (FreeType ORs compound
+  components); the summary line counts them.
 - `bdf`: BDF 2.1 (1 bpp) or 2.3 (2 / 8 bpp: the bit depth as the fourth field of `SIZE`; `--bpp1` cuts it to 1 bpp),
   ISO10646-1, each glyph its ink box (BBX) and advance (DWIDTH), `FONT_ASCENT` / `FONT_DESCENT` the face's, 72 dpi
   (`SIZE ppem 72 72`, `POINT_SIZE` ppem x 10, `SWIDTH` advance x 1000 / ppem), `AVERAGE_WIDTH`, the licence note as
@@ -560,7 +564,7 @@ face (see Outputs) unless `--licence` names one.
 **Synopsis.**
 
     python3 tools/svf2ttf.py ttf FACE.SVF OUT.ttf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
-                                                  [--licence FILE|none] [--no-strike] [--apple]
+                                                  [--licence FILE|none] [--no-strike] [--apple] [--composite]
     python3 tools/svf2ttf.py bdf FACE.SVF OUT.bdf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
                                                   [--licence FILE|none] [--bpp1]
     python3 tools/svf2ttf.py compare A.SVF B.SVF
@@ -576,6 +580,7 @@ face (see Outputs) unless `--licence` names one.
 | `--licence FILE\|none` | the note beside the face | the licence note to embed; `none` embeds none |
 | `--no-strike` (ttf) | off | outlines only |
 | `--apple` (ttf) | off | also write the strike as `bloc`/`bdat` |
+| `--composite` (ttf) | off | a jamo set: pieces once, syllables composite glyphs (glyf composites, EBDT format 8); a no-op with a note for a precomposed face |
 | `--bpp1` (bdf) | off | a 2 or 8 bpp face as a 1 bpp BDF |
 
 Exit status: 0; 1 an unreadable face (every subcommand), a value out of range (`--ppem` outside 1..255, a strike
@@ -584,11 +589,15 @@ under the repository's `svf/` that `web/LICENCES.tsv` does not cover exits 1 unl
 elsewhere with no licence note beside it prints a warning and gets a line saying its source font's licence applies.
 
 The round trip and its results on six faces (precomposed and jamo sets, 1 and 2 bpp, 16 and 24 px, an HWP 1.x face):
-[recipes.md, An SVF face back to a TTF bitmap font](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font).
+[recipes.md, An SVF face back to a TTF bitmap font](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font); `--composite`
+on six jamo sets (sizes, expanded bitmaps, limits): [Composite glyphs](recipes.md#composite-glyphs---composite).
 
 **Repository modules imported.** `jamoset.py`, `svfline.py`. **Third-party.** fontTools (`ttf`). **Test.**
 `tools/test_svf2ttf.py` (on faces of `svf/`: glyph set and composition count, metrics and names, the strike against the
-face, 2-bit strike, FreeType renders at 1 x, 1.5 x (unhinted) and 2 x, the `mkfont.py` round trip with and without the strike, dy, BDF).
+face, 2-bit strike, FreeType renders at 1 x, 1.5 x (unhinted) and 2 x, the `mkfont.py` round trip with and without the strike, dy, BDF;
+`--composite`: component counts and offsets, `maxp`, the compound strike resolved as FreeType does, the 2 bpp
+expanded-bitmap set, renders, the 2 bpp round trip, fontTools recompile, the precomposed no-op).
+
 
 ### `tools/svf_synth.py`
 
