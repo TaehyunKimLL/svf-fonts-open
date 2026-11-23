@@ -131,7 +131,8 @@ def canonical_fonts():
               dict(base, source_kind="outline-composite", face_index=1, prep=prep),
               dict(base, source_kind="bitmap", face_index=1),
               dict(base, source_kind="bitmap", face_index=1, prep=prep),
-              dict(base, source_kind="bdf-ksc5601", bdf={})]
+              dict(base, source_kind="bdf-ksc5601", bdf={}),
+              dict(base, source_kind="ks-raw", hwp={"family": "hwp3", "jamo844": True})]   # an HWP 3.0 HAN16
     return fonts
 
 
@@ -1017,7 +1018,8 @@ class ApiTest(ApiBase):
                  "--no-clean": "clean", "--hangul-ascent": "hangul_ascent"}
         TOOL_OF_LABEL = {"mkfont": "ascent", "dos raw": "jamo_ascent", "hanterm": "jamo_ascent",
                          "bdfface": "latin_ascent", "bdfface + from-svf fit": "latin_ascent",
-                         "mac fbit 7.1 bdf + mkfont": "ascent", "mac fbit 1.0": "jamo_ascent"}
+                         "mac fbit 7.1 bdf + mkfont": "ascent", "mac fbit 1.0": "jamo_ascent",
+                         "hwp1": "jamo_ascent", "hwp3 844": "jamo_ascent", "hwp bdf + mkfont": "ascent"}
         every = {"mkfont": {"cell": 18, "ascent": 12, "width": 18, "mono_hint": True, "clip_cell": True,
                             "fit_cell": False, "latin": True, "space_advance": 5},
                  "jamoset": {"embolden": True, "symbols": True, "jset_version": 2, "jamo_ascent": 12,
@@ -1094,7 +1096,7 @@ class ApiTest(ApiBase):
         self.assertIn("has no code that makes an outbound connection and sends nothing anywhere (no telemetry, no crash "
                       "upload, no update check)", readme)
         self.assertNotIn("the tests pin that", readme)                          # the evidence is weaker: section 8 says how
-        self.assertIn("HANGUL*.PFT is not read; ASCII.PFT is a companion", readme)
+        self.assertIn("HWP 1.x: each `HANGUL.SFT` / `HANGULn.PFT` face (three a file) through `jamoset.py --layout", readme)
         self.assertIn("SVF_RECOG_DIR", readme)
         self.assertIn("responsibility", readme)
         self.assertIn("The maker (`maker/`) has a local mode for such fonts", notice)

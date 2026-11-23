@@ -422,8 +422,8 @@ class LocalKindsTest(DirCase):
         self.assertEqual(entry["source_kind"], "other")
         self.assertEqual(entry["label"], "HangulTalk 1.0 fbit resource without its fdef: choose the font's resource fork")
 
-    HWP_LABEL = ("HWP Hangul .PFT: not read by this repository's tools; convert it to a 1 bpp precomposed SVF or a BDF "
-                 "with an external tool (recipes.md, HWP 1.x and 2.x fonts) and add that file")
+    HWP_LABEL = (".PFT of an unknown layout: not an HWP 1.x font, an 8x4x4 or a KS X 1001 syllable dump, so not read by "
+                 "this repository's tools (recipes.md, HWP 1.x and 2.x fonts)")
 
     def test_hwp_pft_label(self):
         import macfx

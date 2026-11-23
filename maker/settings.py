@@ -26,7 +26,7 @@ import mkfont
 import naming
 import presets
 import routes
-from detect import eng_cell_h
+from detect import ENG_FONT_KINDS, eng_cell_h
 import toolrun
 from sources import Sources
 
@@ -73,7 +73,7 @@ MAX_SIZES = 16                  # a sizes list longer than this would plan more 
 _SOURCE_WORDS = {"dos-raw": "DOS raw", "outline": "outline", "outline-composite": "outline", "bitmap": "bitmap",
                  "bdf-iso10646": "bitmap", "bdf-iso8859": "bitmap", "bdf-ksc5601": "bitmap", "bdf-johab": "bitmap",
                  "hbf": "bitmap", "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit", "mac-fbit1": "Mac fbit",
-                 "mac-htbl": "Mac table", "mac-suitcase": "Mac suitcase"}
+                 "mac-htbl": "Mac table", "mac-suitcase": "Mac suitcase", "hwp1": "HWP", "ks-raw": "KS raw"}
 
 # The article each source word takes (G2): chosen by the word, not by its first letter (`an SVF`, `a DOS raw`).
 _SOURCE_ARTICLES = {"outline": "an", "SVF": "an"}
@@ -121,7 +121,7 @@ def _batch_defaults():
 def _font_kinds(font):
     """The per-font `kinds` default: `jamo` alone for a native-jamo source, both for a composite TTF, else precomposed."""
     kind = font.get("source_kind")
-    if kind in ("dos-raw", "bdf-johab", "svf-jamo", "mac-fbit3", "mac-fbit1"):
+    if kind in ("dos-raw", "bdf-johab", "svf-jamo", "mac-fbit3", "mac-fbit1", "hwp1"):
         return ["jamo"]
     if kind == "outline-composite":
         return ["precomposed", "jamo"]
@@ -142,6 +142,10 @@ def _font_layout(font):
         return "mac-htbl1"
     if kind == "mac-fbit1":
         return "mac-fbit-45sets"
+    if kind == "hwp1":
+        return "hwp1"
+    if kind == "ks-raw" and (font.get("hwp") or {}).get("jamo844"):
+        return "844-hwp3"
     return "844"
 
 
@@ -173,26 +177,28 @@ def _licence_name(family, licence):
 
 
 def _default_companion(font, fmap):
-    """The default English companion: the first one the face can take. A 12x24 font needs a face of 24 px or more (20x40: 40, 24x48: 48),
-    so a smaller DOS face skips it when another companion sits beside it (the defaults must validate). A 40 or 48 px
-    face takes the companion of its own height first."""
+    """The default English companion: the one of the face's own height (8x16 for 16 px, 12x24 for 24, 20x40 for 40,
+    24x48 for 48), else the tallest that is not taller than the face (a 12x24 font needs a face of 24 px or more, so the
+    defaults validate); among equals the one of the face's family (Taebaek's G / M prefix: GHAN24 goes with GASCII24,
+    MHANC40 with MASCII40), then the first listed."""
     if font.get("source_kind") == "mac-fbit3":
         return None                             # an HTBL is not a Latin companion; the suitcase is optional
     companions = font.get("companions") or []
     px = (font.get("sizes") or [None])[0]
-    if font.get("source_kind") == "dos-raw" and isinstance(px, int) and fmap:
-        def h_of(fid):
+    if font.get("source_kind") in ENG_FONT_KINDS and isinstance(px, int) and fmap:
+        def cell_h(fid):                        # 0 for an 8x16 font, which goes with any face (validation's rule)
             return eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell"))
 
-        def family(path):                       # Taebaek's G / M prefix: GHANC40 goes with GASCII40, MHANC40 with MASCII40
+        def family(path):
             return os.path.basename(path or "")[:1].upper()
 
-        exact = [f for f in companions if px in (40, 48) and h_of(f) == px]
-        if exact:
-            return ([f for f in exact if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))] or exact)[0]
-        for fid in companions:
-            if h_of(fid) <= px:
-                return fid
+        fits = [f for f in companions if cell_h(f) <= px]
+        if not fits:
+            return None                         # none would validate: the face converts without one
+        best = max(cell_h(f) or 16 for f in fits)       # an 8x16 font ranks as 16 rows
+        tied = [f for f in fits if (cell_h(f) or 16) == best]
+        return ([f for f in tied if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))]
+                or tied)[0]
     return companions[0] if companions else None
 
 
@@ -554,12 +560,12 @@ def _ascent_cell_errors(fid, values, font=None, batch_covered=False):
                 used.add(route.label)
     jamoset_options = _jamoset_options(values)
     jamo_cell = None
-    if kind in ("dos-raw", "mac-fbit1"):
+    if kind in ("dos-raw", "mac-fbit1", "hwp1", "ks-raw"):
         font_sizes = font.get("sizes")
         jamo_cell = font_sizes[0] if isinstance(font_sizes, list) and font_sizes else None
     elif kind == "bdf-johab":
         jamo_cell = box_h
-    if used & {"dos raw", "hanterm", "mac fbit 1.0"}:
+    if used & {"dos raw", "hanterm", "mac fbit 1.0", "hwp1", "hwp3 844"}:
         over("jamo_ascent", jamoset_options.get("jamo_ascent"), jamo_cell)
     if used & {"composite", "experimental fit", "mask fit", "vector fit"}:
         baseline = jamoset_options.get("fit_baseline")
@@ -1014,7 +1020,7 @@ def _route_errors(fid, font, eff, fmap=None, local=False):
             errors.append("%s: confirm the DOS Johab layout" % fid)
         elif eff.get("dos_layout") not in candidates:
             errors.append("%s: dos_layout %s is not one of %s" % (fid, eff.get("dos_layout"), ", ".join(candidates)))
-    if font.get("source_kind") == "dos-raw":
+    if font.get("source_kind") in ENG_FONT_KINDS:
         companion = (fmap or {}).get(eff.get("latin_companion")) if isinstance(eff.get("latin_companion"), str) else None
         px = (font.get("sizes") or [None])[0]
         johab = routes.route_for(font, "precomposed", False)

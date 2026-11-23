@@ -18,7 +18,7 @@ for _p in (MAKER_DIR, TOOLS_DIR):
         sys.path.insert(0, _p)
 
 ROOTS = ["sidecar"]
-EXPECTED = {"archive", "bdfface", "caps", "detect", "jamoaa", "jamoadapt", "jamofit", "jamoset", "jamovec", "jobs",
+EXPECTED = {"archive", "bdfface", "binscan", "caps", "detect", "hwpfont", "rawcarve", "jamoaa", "jamoadapt", "jamofit", "jamoset", "jamovec", "jobs",
             "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets", "preview", "quality",
             "routes", "server", "settings", "sources", "srcprep", "svf2to3", "svfdy", "svfline", "toolreg", "toolrun",
             "zipout"}
@@ -34,6 +34,9 @@ FILE_USES = {   # every __file__ use in a reachable module, with why it is right
     ("jamoset", "_jamoaa"): "sys.path entry before a local import; frozen the module is bundled",
     ("jamoset", "_jamofit"): "sys.path entry before a local import; frozen the module is bundled",
     ("jamoset", "check"): "sys.path entry before `import johab844`; frozen the module is bundled",
+    ("jamoset", "_hwpfont"): "sys.path entry before a local import; frozen the module is bundled",
+    ("hwpfont", "HERE"): "SP",
+    ("rawcarve", "HERE"): "SP",
     ("bdfface", "HERE"): "SP",
     ("johab844", "HERE"): "SP",
     ("mkfont", "HERE"): "SP",

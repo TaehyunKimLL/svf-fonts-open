@@ -253,7 +253,8 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 | TrueType, OpenType, 컬렉션(`.ttf`, `.otf`, `.ttc`), 가변 폰트 | 아웃라인 폰트. 가변 폰트는 사용자가 고른 인스턴스로 변환된다. |
 | BDF, PCF 비트맵 폰트 | ISO 10646(비트맵 페이스, `mkfont`로 변환), KS C 5601과 Johab BDF(한글 페이스). |
 | HBF 폰트와 ISO 8859 BDF | 그 자체로는 변환되지 않는다. 자신만의 경로가 없다. KS C 5601 BDF 한글 폰트(`bdfface` 경로)의 **Latin 짝(companion)**으로만 제시된다. |
-| DOS raw 한글 폰트 | Johab 8x4x4 / 6x2x1 방식의 raw 폰트(및 24 px HBIOS). HWP `ASCII.PFT`(12x24 영문)는 24 px 페이스의 짝(companion)으로 쓰인다. `HANGUL*.PFT`는 읽지 않으며 읽지 않음으로 표시된다. |
+| DOS raw 한글 폰트 | Johab 8x4x4 / 6x2x1 방식의 raw 폰트(및 24 px HBIOS), 그리고 헤더 없는 KS X 1001 음절 덤프(태백 `GHAN24.PFT`). 12x24 영문 폰트(`GASCII24.PFT`)는 24 px 페이스의 짝(companion)으로 쓰인다. |
+| HWP 폰트(로컬 모드) | HWP 1.x `HANGUL.SFT` / `HANGULn.PFT`(파일마다 페이스 셋, HWP 자체 규칙의 자모 세트 또는 완성형 페이스)와 `ASCII.SFT` / `ASCII.PFT`; HWP 3.0 `HAN*.FNT`와 `ENG*.FNT`. `.HFT` 윤곽선 폰트는 읽지 않는다. |
 | 클래식 Mac HangulTalk 7.1 type-3 `fbit` | 리소스 포크, AppleDouble `._Name`, MacBinary `.bin`, JM 아카이브, 또는 raw `fbit` 리소스에서 읽는다. HTBL 1 표(`InputBackSupport` 또는 `<Name>.htbl1`, 다른 소스로 함께 선택)가 필요하며 Latin suitcase(FOND + NFNT)를 쓸 수도 있다. |
 | 클래식 Mac HangulTalk 1.0 폰트 | `fdef`가 있는 포크. `fdef` 없는 raw 1.0 `fbit`는 무엇이 빠졌는지와 함께 목록에 표시된다. |
 | Hanterm Johab 폰트 | 배치 `hanterm-johab`(Johab BDF). |

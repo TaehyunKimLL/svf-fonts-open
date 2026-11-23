@@ -17,6 +17,7 @@ import traceback
 import unicodedata
 
 import bdfface
+import hwpfont
 import jamoaa
 import jamoset
 import macfbit3
@@ -81,6 +82,15 @@ JOHAB_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 11172, "compat": 51}
 MAC3_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 2350, "compat": 51}
 MAC1_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 11172, "compat": 51}
 
+# An HWP 1.x Hangul face composes every syllable from its pieces (jamoset.py --layout hwp1, compat jamo from set 0); a
+# KS X 1001 raw dump or an HWP 3.0 Hangul FNT holds the 2,350 KS X 1001 syllables only.
+HWP1_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 11172, "compat": 51}
+KS_RAW_COVERAGE = {"ascii": 0, "ks2350": 2350, "all": 2350, "compat": 0}
+
+# The source kinds an English companion (`--eng`, an `eng` entry) goes with: the DOS raw fonts, HWP 1.x Hangul faces
+# and KS X 1001 syllable files (headerless dumps, HWP 3.0 FNT).
+ENG_FONT_KINDS = ("dos-raw", "hwp1", "ks-raw")
+
 JM_CAP = 4 << 20                 # a JM archive's declared unpacked size (the LHA decoder is pure Python, run in detect)
 HTBL1_SIZES = (8 + 204 + 9400, 8 + 204 + 9400 + 204)     # 9,612 (no trailing copy) and 9,816 (the 7.1.2 form)
 
@@ -138,6 +148,9 @@ def sniff(data, size=None):
     mac = _mac_raw_tag(data, size)           # before the size rules: a JM archive or a raw resource may have any size
     if mac:
         return mac
+    hwp = _hwp_tag(data, size)
+    if hwp:
+        return hwp
     if size in DOS_SIZES:
         return "dos-raw"
     if size in (2048, 4096, 12288, 30720, 49152):
@@ -145,6 +158,14 @@ def sniff(data, size=None):
     if _mac_head(data, size):
         return "mac-rsrc"
     return "unknown"
+
+
+def _hwp_tag(data, size):
+    """`hwp1` (the "HWP Font Editor v1.0" header of an HWP 1.x .SFT/.PFT), `hwp3` (an HWP 3.0 "FNT" 01 file) or `ks-raw`
+    (a headerless file of 2,350 KS X 1001 syllables of 16..48 px, by size), else None. The header must be whole and the
+    file size must be the one it implies (`hwpfont.sniff`), so a file that only starts with those bytes falls through to
+    the other rules. The tag is a candidate: `_hwp_entries` reads the file and says what it is."""
+    return hwpfont.sniff(data, size)
 
 
 def _mac_raw_tag(data, size):
@@ -408,7 +429,7 @@ def detect_file(abs_path, rel, local=False):
 
 def _entry(rel, face_index, fmt, label, source_kind, family="", style="", version="", sizes=None, sizes_fixed=False,
            dos=None, bdf=None, svf=None, error=None, gz=False, prep=None, variable=None, strikes=None, eng=None,
-           dos_bytes=None, cff=False, gsub_jamo=False, mac=None):
+           dos_bytes=None, cff=False, gsub_jamo=False, mac=None, hwp=None):
     e = {"path": rel, "face_index": face_index, "format": fmt, "label": label, "source_kind": source_kind,
          "family": family, "style": style, "version": version, "sizes": sizes or [], "sizes_fixed": sizes_fixed,
          "coverage": None, "jamo": "none", "dos": dos, "bdf": bdf, "svf": svf, "error": error}
@@ -430,6 +451,8 @@ def _entry(rel, face_index, fmt, label, source_kind, family="", style="", versio
         e["gsub_jamo"] = True
     if mac is not None:               # a Mac fbit / HTBL / suitcase fact (generation, id, table, strikes)
         e["mac"] = mac
+    if hwp is not None:               # an HWP / KS raw fact (family hwp1|hwp3|ks-raw, cell, faces, the 8x4x4 tail)
+        e["hwp"] = hwp
     return e
 
 
@@ -517,15 +540,22 @@ def _open_sfnt_entry(abs_path, rel, face_index, fmt, label, data, prep, gz):
         handle.close()
 
 
-def _read_bytes(path, gz=False):
-    """The whole file (decompressed when @p gz), refusing a gzip that passes MAX_DECOMPRESSED.
+def _read_bytes(path, gz=False, cap=None):
+    """The whole file (decompressed when @p gz), refusing a gzip that passes MAX_DECOMPRESSED (and either one that
+    passes @p cap, without reading more than cap + 1 bytes of it).
 
     A gzip is inflated in 1 MiB chunks and the chunks joined: one `read(MAX_DECOMPRESSED + 1)` would make the reader
     pre-allocate a buffer of that size for every file, whatever the file's real length.
     """
+    limit = MAX_DECOMPRESSED if cap is None else min(cap, MAX_DECOMPRESSED)
     if not gz:
         with open(path, "rb") as f:
-            return f.read()
+            if cap is None:
+                return f.read()
+            data = f.read(cap + 1)
+        if len(data) > cap:
+            raise TooLarge("too large (> %d bytes)" % cap)
+        return data
     parts = []
     size = 0
     with gzip.open(path, "rb") as f:
@@ -534,8 +564,8 @@ def _read_bytes(path, gz=False):
             if not chunk:
                 break
             size += len(chunk)
-            if size > MAX_DECOMPRESSED:
-                raise TooLarge(_too_large())
+            if size > limit:
+                raise TooLarge(_too_large() if cap is None else "too large (> %d bytes)" % cap)
             parts.append(chunk)
     return parts[0] if len(parts) == 1 else b"".join(parts)
 
@@ -561,11 +591,12 @@ def _detect_file(abs_path, rel, local=False):
         fmt = classify_txt(abs_path, rel)
         return [_entry(rel, 0, fmt, "licence text" if fmt == "licence" else "list file", "other", family=_stem(rel))]
     size = os.path.getsize(abs_path)
-    if local and base.lower().endswith(".pft") and size not in ENG_SIZES and size not in DOS_SIZES:
-        # an HWP Hangul font (Taebaek GHANC/MHANC .PFT, in DOS_SIZES, is a DOS face): no tool here reads it (there is no byte rule, so it is named by its extension)
-        return [_entry(rel, 0, "hwp-pft", HWP_PFT_LABEL, "other", family=_stem(rel))]
     with open(abs_path, "rb") as f:
         head = f.read(_HEAD)
+    if local and _unread_pft(base, head, size):
+        # a .PFT of no layout the tools read (Taebaek GHANC/MHANC .PFT, in DOS_SIZES, is a DOS face; an HWP 1.x file
+        # and a KS X 1001 dump are read below): named by its extension, there is no byte rule
+        return [_entry(rel, 0, "hwp-pft", HWP_PFT_LABEL, "other", family=_stem(rel))]
     fmt = sniff(head, size)
     gz = fmt == "gzip"
     if gz:
@@ -582,6 +613,15 @@ def _detect_file(abs_path, rel, local=False):
 
     if fmt in ("mac-rsrc", "mac-jm", "mac-fbit-raw", "mac-htbl-raw"):
         return _mac_entries(abs_path, rel, gz, zipped, local, None if fmt == "mac-rsrc" else fmt)
+
+    if fmt in ("hwp1", "hwp3", "ks-raw"):
+        found = _hwp_entries(abs_path, rel, gz, zipped, local, fmt)
+        if found:
+            return found
+        if local and base.lower().endswith(".pft"):
+            return [_entry(rel, 0, "hwp-pft", HWP_PFT_LABEL, "other", family=_stem(rel))]
+        return [_entry(rel, 0, "unknown", "unknown" if local else "unknown (%s)" % head[:8].hex(), "other",
+                       family=_stem(rel), gz=zipped)]
 
     if fmt == "bdf":
         text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
@@ -888,8 +928,56 @@ def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw=None
                   prep=[{"op": "mac-fork"}] if wrapped else [], gz=zipped, mac={"generation": 1, "id": rid})
 
 
-HWP_PFT_LABEL = ("HWP Hangul .PFT: not read by this repository's tools; convert it to a 1 bpp precomposed SVF or a BDF "
-                 "with an external tool (recipes.md, HWP 1.x and 2.x fonts) and add that file")
+HWP_PFT_LABEL = (".PFT of an unknown layout: not an HWP 1.x font, an 8x4x4 or a KS X 1001 syllable dump, so not read by "
+                 "this repository's tools (recipes.md, HWP 1.x and 2.x fonts)")
+HWP_LOCAL_ONLY = "HWP font: not converted here (local-only mode)"
+
+
+def _unread_pft(base, head, size):
+    """True for a `.pft` file no reader here takes: not an English or DOS raw size, no HWP 1.x header, not a KS X 1001
+    dump's size (a dump that does not read as one is named by `_detect_file` after trying)."""
+    if not base.lower().endswith(".pft") or size in ENG_SIZES or size in DOS_SIZES:
+        return False
+    return _hwp_tag(head, size) is None
+
+
+def _hwp_entries(abs_path, rel, gz, zipped, local, fmt):
+    """The entries of an HWP 1.x / 3.0 font or a KS X 1001 raw dump, or [] when the file does not read as one.
+
+    An HWP font (a proprietary format with its own header) is converted in local mode only: an upload job gets one
+    `other` entry. A Hangul file is `hwp1` (an HWP 1.x HANGUL.SFT / HANGULn.PFT: three faces, three entries) or `ks-raw`
+    (the 2,350 KS X 1001 syllables: an HWP 3.0 HAN*.FNT, or a headerless dump read by its size in either mode); an
+    English file is an `eng` companion; hanja and symbol files are `other`."""
+    try:
+        f = hwpfont.read(_read_bytes(abs_path, gz, hwpfont.MAX_FILE))
+    except (hwpfont.HwpError, TooLarge):
+        return []
+    family = _stem(rel)
+    if f.family != "ks-raw" and not local:
+        return [_entry(rel, 0, fmt, HWP_LOCAL_ONLY, "other", family=family, gz=zipped)]
+    what = {"hwp1": "HWP 1.x", "hwp3": "HWP 3.0", "ks-raw": "KS X 1001 raw dump"}[f.family]
+    fact = {"family": f.family, "kind": f.kind, "cell": [f.w, f.h]}
+    if f.kind == "hangul" and f.family == "hwp1":
+        screen = "screen .SFT" if f.table == "sft" else "printer .PFT"
+        fact["faces"] = 3
+        return [_entry(rel, i, fmt, "HWP 1.x Hangul (%s, %dx%d), face %d of 3 (%s by HWP's menu order)"
+                       % (screen, f.w, f.h, i, hwpfont.FACE_NAMES[i]), "hwp1",
+                       family="%s %s" % (family, hwpfont.FACE_NAMES[i]), sizes=[f.h],
+                       sizes_fixed=True, gz=zipped, hwp=dict(fact, face=i)) for i in range(3)]
+    if f.kind == "hangul":
+        fact["jamo844"] = f.jamo844
+        label = "%s Hangul %dx%d: 2,350 KS X 1001 syllables" % ("HWP 3.0 FNT" if f.family == "hwp3" else what, f.w, f.h)
+        if f.jamo844:
+            label += " + an 8x4x4 jamo set"
+        return [_entry(rel, 0, fmt, label, "ks-raw", family=family, sizes=[f.h], sizes_fixed=True, gz=zipped, hwp=fact)]
+    if f.kind == "ascii":
+        cell = "%dx%d" % (f.w, f.h)
+        label = "%s English (--eng, %s%s)" % (what, cell, "; face 0 of 6" if f.family == "hwp1" else "")
+        return [_entry(rel, 0, "eng", label, "other", family=family, eng={"bytes": len(f.data), "cell": cell},
+                       gz=zipped, hwp=fact)]
+    label = "%s font: %d %s of %dx%d, not a Hangul face" % (what, f.count, "hanja" if f.kind == "hanja" else "glyphs",
+                                                            f.w, f.h)
+    return [_entry(rel, 0, fmt, label, "other", family=family, gz=zipped, hwp=fact)]
 
 NAMED_FORK = "/..namedfork/rsrc"
 
@@ -1456,6 +1544,10 @@ def jamo_label(entry):
         return "native (mac-htbl1)"
     if kind == "mac-fbit1":
         return "native (mac-fbit-45sets)"
+    if kind == "hwp1":
+        return "native (hwp1)"
+    if kind == "ks-raw" and (entry.get("hwp") or {}).get("jamo844"):
+        return "native (844-hwp3)"
     if kind == "outline-composite":
         return "native (composite)"
     compat = (entry.get("coverage") or {}).get("compat", 0)
@@ -1565,6 +1657,10 @@ def _coverage_of_entry(path, entry, data=None, face_index=None, tmp_dir=None):
             return dict(MAC3_COVERAGE)
         if kind == "mac-fbit1":
             return dict(MAC1_COVERAGE)
+        if kind == "hwp1":
+            return dict(HWP1_COVERAGE)
+        if kind == "ks-raw":
+            return dict(KS_RAW_COVERAGE)
         if kind in ("outline", "outline-composite"):
             return coverage_outline(path, face, data)
         if kind == "bitmap" and entry["format"] in SFNT_FORMATS:
@@ -1669,7 +1765,7 @@ def scan(sources, local=False):
     def key_of(entry):
         return (entry.get("root", 0), entry["path"])
 
-    dos_folders = {folder_of(abs_of[key_of(e)]) for e in entries if e["source_kind"] == "dos-raw"}
+    dos_folders = {folder_of(abs_of[key_of(e)]) for e in entries if e["source_kind"] in ENG_FONT_KINDS}
     for i, entry in enumerate(entries, 1):
         entry["id"] = "f%02d" % i
 
@@ -1705,7 +1801,8 @@ def scan(sources, local=False):
                 if reason:                # not a usable companion: demoted so no Latin candidate list offers it
                     entry["label"], entry["source_kind"] = "HBF: " + reason, "other"
             batch_dos = local and dos_folders and eng_cell_h((entry.get("eng") or {}).get("cell"))
-            if entry["format"] == "eng" and folder_of(path) not in dos_folders and not batch_dos:
+            if entry["format"] == "eng" and folder_of(path) not in dos_folders and not batch_dos \
+                    and not entry.get("hwp"):     # an HWP English file is recognised by its header: it stays a companion
                 entry["format"] = "unknown"       # a Latin companion needs a DOS Johab font beside it
                 entry["label"] = "unknown (%s; no DOS Johab font beside it)" % _entry_size(path, entry, data)
             src, face, cannot = data, entry["face_index"], None
@@ -1757,14 +1854,17 @@ def scan(sources, local=False):
 
     latin_ids = [e["id"] for e in entries if e["source_kind"] in ("bdf-iso10646", "bdf-iso8859", "hbf")]
     for entry in entries:
-        if entry["source_kind"] == "dos-raw":
+        if entry["source_kind"] in ENG_FONT_KINDS:
             folder = folder_of(abs_of[key_of(entry)])
-            entry["companions"] = [o["id"] for o in entries
-                                   if o["format"] == "eng" and folder_of(abs_of[key_of(o)]) == folder]
+            # an HWP English file (ASCII.SFT/.PFT, ENG*.FNT) goes with HWP and KS faces only: a DOS raw font's johab844
+            # route reads the raw 8x16 tables alone
+            usable = [o for o in entries if o["format"] == "eng"
+                      and not (entry["source_kind"] == "dos-raw" and o.get("hwp"))]
+            entry["companions"] = [o["id"] for o in usable if folder_of(abs_of[key_of(o)]) == folder]
             px = (entry.get("sizes") or [0])[0]
-            if local and isinstance(px, int) and px >= 24:        # an HWP ASCII.PFT may be picked from another folder
-                entry["companions"] += [o["id"] for o in entries if o["format"] == "eng"
-                                        and 0 < eng_cell_h((o.get("eng") or {}).get("cell")) <= px
+            if local and isinstance(px, int) and px >= 24:        # a 12x24 or larger English font may be picked from another folder
+                entry["companions"] += [o["id"] for o in usable
+                                        if 0 < eng_cell_h((o.get("eng") or {}).get("cell")) <= px
                                         and o["id"] not in entry["companions"]]
         elif entry["source_kind"] == "bdf-ksc5601":
             entry["companions"] = list(latin_ids)

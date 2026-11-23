@@ -1,11 +1,16 @@
 # Maker input kinds (audit gap 5) Implementation Plan
 
+> **Correction (2026-11-23, t_d4cf7f46).** Where this document calls `ASCII.PFT` a 12x24 English font of 12,288 bytes,
+> it means the 12x24 `.PFT` layout of Taebaek 3.5.1 (`GASCII24.PFT` / `MASCII24.PFT`), which the tests build under the
+> name `ASCII.PFT`. HWP 1.x's own `ASCII.PFT` is 14x24 (41,654 bytes: a 32-byte header and 991 glyphs); since t_d4cf7f46
+> it is read by its header (`tools/hwpfont.py`, docs/recipes.md "HWP 1.x and 2.x fonts").
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The SVF maker detects, plans and converts the input kinds of `docs/maker-audit.md` gap list item 5: a chosen
 variable-font instance, TTC/OTC faces after the first, Mac TrueType with only a Mac Korean (1,3) / Wansung (3,5) cmap,
 `.dfont` / suitcase / AppleDouble / MacBinary containers, KS X 1001 and johab PCF, a `johab844.py` route, HWP
-`ASCII.PFT` and HBIOS 12x24 as `--eng`, a `--from-svf` jamo step after `bdfface.py`, and the embedded-bitmap
+a 12x24 `.PFT` (`ASCII.PFT` in the tests) and HBIOS 12x24 as `--eng`, a `--from-svf` jamo step after `bdfface.py`, and the embedded-bitmap
 (`EBLC`/`bloc`) strike sizes. Card t_f3ef3189.
 
 **Architecture:** Three layers, in this order. (A) Detection: a new maker-side module `maker/srcprep.py` reads the new

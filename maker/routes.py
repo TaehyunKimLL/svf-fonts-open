@@ -126,6 +126,11 @@ def _mkfont_unicode(range_spec, paths):
 # not convert the last run's) and removes MKFONT_TMP once the face is written.
 MKFONT_TMP = "mkfont.tmp"
 MAC_BDFS = ("mac.bdf", "mac-sized.bdf")
+HWP_BDF = "hwp.bdf"
+HWP_PRECOMPOSED = "precomposed.svf"
+# A route reference meaning "the precomposed SVF the step itself wrote (HWP_PRECOMPOSED in its folder)", scored as "svf":
+# the source of a KS / HWP fit is a raw file `quality.measure` cannot read.
+REFERENCE_STEP_SVF = "step-svf"
 
 
 def _mkfont_tmp(paths):
@@ -249,6 +254,57 @@ def _mac71_bdf_commands(font, size, bpp, layout, range_spec, paths, extra):
     third = toolrun.tool("mkfont", paths["tools"]) + [sized, _mkfont_tmp(paths), "--size", str(size), "--bpp", "1",
                   "--unicode", unicode_range]
     return _with_extra([first, second, third], extra) + [_canonical(paths)]   # the panel's flags go on the mkfont command
+
+
+def _hwp1_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """`jamoset.py SRC --layout hwp1 --face N --check -o OUT [--eng ENG]`: an HWP 1.x face composes by HWP.EXE's rule."""
+    argv = toolrun.tool("jamoset", paths["tools"]) + [paths["src"], "--layout", "hwp1", "--face",
+                 str(font.get("face_index", 0)), "--check", "-o", paths["out"]]
+    if paths.get("eng"):
+        argv += ["--eng", paths["eng"]]
+    return _with_extra([argv], extra)
+
+
+def _hwp3_844_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """`jamoset.py SRC --layout 844-hwp3 --check -o OUT [--eng ENG]`: the 8x4x4 set after an HWP 3.0 HAN16's syllables."""
+    argv = toolrun.tool("jamoset", paths["tools"]) + [paths["src"], "--layout", "844-hwp3", "--check", "-o", paths["out"]]
+    if paths.get("eng"):
+        argv += ["--eng", paths["eng"]]
+    return _with_extra([argv], extra)
+
+
+def _hwp_bdf_argv(font, range_spec, paths):
+    """`hwpfont.py bdf SRC [--face N] [--syllables all] [--ascii ENG] -o work/hwp.bdf`: the syllables of an HWP 1.x face
+    (all 11,172 when the range asks for more than the KS X 1001 ones) or of a KS X 1001 file, as a Unicode BDF."""
+    argv = toolrun.tool("hwpfont", paths["tools"]) + ["bdf", paths["src"]]
+    if font.get("source_kind") == "hwp1":
+        argv += ["--face", str(font.get("face_index", 0))]
+        if range_spec[0] != "2350":
+            argv += ["--syllables", "all"]
+    if paths.get("eng"):
+        argv += ["--ascii", paths["eng"]]
+    return argv + ["-o", os.path.join(paths["work"], HWP_BDF)]
+
+
+def _hwp_mkfont_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """The syllables as a BDF (`hwpfont.py bdf`), then `mkfont.py` on it at its own size and the canonical layout step;
+    the range drops what the BDF has not got (no ASCII without a companion)."""
+    unicode_range = _mkfont_unicode(range_spec, paths)
+    if not paths.get("eng"):
+        unicode_range = unicode_range.split(",", 1)[1]           # "ascii,..." -> the rest: the BDF holds no ASCII
+    second = toolrun.tool("mkfont", paths["tools"]) + [os.path.join(paths["work"], HWP_BDF), _mkfont_tmp(paths),
+                  "--size", str(size), "--bpp", "1", "--unicode", unicode_range]
+    return _with_extra([_hwp_bdf_argv(font, range_spec, paths), second], extra) + [_canonical(paths)]
+
+
+def _hwp_fit_commands(font, size, bpp, layout, range_spec, paths, extra):
+    """The precomposed face of `_hwp_mkfont_commands` (written in the step's work area), then a jamo set fitted to it
+    (`jamoset.py --from-svf`)."""
+    precomposed = os.path.join(paths["work"], HWP_PRECOMPOSED)
+    first = _hwp_mkfont_commands(font, size, bpp, layout, range_spec, dict(paths, out=precomposed), [])
+    argv = toolrun.tool("jamoset", paths["tools"]) + ["--layout", layout, "--from-svf", precomposed, "--check", "-o",
+                 paths["out"]]
+    return first + _with_extra([argv], extra)            # the panel's flags reach the fit (it writes the face)
 
 
 def _bdfface_commands(font, size, bpp, layout, range_spec, paths, extra):
@@ -446,6 +502,15 @@ def routes(font):
         out.append(Route("jamo", "dos raw", True, layouts, [1], sizes, None, None, _dos_commands))
     elif kind == "mac-fbit1":
         out.append(Route("jamo", "mac fbit 1.0", True, ["mac-fbit-45sets"], [1], sizes, None, None, _mac10_commands))
+    elif kind == "hwp1":
+        out.append(Route("jamo", "hwp1", True, ["hwp1"], [1], sizes, None, None, _hwp1_commands))
+        out.append(Route("precomposed", "hwp bdf + mkfont", True, [], [1], sizes, None, None, _hwp_mkfont_commands))
+    elif kind == "ks-raw":
+        out.append(Route("precomposed", "hwp bdf + mkfont", True, [], [1], sizes, None, None, _hwp_mkfont_commands))
+        if (font.get("hwp") or {}).get("jamo844"):       # an HWP 3.0 HAN16: its own 8x4x4 set
+            out.append(Route("jamo", "hwp3 844", True, ["844-hwp3"], [1], [16], None, None, _hwp3_844_commands))
+        out.append(Route("jamo", "hwp bdf + from-svf fit", False, ["844", "adaptive"], [1], sizes, REFERENCE_STEP_SVF,
+                         None, _hwp_fit_commands))
     elif kind == "mac-fbit3":
         out.append(Route("jamo", "mac fbit 7.1 direct", True, ["mac-htbl1"], [1], sizes, None, None,
                          _mac71_commands("direct")))

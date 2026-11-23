@@ -68,7 +68,7 @@ SVF maker의 설계가 이 문서를 바탕으로 계획되므로, 아래의 모
 메시지와 함께 거부된다, `tools/svf2to3.py`), JSET 블록을 묶고 풀며, 검사를 위해 음절을 합성한다.
 
 **상태.** 범용이다. 게임 전용 세트 체계(SAGA IHNM, hanterm, Dokkaebi 프린터, Kyra LoK, Mac
-HangulTalk)의 이름을 갖지만 특정 게임에 묶여 있지 않다.
+HangulTalk, HWP 1.x)의 이름을 갖지만 특정 게임에 묶여 있지 않다.
 
 **입력.** 모드에 따라 다르다.
 - 자체 파서로 읽는 DOS Johab 원시 폰트: 원시 8x4x4(`844`, 16/24/40/48 px, 11520/11522/25920/72000/103680/15584
@@ -77,7 +77,9 @@ HangulTalk)의 이름을 갖지만 특정 게임에 묶여 있지 않다.
   `HANGUL16/24.FNT`(15360/34560, 열 우선)와 `HANGUL40/48.FNT`(176000/253440);
 - `ENCODING`이 johab-1 글리프 번호인 hanterm BDF(`hanterm-johab`). 정규식 리더로 파싱한다;
 - Mac HangulTalk 1.0 `fbit` 리소스 포크(`mac-fbit-45sets`). 원시 리소스 맵에서 파싱한다;
-- `--eng` 원시 8x16 DOS 영문 폰트(2048 또는 4096바이트), 또는 HBIOS 12x24(15360) / PFT 12x24(12288) / Taebaek PFT 20x40(30720, GASCII40) / 24x48(49152, GASCII48);
+- HWP 1.x `HANGUL.SFT` / `HANGUL1/2/3.PFT`(`hwp1`, `--face 0..2`): JSET 표는 그 페이스에 대한 HWP.EXE 자체의 규칙이며 `hwpfont.py`를
+  통해 읽는다. HWP 3.0 `HAN16_*.FNT`(`844-hwp3`: 음절 2,350자 뒤의 360개짜리 8x4x4 세트);
+- `--eng` 원시 8x16 DOS 영문 폰트(2048 또는 4096바이트), 또는 HBIOS 12x24(15360) / PFT 12x24(12288) / Taebaek PFT 20x40(30720, GASCII40) / 24x48(49152, GASCII48), 또는 HWP 영문 폰트: HWP 1.x `ASCII.SFT`(8x16) / `ASCII.PFT`(14x24, 이동 폭 14. 여섯 페이스 중 `--eng-face`) 또는 HWP 3.0 `ENG*.FNT`(8x16, 12x24, 20x40). 헤더로 알아본다;
 - `--base` SVFN v3 페이스(음절이 아닌 글리프를 유지한다. v2 페이스는 변환 안내 메시지와 함께 거부된다(`tools/svf2to3.py`));
 - `--from-ttf` 아웃라인 TTF/OTF. 1 bpp `mono` 대상은 freetype-py로, 2 bpp와 `--binarize threshold|ridge`는
   fontTools(`jamoaa.py`를 통해)로 읽는다;
@@ -95,26 +97,28 @@ HangulTalk)의 이름을 갖지만 특정 게임에 묶여 있지 않다.
     python3 tools/jamoset.py --layout LAYOUT --blank-compat FACE.SVF -o OUT.SVF
 
 옵션(기본값은 괄호 안). **Modes** 열은 옵션이 어느 모드에 속하는지 나타낸다. `source`(위치 인자로 주는 DOS Johab,
-hanterm BDF, Kyra `.BIT`, Dokkaebi FNT 파일), `mac-fbit-45sets`(위치 인자로 주는 Mac HangulTalk `fbit`
-리소스 포크. 독자적인 모드로, `--from-*`, `--eng`, `--base`를 받지 않는다), `--from-ttf`, `--from-svf`, `--bpp 2`
+hanterm BDF, Kyra `.BIT`, Dokkaebi FNT, HWP 3.0 HAN16 FNT 파일), `mac-fbit-45sets`(위치 인자로 주는 Mac HangulTalk `fbit`
+리소스 포크. 독자적인 모드로, `--from-*`, `--eng`, `--base`를 받지 않는다), `hwp1`(위치 인자로 주는 HWP 1.x 한글 파일. 독자적인
+모드로 `--from-*`는 받지 않고, `--eng`와 `--base`는 `source`처럼 받는다), `--from-ttf`, `--from-svf`, `--bpp 2`
 (`--from-ttf`와 함께일 때만), `--blank-compat`. 모드에 나열되지 않은 옵션은 그 모드에서 무시된다(거부되지 않는다).
 단, 표에 "refused"라고 적힌 경우는 예외이다.
 
 | Option (default) | Modes | Meaning |
 |---|---|---|
-| `--layout` (required) | all | 세트 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`는 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크) |
-| `--face N` (0) | `source` | 프린터 폰트의 서체(0 또는 1) |
-| `--eng FILE` (none) | `source`, `--from-ttf`, `--from-svf` | ASCII용 원시 8x16 영문 폰트(2048 또는 4096바이트; 12x24, 20x40, 24x48 페이스도 읽는다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
-| `--base FILE` (none) | `source`, `--from-ttf` | 음절이 아닌 글리프를 유지하는 SVFN v3(같은 셀, 1 bpp). `--from-svf`는 무시한다(입력 페이스가 base이다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
+| `--layout` (required) | all | 세트 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`와 `hwp1`은 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크, HWP 1.x 한글 파일) |
+| `--face N` (0) | `source`, `hwp1` | Dokkaebi 프린터 폰트의 서체(0 또는 1), HWP 1.x 한글 파일의 페이스(0, 1, 2) |
+| `--eng FILE` (none) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | ASCII용 원시 8x16 영문 폰트(2048 또는 4096바이트; 12x24, 20x40, 24x48 페이스와 위의 HWP 영문 폰트도 읽는다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
+| `--eng-face N` (0) | `--eng`가 있는 곳 | `--eng`로 준 HWP 1.x `ASCII.SFT` / `ASCII.PFT`의 페이스(0..5: HWP 메뉴의 명조, 고딕, 위첨자, 아래첨자, 이탤릭, 필기체) |
+| `--base FILE` (none) | `source`, `hwp1`, `--from-ttf` | 음절이 아닌 글리프를 유지하는 SVFN v3(같은 셀, 1 bpp). `--from-svf`는 무시한다(입력 페이스가 base이다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
 | `-o`, `--output` (required) | all | 출력 경로 |
 | `--profile NAME` (`default`), `--box x\|y\|full` (the profile's) | all | 출력의 SVFN v3 레이아웃 프로파일과 잉크 박스 정책(`svf2to3.py` 참고) |
 | `--jset-version 1\|2\|auto` (1; `--blank-compat`: the input's) | all | 쓰는 JSET 블록의 버전(아래 "JSET 버전" 참고) |
 | `--jset-big` (off) | all | 표준 한계(19 x 28 클래스, 128/128/64 세트)를 넘는 JSET을 허용한다(리더에 `SVF_JSET_BIG`가 필요하다). 표준 한계 안의 출력은 이 옵션이 있든 없든 같다("JSET 버전" 참고) |
-| `--advance N` (none) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | 합성된 음절의 이동 폭(JSET advance 바이트. 레이아웃의 값, 0 = 셀 폭) |
-| `--ascent N` (none) | `source`, `mac-fbit-45sets` | SVF의 베이스라인 행(12x24, 20x40, 24x48 페이스는 `--eng` 페이스의 베이스라인, 그 외에는 셀의 7/8). 맞춤 모드는 맞춘 페이스에서 가져오므로 무시한다 |
-| `--embolden` (off) | `source`, `mac-fbit-45sets` | 모든 조각과 ASCII 글리프를 오른쪽으로 1 px 민 자기 자신과 OR한다. 맞춤 모드는 무시하고, `--bpp 2`와 함께면 거부된다 |
-| `--symbols` (off) | `source`, `mac-fbit-45sets`, `--bpp 2` | U+2026과 U+25A1을 추가한다. 1 bpp `--from-ttf`/`--from-svf`는 무시한다 |
-| `--check` (off) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | 출력에서 11,172개 음절 전부를 합성해 검증한다 |
+| `--advance N` (none) | `source`, `mac-fbit-45sets`, `hwp1`, `--from-ttf`, `--from-svf`, `--bpp 2` | 합성된 음절의 이동 폭(JSET advance 바이트. 레이아웃의 값, 0 = 셀 폭) |
+| `--ascent N` (none) | `source`, `mac-fbit-45sets`, `hwp1` | SVF의 베이스라인 행(12x24, 20x40, 24x48 페이스는 `--eng` 페이스의 베이스라인, 그 외에는 셀의 7/8). 맞춤 모드는 맞춘 페이스에서 가져오므로 무시한다 |
+| `--embolden` (off) | `source`, `mac-fbit-45sets`, `hwp1` | 모든 조각과 ASCII 글리프를 오른쪽으로 1 px 민 자기 자신과 OR한다. 맞춤 모드는 무시하고, `--bpp 2`와 함께면 거부된다 |
+| `--symbols` (off) | `source`, `mac-fbit-45sets`, `hwp1`, `--bpp 2` | U+2026과 U+25A1을 추가한다. 1 bpp `--from-ttf`/`--from-svf`는 무시한다 |
+| `--check` (off) | `source`, `mac-fbit-45sets`, `hwp1`, `--from-ttf`, `--from-svf`, `--bpp 2` | 출력에서 11,172개 음절 전부를 합성해 검증한다(16 px의 `844`와 `844-hwp3`는 `johab844.py`와도, `hwp1`은 `hwpfont.py`의 HWP 규칙과도 비교해 `hwp1: 11172 syllables identical to the HWP 1.x rule (hwpfont.py)`를 출력한다) |
 | `--from-ttf FONT` (none) | mode | 조각을 `--size`에서의 아웃라인 폰트 음절에 맞춘다 |
 | `--from-svf FACE.SVF` (none) | mode | 1 bpp 완성형 SVFN 페이스를 분해한다(다른 bpp는 거부된다) |
 | `--size N` (none) | `--from-ttf` | 픽셀 크기 |
@@ -164,13 +168,13 @@ fallback_len)`, `pack_jmap(jmap, fallback_block)`(개수가 255를 넘으면 4B,
 `pack_jmap`은 겹침을 거부한다). `pack_fallback(tables, version, base=0, big=False)`는 JMAP 폴백으로 쓰도록 주어진 조각 번호(에 `base`를 더한 것)를 유지하는 버전 1 또는 2 블록을 쓴다. 버전 2는 각 행을 첫 조각에서 시작해 탐욕적으로 걸으며, 하나씩 증가하는 슬롯은 새 조각으로 저장하고 그 밖의 그려진 슬롯은 모두 별칭으로 저장하므로(가장 긴 연속 탐색이 아니다) `pack`의 것보다 크다. `renumber`, `pack_v1`, `pack`, `pack_jset`, `choose_jset_version`은 `Jmap`을 거부한다
 ("a JMAP block has no set tables"). `blank_compat`와 `blank_whole_compat`는 JMAP 자체의 호환 항목과 폴백의 호환 항목을 비운다(`blank_compat`는 그 결과 폴백이 바뀌었으면 `fallback_block`을 같은 버전과 번호 체계로 `pack_fallback`으로 다시 인코딩한다(BIG 폴백은 `--jset-big` 여부와 관계없이 자신의 크기로 다시 인코딩되므로 `jamoset.py --blank-compat`는 이를 보존한다). `blank_whole_compat`는 JMAP의 모든 조각을 유지하고 세트 표의 쓰이지 않는 조각만 버린다). LIST 모드(플래그 0x08): `Jmap(..., list_mode=True)`는 `entries`를 음절 인덱스 -> 하나의 공유 풀에 있는 조각 번호 셋(BLANK = 없음. `pi`/`pm`/`pf`는 0)으로 유지한다. 상수 `JMAP_FLAG_LIST`, `JMAP_LIST_MAX`(255), `JMAP_LIST_ENTRIES`(118), `JMAP_LIST_ENTRY`(8). `jmap_size(ns, four, sparse, fallback_len, list_mode)`. `pack_jmap`은 list-mode `Jmap`에 대해 LIST를 쓰고(겹침 거부 없음, 255개 항목 초과는 SPARSE 힌트와 함께 거부), `unpack_jmap`은 그것을 읽으며(규칙 R1', L2, L3, R4, L6. L5/L7은 `parse_svfn`의 사용 가능 규칙이다) `jset_line`은 `list=1`을 출력한다. `unpack`은 버전 3 블록에 `Jmap`을 돌려주며, `pieces_of`, `used_pieces`, `compose`, `jset_line`(`jset=v3 jmap=BYTES ns=NS fallback=v1|v2|none`, 폴백에 BIG이 필요하면 이어서 ` big=1`)이 이를 받는다. `jmap_list(f, exceptions, compat=None, jset_version=None, fallback=True, advance=0)`는 파싱된 자모 페이스 `f` 위에 LIST를 만든다. `exceptions`는 음절 인덱스(0..11171)를 1-3개의 조각 번호(BLANK로 채움) 또는 온전한 셀(바이트, 묶인 행)에 대응시키고, `compat`는 호환 인덱스(0..50)를 조각 번호 하나 또는 온전한 셀에 대응시킨다(나머지 k는 BLANK로 남아 폴백으로 간다). 온전한 셀은 페이스의 가장 높은 U+F0000 + n 코드 포인트보다 위의 번호를 가진 새 조각이 된다(음절은 s 오름차순, 그다음 호환은 k 오름차순). 0xFFFF에 이르게 되는 번호는 거부된다. `fallback`이 켜져 있으면 페이스의 JSET(버전 1 또는 2)이 그대로 폴백으로 유지되고(`jset_version`이 다르면 번호를 유지한 채 `pack_fallback`으로 다시 인코딩된다) LIST advance는 그 advance 바이트이며 `advance`는 무시된다. `fallback=False`는 폴백 없이 `advance`로 LIST를 만든다. 필드는 BLANK(0xFFFF)일 수 있다(BLANK 번호로 준 호환은 주지 않은 것을 뜻한다). 페이스에 글리프가 없는 조각 번호는 거부된다. 255개 초과 항목, 버전 3 원본(`fallback=False`여도), `fallback=False`와 함께 준 `jset_version`, 쓸 수 있는 JSET이 없는 페이스(`fallback=False`가 아니면), 범위를 벗어난 s 또는 k, 셀도 아니고 1-3개 조각의 목록도 아닌 값, 크기가 잘못된 셀을 거부한다. `(Jmap, {cp: cell})`을 돌려주며, 호출자가 `pack_jmap(jm, jm.fallback_block)`을 쓴다. `jamoset.py`에는 JMAP을 쓰는 옵션이 없고, `jamoexc.py build`가 LIST를 쓴다.
 
-**import하는 저장소 모듈.** `johab844.py`(844 동일성 검사용), `jamoaa.py`, `jamofit.py`,
+**import하는 저장소 모듈.** `johab844.py`(844 동일성 검사용), `hwpfont.py`(`hwp1`, `844-hwp3`, HWP 영문 폰트), `jamoaa.py`, `jamofit.py`,
 `jamoadapt.py`. **서드파티.** fontTools(`--bpp 2`, `--binarize threshold|ridge`, `--clean` 윤곽 도너용), freetype-py와
 uharfbuzz(마스크 폰트와 1 bpp `mono`의 `--from-ttf`용). 둘 다 선택 사항이다.
 없으면 `--binarize threshold|ridge`나 `--bpp 2`를 주지 않은 `--from-ttf`는 실패하고, 마스크 폰트는
 메시지와 함께 건너뛴다.
 
-**테스트.** `tools/test_jamoset.py`.
+**테스트.** `tools/test_jamoset.py`. `tools/test_hwpfont.py`(`hwp1`, `844-hwp3`, HWP `--eng`).
 
 ### `tools/mkfont.py`
 
@@ -1083,6 +1087,55 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 파일에 대한 검사가 추가된다).
 
 
+### `tools/hwpfont.py`
+
+**목적.** DOS용 한글(HWP) 1.x와 3.0의 비트맵 폰트와 헤더 없는 KS X 1001 음절 덤프를 읽는다. 파일이 무엇인지 말하고, HWP 1.x
+페이스의 음절을 HWP.EXE의 규칙으로 조합하고, 파일의 글리프를 `mkfont.py`와 `bdfface.py`가 받는 유니코드 BDF로 쓴다.
+`jamoset.py --layout hwp1` / `844-hwp3`와 그 HWP `--eng`가 이 도구를 통해 파일을 읽는다.
+
+**상태.** 저장소 도구가 된 연구용 리더. 폰트는 한글과컴퓨터의 것이다(독점). 도구는 사용자 자신의 사본을 읽으며, 실제 파일의
+폰트, 글리프, 표는 이 저장소에 없다(규칙인 HWP.EXE의 선택 표는 johab-fonts 연구 노트에서 가져온 데이터로 담는다). 바이트만 읽는다
+(`python3 -I`로 실행하라).
+
+**입력.** HWP 1.x `.SFT` / `.PFT`(32 바이트 "HWP Font Editor v1.0" 또는 "FE" 헤더, 크기는 정확히 32 + 글리프 수 x 글리프 바이트.
+화면 폰트는 행 우선, 프린터 폰트는 열 우선): `HANGUL.SFT`(16x16, 글리프 1,193개, 조각 31/29/31개짜리 초성/중성/종성 세트가 10/4/4,
+7/2/2, 6/2/2인 페이스 셋), `HANGUL1/2/3.PFT`(24x24, 980개; 7/2/3, 7/2/2, 5/2/2), `ASCII.SFT` / `ASCII.PFT`(8x16 / 14x24, 991개:
+147개짜리 페이스 여섯), `HANJA.SFT`(4,888개), 기호 파일(`other`). HWP 3.0 `.FNT`(72 바이트 "FNT" 01 헤더: 형식 0 영문, 1 한글,
+2 한자. 6과 8에 LE16 폭과 높이. 행 우선 글리프): `HAN*.FNT`는 KS X 1001 음절 2,350자(16 px는 360개짜리 8x4x4 세트 추가),
+`ENG*.FNT`는 0x20부터의 코드, `HAJ16_0.FNT`는 한자. 글리프 수는 본문의 것이며, 헤더와 다르면 `info`가 알린다(HAN24는 2,710이라 적고 2,350을, ENG40은
+147이라 적고 96을 담는다). 0x20-0x7E의 95자에 못 미치는 영문 FNT는 거부한다. 글리프 순서는 파일 이름이 아니라 높이를 따른다: 24행인
+HWP 1.x 폰트는 열 우선이다. KS 원시: 16, 24, 32, 40, 48 px 정사각형 글리프 정확히 2,350개인 헤더 없는 파일
+(75,200 / 169,200 / 300,800 / 470,000 / 676,800 바이트)로, 첫 글리프와 마지막 글리프에 잉크가 있고 서로 달라야 한다. 그 밖의 것과
+16 MB를 넘는 파일은 거부한다. `--ascii`는 `jamoset.py --eng`가 읽는 어떤 영문 폰트든 받는다.
+
+**출력.** `info`: 한 줄(계열 `HWP 1.x font` / `HWP 3.0 FNT` / `KS X 1001 raw dump`, 종류, 글리프 수와 크기, 페이스들의 세트 수,
+HWP 3.0 폰트의 이름, 8x4x4 꼬리). `bdf`: BDF 2.1(`CHARSET_REGISTRY "ISO10646"`, `PIXEL_SIZE` = 셀 높이, `ENCODING` = 코드
+포인트, `STARTCHAR U+XXXX`): 한글 파일은 음절(KS X 1001 2,350자. HWP 1.x 페이스는 `--syllables all`로 11,172자 전부), 영문 파일은
+U+0020..U+007E(advance = 글리프 폭), 한자 파일은 한자 4,888자. `--ascii`를 주면 그 영문 폰트의 ASCII도 넣는다(셀보다 낮으면 높이
+가운데에, 자신의 advance로). ascent는 `--ascent`, 없으면 영문 페이스의 베이스라인(`H` 잉크 아래 행), 그것도 없으면 셀의 7/8이다.
+파일에 U+0020이 없으면 빈 U+0020(셀 폭의 절반)을 쓴다. FreeType은 BDF의 첫 글리프를 `.notdef`로 보고 `mkfont.py`는 그것과 같은 글리프를 모두 버리므로, 그러지 않으면 U+AC00이 빠진다.
+요약 한 줄(`wrote OUT: 2350 Hangul syllables, 95 ASCII of 14x24 from ASCII.PFT; cell 24x24, ascent 20`).
+
+**개요(Synopsis).**
+
+    python3 -I tools/hwpfont.py info FILE
+    python3 -I tools/hwpfont.py bdf FILE [--face N] [--syllables ks|all] [--ascii ENG [--ascii-face N]] [--ascent A] [--name NAME] -o OUT.bdf
+
+`--face`는 HWP 1.x 한글 파일의 페이스(0..2) 또는 HWP 1.x ASCII 파일의 페이스(0..5)이다. 종료 코드 0, 또는 `hwpfont.py: <이유>`와
+함께 1(어느 형식도 아님, 헤더와 맞지 않는 크기, 범위를 벗어난 페이스, 쓸 것이 없는 파일).
+
+라이브러리로: `read(data)`(`Font`: `family`, `kind`, `w`, `h`, `count`, 행 정수로 된 `glyph(i)`, `jamo844`, `table`),
+`Hwp1Hangul(font, face)`(`pieces(cp)`, `syllable(cp)`, 그리고 JSET 세트 함수로 쓴 규칙 `lead_class`, `init_set`, `med_set`,
+`fin_set`, `init_src`, `med_src`, `fin_src`), `syllables`, `ascii_glyphs`, `hanja_glyphs`, `english(path)`, `ks_hangul()`,
+`ks_hanja()`, `ks_raw_px(size)`.
+
+사용자의 HWP 1.20, HWP 3.0, 태백 3.5.1 파일로 실행했다(2026-11-23. 수치는 recipes.ko.md의 "HWP 1.x와 2.x 폰트", "HWP 3.0 FNT 폰트",
+"KS X 1001 원시 덤프"): 손에 있는 HWP 1.x 한글 파일 일곱 개의 음절 11,172자는 각 페이스 셋 모두 연구 렌더러(johab-fonts 노트의
+`hwp1_fnt.py`)의 것과 같다.
+
+**import하는 저장소 모듈.** `rawcarve.py`(`bdf_text`), `jamoset.py`(`--ascii`의 `read_eng`). **서드파티.** 없음. **테스트.**
+`tools/test_hwpfont.py`(합성 파일. `JOHAB_FONTS=<연구 트리>`이면 실제 HWP 1.20, HWP 3.0, 태백 파일의 해시 검사가 더해진다).
+
 ### `tools/macsfnt.py`
 
 **목적.** Mac 형식 TrueType을 다른 도구들이 쓸 수 있게 한다. 리소스 포크(.dfont, suitcase의 포크, AppleDouble `._` 파일, MacBinary)의 'sfnt' 리소스를 나열하고 추출하며, 폰트의 cmap 서브테이블을 보고하고, Mac Korean(platform 1, script 3) 또는 Windows Wansung(3, 5) cmap만 있는
@@ -1138,10 +1191,12 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 - **Windows `.FNT` / `.FON`은 아무것도 그리지 못한다.** FreeType은 이를 열지만 `FT_ENCODING_NONE` 맵만 주므로, Windows 95 한글판 FON에서
   `mkfont.py`는 "`--unicode`의 글자가 글꼴에 하나도 없다"로 끝나고, maker는 이들에 경로를 주지 않는다("no Unicode character map, mkfont
   cannot read it"). 한글 글리프가 있는 FNT나 FON도 찾지 못했다(recipes.ko.md, Windows FNT와 FON).
-- **HWP `.PFT` 한글 파일의 리더가 없다**(HWP 1.20의 HANGUL1.PFT로 실행: `is not an 8x4x4 size`로 거부). KS X 1001 음절 원시 덤프,
-  KS 코드 격자, 프로그램과 ROM 안의 폰트는 `rawcarve.py`가 BDF로 잘라 낸다(이를 바로 읽는 빌더는 없다). `jamoset.py`의 어느 배치도
-  아닌 자모 조각 폰트는 그 규칙을 `rawcarve.py compose` 명세로 적어야 한다. `--eng`는 8x16, 12x24, 20x40, 24x48 영문 폰트를
-  받는다.
+- **HWP 2.x / 3.0 `.HFT` 폰트의 리더가 없다**(비트맵이 아니라 크기 조절이 되는 윤곽선 또는 획 폰트). HWP 1.x `.SFT` / `.PFT`,
+  HWP 3.0 `.FNT`, 16-48 px의 헤더 없는 KS X 1001 음절 덤프는 `hwpfont.py`가 읽는다(`jamoset.py --layout hwp1` / `844-hwp3`). KS 코드
+  격자, 다른 크기이거나 더 큰 파일 안에 든 덤프, 프로그램과 ROM 안의 폰트는 `rawcarve.py`가 BDF로 잘라 낸다(이를 바로 읽는 빌더는
+  없다). `jamoset.py`의 어느 배치도 아닌 자모 조각 폰트는 그 규칙을 `rawcarve.py compose` 명세로 적어야 한다. `--eng`는 8x16,
+  12x24, 20x40, 24x48 영문 폰트와 HWP 영문 폰트를 받는다. HWP 1.x 기호 파일과 한자 파일은 페이스로 가는 경로가 없다(`hwpfont.py
+  bdf`가 한자를 BDF로 쓴다).
 - **같은 크기에서 1 bpp를 안티에일리어싱으로 바꾸는 변환이 없다.** 1 bpp 페이스에서 같은 크기의 2 bpp 페이스를 만드는 도구가 없다.
   `svfscale.py --bpp 2`는 더 큰 비트맵 페이스에서 만들고(박스 필터), 다른 2 bpp 페이스는 아웃라인 폰트에서 나온다(`mkfont.py --bpp 2`,
   `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`). 비트맵 원본에서 2 bpp 자모 세트로 가는 길은 없다: `jamoset.py --bpp 2`는

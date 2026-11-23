@@ -1,5 +1,10 @@
 # Maker local-only mode for proprietary inputs: design
 
+> **Correction (2026-11-23, t_d4cf7f46).** Where this document calls `ASCII.PFT` a 12x24 English font of 12,288 bytes,
+> it means the 12x24 `.PFT` layout of Taebaek 3.5.1 (`GASCII24.PFT` / `MASCII24.PFT`), which the tests build under the
+> name `ASCII.PFT`. HWP 1.x's own `ASCII.PFT` is 14x24 (41,654 bytes: a 32-byte header and 991 glyphs); since t_d4cf7f46
+> it is read by its header (`tools/hwpfont.py`, docs/recipes.md "HWP 1.x and 2.x fonts").
+
 Card t_cbd14d61: "maker: local-only mode for proprietary inputs (Mac fbit, HWP): no upload, path-based CLI bridge,
 nothing written outside the chosen output folder". Written 2026-11-04 on branch `maker-local` of the OFL-only
 repository (`svf-fonts-open`, base `ce976f8`) for a builder who has not seen the repository. Every fact below was read
@@ -139,7 +144,7 @@ The maker today (`ce976f8`):
 - `detect._mac_entries`: a Mac container (`.dfont`, raw fork, AppleDouble, MacBinary; `_mac_head`) with no `sfnt`
   but an `NFNT`/`FONT`/`fbit` resource gives one `other` entry labelled "Mac bitmap font (NFNT/fbit): not converted
   here (local-only mode)". `srcprep.mac_resources` guards a fork (`MAX_RESOURCES`, `MAX_BYTES`) before
-  `macsfnt.resources` parses it. A 12,288-byte file is an `eng` entry (HWP `ASCII.PFT`, 12x24; `ENG_SIZES`); a
+  `macsfnt.resources` parses it. A 12,288-byte file is an `eng` entry (a 12x24 `.PFT` such as Taebaek's `GASCII24.PFT`; `ENG_SIZES`); a
   15,360-byte one is HBIOS English when `hbios_eng_like`, else a Dokkaebi face. An `eng` entry with no DOS Johab
   font in its folder becomes `unknown` (`scan`). A 12x24 companion is refused for a face under 24 px
   (`settings._route_errors`).
@@ -192,7 +197,7 @@ The tools (what the local routes call):
   the `fdef` driver tables, composed by rule (`jamoset.py`); generation 2 = HangulTalk 7.1.x type-3 `fbit` with 482
   planes composed by the `HTBL` table (`macfbit3.py`, `macfbit_svf.py`). They are told apart by the `fbit` header:
   `u16 at 0x0c == 3` is type 3; otherwise 45 sets at 0x54 plus an `fdef` 3 resource is generation 1.
-- **HWP**: the repository reads `ASCII.PFT` (12,288 bytes, 256 glyphs of 12x24) as `jamoset.py --eng` and HBIOS
+- **HWP**: the repository reads a 12x24 English `.PFT` (12,288 bytes, 256 glyphs of 12x24; Taebaek's layout, not HWP 1.x's 14x24 `ASCII.PFT`) as `jamoset.py --eng` and HBIOS
   12x24 (15,360); a precomposed 1 bpp face of the Hangul made elsewhere goes through `jamoset.py --layout 844
   --from-svf`; a BDF of the composed syllables through `bdfface.py`. It does **not** read `HANGUL*.PFT`
   (recipes.md "HWP 1.x and 2.x fonts"). No size table for those files is in the tree (not verifiable here).
@@ -592,7 +597,7 @@ stays `False` for a font without a licence file (today's rule), so the user sees
 All of them, unchanged: TTF/OTF (static and variable, with the instance op), TTC/OTC faces, Mac TrueType with a Mac
 cmap and the resource containers' `sfnt` faces (`macsfnt.py extract`/`unicode`), BDF (ISO 10646, KSC5601, johab =
 hanterm, ISO 8859 companion), PCF (KSC/johab through `srcprep pcf-bdf`, others through FreeType), HBF, Windows
-FNT/FON, DOS raw layouts and `johab844`, the 8x16 and 12x24 `--eng` companions (HWP `ASCII.PFT`, HBIOS), SVF v2/v3,
+FNT/FON, DOS raw layouts and `johab844`, the 8x16 and 12x24 `--eng` companions (the 12x24 `.PFT`, HBIOS), SVF v2/v3,
 `.gz` single files. The tools read a path; the realpath checks go through `Sources`; the routes' argvs are built the
 same way. Archives: listed, not unpacked (8.2).
 
@@ -714,7 +719,7 @@ check that the JM path equals the uncompressed copy (not run here).
 
 ### 9.4 HWP-derived inputs and hanterm
 
-- `ASCII.PFT` (12,288 bytes) and HBIOS 12x24 (15,360): `eng` entries as today; usable as `--eng` of a DOS raw,
+- a 12x24 `.PFT` (12,288 bytes) and HBIOS 12x24 (15,360): `eng` entries as today; usable as `--eng` of a DOS raw,
   hanterm or `--from-svf` face of 24 px or more. In local mode the "needs a DOS Johab font beside it" demotion
   (`scan`) is relaxed to "beside it **or anywhere in the batch**" so an `ASCII.PFT` picked from an HWP folder
   pairs with a 24 px face picked elsewhere (the companions list of a 24 px DOS raw/hanterm/from-svf font lists every
@@ -1082,7 +1087,7 @@ Each with my recommendation; the design above assumes the recommendation.
   Alternative: also a zip written into the output folder (never under the data directory).
 - **D14. Which Mac 7.1 routes to offer.** Recommendation: all three of 9.2 (`direct` native, `derived` behind
   `experimental`, `bdf + mkfont` for a precomposed face). Alternative: `direct` only in this card.
-- **D15. The 12x24 `ASCII.PFT` companion from any folder of the batch** (9.4). Recommendation: yes for 12x24 only.
+- **D15. The 12x24 `.PFT` companion (named `ASCII.PFT` in the tests; see the correction above) from any folder of the batch** (9.4). Recommendation: yes for 12x24 only.
 
 ## 16. Rulings on section 15 (2026-11-04, controller)
 

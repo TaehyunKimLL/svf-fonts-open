@@ -239,13 +239,14 @@ def exc_text(exc, local):
     return type(exc).__name__
 
 
-# The one verdict line the tools print (jamoset.check / jamovec): fixed words and numbers only. A line that merely
-# starts with "check" is not kept: its tail could be input text.
+# The verdict lines the tools print (jamoset.check / jamovec, and jamoset's HWP 1.x comparison): fixed words and numbers
+# only. A line that merely starts with "check" is not kept: its tail could be input text.
 _TOOL_VERDICT = re.compile(
-    r"^check: composed \d+ syllables from \d+ glyphs, JSET \d+ bytes"
+    r"^(check: composed \d+ syllables from \d+ glyphs, JSET \d+ bytes"
     r"(; dy -?\d+\.\.-?\d+ on \d+ glyphs)?"
     r"(; tables are the adaptive layout's \(\d+/\d+/\d+ sets, \d+x\d+ classes\))?"
-    r"(; identical to johab844\.py)?$")
+    r"(; identical to johab844\.py)?"
+    r"|hwp1: 11172 syllables identical to the HWP 1\.x rule \(hwpfont\.py\))$")
 
 # Set by make_server in local mode: what reaches stderr is the exception's type and frames, never its message.
 SAFE_DIAGNOSTICS = False
@@ -1912,7 +1913,8 @@ class Worker(threading.Thread):
         output", not pass on the old file (a re-detected job reuses `work/sNN/`)."""
         stale = [out_abs, os.path.join(cwd, "report.json"),      # a failed re-run must not show the last run's report
                  os.path.join(cwd, "identity.json")]            # nor serve the last build's piece scores
-        stale += [os.path.join(cwd, name) for name in (routes.MKFONT_TMP,) + routes.MAC_BDFS]   # a route's temp files
+        stale += [os.path.join(cwd, name) for name in (routes.MKFONT_TMP,) + routes.MAC_BDFS
+                  + (routes.HWP_BDF, routes.HWP_PRECOMPOSED)]   # a route's temp files
         if step.get("kind") == "source":
             stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith("source-")] \
                 if os.path.isdir(cwd) else []
@@ -1938,9 +1940,13 @@ class Worker(threading.Thread):
         try:
             step["facts"] = quality.face_facts(data)
             reference = self._reference(job, font, step)
-            if step.get("kind") == "jamo" and reference:
+            if step.get("kind") == "jamo" and reference == routes.REFERENCE_STEP_SVF:
+                # the route made the precomposed face it fitted in the step's own folder: that is the reference
+                reference, source = "svf", os.path.join(os.path.dirname(out_abs), routes.HWP_PRECOMPOSED)
+            elif step.get("kind") == "jamo" and reference:
                 source = (self._prepared_source(job, files_dir, step.get("font"))
                           or self._plain_source(font, files_dir, sources, plain))
+            if step.get("kind") == "jamo" and reference:
                 step["quality"] = quality.measure(data, reference, source, step.get("size"))
         except ValueError as exc:
             return exc_text(exc, sources.kind == "local")
