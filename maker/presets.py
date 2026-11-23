@@ -12,7 +12,7 @@ it adds no preset here.
 # Every source_kind (Shared data shapes) in one list, for `plain`'s "the tools' defaults".
 ALL_SOURCES = ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859", "bdf-ksc5601",
                "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase",
-               "hwp1", "ks-raw", "other"]
+               "hwp1", "ks-raw", "recipe", "other"]
 
 PRESETS = {
     "plain": {"argv": {}, "layout": None, "bpp": None, "sources": list(ALL_SOURCES),

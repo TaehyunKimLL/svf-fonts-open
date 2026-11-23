@@ -9,7 +9,8 @@ HIDDEN = (["fontTools.varLib.instancer"] + collect_submodules("fontTools.ttLib")
           + collect_submodules("fontTools.pens") + collect_submodules("fontTools.varLib"))
 a = Analysis([os.path.join(ROOT, "maker", "sidecar.py")],
              pathex=[os.path.join(ROOT, "maker"), os.path.join(ROOT, "tools")],
-             datas=[(os.path.join(ROOT, "maker", "static"), "static")],       # index.html, *.js, style.css, wasm/
+             datas=[(os.path.join(ROOT, "maker", "static"), "static"),        # index.html, *.js, style.css, wasm/
+                    (os.path.join(ROOT, "maker", "recipes"), "recipes")],     # the built-in recipes (recipe.builtin_dir)
              hiddenimports=HIDDEN,
              hookspath=[], runtime_hooks=[],
              excludes=["wx", "fontTools.ui", "brotli", "_brotli", "zopfli", "lxml", "unicodedata2", "lz4", "numpy",

@@ -25,6 +25,7 @@ import shutil
 import mkfont
 import naming
 import presets
+import recipe
 import routes
 from detect import ENG_FONT_KINDS, eng_cell_h
 import toolrun
@@ -76,7 +77,8 @@ MAX_SIZES = 16                  # a sizes list longer than this would plan more 
 _SOURCE_WORDS = {"dos-raw": "DOS raw", "outline": "outline", "outline-composite": "outline", "bitmap": "bitmap",
                  "bdf-iso10646": "bitmap", "bdf-iso8859": "bitmap", "bdf-ksc5601": "bitmap", "bdf-johab": "bitmap",
                  "hbf": "bitmap", "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit", "mac-fbit1": "Mac fbit",
-                 "mac-htbl": "Mac table", "mac-suitcase": "Mac suitcase", "hwp1": "HWP", "ks-raw": "KS raw"}
+                 "mac-htbl": "Mac table", "mac-suitcase": "Mac suitcase", "hwp1": "HWP", "ks-raw": "KS raw",
+                 "recipe": "known ROM"}
 
 # The article each source word takes (G2): chosen by the word, not by its first letter (`an SVF`, `a DOS raw`).
 _SOURCE_ARTICLES = {"outline": "an", "SVF": "an"}
@@ -322,6 +324,10 @@ def suggested_names(font, eff):
     for route in routes.routes(font):
         by_kind.setdefault(route.kind, route)
     stem = font.get("family") if font.get("source_kind") in ("svf-precomposed", "svf-jamo") else None
+    rec = recipe.get((font.get("recipe") or {}).get("id")) if font.get("source_kind") == "recipe" else None
+    rec_names = {}
+    for face in (rec or {}).get("faces", []):
+        rec_names.setdefault(face["kind"], face["name"])      # a known set's faces keep the recipe's names
     kinds = eff.get("kinds") if isinstance(eff.get("kinds"), list) else []
     sizes = eff.get("sizes") if isinstance(eff.get("sizes"), list) else []
     bpps = eff.get("bpp") if isinstance(eff.get("bpp"), list) else []
@@ -340,7 +346,7 @@ def suggested_names(font, eff):
                 if route is not None and bpp not in route.bpps:
                     continue
                 out["%s/%d/%d" % (kind, size, bpp)] = naming.suggest_face_name(
-                    font.get("family", ""), size, bpp, kind, svf_stem=stem)
+                    font.get("family", ""), size, bpp, kind, svf_stem=rec_names.get(kind, stem))
     return out
 
 
@@ -1638,6 +1644,9 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
             steps.append(_step(sid, fid, "source", None, None, None, None, argvs,
                                "work/%s/%s" % (sid, os.path.basename(prepared))))
             src = prepared
+        recipe_files = {}
+        for file_id, (root, rel) in ((font.get("recipe") or {}).get("files") or {}).items():
+            recipe_files[file_id] = _upload_path(fid, rel, sources, root)      # a known set: every file it reads
         companion = eff.get("latin_companion")
         if font.get("source_kind") == "bdf-ksc5601" and companion is None:
             raise ValueError("%s: needs a Latin companion" % fid)
@@ -1697,7 +1706,8 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
                     step_layout = None if kind == "precomposed" or route.label == "copy" else layout
                     paths = {"tools": tools_dir, "src": src, "out": out,
                              "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
-                             "range_file": range_file, "base": base, "pylib": pylib, "htbl": htbl_abs}
+                             "range_file": range_file, "base": base, "pylib": pylib, "htbl": htbl_abs,
+                             "recipe_files": recipe_files}
                     report = None
                     if route.label == "mkfont":                 # mkfont's --report: the boxes and cuts of this bake
                         report = "work/%s/report.json" % sid

@@ -91,7 +91,7 @@ class PresetTest(unittest.TestCase):
             "plain": {"argv": {}, "layout": None, "bpp": None,
                       "sources": ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859",
                                   "bdf-ksc5601", "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo",
-                                  "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase", "hwp1", "ks-raw", "other"],
+                                  "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase", "hwp1", "ks-raw", "recipe", "other"],
                       "reproduces": "the tools' defaults"},
             "dos-l-1bpp": {
                 "argv": {"precomposed": ["--cell", "16", "--bpp", "1", "--unicode",

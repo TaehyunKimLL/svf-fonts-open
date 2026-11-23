@@ -38,6 +38,7 @@ import detect
 import naming
 import preview
 import quality
+import recipe
 import routes
 import settings
 import toolreg
@@ -1917,7 +1918,7 @@ class Worker(threading.Thread):
         stale = [out_abs, os.path.join(cwd, "report.json"),      # a failed re-run must not show the last run's report
                  os.path.join(cwd, "identity.json")]            # nor serve the last build's piece scores
         stale += [os.path.join(cwd, name) for name in (routes.MKFONT_TMP,) + routes.MAC_BDFS
-                  + (routes.HWP_BDF, routes.HWP_PRECOMPOSED)]   # a route's temp files
+                  + (routes.HWP_BDF, routes.HWP_PRECOMPOSED, recipe.HANGUL_BDF, recipe.ENGLISH_BDF)]   # a route's temp files
         if step.get("kind") == "source":
             stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith("source-")] \
                 if os.path.isdir(cwd) else []

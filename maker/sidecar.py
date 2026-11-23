@@ -47,7 +47,7 @@ SMOKE["svfline"] = (["--help"], 1, "stderr", "  svfline.py line W H X Y")
 # The modules reachable from this file (test_sidecar_imports computes the same set from the sources and pins equality).
 GRAPH_MODULES = ("archive", "bdfface", "binscan", "caps", "detect", "hwpfont", "jamoaa", "jamoadapt", "jamofit", "jamoset",
                  "jamovec", "jobs", "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets",
-                 "preview", "quality", "rawcarve", "routes", "server", "settings", "sidecar", "sources", "srcprep",
+                 "preview", "quality", "rawcarve", "recipe", "routes", "server", "settings", "sidecar", "sources", "srcprep",
                  "svf2to3", "svf2ttf", "svfdy", "svfline", "toolreg", "toolrun", "zipout")
 
 

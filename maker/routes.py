@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass
 
 import detect
+import recipe
 import toolrun
 
 # The 16x16 1 bpp base face johab844.py redraws the Hangul of (relative to the checkout's svf/).
@@ -394,6 +395,45 @@ def _from_svf_commands(font, size, bpp, layout, range_spec, paths, extra):
     return _with_extra(commands, extra)         # --jset-version reaches the writer too: it writes that block version
 
 
+def _recipe_commands(rec, face_name):
+    """The commands of a known set's face (`recipe.face_commands`): its items carved with `rawcarve.py bdf`, then
+    `bdfface.py`, and for a jamo face the fit `jamoset.py --from-svf` at the step's layout. The panel's flags land on the
+    last commands as for the `bdfface` routes."""
+    def commands(font, size, bpp, layout, range_spec, paths, extra):
+        files = paths.get("recipe_files") or {}
+        chars = range_spec[1] if range_spec[0] == "file" else paths.get("range_file")
+        if not chars:
+            raise ValueError("bdfface needs a range file")
+        rec_now = rec
+        face = next(f for f in rec["faces"] if f["name"] == face_name)
+        if face["kind"] == "jamo" and layout:                   # the page's layout replaces the recipe's default
+            rec_now = dict(rec, faces=[dict(f, layout=layout) if f is face else f for f in rec["faces"]])
+        argvs = recipe.face_commands(rec_now, face_name, files, paths, chars, paths["tools"])
+        return _with_extra(argvs, extra)
+    return commands
+
+
+def recipe_routes(font):
+    """The routes of a `recipe` entry (a known set): one per face of its recipe, the first face of each kind. A
+    precomposed face is native; a jamo face is a fit (experimental), scored against the precomposed face it reads."""
+    rec = recipe.get((font.get("recipe") or {}).get("id"))
+    if rec is None:
+        return []
+    h = recipe.item_height(rec)
+    out, seen = [], set()
+    for face in rec["faces"]:
+        if face["kind"] in seen:
+            continue
+        seen.add(face["kind"])
+        if face["kind"] == "precomposed":
+            out.append(Route("precomposed", face["route"], True, [], [1], [h], None, None,
+                             _recipe_commands(rec, face["name"])))
+        else:
+            out.append(Route("jamo", face["route"], False, list(recipe.FIT_LAYOUTS), [1], [h], REFERENCE_STEP_SVF,
+                             None, _recipe_commands(rec, face["name"])))
+    return out
+
+
 def svf_commands(font, paths, extra=()):
     """An SVF source's own face as v3: [] when it is used as uploaded (the caller copies paths["src"] to paths["out"]),
     else the `svf2to3.py --jset-version V --check` command: for a v2 face, or a v3 face whose JSET version @p extra
@@ -556,6 +596,8 @@ def routes(font):
         out.append(Route("precomposed", "bdfface", True, [], [1], sizes, None, None, _bdfface_commands))
         out.append(Route("jamo", "bdfface + from-svf fit", False, ["844", "adaptive"], [1], sizes, None, None,
                          _bdfface_fit_commands))
+    elif kind == "recipe":
+        out += recipe_routes(font)
     elif kind in ("svf-precomposed", "svf-jamo"):
         bpp = (font.get("svf") or {}).get("bpp") if isinstance(font.get("svf"), dict) else None
         if bpp not in (1, 2) or _svf_version(font) not in (2, 3):   # a malformed SVF entry offers no route
