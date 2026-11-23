@@ -2156,7 +2156,8 @@ ENG16_MEASURED = [c for c in range(0x30, 0x7B) if chr(c).isalnum()]
 
 def eng16_advance(get):
     """The step of a 16x16 English font: the right edge of the ink of 0-9, A-Z and a-z plus their smallest left margin
-    (the widest glyph with as much room after it as before; 8 for an 8-wide font in the left half of the cell), 1..16."""
+    (the widest glyph with as much room after it as before; 8 for an 8-wide font in the left half of the cell), 1..16;
+    16 when none of them has ink."""
     right, left = 0, 16
     for cp in ENG16_MEASURED:
         cols = 0
@@ -2165,7 +2166,7 @@ def eng16_advance(get):
         used = [x for x in range(16) if cols >> (15 - x) & 1]
         if used:
             left, right = min(left, used[0]), max(right, used[-1] + 1)
-    return max(1, min(16, right + (left if left < 16 else 0)))
+    return max(1, min(16, right + left))  # no ink: 0 + 16
 
 
 def eng_glyph(eng, cp, w, h, bold=False):
@@ -3291,6 +3292,7 @@ def main_spec(ap, args):
         comp = rc.Composer(rc.read(args.source), rc.load_spec(args.spec))
         layout, src0 = spec_layout(comp)
         eng = read_eng_arg(args)
+        check_eng_height(eng, src0.h)
         base = open(args.base, "rb").read() if args.base else None
         out, mapping, src = build_from_source(layout, src0, eng, base, args.ascent, None, False, args.advance,
                                                args.embolden, args.symbols, profile=profile_arg(ap, args),

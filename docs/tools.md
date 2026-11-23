@@ -86,7 +86,7 @@ HangulTalk, HWP 1.x) but is not tied to one game.
   positional file is the bytes the spec's offsets point into, and the JSET is the spec's own rule, exact;
 - `--eng` a raw 8x16 DOS English font (2048 or 4096 bytes), a 16x16 one (8192 bytes: 256 glyphs of 16 rows of 2 bytes, as
   `rawcarve.py eng --width 16` writes; it steps by the right edge of the ink of 0-9, A-Z and a-z plus their smallest left
-  margin, or by `--eng-advance`), or an HBIOS 12x24 (15360) / PFT 12x24 (12288) / Taebaek PFT 20x40 (30720, GASCII40) / 24x48 (49152, GASCII48), or an HWP English font: an HWP 1.x `ASCII.SFT` (8x16) / `ASCII.PFT` (14x24, step 14; face `--eng-face` of six) or an HWP 3.0 `ENG*.FNT` (8x16, 12x24, 20x40), recognised by its header;
+  margin (16 when none has ink), or by `--eng-advance`), or an HBIOS 12x24 (15360) / PFT 12x24 (12288) / Taebaek PFT 20x40 (30720, GASCII40) / 24x48 (49152, GASCII48), or an HWP English font: an HWP 1.x `ASCII.SFT` (8x16) / `ASCII.PFT` (14x24, step 14; face `--eng-face` of six) or an HWP 3.0 `ENG*.FNT` (8x16, 12x24, 20x40), recognised by its header;
 - `--base` an SVFN v3 face (its non-syllable glyphs are kept; a v2 face is refused with the convert message (`tools/svf2to3.py`));
 - `--from-ttf` an outline TTF/OTF, read with freetype-py for 1 bpp `mono` targets and with fontTools (via `jamoaa.py`)
   for 2 bpp and for `--binarize threshold|ridge`;
@@ -115,7 +115,7 @@ where the table says "refused".
 | `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` and `hwp1` are modes of their own (the positional file is the `fbit` resource fork, the HWP 1.x Hangul file) |
 | `--face N` (0) | `source`, `hwp1` | typeface of a Dokkaebi printer font (0 or 1), of an HWP 1.x Hangul file (0, 1, 2) |
 | `--eng FILE` (none) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | raw 8x16 English font for ASCII (2048 or 4096 bytes; the 12x24, 20x40 and 24x48 faces and the HWP English fonts above also read); refused with `--bpp 2` and with `mac-fbit-45sets` |
-| `--spec SPEC.json\|spc1500` (none) | `spec` | the `rawcarve.py` compose spec of the positional file (a JSON file, or the built-in `spc1500` when no file has that name); a JSET initial set per initial piece set the spec names (its `novowel` set first), a medial set per medial table (`nofinal`, `final`, and the `*_kk` tables, which make two lead classes), a final set per final piece set, two tail classes; refused with another layout |
+| `--spec SPEC.json\|spc1500` (none) | `spec` | the `rawcarve.py` compose spec of the positional file (a JSON file, or the built-in `spc1500`: that name always means the built-in, a file of that name is given as `./spc1500`); a JSET initial set per initial piece set the spec names (its `novowel` set first), a medial set per medial table (`nofinal`, `final`, and the `*_kk` tables, which make two lead classes), a final set per final piece set, two tail classes; refused with another layout |
 | `--eng-advance N` (none) | where `--eng` is | the step of the `--eng` glyphs of a 16x16, 12x24, 20x40 or 24x48 English font (1..255; refused for an 8x16 one, which steps by 8) |
 | `--eng-face N` (0) | where `--eng` is | the face of an HWP 1.x `ASCII.SFT` / `ASCII.PFT` given as `--eng` (0..5: Myeongjo, Gothic, superscript, subscript, italic, script by HWP's menu) |
 | `--base FILE` (none) | `source`, `hwp1`, `--from-ttf` | SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp); ignored by `--from-svf` (the input face is the base); refused with `--bpp 2` and with `mac-fbit-45sets` |
@@ -1015,9 +1015,12 @@ in `cols` / `bytecols`), `--invert` (ink is the 0 bits: ROMs stored as paper, su
 Multi-bit tiles (arcade sprite and tile ROMs): `--gfx LAYOUT`, a preset `WxHxN_packed_lsb` / `WxHxN_packed_msb` (N bits a
 pixel row after row; `_lsb` puts a byte's first pixel in its low bits, MAME's `gfx_16x16x4_packed_lsb`) or the driver's
 MAME `gfx_layout` as `planes=..;x=..;y=..;inc=N` (bit offsets from the tile's start, bit 0 the MSB of its first byte,
-`planes` from the pen's high bit; `STEPn(start,step)`, `RGN_FRAC(a,b)` = a/b of the file in bits, `+ - * /`, 0x hex);
-the file is then the ROM region (`rawcarve.py region`). A pixel is ink when its pen is not `--bg PEN` (0), or, with
-`--fg PEN[,PEN...]`, when it is one of those (the body of an outlined glyph); `--invert` swaps ink and paper. `--glyph`
+`planes` from the pen's high bit; MAME's `STEP2` .. `STEP2048(start,step)` and their `_INV` forms (the same offsets
+reversed), `RGN_FRAC(a,b)` = a/b of the file in bits, `+ - * /`, decimal numbers without a leading 0 and 0x hex; copy
+the lists without their braces and without C comments; at most 1,024 offsets a list and 32 levels of nesting, offsets
+up to 2^36); the file is then the ROM region (`rawcarve.py region`). A pixel is ink when its pen is not `--bg PEN` (0), or, with
+`--fg PEN[,PEN...]`, when it is one of those (the body of an outlined glyph; `--bg` and `--fg` are two rules: give one,
+and only with `--gfx`); `--invert` swaps ink and paper. `--glyph`
 defaults to the tile's size and `--stride` to its `inc`. `render` reads only the bytes it draws (`--count` 1..4096, `--cols` 1..64, `--scale` 1..32),
 `info` a block at a time.
 
@@ -1041,7 +1044,8 @@ defaults to the tile's size and `--stride` to its `inc`. `render` reads only the
 
 `runs`, `sets` and `ascii` try every offset of the window they scan: `--start O` / `--length N` name the window (offsets
 printed stay file offsets), and a window above 16 MiB is refused (scan a large file in overlapping windows); `runs --gfx`
-reads the whole file (a tile's planes may lie anywhere in it) and scans the window, and `sets` refuses `--gfx` (write an
+reads the whole file (a tile's planes may lie anywhere in it) and scans the window; `runs` and `render` (its default
+`--count`) take only tiles whose whole footprint is in the file; `sets` refuses `--gfx`, `--bg` and `--fg` (write an
 ink map with `rawcarve.py ink` first). Use `--order strips` for the Korean VGA font ROMs. Exit 0; argparse errors
 (a `--gfx` layout that does not parse, lacks one of its four keys, has an `inc` that is not whole bytes, a background or
 ink pen outside the planes, a `--glyph` that is not the tile's, `--fg` without `--gfx`; a zero or negative `--block`, `--step`,
@@ -1088,8 +1092,8 @@ above), or with `--width 16` 8,192 bytes (256 glyphs of 16x16, 2 bytes a row); `
 the offset and `--count N` how many are read (the other codes stay blank), `--invert` reads the 0 bits as ink. `region`: the files of each group (`A,B[,C,D]`) interleaved `--unit` 1, 2
 or 4 bytes at a time (MAME's `ROM_LOAD16_BYTE` / `ROM_LOAD32_BYTE` = 1, `ROM_LOAD32_WORD` / `ROM_LOAD64_WORD` = 2), the
 groups one after another, `--swap` swapping the bytes of each word (`ROM_LOAD16_WORD_SWAP`); files of a group must have
-the same size, a whole number of units; at most 64 MiB. `ink`: the glyphs from `--offset` (`--count`, default all that
-fit) as plain 1 bpp row-major glyphs one after another, ceil(W/8) x H bytes each: an inverted, strip-ordered or
+the same size, a whole number of units; at most 64 MiB (checked from the files' sizes before reading; an empty group is refused). `ink`: the glyphs from
+`--offset` (`--count`, default all that fit; more than fit is refused) as plain 1 bpp row-major glyphs one after another, ceil(W/8) x H bytes each: an inverted, strip-ordered or
 multi-bit font made into the bytes `binscan.py sets`, `rawcarve.py cut` / `eng` / `bdf` and `jamoset.py --layout 844`
 read. `bdf`, `compose`: a BDF with `CHARSET_REGISTRY "ISO10646"`, `CHARSET_ENCODING "1"`, `PIXEL_SIZE` = the glyph
 height, `FONT_ASCENT` = `--ascent` (default 7/8 of the height, rounded up), every glyph the full cell; blank KS glyphs
@@ -1116,10 +1120,10 @@ refused; `cut`, `eng` and `bdf` read only the bytes they use (through the last g
 spec with a cell outside 1..256, a negative piece, an unknown set or `--eng-top` + `--eng-height` past the cell is
 refused with a message. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
 `x`, `y`, `width`, `height`, `order`, and optionally `lsb`, `invert`, `gfx` with `bg` / `fg`; a top-level `"invert": true`
-or `--invert` inverts every set and the `--eng` font), the initial set per vowel without and with a final, the medial (set, piece) per
+or `--invert` inverts every set that does not say `"invert": false`, and the `--eng` font), the initial set per vowel without and with a final, the medial (set, piece) per
 vowel (optionally another table for ㄱ / ㅋ, the 8x4x4 rule), the final set per vowel or one set, and the font's own
-vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). `--spec spc1500` (when no
-file has that name) is the built-in spec of the Samsung SPC-1500 Hangul ROMs (`spc1500_spec`, from MAME's
+vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). `--spec spc1500` (the name always
+means it; a JSON file of that name is `./spc1500`) is the built-in spec of the Samsung SPC-1500 Hangul ROMs (`spc1500_spec`, from MAME's
 `spc1500.cpp`), for the 32 KB region of `ss150fnt.bin` .. `ss153fnt.bin` one after another; `jamoset.py --layout spec`
 reads the same specs. Exit 1 with a message on
 a bad offset, spec or empty result.

@@ -37,7 +37,8 @@ Glyph geometry is binscan.py's (`--glyph WxH`, `--stride`, `--order rows|strips|
 Compose spec (JSON). Jamo are numbered as Unicode numbers them: L 0..18 (ㄱ..ㅎ), V 0..20 (ㅏ..ㅣ), T 1..27 (ㄱ..ㅎ).
 
   {"cell": [16, 16],
-   "invert": false,               optional: every set's ink is its 0 bits (also `compose --invert`, which inverts --eng)
+   "invert": false,               optional: every set's ink is its 0 bits (also `compose --invert`, which inverts --eng);
+                                  a set's own "invert" wins over both
    "vowel_order": [21 ints],      optional: for each Unicode V, the font's own vowel number (the tables below are
                                   indexed by that number); default: the Unicode order
    "sets": {"NAME": {"offset": O, "stride": B, "x": 0, "y": 0, "width": 16, "height": 16, "order": "rows"}, ...},
@@ -50,7 +51,8 @@ Compose spec (JSON). Jamo are numbered as Unicode numbers them: L 0..18 (ㄱ..�
                "nofinal_kk": ..., "final_kk": ...},  optional *_kk tables: used when L is ㄱ or ㅋ (the 8x4x4 rule)
    "final":   {"by_vowel": [NAME by font vowel]} or {"set": NAME},   piece = T - 1
   }
-A syllable is the OR of its pieces, as the drivers draw it. `--spec spc1500` is the built-in spec of the Samsung
+A syllable is the OR of its pieces, as the drivers draw it. `--spec spc1500` (the name always means it; a file of that
+name is ./spc1500) is the built-in spec of the Samsung
 SPC-1500 Hangul ROMs (spc1500_spec), for the 32 KB region `rawcarve.py region ss150fnt.bin ss151fnt.bin ss152fnt.bin
 ss153fnt.bin` writes. `jamoset.py --layout spec --spec SPEC` turns the same spec into an exact jamo set.
 """
@@ -320,8 +322,9 @@ BUILTIN_SPECS = {"spc1500": spc1500_spec}
 
 
 def load_spec(path):
-    """A compose spec from a JSON file, or a built-in one by name (spc1500) when no file of that name exists."""
-    if not os.path.exists(path) and path in BUILTIN_SPECS:
+    """A built-in compose spec by name (spc1500: the name always means the built-in; a JSON file of that name is
+    read as ./spc1500), or a spec from a JSON file."""
+    if path in BUILTIN_SPECS:
         return BUILTIN_SPECS[path]()
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
@@ -350,6 +353,8 @@ def cmd_ink(a):
     count = a.count if a.count is not None else fit
     if count < 1:
         raise CarveError("no whole glyph at this offset")
+    if count > fit:
+        raise CarveError(f"--count {count}: only {fit} whole glyphs fit from {a.offset:#x}")
     out = bytearray()
     inked = 0
     for i in range(count):
@@ -366,9 +371,14 @@ MAX_REGION = 64 << 20
 
 
 def cmd_region(a):
+    groups = [[f for f in group.split(",") if f] for group in a.groups]
+    if any(not g for g in groups):
+        raise CarveError("an empty group: give FILE or FILE,FILE,...")
+    total = sum(os.path.getsize(f) for g in groups for f in g)
+    if total > MAX_REGION:
+        raise CarveError(f"the region would be {total} bytes, more than {MAX_REGION}")
     out = bytearray()
-    for group in a.groups:
-        files = [f for f in group.split(",") if f]
+    for group, files in zip(a.groups, groups):
         datas = [read(f) for f in files]
         n = len(datas[0])
         if any(len(x) != n for x in datas):
@@ -496,7 +506,8 @@ def main(argv=None):
     p = sub.add_parser("compose")
     p.add_argument("file")
     p.add_argument("--spec", required=True, help="a JSON compose spec, or a built-in one: spc1500")
-    p.add_argument("--invert", action="store_true", help="ink is the 0 bits, in every set and the --eng font")
+    p.add_argument("--invert", action="store_true",
+                   help="ink is the 0 bits, in the --eng font and every set that does not say \"invert\": false")
     p.add_argument("--syllables", choices=("ks", "all"), default="ks")
     p.add_argument("--eng", default=None, help="a file holding an 8xH English font (often the same file)")
     p.add_argument("--eng-offset", type=pi, default=0)

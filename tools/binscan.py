@@ -20,7 +20,8 @@ strips) or the top (cols, bytecols); `--invert` reads the 0 bits as ink (ROMs dr
 SPC-1500's). Multi-bit tiles (arcade sprite and tile ROMs): `--gfx LAYOUT` with a preset `WxHxN_packed_lsb` /
 `WxHxN_packed_msb` (N bits a pixel, row after row; _lsb: the first pixel of a byte in its low bits) or the four lists of
 the driver's MAME gfx_layout, `planes=..;x=..;y=..;inc=N` (bit offsets from the tile's start, bit 0 the MSB of its first
-byte, plane 0 the pen's high bit; `STEPn(start,step)` and `RGN_FRAC(a,b)` = a/b of the file as in the driver; the file is
+byte, plane 0 the pen's high bit; `STEP2` .. `STEP2048(start,step)`, their `_INV` forms and `RGN_FRAC(a,b)` = a/b of the file as in the driver,
+without the braces and C comments; the file is
 the ROM region, which `rawcarve.py region` assembles from the ROM files); a pixel is ink when its pen is not `--bg`
 (default 0), or, with `--fg PEN[,PEN...]`, when its pen is one of those (the body of an outlined glyph without its
 outline pen); `--invert` then makes the other pens the ink. Offsets accept 0x hex. `render --cols N` sets glyphs per row of the picture, `--scale S` the PNG pixel
@@ -147,14 +148,16 @@ def resolve_geometry(a, ap):
     """After parsing: build a.gfx from --gfx (a Gfx, for the file's size) and take --glyph from it; refuse a --glyph
     that disagrees. A command without --gfx keeps a.gfx = None."""
     spec = getattr(a, "gfx", None)
+    if getattr(a, "bg", None) is not None and getattr(a, "fg", None) is not None:
+        ap.error("--bg and --fg are two ink rules: give one")
     if spec is None:
-        if getattr(a, "fg", None) is not None:
-            ap.error("--fg goes with --gfx")
+        if getattr(a, "fg", None) is not None or getattr(a, "bg", None) is not None:
+            ap.error("--bg and --fg go with --gfx")
         if getattr(a, "glyph", None) is None:
             ap.error("--glyph WxH is required (or --gfx)")
         return
     try:
-        a.gfx = parse_gfx(spec, os.path.getsize(a.file), a.bg, a.fg)
+        a.gfx = parse_gfx(spec, os.path.getsize(a.file), a.bg or 0, a.fg)
     except (GfxError, OSError) as e:
         ap.error(f"--gfx: {e}")
     if a.glyph is not None and tuple(a.glyph) != (a.gfx.w, a.gfx.h):
@@ -192,6 +195,8 @@ class Gfx:
         self.fg = frozenset(fg) if fg is not None else None
         if min(list(planes) + list(xoffs) + list(yoffs)) < 0:
             raise GfxError("negative bit offset")
+        if max(list(planes) + list(xoffs) + list(yoffs) + [inc]) > MAX_BIT:
+            raise GfxError(f"a bit offset or inc past {MAX_BIT}")
         self.w, self.h, self.planes, self.x, self.y, self.inc, self.bg = w, h, list(planes), list(xoffs), list(yoffs), inc, bg
         self.stride = inc // 8
         self.foot = (max(planes) + max(xoffs) + max(yoffs)) // 8 + 1  # the bytes a tile's bits reach
@@ -216,6 +221,14 @@ class Gfx:
         return rows
 
 
+NUMBER = re.compile(r"0[xX][0-9a-fA-F]+|[1-9][0-9]*|0")  # ASCII digits only: no 08, 1e3, ² or 1_000
+MAX_NUMBER_CHARS = 12
+MAX_OFFSETS = 1024  # offsets in one list (MAME's tiles are at most 1024 wide or high; planes at most 8)
+MAX_DEPTH = 32  # nesting of parentheses and function arguments
+MAX_BIT = 1 << 36  # the largest bit offset or inc (8 GiB): past any region the tools read
+STEPS = {2 ** k for k in range(1, 12)}  # MAME's STEP2 .. STEP2048 (and STEPn_INV, the same offsets reversed)
+
+
 def _gfx_tokens(s):
     out = []
     i = 0
@@ -225,9 +238,13 @@ def _gfx_tokens(s):
             i += 1
         elif c.isdigit():
             j = i
-            while j < len(s) and (s[j].isalnum()):
+            while j < len(s) and (s[j].isalnum() or s[j] == "_"):
                 j += 1
-            out.append(("num", int(s[i:j], 0)))
+            tok = s[i:j]
+            if len(tok) > MAX_NUMBER_CHARS or not NUMBER.fullmatch(tok):
+                raise GfxError(f"bad number {tok[:MAX_NUMBER_CHARS + 1]!r} in a gfx layout (decimal without a leading 0, "
+                               f"or 0x hex; at most {MAX_NUMBER_CHARS} characters)")
+            out.append(("num", int(tok, 0)))
             i = j
         elif c.isalpha() or c == "_":
             j = i
@@ -258,13 +275,22 @@ def _gfx_list(s, region_bits):
         pos[0] += 1
         return toks[pos[0] - 1]
 
+    depth = [0]
+
+    def nest():
+        depth[0] += 1
+        if depth[0] > MAX_DEPTH:
+            raise GfxError(f"{s[:40]!r}...: nested more than {MAX_DEPTH} deep")
+
     def args(n):
+        nest()
         take("(")
         v = [expr()]
         while peek() == ",":
             take(",")
             v.append(expr())
         take(")")
+        depth[0] -= 1
         if len(v) != n:
             raise GfxError(f"{s!r}: {n} arguments expected")
         return v
@@ -275,11 +301,16 @@ def _gfx_list(s, region_bits):
             return take()[1]
         if k == "-":
             take("-")
-            return -factor()
+            nest()
+            v = -factor()
+            depth[0] -= 1
+            return v
         if k == "(":
+            nest()
             take("(")
             v = expr()
             take(")")
+            depth[0] -= 1
             return v
         if k == "name":
             name = take()[1]
@@ -299,6 +330,8 @@ def _gfx_list(s, region_bits):
             if op == "/" and r == 0:
                 raise GfxError("division by 0")
             v = v * r if op == "*" else v // r
+            if abs(v) > MAX_BIT:
+                raise GfxError(f"{s[:40]!r}: a value past {MAX_BIT}")
         return v
 
     def expr():
@@ -307,24 +340,33 @@ def _gfx_list(s, region_bits):
             op = take()[0]
             r = term()
             v = v + r if op == "+" else v - r
+            if abs(v) > MAX_BIT:
+                raise GfxError(f"{s[:40]!r}: a value past {MAX_BIT}")
         return v
 
     out = []
     while True:
-        if peek() == "name" and toks[pos[0]][1].startswith("STEP") and toks[pos[0]][1][4:].isdigit():
-            n = int(take()[1][4:])
-            if not 1 <= n <= 1024:
-                raise GfxError(f"STEP{n}: 1..1024")
+        m = re.fullmatch(r"STEP(\d+)(_INV)?", toks[pos[0]][1]) if peek() == "name" else None
+        if m:
+            take()
+            n = int(m.group(1)) if len(m.group(1)) <= 4 else 0
+            if n not in STEPS:
+                raise GfxError(f"{m.group(0)}: MAME defines STEP2, STEP4 .. STEP2048 (and _INV)")
+            if len(out) + n > MAX_OFFSETS:
+                raise GfxError(f"more than {MAX_OFFSETS} offsets in one list")
             start, step = args(2)
-            out += [start + i * step for i in range(n)]
+            seq = [start + i * step for i in range(n)]
+            out += seq[::-1] if m.group(2) else seq
         else:
+            if len(out) + 1 > MAX_OFFSETS:
+                raise GfxError(f"more than {MAX_OFFSETS} offsets in one list")
             out.append(expr())
         if peek() is None:
             return out
         take(",")
 
 
-PACKED = re.compile(r"(\d+)x(\d+)x(\d+)_packed_(lsb|msb)")
+PACKED = re.compile(r"([0-9]+)x([0-9]+)x([0-9]+)_packed_(lsb|msb)")
 
 
 def packed_layout(w, h, bpp, lsb):
@@ -333,6 +375,10 @@ def packed_layout(w, h, bpp, lsb):
     if bpp not in (1, 2, 4, 8):
         raise GfxError("packed layouts are 1, 2, 4 or 8 bpp")
     per = 8 // bpp
+    if not (1 <= w <= 1024 and 1 <= h <= 1024):
+        raise GfxError("tile width and height are 1..1024")
+    if w % per:
+        raise GfxError(f"a {bpp} bpp packed row of {w} pixels does not end on a byte ({per} pixels a byte)")
     xs = []
     for x in range(w):
         slot = x % per
@@ -345,6 +391,8 @@ def parse_gfx(spec, region_bytes, bg=0, fg=None):
     `planes=...;x=...;y=...;inc=N` (the driver's numbers; RGN_FRAC(a,b) is a/b of @p region_bytes, in bits)."""
     m = PACKED.fullmatch(spec.strip())
     if m:
+        if any(len(v) > 5 for v in m.groups()[:3]):
+            raise GfxError("tile width and height are 1..1024")
         w, h, bpp = (int(v) for v in m.groups()[:3])
         planes, xs, ys, inc = packed_layout(w, h, bpp, m.group(4) == "lsb")
         return Gfx(w, h, planes, xs, ys, inc, bg, fg)
@@ -509,10 +557,13 @@ def cmd_runs(a):
             data = fh.read()
         lo, hi, base = base, base + len(data[base:base + (a.length or len(data))]), 0
     found = []
+    last = min(hi - gb, len(data) - footprint(w, h, a.order, a.gfx))  # a tile's whole footprint must be in the file
+    # window() has complemented 1 bpp bytes already: decode inverts only the pens of --gfx tiles
+    invert = a.invert and a.gfx is not None
     for phase in range(0, gb, a.step):
         run_start, run_n, blanks = None, 0, 0
-        for off in range(lo + phase, hi - gb + 1, gb):
-            rows = decode(data, off, w, h, a.order, a.lsb, a.invert, a.gfx)
+        for off in range(lo + phase, last + 1, gb):
+            rows = decode(data, off, w, h, a.order, a.lsb, invert, a.gfx)
             ink, change = glyph_like(rows)
             blank = ink == 0
             ok = blank or (0.02 <= ink <= 0.6 and change <= a.max_change * w / 8)
@@ -521,7 +572,7 @@ def cmd_runs(a):
                     run_start, run_n, blanks = off, 0, 0
                 run_n += 1
                 blanks += blank
-            if not ok or off + 2 * gb > hi:
+            if not ok or off + gb > last:
                 if run_start is not None and run_n - blanks >= a.min:
                     found.append((run_start, run_n, blanks))
                 run_start = None
@@ -664,7 +715,8 @@ def cmd_render(a):
     size = os.path.getsize(a.file)
     count = a.count
     if count is None:
-        count = max(0, min(64, (size - a.offset) // gb))
+        foot = footprint(w, h, a.order, a.gfx)
+        count = max(0, min(64, (size - a.offset - foot) // gb + 1)) if size - a.offset >= foot else 0
     with open(a.file, "rb") as fh:  # only the bytes drawn
         fh.seek(a.offset)
         data = fh.read((count - 1) * gb + footprint(w, h, a.order, a.gfx) if count else 0)  # through the last glyph
@@ -704,7 +756,7 @@ def tile_args(p):
     p.add_argument("--gfx", default=None, metavar="LAYOUT",
                    help="multi-bit tiles: a preset WxHxN_packed_lsb|msb or a MAME gfx_layout 'planes=..;x=..;y=..;inc=N' "
                    "(bit offsets; STEPn(a,b), RGN_FRAC(a,b) of the file); ink = pen != --bg (or in --fg)")
-    p.add_argument("--bg", type=nonneg, default=0, metavar="PEN", help="--gfx: the background pen (0)")
+    p.add_argument("--bg", type=nonneg, default=None, metavar="PEN", help="--gfx: the background pen (0)")
     p.add_argument("--fg", type=pens, default=None, metavar="PEN[,PEN...]",
                    help="--gfx: ink is these pens only (instead of every pen but --bg; e.g. a glyph's body without its outline)")
 
@@ -770,6 +822,8 @@ def main(argv=None):
     p.set_defaults(fn=cmd_render)
 
     a = ap.parse_args(argv)
+    if a.cmd == "sets" and (a.gfx is not None or a.bg is not None or a.fg is not None):
+        ap.error("sets reads 1 bpp bytes: write the tiles' ink map with rawcarve.py ink first (no --gfx, --bg, --fg)")
     if a.cmd in ("runs", "render", "sets"):
         resolve_geometry(a, ap)
     if a.cmd == "runs" and a.step is None and a.gfx is not None:

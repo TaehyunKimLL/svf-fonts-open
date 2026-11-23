@@ -974,7 +974,7 @@ ROM 파일들을 MAME 드라이버가 올리는 영역으로 잇는다. `binscan
 | `ROM_LOAD16_WORD_SWAP` (68000 프로그램) | `region --swap A` |
 
 타일 배치는 드라이버의 `gfx_layout`(또는 `gfx_WxHxN_packed_lsb` / `_msb` 프리셋)이고, `--gfx`에 `planes=..;x=..;y=..;inc=N`으로
-옮겨 적는다: `STEP8(...)`과 `RGN_FRAC(1,2)`까지 같은 숫자다.
+옮겨 적는다: `STEP8(...)`과 `RGN_FRAC(1,2)`까지 같은 숫자이며, 중괄호와 C 주석은 뺀다.
 
 ### 삼성 SPC-1500: 반전된 ROM 네 개의 자모 세트(정확)
 
@@ -1034,9 +1034,10 @@ AND한다는 것은 잉크가 0 비트라는 뜻이다: 모든 ROM이 반전되�
         --check -o $OUT/DQUIZGOJ.SVF
 
 (`rawcarve.py bdf $OUT/dquizgo-spr.bin --gfx '...' --offset $((13347*64))`는 타일을 바로 읽어 같은 BDF를 쓴다.) 검증함: 완성형
-`115,916 bytes`, 글리프 2,447개, `width=208 ascent=14 descent=2`(영문 셀은 16씩 나아간다), 잉크 573. 자모 세트 `16,864 bytes`, 글리프
-441개, IoU 1.000(2,350 중 2,347 정확: 이 폰트 자체가 8x4x4 조각으로 그린 것이며, 그 디자인은 알려진 DOS 폰트 어디에도 없다),
-`width=160`(16x16 `--eng`는 12씩 나아간다: 잉크가 10열에서 끝나고 2열에서 시작한다), 잉크 573.
+`115,916 bytes`, 글리프 2,447개, `width=208 ascent=14 descent=2`(영문 셀은 16씩 나아간다), 잉크 573(200보다 넓다: 여기의 208 너비 줄은
+모두 `line 220 24 0 16`). 자모 세트 `16,864 bytes`, 글리프 441개, IoU 1.000(2,350 중 2,347 정확: 이 폰트 자체가 8x4x4 조각으로 그린
+것이며, 그 디자인은 알려진 DOS 폰트 어디에도 없다), `width=160`(16x16 `--eng`는 10씩 나아간다: 글자와 숫자의 잉크가 9열에서 끝나고 가장
+왼쪽 것은 0열에서 시작한다), 잉크 573.
 
 ### X Se Dae Quiz: 스프라이트 속의 태백 GOTHIC16(대조용)
 
@@ -1080,9 +1081,9 @@ AND한다는 것은 잉크가 0 비트라는 뜻이다: 모든 ROM이 반전되�
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/QUIZKOFK.SVF --mask-font none --check -o $OUT/QUIZKOFKJ.SVF
     python3 tools/jamoset.py --layout adaptive --from-svf $OUT/QUIZKOFK.SVF --mask-font none --check -o $OUT/QUIZKOFKJA.SVF
 
-영문 글자와 숫자는 16 픽셀 셀의 JIS 전각 글리프다. 문장 부호는 비워 둔다(JIS 기호 행은 순서가 다르다). 검증함: 완성형 `123,640
-bytes`, 글리프 2,447개, `width=208 ascent=14 descent=2`, 잉크 460. 8x4x4 자모 세트 `19,620 bytes`, IoU 0.835(정확 271), 잉크 477.
-adaptive `62,084 bytes`, 32/13/12 세트, 12 x 12 부류, IoU 0.975(정확 1,522), 잉크 460. 이 폰트는 조각으로 그린 것이 아니다: 완성형
+영문 글자와 숫자는 16 픽셀 셀의 JIS 전각 글리프다. 문장 부호는 비워 둔다(JIS 기호 행은 순서가 다르다). 검증함(잉크는 `line 220 24 0 16`: 줄이 208 너비다): 완성형
+`123,640 bytes`, 글리프 2,447개, `width=208 ascent=14 descent=2`, 잉크 477. 8x4x4 자모 세트 `19,620 bytes`, IoU 0.835(정확 271), 잉크
+494. adaptive `62,084 bytes`, 32/13/12 세트, 12 x 12 부류, IoU 0.975(정확 1,522), 잉크 477. 이 폰트는 조각으로 그린 것이 아니다: 완성형
 페이스를 쓰라.
 
 ### Live Quiz Show: 규칙은 읽었고 조각은 맞지 않는다(만들지 않음)
@@ -1097,7 +1098,7 @@ adaptive `62,084 bytes`, 32/13/12 세트, 12 x 12 부류, IoU 0.975(정확 1,522
         -o $OUT/livequiz-ink.bin
     python3 -I tools/rawcarve.py region --swap $MAME/livequiz/flash.u1 -o $OUT/livequiz-prg.bin
 
-퀴즈 문장은 조합형이다. 그리기 루틴(0x1f06의 68000 코드. 0x2190에 사본이 하나 더 있다)은 조합형 코드를 필드로 나누어 워드 표 넷으로
+퀴즈 문장은 조합형이다. 그리기 루틴(0x1f06의 68000 코드. 같은 표를 쓰는 루틴이 0x2154와 0x22e4에 둘 더 있다)은 조합형 코드를 필드로 나누어 워드 표 넷으로
 바꾸고(0x1dec의 초성: 조합형 코드 - 1, 그래서 0 = 없음, ㄱ = 1. 0x1e18의 중성: 0 = 없음, ㅏ = 1 .. ㅣ = 21. 0x1e58의 종성: 유니코드 T.
 0x1e98의 모음별 종성 세트: 없음, ㅏ .. ㅣ에 대해 84, 0, 56, 0, 56, 28, 56, 28, 56, 84, 0, 56, 28, 84, 84, 28, 56, 28, 84, 84, 28, 28),
 같은 자리에 스프라이트 둘을 그린다: 초성+중성("CV") 타일 `base + vowel * 20 + initial`(종성이 있으면 + 440)과 종성 타일 `base + 880 +

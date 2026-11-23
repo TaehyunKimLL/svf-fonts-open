@@ -1056,7 +1056,8 @@ the region is built:
 | `ROM_LOAD16_WORD_SWAP` (a 68000 program) | `region --swap A` |
 
 The tile layout is the driver's `gfx_layout` (or a `gfx_WxHxN_packed_lsb` / `_msb` preset), copied into `--gfx` as
-`planes=..;x=..;y=..;inc=N`: the same numbers, `STEP8(...)` and `RGN_FRAC(1,2)` included.
+`planes=..;x=..;y=..;inc=N`: the same numbers, `STEP8(...)` and `RGN_FRAC(1,2)` included, without the braces and any C
+comments.
 
 ### Samsung SPC-1500: a jamo set in four inverted ROMs (exact)
 
@@ -1121,9 +1122,10 @@ Source: set `dquizgo` (SemiCom / AceVer, 1998, Korea), sprite ROMs `uor1` .. `uo
 
 (`rawcarve.py bdf $OUT/dquizgo-spr.bin --gfx '...' --offset $((13347*64))` reads the tiles directly, the same BDF.)
 Verified: precomposed `115,916 bytes`, 2,447 glyphs, `width=208 ascent=14 descent=2` (the English cells step 16), ink
-573; jamo set `16,864 bytes`, 441 glyphs, IoU 1.000 (2,347 of 2,350 exact: the font was itself drawn from 8x4x4 pieces,
-of a design none of the known DOS fonts has), `width=160` (the 16x16 `--eng` steps 12: its ink ends at column 10 and
-starts at column 2), ink 573.
+573 (wider than 200: `line 220 24 0 16`, as for every 208-wide line here); jamo set `16,864 bytes`, 441 glyphs, IoU
+1.000 (2,347 of 2,350 exact: the font was itself drawn from 8x4x4 pieces, of a design none of the known DOS fonts has),
+`width=160` (the 16x16 `--eng` steps 10: the ink of its letters and digits ends at column 9 and the leftmost starts at
+column 0), ink 573.
 
 ### X Se Dae Quiz: Taebaek GOTHIC16 in the sprites (a cross-check)
 
@@ -1170,9 +1172,9 @@ body without the outline.
     python3 tools/jamoset.py --layout adaptive --from-svf $OUT/QUIZKOFK.SVF --mask-font none --check -o $OUT/QUIZKOFKJA.SVF
 
 The English letters and digits are full-width JIS glyphs in 16-pixel cells; punctuation is left blank (the JIS symbol
-row is in another order). Verified: precomposed `123,640 bytes`, 2,447 glyphs, `width=208 ascent=14 descent=2`, ink
-460; 8x4x4 jamo set `19,620 bytes`, IoU 0.835 (271 exact), ink 477; adaptive `62,084 bytes`, 32/13/12 sets, 12 x 12
-classes, IoU 0.975 (1,522 exact), ink 460. The font is not drawn from pieces: keep the precomposed face.
+row is in another order). Verified (ink from `line 220 24 0 16`: the line is 208 wide): precomposed `123,640 bytes`, 2,447 glyphs, `width=208
+ascent=14 descent=2`, ink 477; 8x4x4 jamo set `19,620 bytes`, IoU 0.835 (271 exact), ink 494; adaptive `62,084 bytes`,
+32/13/12 sets, 12 x 12 classes, IoU 0.975 (1,522 exact), ink 477. The font is not drawn from pieces: keep the precomposed face.
 
 ### Live Quiz Show: the rule read, the pieces not aligned (not built)
 
@@ -1186,7 +1188,7 @@ Source: set `livequiz` (Andamiro, 1999), program `flash.u1` (`ROM_LOAD16_WORD_SW
         -o $OUT/livequiz-ink.bin
     python3 -I tools/rawcarve.py region --swap $MAME/livequiz/flash.u1 -o $OUT/livequiz-prg.bin
 
-The quiz text is Johab. The drawing routine (68000 code at 0x1f06; a second copy at 0x2190) splits a Johab code into
+The quiz text is Johab. The drawing routine (68000 code at 0x1f06; two more routines with the same tables at 0x2154 and 0x22e4) splits a Johab code into
 its fields, maps them with four word tables (initial at 0x1dec: Johab code - 1, so 0 = none and ㄱ = 1; vowel at 0x1e18:
 0 = none, ㅏ = 1 .. ㅣ = 21; final at 0x1e58: Unicode T; final set by vowel at 0x1e98: 84, 0, 56, 0, 56, 28, 56, 28, 56,
 84, 0, 56, 28, 84, 84, 28, 56, 28, 84, 84, 28, 28 for none, ㅏ .. ㅣ) and draws two sprites at the same place, the

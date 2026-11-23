@@ -82,7 +82,7 @@ HangulTalk, HWP 1.x)의 이름을 갖지만 특정 게임에 묶여 있지 않�
 - `rawcarve.py` compose 명세가 설명하는 모든 폰트(`spec`, `--spec SPEC.json` 또는 내장 `spc1500`): 위치 인자 파일은 명세의
   오프셋이 가리키는 바이트이고, JSET은 명세 자신의 규칙 그대로다(정확);
 - `--eng` 원시 8x16 DOS 영문 폰트(2048 또는 4096바이트), 16x16 영문 폰트(8192바이트: 2바이트 16행짜리 글리프 256개,
-  `rawcarve.py eng --width 16`이 쓰는 것. 이동 폭은 0-9, A-Z, a-z 잉크의 오른쪽 끝에 그들의 가장 작은 왼쪽 여백을 더한 값, 또는
+  `rawcarve.py eng --width 16`이 쓰는 것. 이동 폭은 0-9, A-Z, a-z 잉크의 오른쪽 끝에 그들의 가장 작은 왼쪽 여백을 더한 값(잉크가 없으면 16), 또는
   `--eng-advance`), 또는 HBIOS 12x24(15360) / PFT 12x24(12288) / Taebaek PFT 20x40(30720, GASCII40) / 24x48(49152, GASCII48), 또는 HWP 영문 폰트: HWP 1.x `ASCII.SFT`(8x16) / `ASCII.PFT`(14x24, 이동 폭 14. 여섯 페이스 중 `--eng-face`) 또는 HWP 3.0 `ENG*.FNT`(8x16, 12x24, 20x40). 헤더로 알아본다;
 - `--base` SVFN v3 페이스(음절이 아닌 글리프를 유지한다. v2 페이스는 변환 안내 메시지와 함께 거부된다(`tools/svf2to3.py`));
 - `--from-ttf` 아웃라인 TTF/OTF. 1 bpp `mono` 대상은 freetype-py로, 2 bpp와 `--binarize threshold|ridge`는
@@ -112,7 +112,7 @@ hanterm BDF, Kyra `.BIT`, Dokkaebi FNT, HWP 3.0 HAN16 FNT 파일), `mac-fbit-45s
 | `--layout` (required) | all | 세트 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`와 `hwp1`은 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크, HWP 1.x 한글 파일) |
 | `--face N` (0) | `source`, `hwp1` | Dokkaebi 프린터 폰트의 서체(0 또는 1), HWP 1.x 한글 파일의 페이스(0, 1, 2) |
 | `--eng FILE` (none) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | ASCII용 원시 8x16 영문 폰트(2048 또는 4096바이트; 12x24, 20x40, 24x48 페이스와 위의 HWP 영문 폰트도 읽는다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
-| `--spec SPEC.json\|spc1500` (none) | `spec` | 위치 인자 파일의 `rawcarve.py` compose 명세(JSON 파일, 또는 그 이름의 파일이 없을 때 내장 `spc1500`). 명세가 이름 붙인 초성 조각 세트마다 JSET 초성 세트 하나(`novowel` 세트가 먼저), 중성 표마다 중성 세트 하나(`nofinal`, `final`, 그리고 초성 부류를 둘로 만드는 `*_kk` 표), 종성 조각 세트마다 종성 세트 하나, 종성 부류 둘. 다른 배치와 함께 주면 거부한다 |
+| `--spec SPEC.json\|spc1500` (none) | `spec` | 위치 인자 파일의 `rawcarve.py` compose 명세(JSON 파일, 또는 내장 `spc1500`: 이 이름은 언제나 내장 명세이고, 그 이름의 파일은 `./spc1500`으로 준다). 명세가 이름 붙인 초성 조각 세트마다 JSET 초성 세트 하나(`novowel` 세트가 먼저), 중성 표마다 중성 세트 하나(`nofinal`, `final`, 그리고 초성 부류를 둘로 만드는 `*_kk` 표), 종성 조각 세트마다 종성 세트 하나, 종성 부류 둘. 다른 배치와 함께 주면 거부한다 |
 | `--eng-advance N` (none) | `--eng`가 있는 곳 | 16x16, 12x24, 20x40, 24x48 영문 폰트의 `--eng` 글리프 이동 폭(1..255. 이동 폭이 8인 8x16 폰트에는 거부한다) |
 | `--eng-face N` (0) | `--eng`가 있는 곳 | `--eng`로 준 HWP 1.x `ASCII.SFT` / `ASCII.PFT`의 페이스(0..5: HWP 메뉴의 명조, 고딕, 위첨자, 아래첨자, 이탤릭, 필기체) |
 | `--base FILE` (none) | `source`, `hwp1`, `--from-ttf` | 음절이 아닌 글리프를 유지하는 SVFN v3(같은 셀, 1 bpp). `--from-svf`는 무시한다(입력 페이스가 base이다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
@@ -955,9 +955,10 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `cols` / `bytecols`에서는 맨 위), `--invert`(잉크가 0 비트: 삼성 SPC-1500처럼 바탕으로 저장한 ROM). 여러 비트 타일(아케이드
 스프라이트와 타일 ROM): `--gfx LAYOUT`, 프리셋 `WxHxN_packed_lsb` / `WxHxN_packed_msb`(픽셀당 N비트, 행 다음 행. `_lsb`는 바이트의 첫
 픽셀이 낮은 비트: MAME의 `gfx_16x16x4_packed_lsb`) 또는 드라이버의 MAME `gfx_layout`을 `planes=..;x=..;y=..;inc=N`으로(타일 시작에서의
-비트 오프셋, 비트 0은 첫 바이트의 MSB, `planes`는 펜의 높은 비트부터. `STEPn(start,step)`, `RGN_FRAC(a,b)` = 파일의 a/b(비트),
-`+ - * /`, 0x 16진). 이때 파일은 ROM 영역이다(`rawcarve.py region`). 펜이 `--bg PEN`(0)이 아니면 잉크이고, `--fg PEN[,PEN...]`이
-있으면 그 펜일 때만 잉크다(외곽선이 있는 글리프의 몸통). `--invert`는 잉크와 바탕을 바꾼다. `--glyph`의 기본은 타일 크기,
+비트 오프셋, 비트 0은 첫 바이트의 MSB, `planes`는 펜의 높은 비트부터. MAME의 `STEP2` .. `STEP2048(start,step)`과 그 `_INV` 꼴(같은 오프셋을 거꾸로),
+`RGN_FRAC(a,b)` = 파일의 a/b(비트), `+ - * /`, 앞에 0이 없는 10진수와 0x 16진. 목록은 중괄호와 C 주석을 빼고 옮긴다. 목록당 오프셋 1,024개,
+중첩 32단계, 오프셋 2^36까지). 이때 파일은 ROM 영역이다(`rawcarve.py region`). 펜이 `--bg PEN`(0)이 아니면 잉크이고, `--fg PEN[,PEN...]`이
+있으면 그 펜일 때만 잉크다(외곽선이 있는 글리프의 몸통. `--bg`와 `--fg`는 서로 다른 규칙이라 하나만, 그리고 `--gfx`와 함께만 준다). `--invert`는 잉크와 바탕을 바꾼다. `--glyph`의 기본은 타일 크기,
 `--stride`의 기본은 `inc`다. `render`는 그리는 바이트만 읽고(`--count` 1..4096, `--cols` 1..64, `--scale` 1..32), `info`는
 블록씩 읽는다.
 
@@ -981,7 +982,8 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 
 `runs`, `sets`, `ascii`는 훑는 창의 모든 오프셋을 시도한다. `--start O` / `--length N`이 창을 정하고(출력하는 오프셋은 파일
 오프셋 그대로), 16 MiB를 넘는 창은 거부한다(큰 파일은 겹치는 창으로 나눠 훑어라). `runs --gfx`는 파일 전체를 읽고(타일의 평면은 파일
-어디에나 있을 수 있다) 창만 훑으며, `sets`는 `--gfx`를 거부한다(먼저 `rawcarve.py ink`로 잉크 지도를 써라). 한글 VGA 폰트 ROM에는
+어디에나 있을 수 있다) 창만 훑는다. `runs`와 `render`(기본 `--count`)는 범위 전체가 파일 안에 있는 타일만 쓰며, `sets`는 `--gfx`, `--bg`,
+`--fg`를 거부한다(먼저 `rawcarve.py ink`로 잉크 지도를 써라). 한글 VGA 폰트 ROM에는
 `--order strips`를 쓴다. 종료 코드 0. argparse 오류(해석되지 않거나 네 키 가운데 하나가 없거나 `inc`가 바이트 단위가 아닌 `--gfx`
 배치, 평면 밖의 바탕 펜이나 잉크 펜, 타일과 다른 `--glyph`, `--gfx` 없는 `--fg`, 0이나 음수인 `--block`, `--step`, `--stride`, `--glyph`,
 `--count` ...)는 2. **import하는 저장소 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`. `tools/test_tiles.py`(`--invert`,
@@ -1021,7 +1023,8 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 바이트(16x16 글리프 256개, 한 행 2바이트). `--first C`는 오프셋에 있는 글리프의 코드, `--count N`은 읽을 글리프 수(나머지 코드는 빈 칸), `--invert`는 0 비트를 잉크로 읽는다. `region`: 각
 묶음(`A,B[,C,D]`)의 파일을 `--unit` 1, 2, 4바이트씩 번갈아 엮고(MAME의 `ROM_LOAD16_BYTE` / `ROM_LOAD32_BYTE` = 1, `ROM_LOAD32_WORD` /
 `ROM_LOAD64_WORD` = 2) 묶음을 차례로 잇는다. `--swap`은 워드마다 두 바이트를 바꾼다(`ROM_LOAD16_WORD_SWAP`). 한 묶음의 파일은 크기가
-같고 단위의 배수여야 하며, 최대 64 MiB. `ink`: `--offset`부터의 글리프(`--count`, 기본은 들어가는 만큼 전부)를 한 글리프에 ceil(W/8) x H
+같고 단위의 배수여야 하며, 최대 64 MiB(읽기 전에 파일 크기로 확인한다. 빈 묶음은 거부한다). `ink`: `--offset`부터의 글리프(`--count`, 기본은 들어가는 만큼
+전부. 들어가는 것보다 많으면 거부한다)를 한 글리프에 ceil(W/8) x H
 바이트인 평범한 1 bpp 행 우선 글리프로 차례로: 반전되었거나 스트립 순서이거나 여러 비트인 폰트를 `binscan.py sets`, `rawcarve.py cut` /
 `eng` / `bdf`, `jamoset.py --layout 844`가 읽는 바이트로 만든다. `bdf`, `compose`:
 `CHARSET_REGISTRY "ISO10646"`, `CHARSET_ENCODING "1"`, `PIXEL_SIZE` = 글리프 높이, `FONT_ASCENT` = `--ascent`(기본은 높이의 7/8,
@@ -1045,9 +1048,9 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 쓰는 바이트만 읽고(글리프보다 짧은 `--stride`여도 마지막 글리프의 전체 범위까지), `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 세트, 셀을 넘는 `--eng-top` +
 `--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 세트(`offset`,
 `stride`, 저장된 조각이 셀의 어디로 가는지: `x`, `y`, `width`, `height`, `order`, 그리고 선택으로 `lsb`, `invert`, `bg` / `fg`가 있는
-`gfx`. 최상위의 `"invert": true`나 `--invert`는 모든 세트와 `--eng` 폰트를 반전한다), 종성 없을 때와 있을 때 모음별 초성 세트, 모음별 중성
+`gfx`. 최상위의 `"invert": true`나 `--invert`는 `"invert": false`라고 적지 않은 모든 세트와 `--eng` 폰트를 반전한다), 종성 없을 때와 있을 때 모음별 초성 세트, 모음별 중성
 (세트, 조각)(ㄱ / ㅋ용 다른 표를 둘 수 있다: 8x4x4 규칙), 모음별 종성 세트 또는 세트 하나, 그리고 폰트 자신의 모음 순서를 적는다.
-자모 번호는 유니코드의 번호다(형식은 모듈 docstring). `--spec spc1500`(그 이름의 파일이 없을 때)은 삼성 SPC-1500 한글 ROM의 내장
+자모 번호는 유니코드의 번호다(형식은 모듈 docstring). `--spec spc1500`(이 이름은 언제나 내장 명세이며, 그 이름의 JSON 파일은 `./spc1500`)은 삼성 SPC-1500 한글 ROM의 내장
 명세(`spc1500_spec`, MAME `spc1500.cpp`에서)이며, `ss150fnt.bin` .. `ss153fnt.bin`을 차례로 이은 32 KB 영역에 쓴다.
 `jamoset.py --layout spec`도 같은 명세를 읽는다. 잘못된 오프셋, 명세, 빈 결과에는 메시지와 함께 종료 코드 1.
 

@@ -5,7 +5,7 @@ ink), 16-wide English fonts (rawcarve.py eng --width 16, jamoset.py --eng / --en
 compose spec (jamoset.py --layout spec, the built-in spc1500 spec), on synthetic files built here (no ROM or font data).
 
 The real-ROM checks run only when MAME_ROMS names a folder of unpacked MAME 0.289 sets (<set>/<file>, e.g.
-~/work/fonts-download/mame-roms/sets); they compare hashes, and no ROM byte is in this repository.
+MAME_ROMS=/path/to/mame-sets); they compare hashes, and no ROM byte is in this repository.
   python3 -m unittest tools.test_tiles
 """
 import hashlib
@@ -43,8 +43,19 @@ def run(*argv):
     return r.stdout
 
 
+def _cap_memory():
+    """A refused input must be refused before it allocates: the child gets 1 GiB of address space (POSIX)."""
+    try:
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (1 << 30, 1 << 30))
+    except (ImportError, ValueError, OSError):
+        pass
+
+
 def fails(*argv):
-    r = subprocess.run([sys.executable] + [str(a) for a in argv], capture_output=True, text=True)
+    """(exit code, stderr) of a command expected to fail, run with capped memory and a 120 s timeout."""
+    r = subprocess.run([sys.executable] + [str(a) for a in argv], capture_output=True, text=True, timeout=120,
+                       preexec_fn=_cap_memory if os.name == "posix" else None)
     return r.returncode, r.stderr
 
 
@@ -162,6 +173,9 @@ class Invert(unittest.TestCase):
             for c in (by_spec, by_flag, per_set):
                 self.assertEqual(c.syllable(*jamoset.decompose(cp)), want, hex(cp))
         self.assertNotEqual(rawcarve.Composer(inv, spec).syllable(0, 0, 0), plain.syllable(0, 0, 0))
+        # a set's own "invert": false wins over --invert (the flag's help says so)
+        keep = dict(spec, sets={k: dict(v, invert=False) for k, v in spec["sets"].items()})
+        self.assertEqual(rawcarve.Composer(font, keep, invert=True).syllable(0, 0, 0), plain.syllable(0, 0, 0))
         with tempfile.TemporaryDirectory() as d:
             p, sp = os.path.join(d, "F.BIN"), os.path.join(d, "s.json")
             wr(p, inv + bytes(b ^ 0xFF for b in ascii8x16()))
@@ -170,6 +184,11 @@ class Invert(unittest.TestCase):
             run(RC, "compose", p, "--spec", sp, "--invert", "--eng", p, "--eng-offset", len(font), "-o", b)
             g = bdfface.read_bdf(b)[1]
             self.assertEqual(g[0x41][4], list(ascii8x16()[0x41 * 16:0x42 * 16]))
+
+
+def bits_ints(data, off):
+    """The 16x16 row-major glyph at @p off as 16 row ints (MSB = the left pixel)."""
+    return [int.from_bytes(data[off + 2 * y:off + 2 * y + 2], "big") for y in range(16)]
 
 
 def spec_844():
@@ -250,6 +269,8 @@ class Gfx(unittest.TestCase):
             wr(p, reg)
             run(RC, "ink", p, "--gfx", TLAYOUT, "-o", o)
             self.assertEqual(rd(o), b"".join(rawcarve.pack_rows(x, 16) for x in glyphs))
+            self.assertEqual(fails(RC, "ink", p, "--gfx", TLAYOUT, "--count", 21, "-o", o + "x")[0], 1)
+            self.assertFalse(os.path.exists(o + "x"))
             # --invert with --gfx: the background pens are the ink
             run(RC, "ink", p, "--gfx", TLAYOUT, "--invert", "--count", 1, "-o", o)
             self.assertEqual(rd(o), rawcarve.pack_rows([[1 - v for v in r] for r in glyphs[0]], 16))
@@ -284,9 +305,107 @@ class Gfx(unittest.TestCase):
                          (RC, "ink", p, "--gfx", "8x8x2_packed_msb", "--fg", "1,4", "-o", o),
                          (RC, "ink", p, "--glyph", "8x8", "--fg", "1", "-o", o),
                          (RC, "ink", p, "--gfx", "8x8x2_packed_msb", "--glyph", "16x16", "-o", o),
-                         (RC, "ink", p, "-o", o), (BS, "render", p), (BS, "sets", p, "--gfx", "8x8x2_packed_msb")):
-                self.assertNotEqual(fails(*argv)[0], 0, argv)
+                         (RC, "ink", p, "--glyph", "8x8", "--bg", "1", "-o", o),
+                         (RC, "ink", p, "--gfx", "8x8x2_packed_msb", "--bg", "0", "--fg", "1", "-o", o),
+                         (RC, "ink", p, "-o", o), (BS, "render", p)):
+                self.assertEqual(fails(*argv)[0], 2, argv)
             self.assertFalse(os.path.exists(o))
+            rc, err = fails(BS, "sets", p, "--gfx", "8x8x2_packed_msb")
+            self.assertEqual(rc, 2)
+            self.assertIn("rawcarve.py ink first", err)
+            # hostile layouts: refused quickly with the --gfx message, never a traceback
+            for spec in ("1000000000x1x4_packed_lsb", "99999999999999999999x1x4_packed_lsb", "3x4x4_packed_lsb",
+                         "planes=0;x=" + ",".join(["STEP1024(0,1)"] * 50) + ";y=0;inc=8",
+                         "planes=" + "(" * 2000 + "0" + ")" * 2000 + ";x=0;y=0;inc=8",
+                         "planes=" + "-" * 2000 + "1;x=0;y=0;inc=8",
+                         "planes=0x10000000000000000;x=0;y=0;inc=8", "planes=0;x=0;y=0;inc=4096*4096*4096*4096",
+                         "planes=08;x=0;y=0;inc=8", "planes=1e3;x=0;y=0;inc=8", "planes=\u00b2;x=0;y=0;inc=8",
+                         "planes=" + "9" * 5000 + ";x=0;y=0;inc=8", "planes=0;x=STEP3(0,1);y=0;inc=8",
+                         "planes=0;x=STEP4096(0,1);y=0;inc=8", "{ 0 };x=0;y=0;inc=8"):
+                for argv in ((RC, "ink", p, "--gfx", spec, "-o", o), (BS, "render", p, "--gfx", spec)):
+                    rc, err = fails(*argv)
+                    self.assertEqual(rc, 2, (spec[:40], err[-300:]))
+                    self.assertIn("--gfx", err)
+                    self.assertNotIn("Traceback", err)
+
+    def test_bounds_before_building(self):
+        with self.assertRaises(binscan.GfxError):
+            binscan.packed_layout(10 ** 9, 1, 4, True)  # refused before a billion offsets are listed
+        with self.assertRaises(binscan.GfxError):
+            binscan.parse_gfx("planes=0xFFFFFFFFFF;x=0;y=0;inc=8", 128)  # one literal past 2^36
+
+    def test_step_inv_and_mame_steps(self):
+        L = binscan._gfx_list
+        self.assertEqual(L("STEP4_INV(0,8)", 0), [24, 16, 8, 0])
+        self.assertEqual(L("STEP2_INV(4,1),STEP2(0,1)", 0), [5, 4, 0, 1])
+        with self.assertRaises(binscan.GfxError):  # STEP2048 exists, but is longer than one list may be
+            L("STEP2048(0,1)", 0)
+        for bad in ("STEP3(0,1)", "STEP1(0,1)", "STEP4_REV(0,1)"):
+            with self.assertRaises(binscan.GfxError):
+                L(bad, 0)
+
+    def test_fg_cli_and_gfx_compose_spec(self):
+        """--fg through the CLI; a compose spec set read with "gfx" and "bg" draws what the 1 bpp set draws."""
+        glyphs = [bits(raw844(), i * 32, 16, 16) for i in range(360)]
+        data = packed4(glyphs, True)
+        # outline pen: every ink pixel pen 1 or 2, paper 15; --fg 1,2 is the glyph, --fg 1 a part of it
+        with tempfile.TemporaryDirectory() as d:
+            p, o = os.path.join(d, "OBJ.BIN"), os.path.join(d, "ink.bin")
+            two = bytearray(data)
+            for k, b in enumerate(two):
+                lo, hi = b & 15, b >> 4
+                two[k] = ((hi if hi == 15 else 1 + (k & 1)) << 4) | (lo if lo == 15 else 1 + (k & 1))
+            wr(p, bytes(two))
+            run(RC, "ink", p, "--gfx", "16x16x4_packed_lsb", "--fg", "1,2", "--count", 360, "-o", o)
+            self.assertEqual(rd(o), raw844())
+            run(RC, "ink", p, "--gfx", "16x16x4_packed_lsb", "--fg", "1", "--count", 360, "-o", o)
+            self.assertNotEqual(rd(o), raw844())
+            spec = spec_844()
+            gspec = dict(spec, sets={k: {"offset": v["offset"] * 4, "stride": 128, "gfx": "16x16x4_packed_lsb", "bg": 15}
+                                    for k, v in spec["sets"].items()})
+            plain = rawcarve.Composer(raw844(), spec)
+            tiles = rawcarve.Composer(data, gspec)
+            for cp in (0xAC00, 0xB000, 0xD7A3):
+                self.assertEqual(tiles.syllable(*jamoset.decompose(cp)), plain.syllable(*jamoset.decompose(cp)))
+            sp, b1, b2 = os.path.join(d, "g.json"), os.path.join(d, "g.bdf"), os.path.join(d, "p.bdf")
+            wr(sp, json.dumps(gspec))
+            wr(os.path.join(d, "T.BIN"), data)
+            wr(os.path.join(d, "P.BIN"), raw844())
+            wr(os.path.join(d, "p.json"), json.dumps(spec))
+            run(RC, "compose", os.path.join(d, "T.BIN"), "--spec", sp, "-o", b1)
+            run(RC, "compose", os.path.join(d, "P.BIN"), "--spec", os.path.join(d, "p.json"), "-o", b2)
+            self.assertEqual(bdfface.read_bdf(b1)[1], bdfface.read_bdf(b2)[1])
+
+    def test_planar_scans_stop_at_the_last_whole_tile(self):
+        """With planes in both halves of the region, only the first half's tile numbers are whole tiles."""
+        glyphs = [bits(raw844(), i * 32, 16, 16) for i in range(1, 41)]
+        reg = tlayout_region(glyphs)
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "spr.bin")
+            wr(p, reg)
+            t = run(BS, "render", p, "--gfx", TLAYOUT)
+            self.assertIn("39 ", t)
+            self.assertNotIn("\n40 ", "\n" + t.replace("  ", "\n"))
+            self.assertEqual(len([ln for ln in t.splitlines() if ln.startswith("0x")]), 40 // 8)
+            out = run(BS, "runs", p, "--gfx", TLAYOUT, "--min", 8)
+            n = sum(int(x) for x in __import__("re").findall(r": (\d+) glyphs", out))
+            self.assertLessEqual(n, 40)
+
+
+class Runs(unittest.TestCase):
+    def test_runs_invert_finds_the_inverted_font(self):
+        font = raw844()
+        rnd = random.Random(11)
+        junk = bytes(rnd.randrange(256) for _ in range(256))
+        with tempfile.TemporaryDirectory() as d:
+            p, q = os.path.join(d, "PLAIN.BIN"), os.path.join(d, "INV.BIN")
+            wr(p, junk + font + junk)
+            wr(q, bytes(b ^ 0xFF for b in junk + font + junk))
+            a = run(BS, "runs", p, "--glyph", "16x16")
+            b = run(BS, "runs", q, "--glyph", "16x16", "--invert")
+            self.assertRegex(a, r": 3[0-9][0-9] glyphs")  # the font's run
+            self.assertEqual(a.split("\n", 1)[1], b.split("\n", 1)[1])
+            self.assertIn("none", run(BS, "runs", q, "--glyph", "16x16"))
 
 
 class Region(unittest.TestCase):
@@ -307,6 +426,16 @@ class Region(unittest.TestCase):
             run(RC, "region", na, nb, "--swap", "-o", o)  # concatenated, then ROM_LOAD16_WORD_SWAP
             self.assertEqual(rd(o)[:4], bytes((a[1], a[0], a[3], a[2])))
             wr(os.path.join(d, "odd"), bytes(3))
+            big = os.path.join(d, "big")
+            with open(big, "wb") as fh:  # sparse: 40 MiB that take no disk
+                fh.truncate(40 << 20)
+            for argv, msg in ((("region", ","), "empty group"), (("region", f"{big},{big}"), "83886080 bytes"),
+                              (("region", big, big), "83886080 bytes")):
+                os.path.exists(o) and os.remove(o)
+                rc, err = fails(RC, *argv, "-o", o)
+                self.assertEqual(rc, 1, argv)
+                self.assertIn(msg, err)
+                self.assertFalse(os.path.exists(o))
             for argv in (("region", f"{na},{os.path.join(d, 'odd')}"), ("region", "--unit", 2, os.path.join(d, "odd"))):
                 os.path.exists(o) and os.remove(o)
                 self.assertEqual(fails(RC, *argv, "-o", o)[0], 1, argv)
@@ -346,6 +475,7 @@ class Eng16(unittest.TestCase):
             run(RC, "eng", p, "--offset", 64 + 0x21 * 32, "--width", 16, "--height", 14, "--top", 1, "--first", 0x41,
                 "-o", e14)
             self.assertEqual(rd(e14)[0x41 * 32:0x42 * 32], bytes(2) + self.eng16()[0x21 * 32:0x21 * 32 + 28] + bytes(2))
+            self.assertEqual(jamoset.read_eng(bytes(8192)).adv, 16)  # no ink to measure: the cell
             cell = jamoset.read_eng(raw)
             self.assertEqual((cell.w, cell.h, cell.adv), (16, 16, 12))  # right edge 10 + left margin 2
             self.assertEqual(cell.glyph(0x7E)[7], 0x7FFF)  # columns past 8 are kept
@@ -388,9 +518,11 @@ def spc_region(seed=5):
 def mame_spc1500(font, L, V, T):
     """A syllable as MAME's spc1500.cpp crtc_update_row draws it (an independent reading: Samsung code h1 = L + 1,
     h2 = the Johab vowel code, h3 = T; the AND of the three inverted pieces, ink = the 0 bits), as 16 row ints."""
-    cho = rawcarve.SPC1500_CHO
-    jong = rawcarve.SPC1500_JONG
-    h1, h2, h3 = L + 1, jamoset.JUNG_FIELD[V], T
+    # cho[] and jong[] as spc1500.cpp has them (copied from the driver, not from rawcarve.py), by the Johab vowel code
+    cho = (1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 3, 5, 5, 0, 0, 5, 3, 3, 5, 5, 5, 0, 0, 3, 3, 5, 1)
+    jong = (0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 2, 2, 2, 0, 0, 2, 2, 2, 2, 2, 2, 0, 0, 2, 2, 1, 1)
+    vowel_code = (3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29)  # ㅏ .. ㅣ
+    h1, h2, h3 = L + 1, vowel_code[V], T
     rows = []
     for n in range(16):
         def piece(addr):
@@ -435,6 +567,38 @@ class SpecJamoSet(unittest.TestCase):
             run(JS, "--layout", "spec", "--spec", sp, p, "-o", o)
             f2 = jamoset.parse_svfn(rd(o))
             self.assertNotEqual(jamoset.compose(f2, jamoset.unpack(f2.jset), 0xAC00), jamoset.compose(f, t, 0xAC00))
+
+    def test_builtin_name_wins_over_a_folder(self):
+        """--spec spc1500 is the built-in spec even in a folder that holds spc1500/ (the recipe's $MAME layout)."""
+        reg = spc_region()
+        with tempfile.TemporaryDirectory() as d:
+            os.mkdir(os.path.join(d, "spc1500"))
+            p, o = os.path.join(d, "font1.bin"), os.path.join(d, "J.SVF")
+            wr(p, reg)
+            for tool, argv in ((JS, ["--layout", "spec", "--spec", "spc1500", p, "-o", o]),
+                               (RC, ["compose", p, "--spec", "spc1500", "-o", o + ".bdf"])):
+                r = subprocess.run([sys.executable, tool] + argv, capture_output=True, text=True, cwd=d)
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_novowel_set_is_set_0(self):
+        """The spec's "novowel" set is JSET initial set 0 (the compatibility jamo's), whatever the tables list first."""
+        font = raw844()
+        spec = spec_844()
+        spec["initial"] = dict(spec["initial"], novowel="i3")
+        layout, src = jamoset.spec_layout(rawcarve.Composer(font, spec))
+        t = jamoset.tables_for(layout)
+        self.assertEqual(src.glyph(t.init_piece[0]).rows, bits_ints(font, (3 * 20 + 1) * 32))
+        self.assertEqual(src.glyph(t.compat[0]).rows, bits_ints(font, (3 * 20 + 1) * 32))  # ㄱ from set i3
+
+    def test_spec_refuses_a_taller_eng(self):
+        with tempfile.TemporaryDirectory() as d:
+            p, e, o = os.path.join(d, "font1.bin"), os.path.join(d, "PFT"), os.path.join(d, "J.SVF")
+            wr(p, spc_region())
+            wr(e, bytes(12288))  # a 12x24 Taebaek PFT English font: taller than the 16-row cell
+            rc, err = fails(JS, "--layout", "spec", "--spec", "spc1500", p, "--eng", e, "-o", o)
+            self.assertEqual(rc, 1)
+            self.assertIn("taller", err)
+            self.assertFalse(os.path.exists(o))
 
     def test_check_spec_finds_a_difference(self):
         """check_spec compares with the spec's composition: a face built from another font fails it."""
