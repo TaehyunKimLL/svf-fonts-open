@@ -26,6 +26,7 @@ import mkfont
 import naming
 import presets
 import routes
+from detect import eng_cell_h
 import toolrun
 from sources import Sources
 
@@ -172,15 +173,25 @@ def _licence_name(family, licence):
 
 
 def _default_companion(font, fmap):
-    """The default English companion: the first one the face can take. A 12x24 font needs a face of 24 px or more, so
-    a smaller DOS face skips it when another companion sits beside it (the defaults must validate)."""
+    """The default English companion: the first one the face can take. A 12x24 font needs a face of 24 px or more (20x40: 40, 24x48: 48),
+    so a smaller DOS face skips it when another companion sits beside it (the defaults must validate). A 40 or 48 px
+    face takes the companion of its own height first."""
     if font.get("source_kind") == "mac-fbit3":
         return None                             # an HTBL is not a Latin companion; the suitcase is optional
     companions = font.get("companions") or []
     px = (font.get("sizes") or [None])[0]
-    if font.get("source_kind") == "dos-raw" and isinstance(px, int) and px < 24 and fmap:
+    if font.get("source_kind") == "dos-raw" and isinstance(px, int) and fmap:
+        def h_of(fid):
+            return eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell"))
+
+        def family(path):                       # Taebaek's G / M prefix: GHANC40 goes with GASCII40, MHANC40 with MASCII40
+            return os.path.basename(path or "")[:1].upper()
+
+        exact = [f for f in companions if px in (40, 48) and h_of(f) == px]
+        if exact:
+            return ([f for f in exact if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))] or exact)[0]
         for fid in companions:
-            if ((fmap.get(fid) or {}).get("eng") or {}).get("cell") != "12x24":
+            if h_of(fid) <= px:
                 return fid
     return companions[0] if companions else None
 
@@ -1008,16 +1019,16 @@ def _route_errors(fid, font, eff, fmap=None, local=False):
         px = (font.get("sizes") or [None])[0]
         johab = routes.route_for(font, "precomposed", False)
         only_johab = (kinds == ["precomposed"] and johab is not None and johab.label == "johab844")
-        if (companion and (companion.get("eng") or {}).get("cell") == "12x24" and isinstance(px, int) and px < 24
-                and not only_johab):                    # johab844's own, more specific message covers that job
-            errors.append("%s: a 12x24 English font needs a face of 24 px or more" % fid)
+        ch = eng_cell_h((companion.get("eng") or {}).get("cell")) if companion else 0
+        if ch and isinstance(px, int) and px < ch and not only_johab:     # johab844's own, more specific message covers that job
+            errors.append("%s: a %s English font needs a face of %d px or more" % (fid, companion["eng"]["cell"], ch))
     if font.get("source_kind") == "dos-raw" and "precomposed" in kinds:
         route = routes.route_for(font, "precomposed", False)
         if route is not None and route.label == "johab844":
             if eff.get("dos_layout") not in (None, "844"):
                 errors.append("%s: johab844 needs layout 844" % fid)
             companion = (fmap or {}).get(eff.get("latin_companion")) if isinstance(eff.get("latin_companion"), str) else None
-            if companion and (companion.get("eng") or {}).get("cell") == "12x24":
+            if companion and eng_cell_h((companion.get("eng") or {}).get("cell")):
                 errors.append("%s: johab844 takes an 8x16 English font" % fid)
     instance = eff.get("instance")
     if isinstance(instance, dict):

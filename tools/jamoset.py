@@ -1978,8 +1978,9 @@ def relayout(data, profile, box=None):
 # ---- the font -----------------------------------------------------------------
 
 class EngCell:
-    """A 12x24 ASCII face: glyph(cp) -> its rows as 16 bit ints (the file's two bytes, MSB left; MASCII24's right serifs and
-    wide glyphs reach columns 12-15), the step @p adv (12) and the baseline row (the row below the ink of 'H')."""
+    """A 12x24, 20x40 or 24x48 ASCII face: glyph(cp) -> its rows as w bit ints (the file's 2, 3 or 4 bytes, MSB left;
+    MASCII24's right serifs and wide glyphs reach columns 12-15), the step @p adv (12, 20 or 24) and the baseline row (the
+    row below the ink of 'H')."""
 
     def __init__(self, w, h, getter, name, adv=None):
         self.w, self.h, self._get, self.name = w, h, getter, name
@@ -1993,16 +1994,23 @@ class EngCell:
 
 
 def read_eng(d):
-    """A raw 8x16 English font (2048 or 4096 bytes, row major) as bytes, or an EngCell for the 12x24 faces: an HBIOS
+    """A raw 8x16 English font (2048 or 4096 bytes, row major) as bytes, or an EngCell for the 12x24, 20x40 and 24x48
+    faces: an HBIOS
     $KROHN24 / Taebaek ROMAN24 / SANS24 (15,360 bytes: 256 glyphs of 60 bytes in a 16x30 cell, ink 12x24 in rows 3-26) or a
-    Taebaek GASCII24 / MASCII24 .PFT (12,288 bytes: 256 glyphs of 48 bytes, 12x24 in 2 bytes a row)."""
+    Taebaek GASCII24 / MASCII24 .PFT (12,288 bytes: 256 glyphs of 48 bytes, 12x24 in 2 bytes a row), or a Taebaek 3.5.1 GASCII40 / MASCII40 .PFT
+    (30,720 bytes: 40 rows of 3 bytes, step 20, ink up to 24 wide) or GASCII48 / MASCII48 (49,152 bytes: 48 rows of 4 bytes,
+    step 24, ink up to 32 wide)."""
     if len(d) == 15360:
         return EngCell(16, 24, lambda cp: g_rowmajor(d, cp * 60, 16, 30).rows[3:27], "hbios12x24", 12)
     if len(d) == 12288:
         return EngCell(16, 24, lambda cp: g_rowmajor(d, cp * 48, 16, 24).rows, "pft12x24", 12)
+    if len(d) == 30720:		# Taebaek 3.5.1 GASCII40 / MASCII40: 256 glyphs, 40 rows of 3 bytes, step 20, ink up to 24 wide
+        return EngCell(24, 40, lambda cp: g_rowmajor(d, cp * 120, 24, 40).rows, "pft20x40", 20)
+    if len(d) == 49152:		# GASCII48 / MASCII48: 256 glyphs, 48 rows of 4 bytes, step 24, ink up to 32 wide
+        return EngCell(32, 48, lambda cp: g_rowmajor(d, cp * 192, 32, 48).rows, "pft24x48", 24)
     if len(d) not in (2048, 4096):
-        raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), "
-                          f"not {len(d)}")
+        raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), "
+                          f"30720 (PFT 20x40) or 49152 (PFT 24x48), not {len(d)}")
     return d
 
 
@@ -2831,12 +2839,13 @@ def make_parser():
                     "adaptive (--from-ttf/--from-svf) starts from 844 and splits sets where the syllables sharing a "
                     "piece disagree, up to NI,NM,NF sets (default 32,24,12, most 32,24,16; jamoadapt.py)")
     ap.add_argument("--face", type=int, default=0, help="typeface of a printer font (0 or 1)")
-    ap.add_argument("--eng", help="raw 8x16 English font for ASCII (2048 or 4096 bytes)")
+    ap.add_argument("--eng", help="English font for ASCII: raw 8x16 (2048 or 4096 bytes), HBIOS 12x24 (15360), Taebaek PFT 12x24 (12288), "
+                    "20x40 (30720) or 24x48 (49152)")
     ap.add_argument("--base", help="SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp)")
     ap.add_argument("-o", "--output", required=True)
     ap.add_argument("--advance", type=int, help="the step of a composed syllable (JSET advance byte; default: the layout's, "
                     "0 = the cell width)")
-    ap.add_argument("--ascent", type=int, help="the SVF's baseline row (default: the --eng face's baseline for a 12x24 face, "
+    ap.add_argument("--ascent", type=int, help="the SVF's baseline row (default: the --eng face's baseline for a 12x24, 20x40 or 24x48 face, "
                     "else 7/8 of the cell)")
     ap.add_argument("--embolden", action="store_true", help="OR every piece and ASCII glyph with itself shifted right 1 px")
     ap.add_argument("--symbols", action="store_true", help="add U+2026 (three baseline dots) and U+25A1 (a box)")

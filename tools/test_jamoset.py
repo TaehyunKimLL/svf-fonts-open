@@ -1675,6 +1675,65 @@ class WholeCompatFromSvf(unittest.TestCase):
             self.assertNotEqual(t.compat[1], jamoset.BLANK)
 
 
+class Eng40x48(unittest.TestCase):
+    """Taebaek 3.5.1 GASCII40 / GASCII48 .PFT: 256 glyphs, 40 rows x 3 bytes (20 px ink) / 48 rows x 4 bytes (24 px ink)."""
+
+    def test_40_reads_and_steps_20(self):
+        pft = bytearray(30720)
+        pft[ord("H") * 120 + 3 * 33] = 0x1F		# row 33 (the baseline row), columns 3-7
+        pft[ord("H") * 120 + 3 * 33 + 2] = 0x01		# column 23
+        e = jamoset.read_eng(bytes(pft))
+        self.assertEqual((e.w, e.h, e.adv, e.baseline), (24, 40, 20, 34))
+        self.assertEqual(e.glyph(ord("H"))[33], 0x1F0001)
+
+    def test_48_reads_and_steps_24(self):
+        pft = bytearray(49152)
+        pft[ord("H") * 192 + 4 * 39] = 0x30
+        pft[ord("H") * 192 + 4 * 39 + 3] = 0x01
+        e = jamoset.read_eng(bytes(pft))
+        self.assertEqual((e.w, e.h, e.adv, e.baseline), (32, 48, 24, 40))
+        self.assertEqual(e.glyph(ord("H"))[39], 0x30000001)
+
+    def test_glyph_in_a_40_cell_keeps_rows_and_steps_20(self):
+        pft = bytearray(30720)
+        pft[ord("H") * 120 + 3 * 33] = 0x1F
+        e = jamoset.read_eng(bytes(pft))
+        g, adv = jamoset.eng_glyph(e, ord("H"), 40, 40)
+        self.assertEqual(adv, 20)
+        self.assertEqual(g.rows[33], 0x1F << 32)		# 24 bit file row at the left of a 40 bit cell
+
+    def build(self, size, row, nbytes, ncell):
+        pft = bytearray(size)
+        for ch in "AH":
+            pft[ord(ch) * (size // 256) + nbytes * row] = 0xC0
+            pft[ord(ch) * (size // 256) + nbytes * row + nbytes - 1] = 0x01
+        e = jamoset.read_eng(bytes(pft))
+        out, _, _ = jamoset.build_from_source(jamoset.LAYOUTS["844"], jamoset.open_raw844(self.src(ncell)), e)
+        return jamoset.parse_svfn(out), e
+
+    @staticmethod
+    def src(n):
+        return bytes(11520 if n == 16 else {24: 25920, 40: 72000, 48: 103680}[n])
+
+    def test_svf_from_40_carries_ascii(self):
+        f, e = self.build(30720, 33, 3, 40)
+        self.assertEqual((f.cell_w, f.cell_h, f.ascent), (40, 40, 34))
+        self.assertEqual(f.metrics[ord("A")][0], 20)
+        row = int.from_bytes(f.glyphs[ord("H")][33 * 5:34 * 5], "big")
+        self.assertEqual(row, (0xC00001 << 16))
+
+    def test_svf_from_48_carries_ascii(self):
+        f, e = self.build(49152, 39, 4, 48)
+        self.assertEqual((f.cell_w, f.cell_h, f.ascent), (48, 48, 40))
+        self.assertEqual(f.metrics[ord("A")][0], 24)
+        row = int.from_bytes(f.glyphs[ord("H")][39 * 6:40 * 6], "big")
+        self.assertEqual(row, (0xC0000001 << 16))
+
+    def test_other_sizes_still_refused(self):
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.read_eng(bytes(30000))
+
+
 class Eng12x24(unittest.TestCase):
     """The 12x24 faces' 16 bit rows: MASCII24's right serifs sit in columns 12-15 and must survive; the step stays 12."""
 

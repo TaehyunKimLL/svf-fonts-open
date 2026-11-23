@@ -36,9 +36,17 @@ DOS_SIZES = {11520: ["844", "844-ihnm"], 11522: ["844"], 25920: ["844"], 72000: 
              15360: ["dkb-printer-7x2x2", "none"], 34560: ["dkb-printer-7x2x2"], 176000: ["dkb-printer-12x4x4"],
              253440: ["dkb-printer-12x4x4"]}
 
-# A Latin companion (`--eng`) is recognised by its byte size: the 8x16 DOS fonts and the 12x24 ones (HWP `ASCII.PFT`;
-# the HBIOS 15,360-byte file is told from a Dokkaebi face by `hbios_eng_like`).
-ENG_SIZES = {2048: "8x16", 4096: "8x16", 12288: "12x24", 15360: "12x24"}
+# A Latin companion (`--eng`) is recognised by its byte size: the 8x16 DOS fonts, the 12x24 ones (HWP `ASCII.PFT`; the HBIOS
+# 15,360-byte file is told from a Dokkaebi face by `hbios_eng_like`) and Taebaek 3.5.1's 20x40 / 24x48 GASCII / MASCII .PFT.
+ENG_SIZES = {2048: "8x16", 4096: "8x16", 12288: "12x24", 15360: "12x24", 30720: "20x40", 49152: "24x48"}
+
+def eng_cell_h(cell):
+    """The row count of a companion's cell label ("12x24" -> 24, "20x40" -> 40); 0 for the 8x16 DOS fonts and for none."""
+    try:
+        h = int(str(cell).split("x")[1])
+    except (IndexError, ValueError):
+        return 0
+    return h if h > 16 else 0
 
 # The Dokkaebi printer layouts hold two faces in one file (HANGUL16/24.FNT, HANGUL40/48.FNT).
 DKB_LAYOUTS = ("dkb-printer-7x2x2", "dkb-printer-12x4x4")
@@ -132,7 +140,7 @@ def sniff(data, size=None):
         return mac
     if size in DOS_SIZES:
         return "dos-raw"
-    if size in (2048, 4096, 12288):
+    if size in (2048, 4096, 12288, 30720, 49152):
         return "eng"
     if _mac_head(data, size):
         return "mac-rsrc"
@@ -553,8 +561,8 @@ def _detect_file(abs_path, rel, local=False):
         fmt = classify_txt(abs_path, rel)
         return [_entry(rel, 0, fmt, "licence text" if fmt == "licence" else "list file", "other", family=_stem(rel))]
     size = os.path.getsize(abs_path)
-    if local and base.lower().endswith(".pft") and size not in ENG_SIZES:
-        # an HWP Hangul font: no tool here reads it (there is no byte rule, so it is named by its extension)
+    if local and base.lower().endswith(".pft") and size not in ENG_SIZES and size not in DOS_SIZES:
+        # an HWP Hangul font (Taebaek GHANC/MHANC .PFT, in DOS_SIZES, is a DOS face): no tool here reads it (there is no byte rule, so it is named by its extension)
         return [_entry(rel, 0, "hwp-pft", HWP_PFT_LABEL, "other", family=_stem(rel))]
     with open(abs_path, "rb") as f:
         head = f.read(_HEAD)
@@ -687,7 +695,7 @@ def _detect_file(abs_path, rel, local=False):
 
     if fmt == "eng":
         cell = ENG_SIZES[size]
-        label = "Latin companion (--eng%s)" % (", 12x24" if cell == "12x24" else "")
+        label = "Latin companion (--eng%s)" % (", " + cell if cell != "8x16" else "")
         return [_entry(rel, 0, "eng", label, "other", family=_stem(rel), eng={"bytes": size, "cell": cell},
                        gz=zipped)]
 
@@ -1667,7 +1675,7 @@ def scan(sources, local=False):
                 reason = hbf_refusal(path, sources.inside, deadline)
                 if reason:                # not a usable companion: demoted so no Latin candidate list offers it
                     entry["label"], entry["source_kind"] = "HBF: " + reason, "other"
-            batch_dos = local and dos_folders and (entry.get("eng") or {}).get("cell") == "12x24"
+            batch_dos = local and dos_folders and eng_cell_h((entry.get("eng") or {}).get("cell"))
             if entry["format"] == "eng" and folder_of(path) not in dos_folders and not batch_dos:
                 entry["format"] = "unknown"       # a Latin companion needs a DOS Johab font beside it
                 entry["label"] = "unknown (%s; no DOS Johab font beside it)" % _entry_size(path, entry, data)
@@ -1727,7 +1735,8 @@ def scan(sources, local=False):
             px = (entry.get("sizes") or [0])[0]
             if local and isinstance(px, int) and px >= 24:        # an HWP ASCII.PFT may be picked from another folder
                 entry["companions"] += [o["id"] for o in entries if o["format"] == "eng"
-                                        and (o.get("eng") or {}).get("cell") == "12x24" and o["id"] not in entry["companions"]]
+                                        and 0 < eng_cell_h((o.get("eng") or {}).get("cell")) <= px
+                                        and o["id"] not in entry["companions"]]
         elif entry["source_kind"] == "bdf-ksc5601":
             entry["companions"] = list(latin_ids)
         elif entry["source_kind"] == "mac-fbit3":

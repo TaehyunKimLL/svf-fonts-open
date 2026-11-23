@@ -475,6 +475,80 @@ class Eng12x24Test(Case):
                 self.assertTrue(any(inputkinds.zip_face(z).glyphs[0x41]))
 
 
+class Eng40x48Test(Case):
+    """Taebaek 3.5.1 GASCII40 / GASCII48 companions (synthetic sizes) pair with the 40 / 48 px 844 face of their own height."""
+
+    def scan_files(self, **files):
+        d = os.path.join(self.tmp, "dos%d" % self.n)
+        self.n += 1
+        os.makedirs(d)
+        files["LICENSE.txt"] = inputkinds.LICENCE.encode()
+        for name, data in files.items():
+            with open(os.path.join(d, name), "wb") as fh:
+                fh.write(data)
+        return detect.scan(d)
+
+    def test_a_40px_face_defaults_to_the_20x40_companion(self):
+        fonts = self.scan_files(**{"GHANC40.PFT": bytes(72000), "ASCII.PFT": inputfx.pft_eng(),
+                                   "GASCII40.PFT": bytes(30720)})
+        fid = fid_of(fonts, kind="dos-raw")
+        s = settings.defaults(fonts)
+        self.assertEqual(s["fonts"][fid]["latin_companion"], fid_of(fonts, path="GASCII40.PFT"))
+        s["fonts"][fid].update(selected=True, dos_layout="844")
+        self.assertEqual(settings.validate(fonts, s), [])
+
+    def test_a_48px_face_defaults_to_the_24x48_companion(self):
+        fonts = self.scan_files(**{"GHANC48.PFT": bytes(103680), "GASCII48.PFT": bytes(49152)})
+        fid = fid_of(fonts, kind="dos-raw")
+        s = settings.defaults(fonts)
+        self.assertEqual(s["fonts"][fid]["latin_companion"], fid_of(fonts, path="GASCII48.PFT"))
+
+    def test_a_48px_face_picks_24x48_with_a_12x24_also_present(self):
+        fonts = self.scan_files(**{"GHANC48.PFT": bytes(103680), "ASCII.PFT": inputfx.pft_eng(),
+                                   "GASCII48.PFT": bytes(49152)})
+        fid = fid_of(fonts, kind="dos-raw")
+        self.assertEqual(settings.defaults(fonts)["fonts"][fid]["latin_companion"], fid_of(fonts, path="GASCII48.PFT"))
+
+    def test_the_family_prefix_breaks_a_tie(self):
+        fonts = self.scan_files(**{"MHANC40.PFT": bytes(72000), "GASCII40.PFT": bytes(30720), "MASCII40.PFT": bytes(30720)})
+        fid = fid_of(fonts, kind="dos-raw")
+        self.assertEqual(settings.defaults(fonts)["fonts"][fid]["latin_companion"], fid_of(fonts, path="MASCII40.PFT"))
+
+    def test_the_size_check_is_at_the_face_px(self):
+        for face, size, cell, px in ((72000, 49152, "24x48", 48), (25920, 30720, "20x40", 40)):
+            fonts = self.scan_files(**{"HAN.FNT": bytes(face), "GASCII.PFT": bytes(size)})
+            fid = fid_of(fonts, kind="dos-raw")
+            s = settings.defaults(fonts)
+            s["fonts"][fid].update(selected=True, dos_layout="844", latin_companion=fid_of(fonts, path="GASCII.PFT"))
+            for fake in (px - 1, px):               # the face px is what the check reads
+                fonts[[f["id"] for f in fonts].index(fid)]["sizes"] = [fake]
+                errs = [e for e in settings.validate(fonts, s) if "English font needs a face" in e]
+                self.assertEqual(bool(errs), fake < px, (cell, fake))
+
+    def test_a_16px_johab844_job_refuses_a_20x40_companion(self):
+        fonts = self.scan_files(**{"HAN.FNT": bytes(11520), "GASCII.PFT": bytes(30720)})
+        fid = fid_of(fonts, kind="dos-raw")
+        s = settings.defaults(fonts)
+        s["fonts"][fid].update(selected=True, kinds=["precomposed"], dos_layout="844",
+                               latin_companion=fid_of(fonts, path="GASCII.PFT"))
+        self.assertIn("%s: johab844 takes an 8x16 English font" % fid, settings.validate(fonts, s))
+
+    def test_a_smaller_face_refuses_the_bigger_companion(self):
+        for face, size, cell, px in ((25920, 30720, "20x40", 40), (72000, 49152, "24x48", 48)):
+            with self.subTest(cell=cell):
+                fonts = self.scan_files(**{"HAN.FNT": bytes(face), "GASCII.PFT": bytes(size)})
+                fid = fid_of(fonts, kind="dos-raw")
+                s = settings.defaults(fonts)
+                s["fonts"][fid].update(selected=True, dos_layout="844", latin_companion=fid_of(fonts, path="GASCII.PFT"))
+                self.assertIn("%s: a %s English font needs a face of %d px or more" % (fid, cell, px),
+                              settings.validate(fonts, s))
+
+    def test_the_24px_default_is_unchanged_with_a_20x40_beside_it(self):
+        fonts = self.scan_files(**{"HAN24.FNT": bytes(25920), "ASCII.PFT": inputfx.pft_eng(), "ZASCII40.PFT": bytes(30720)})
+        fid = fid_of(fonts, kind="dos-raw")
+        self.assertEqual(settings.defaults(fonts)["fonts"][fid]["latin_companion"], fid_of(fonts, path="ASCII.PFT"))
+
+
 class VariableCollectionTest(Case):
     def vtc(self):
         return inputfx.ttc([inputfx.variable_ttf(), inputfx.ttf("Two", BOX2)])

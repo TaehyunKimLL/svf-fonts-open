@@ -211,6 +211,12 @@ class EngTest(DirCase):
         self.assertEqual((e["format"], e["label"], e["eng"]), ("eng", "Latin companion (--eng, 12x24)",
                                                                {"bytes": 12288, "cell": "12x24"}))
 
+    def test_taebaek_40_and_48_px_english_are_eng_companions(self):
+        for size, cell in ((30720, "20x40"), (49152, "24x48")):
+            e = detect.detect_file(self.put("GASCII.PFT", bytes(size)), "GASCII.PFT")[0]
+            self.assertEqual((e["format"], e["label"], e["eng"]),
+                             ("eng", "Latin companion (--eng, %s)" % cell, {"bytes": size, "cell": cell}))
+
     def test_the_8x16_eng_label_is_unchanged_and_carries_its_size(self):
         e = detect.detect_file(self.put("ENG.FNT", bytes(2048)), "ENG.FNT")[0]
         self.assertEqual((e["label"], e["eng"]), ("Latin companion (--eng)", {"bytes": 2048, "cell": "8x16"}))
@@ -392,6 +398,30 @@ class LocalKindsTest(DirCase):
         pft = next(f for f in up if f["path"].endswith("ASCII.PFT"))
         self.assertEqual(pft["format"], "unknown")
         self.assertIn("no DOS Johab font beside it", pft["label"])
+
+    def test_taebaek_pft_faces_are_dos_faces_with_the_20x40_companion_in_a_local_scan(self):
+        self.put("tb/GHANC40.PFT", bytes(72000))
+        self.put("tb/GASCII40.PFT", bytes(30720))
+        by = {f["path"]: f for f in detect.scan(Sources("local", [self.dir("tb")]), local=True)}
+        self.assertEqual((by["GHANC40.PFT"]["format"], by["GHANC40.PFT"]["source_kind"]), ("dos-raw", "dos-raw"))
+        self.assertEqual((by["GASCII40.PFT"]["format"], by["GASCII40.PFT"]["eng"]["cell"]), ("eng", "20x40"))
+        self.assertEqual(by["GHANC40.PFT"]["companions"], [by["GASCII40.PFT"]["id"]])
+
+    def test_hwp_pft_sizes_stay_hwp(self):
+        for name, size in (("HANGUL1.PFT", 70592), ("ASCII.PFT", 41654), ("HANGUL24.PFT", 40000)):
+            self.put("hw/" + name, bytes(size))
+        by = {f["path"]: f for f in detect.scan(Sources("local", [self.dir("hw")]), local=True)}
+        self.assertEqual({k: v["format"] for k, v in by.items()},
+                         {"HANGUL1.PFT": "hwp-pft", "ASCII.PFT": "hwp-pft", "HANGUL24.PFT": "hwp-pft"})
+
+    def test_a_20x40_companion_is_offered_across_folders_to_a_40px_face_only(self):
+        self.put("tb/GHANC40.PFT", bytes(72000))
+        self.put("tb24/HAN24.FNT", inputfx.dos844_24())
+        self.put("other/GASCII40.PFT", bytes(30720))
+        by = {f["path"]: f for f in detect.scan(Sources("local", [self.dir("tb"), self.dir("tb24"), self.dir("other")]),
+                                                local=True)}
+        self.assertIn(by["GASCII40.PFT"]["id"], by["GHANC40.PFT"]["companions"])
+        self.assertNotIn(by["GASCII40.PFT"]["id"], by["HAN24.FNT"]["companions"])
 
     def test_8x16_eng_keeps_the_folder_rule(self):
         import fixtures
