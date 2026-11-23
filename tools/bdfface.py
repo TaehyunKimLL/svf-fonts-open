@@ -25,8 +25,10 @@ import argparse
 import gzip
 import os
 import re
+import stat
 import struct
 import sys
+import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:  # python -I drops the script's directory
@@ -36,6 +38,59 @@ import jamoset  # noqa: E402
 
 class FaceError(Exception):
     pass
+
+
+class DamagedBitmapError(FaceError):
+    """A bitmap file whose gzip stream is corrupt, truncated or empty."""
+
+
+HBF_MAX = 128 << 20          # one HBF's bitmaps, decompressed, in total
+
+
+def open_regular(path):
+    """@p path opened without following a link, and only when it is a regular file (FaceError otherwise)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
+    except OSError as e:
+        raise FaceError(f"{path}: {e.strerror or 'cannot open'}")
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise FaceError(f"{path}: not a regular file")
+        return os.fdopen(fd, "rb")
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        raise
+
+
+def read_capped(path, gz=False, cap=HBF_MAX, keep=True, tick=None):
+    """The bytes of a bitmap file (gunzipped when @p gz) read from one non-link regular fd, at most @p cap long
+    decompressed. With keep=False only the length is returned (nothing is held). @p tick, called once a MiB, may raise.
+    A corrupt or empty gzip is a FaceError, never a zlib.error."""
+    parts, n = [], 0
+    with open_regular(path) as raw:
+        f = gzip.GzipFile(fileobj=raw) if gz else raw
+        try:
+            while True:
+                chunk = f.read(1 << 20)
+                if not chunk:
+                    break
+                n += len(chunk)
+                if n > cap:
+                    raise FaceError(f"{path}: bitmap larger than {cap} bytes")
+                if keep:
+                    parts.append(chunk)
+                if tick is not None:
+                    tick()
+        except TimeoutError:          # a `tick` deadline is not damage (TimeoutError is an OSError)
+            raise
+        except (OSError, EOFError, zlib.error) as e:
+            raise DamagedBitmapError(f"{path}: damaged {'gzip' if gz else 'bitmap'} ({e})")
+    if gz and n == 0:
+        raise DamagedBitmapError(f"{path}: empty gzip")
+    return b"".join(parts) if keep else n
 
 
 def _read(path, limit=-1):
@@ -112,18 +167,21 @@ def read_hbf(path):
     nb = (bw + 7) // 8
     gsize = nb * bh
     glyphs = {}
+    cache, used = {}, 0
     for m in re.finditer(r"HBF_CODE_RANGE\s+0x([0-9A-Fa-f]+)-0x([0-9A-Fa-f]+)\s+(\S+)\s+(\d+)", t):
         lo, hi, name, off = int(m.group(1), 16), int(m.group(2), 16), m.group(3), int(m.group(4))
         if hi > 0xFF:
             raise FaceError(f"{path}: a code range above 0xFF is not an ASCII face")
         bin_path = os.path.join(os.path.dirname(os.path.abspath(path)), name)
-        if os.path.exists(bin_path):
-            data = _read(bin_path)
-        elif os.path.exists(bin_path + ".gz"):
-            with gzip.open(bin_path + ".gz") as gf:
-                data = gf.read()
-        else:
-            raise FaceError(f"{path}: bitmap file {name} (or {name}.gz) is missing")
+        if "/" in name or "\\" in name or name in (".", ".."):
+            raise FaceError(f"{path}: bitmap name {name!r} is not a plain file name")
+        if name not in cache:         # one read per distinct bitmap file, however many ranges name it
+            gz = not os.path.lexists(bin_path) and os.path.lexists(bin_path + ".gz")
+            if not gz and not os.path.lexists(bin_path):
+                raise FaceError(f"{path}: bitmap file {name} (or {name}.gz) is missing")
+            cache[name] = read_capped(bin_path + (".gz" if gz else ""), gz, HBF_MAX - used)
+            used += len(cache[name])
+        data = cache[name]
         for code in range(lo, hi + 1):
             p = off + (code - lo) * gsize
             if p + gsize > len(data):

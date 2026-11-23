@@ -340,6 +340,82 @@ class LocalKindsTest(DirCase):
         self.assertEqual(by["v1/mb/Munjo16.bin"]["prep"], [{"op": "mac-fork"}])
         self.assertEqual(by["v1/ad/._Munjo16"]["family"], "Munjo16")
 
+    def test_mac10_is_decided_by_its_45_sets_not_by_the_generation_word(self):
+        """Real HangulTalk 1.0 fonts carry generation 3 at 0x0c (like the 7.1 fonts); the fixture carries both."""
+        import macfx, struct
+        self.assertEqual(struct.unpack(">H", macfx.fbit1_raw()[0x0c:0x0e])[0], 3)
+        by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}
+        for rel in ("v1/Munjo16.rsrc", "v1g0/Munjo16.rsrc"):
+            self.assertEqual((by[rel]["source_kind"], by[rel].get("mac")), ("mac-fbit1", {"generation": 1, "id": 1}), rel)
+        self.assertEqual(by["Seoul12.rsrc"]["source_kind"], "mac-fbit3")          # a 7.1 font stays type 3
+
+    def test_a_type3_fbit_whose_pixel_word_at_0x54_reads_45_sets_stays_type3(self):
+        import macfx, struct
+        raw = bytearray(macfx.fbit3_raw(1))
+        raw[0x54:0x56] = struct.pack(">H", 0x021C)                 # 540 = 45 * 12: pixel bytes that look like a count
+        fork = macfx.test_macfbit3.resource_fork({("fbit", 17408): bytes(raw)})
+        out = detect.detect_file(self.put("t3.rsrc", fork), "t3.rsrc", local=True)
+        self.assertEqual([e["source_kind"] for e in out], ["mac-fbit3"])
+
+    def test_a_truncated_mac10_fbit_with_its_fdef_is_still_mac10(self):
+        import macfx
+        fbit = macfx.fbit1_raw()[:0x56 + 45 * 12 + 40]              # cut inside the glyph data
+        fork = macfx.test_macfbit3.resource_fork({("fbit", 1): fbit, ("fdef", 3): bytes(0x800)})
+        out = detect.detect_file(self.put("tr.rsrc", fork), "tr.rsrc", local=True)
+        self.assertEqual([e["source_kind"] for e in out], ["mac-fbit1"])
+        self.assertFalse([e for e in out if "unreadable" in e["label"]])
+        bare = macfx.test_macfbit3.resource_fork({("fbit", 1): fbit})         # no fdef and a broken table: not 1.0
+        out = detect.detect_file(self.put("tb.rsrc", bare), "tb.rsrc", local=True)
+        self.assertNotIn("mac-fbit1", [e["source_kind"] for e in out])
+
+    def test_a_mac10_fbit_cut_before_its_first_descriptor_is_not_mac10(self):
+        import macfx
+        fork = macfx.test_macfbit3.resource_fork({("fbit", 1): macfx.fbit1_raw()[:0x56], ("fdef", 3): bytes(0x800)})
+        out = detect.detect_file(self.put("c.rsrc", fork), "c.rsrc", local=True)
+        self.assertNotIn("mac-fbit1", [e["source_kind"] for e in out])
+        self.assertFalse([e for e in out if "unreadable" in e["label"]], out)
+
+    def test_a_type3_fbit_with_cell_height_0_is_not_unreadable(self):
+        import macfx, struct
+        raw = bytearray(macfx.fbit3_raw(1))
+        raw[0x16:0x18] = struct.pack(">H", 0)
+        out = detect.detect_file(self.put("h0.rsrc", macfx.test_macfbit3.resource_fork({("fbit", 17408): bytes(raw)})),
+                                 "h0.rsrc", local=True)
+        self.assertEqual([e["source_kind"] for e in out if e["source_kind"] in ("mac-fbit3", "mac-fbit1")], [])
+        self.assertFalse([e for e in out if "unreadable" in e["label"]], out)
+
+    def test_an_hbf_bitmap_replaced_after_detection_is_a_changed_input(self):
+        import server
+        from sources import Sources
+        d = os.path.join(self.root, "pin")
+        os.makedirs(d)
+        with open(os.path.join(d, "x.hbf"), "w") as f:
+            f.write("HBF_START_FONT 1.0\nHBF_BITMAP_BOUNDING_BOX 8 16 0 -3\nFONT_ASCENT 13\n"
+                    "HBF_CODE_RANGE 0x0001-0x005A x.bin 0\n")
+        import gzip
+        with gzip.open(os.path.join(d, "x.bin.gz"), "wb") as g:
+            g.write(b"\xff" * (0x5A * 16))
+        sources = Sources("local", [d])
+        entry = {f["path"]: f for f in detect.scan(sources, local=True)}["x.hbf"]
+        st = os.lstat(os.path.join(d, "x.hbf"))
+        entry["file_id"] = [st.st_dev, st.st_ino, st.st_size]
+        entry["bitmap_ids"] = server.Handler._bitmap_ids(os.path.join(d, "x.hbf"))
+        self.assertEqual([r[0] for r in entry["bitmap_ids"]], ["x.bin.gz"])          # the .gz fallback is what is read
+        server.Handler._check_unchanged(entry, sources)                              # unchanged: fine
+        with gzip.open(os.path.join(d, "x.bin.gz.new"), "wb") as g:                  # replaced by another file
+            g.write(b"\x00" * (0x5A * 16))
+        os.replace(os.path.join(d, "x.bin.gz.new"), os.path.join(d, "x.bin.gz"))
+        with self.assertRaises(server._HttpError) as cm:
+            server.Handler._check_unchanged(entry, sources)
+        self.assertEqual(cm.exception.status, 409)
+        entry["bitmap_ids"] = server.Handler._bitmap_ids(os.path.join(d, "x.hbf"))      # re-pinned: fine again
+        server.Handler._check_unchanged(entry, sources)
+        with open(os.path.join(d, "x.bin"), "wb") as f:                              # a plain bitmap appears: read_hbf prefers it
+            f.write(b"\x00" * (0x5A * 16))
+        with self.assertRaises(server._HttpError) as cm:
+            server.Handler._check_unchanged(entry, sources)
+        self.assertEqual(cm.exception.status, 409)
+
     def test_mac10_raw_resource_is_other(self):
         by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}
         entry = by["v1/raw/Munjo16.fbit"]
