@@ -4,6 +4,7 @@
   python3 -m unittest discover -s maker/test -p 'test_*.py'
 """
 
+import gzip
 import os, sys
 TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 MAKER_DIR = os.path.dirname(TEST_DIR)
@@ -533,10 +534,13 @@ class FixRoundOneTest(FixtureCase):
                          ("fnt", "other", "Windows FNT; no Unicode character map, mkfont cannot read it"))
         self.assertEqual(routes.routes(e), [])
 
-    def test_a_bitmap_with_a_unicode_charmap_keeps_its_route(self):
-        e = entry("bdf_iso")
-        self.assertFalse(detect.no_unicode_map(F["bdf_iso"], e["sizes"][0]))
-        self.assertEqual([r.label for r in routes.routes(e)], ["mkfont"])
+    def test_a_fnt_too_damaged_to_open_has_its_own_label(self):
+        p = os.path.join(ROOT, "broken.fnt")
+        with open(p, "wb") as f:
+            f.write(struct.pack("<H", 0x0200) + bytes(126))
+        e = detect.detect_file(p, "broken.fnt")[0]
+        self.assertEqual((e["source_kind"], e["label"]), ("bitmap", "Windows FNT; no openable size"))
+        self.assertEqual(routes.routes(e), [])
 
     def test_hbf(self):
         e = entry("hbf")
@@ -1049,6 +1053,72 @@ class Task4FixOneTest(FixtureCase):
         self.assertEqual((e["source_kind"], e["label"]), ("hbf", "HBF"))
         self.assertGreater(e["coverage"]["ascii"], 0)
 
+    def test_n_ranges_naming_one_gz_cost_one_decompression(self):
+        with tempfile.TemporaryDirectory() as d:
+            gzip_bytes(os.path.join(d, "x.bin.gz"), b"\xff" * 4096)
+            p = os.path.join(d, "x.hbf")
+            with open(p, "w") as f:
+                f.write("HBF_START_FONT 1.0\nHBF_BITMAP_BOUNDING_BOX 8 16 0 -3\nFONT_ASCENT 13\n")
+                for i in range(200):
+                    f.write("HBF_CODE_RANGE 0x%04X-0x%04X x.bin 0\n" % (i, i))
+            with mock.patch.object(detect.bdfface, "read_capped", wraps=detect.bdfface.read_capped) as m:
+                self.assertEqual(detect.hbf_refusal(p), "")
+            self.assertEqual(m.call_count, 1)
+            with mock.patch.object(detect, "MAX_DECOMPRESSED", 8192):   # 200 x 4096 would pass a per-range sum, 1 x does not
+                self.assertEqual(detect.hbf_refusal(p), "")
+
+    def test_a_corrupt_gz_companion_does_not_abort_the_scan(self):
+        with tempfile.TemporaryDirectory() as d:
+            good = gzip.compress(b"\xff" * (0x5A * 16))
+            with open(os.path.join(d, "x.bin.gz"), "wb") as f:
+                f.write(good[:12] + b"\x00" * 20 + good[32:])           # damaged deflate stream
+            hbf_naming(os.path.join(d, "x.hbf"), "x.bin")
+            with open(os.path.join(d, "e.bin.gz"), "wb") as f:
+                f.write(gzip.compress(b""))                              # zero-length output is invalid
+            hbf_naming(os.path.join(d, "e.hbf"), "e.bin")
+            gzip_bytes(os.path.join(d, "ok.bin.gz"), b"\xff" * (0x5A * 16))
+            hbf_naming(os.path.join(d, "ok.hbf"), "ok.bin")
+            fonts = {f["path"]: f for f in detect.scan(d)}
+        self.assertEqual(fonts["x.hbf"]["label"], "HBF: damaged bitmap file")
+        self.assertEqual(fonts["e.hbf"]["label"], "HBF: damaged bitmap file")
+        self.assertEqual((fonts["ok.hbf"]["source_kind"], fonts["ok.hbf"]["label"]), ("hbf", "HBF"))
+
+    def test_a_symlinked_gz_is_refused_and_a_race_cannot_follow_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            gzip_bytes(os.path.join(d, "real.gz"), b"\xff" * 32)
+            os.symlink(os.path.join(d, "real.gz"), os.path.join(d, "x.bin.gz"))
+            p = hbf_naming(os.path.join(d, "x.hbf"), "x.bin")
+            self.assertEqual(detect.hbf_refusal(p), "unsafe bitmap reference")
+            with self.assertRaises(bdfface.FaceError):                  # read_hbf itself never follows it
+                bdfface.read_hbf(p)
+
+    def test_a_single_file_root_does_not_read_a_sibling_bitmap(self):
+        with tempfile.TemporaryDirectory() as d:
+            gzip_bytes(os.path.join(d, "x.bin.gz"), b"\xff" * (0x5A * 16))
+            p = hbf_naming(os.path.join(d, "x.hbf"), "x.bin")
+            from sources import Sources
+            fonts = detect.scan(Sources("local", [p]), local=True)
+            self.assertEqual((fonts[0]["source_kind"], fonts[0]["label"]), ("other", "HBF: unsafe bitmap reference"))
+            fonts = {f["path"]: f for f in detect.scan(Sources("local", [d]), local=True)}
+            self.assertEqual(fonts["x.hbf"]["source_kind"], "hbf")            # the folder root holds the sibling
+
+    def test_a_two_byte_hbf_and_a_refused_hbf_are_no_latin_companion(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "u.hbf"), "w") as f:
+                f.write("HBF_START_FONT 1.0\nHBF_BITMAP_BOUNDING_BOX 8 16 0 -3\nFONT_ASCENT 13\n"
+                        "HBF_CODE_RANGE 0x8140-0xFEFE u.bin 0\n")
+            with open(os.path.join(d, "u.bin"), "wb") as f:
+                f.write(b"\0" * 64)
+            hbf_naming(os.path.join(d, "bad.hbf"), "../secret.bin")
+            gzip_bytes(os.path.join(d, "ok.bin.gz"), b"\xff" * (0x5A * 16))
+            hbf_naming(os.path.join(d, "ok.hbf"), "ok.bin")
+            shutil.copy(F["bdf_ksc"] if "bdf_ksc" in F else F["bdf_iso"], os.path.join(d, "k.bdf"))
+            fonts = {f["path"]: f for f in detect.scan(d)}
+        self.assertEqual(fonts["u.hbf"]["label"], "HBF: two-byte code range not supported")
+        ids = {fonts[n]["id"] for n in ("u.hbf", "bad.hbf")}
+        for f in fonts.values():
+            self.assertFalse(ids & set(f.get("companions", [])))
+
     def test_an_unsafe_hbf_is_refused_without_reading_any_bitmap(self):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "secret.bin"), "wb") as f:
@@ -1059,7 +1129,7 @@ class Task4FixOneTest(FixtureCase):
                 fonts = detect.scan(d)
             self.assertFalse(m.called)
         e = {f["path"]: f for f in fonts}["sub/x.hbf"]
-        self.assertEqual(e["source_kind"], "hbf")
+        self.assertEqual(e["source_kind"], "other")            # demoted: not a Latin companion candidate
         self.assertEqual(e["label"], "HBF: unsafe bitmap reference")
         self.assertIsNone(e["coverage"])
 
@@ -1279,7 +1349,7 @@ class Task4FixTwoTest(FixtureCase):
             hbf_naming(os.path.join(d, "x.hbf"), "x.bin.gz")
             fonts = detect.scan(d)
         e = {f["path"]: f for f in fonts}["x.hbf"]
-        self.assertEqual((e["source_kind"], e["label"]), ("hbf", "HBF: .gz bitmap not supported"))
+        self.assertEqual((e["source_kind"], e["label"]), ("other", "HBF: .gz bitmap not supported"))
         self.assertIsNone(e["coverage"])
 
 

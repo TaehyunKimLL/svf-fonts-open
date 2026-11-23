@@ -1679,7 +1679,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
     @staticmethod
     def _inputs_of_selected(j, fonts):
         """The scan entries a run of the selected fonts reads: each font, its Latin companion, its HTBL table, its chosen
-        licence file and its range list."""
+        licence file and its range list.
+
+        An HBF's bitmap files are not listed: only the `.hbf` is pinned by `file_id`. The tool reads each bitmap
+        without following a link, from one regular fd, with a decompressed-size cap (bdfface.read_capped), so a swap
+        between detection and the run can change the glyphs but not what the run may read."""
         by_id = {font.get("id"): font for font in fonts}
         by_key = {(font.get("root", 0), font.get("path")): font for font in fonts}
         st = j.get("settings") or {}

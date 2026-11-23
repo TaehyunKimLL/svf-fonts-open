@@ -343,6 +343,24 @@ class LocalKindsTest(DirCase):
             self.assertEqual((by[rel]["source_kind"], by[rel].get("mac")), ("mac-fbit1", {"generation": 1, "id": 1}), rel)
         self.assertEqual(by["Seoul12.rsrc"]["source_kind"], "mac-fbit3")          # a 7.1 font stays type 3
 
+    def test_a_type3_fbit_whose_pixel_word_at_0x54_reads_45_sets_stays_type3(self):
+        import macfx, struct
+        raw = bytearray(macfx.fbit3_raw(1))
+        raw[0x54:0x56] = struct.pack(">H", 0x021C)                 # 540 = 45 * 12: pixel bytes that look like a count
+        fork = macfx.test_macfbit3.resource_fork({("fbit", 17408): bytes(raw)})
+        out = detect.detect_file(self.put("t3.rsrc", fork), "t3.rsrc", local=True)
+        self.assertEqual([e["source_kind"] for e in out], ["mac-fbit3"])
+
+    def test_a_truncated_mac10_fbit_with_its_fdef_is_still_mac10(self):
+        import macfx
+        fbit = macfx.fbit1_raw()[:0x56 + 45 * 12 + 40]              # cut inside the glyph data
+        fork = macfx.test_macfbit3.resource_fork({("fbit", 1): fbit, ("fdef", 3): bytes(0x800)})
+        out = detect.detect_file(self.put("tr.rsrc", fork), "tr.rsrc", local=True)
+        self.assertEqual([e["source_kind"] for e in out], ["mac-fbit1"])
+        bare = macfx.test_macfbit3.resource_fork({("fbit", 1): fbit})         # no fdef and a broken table: not 1.0
+        out = detect.detect_file(self.put("tb.rsrc", bare), "tb.rsrc", local=True)
+        self.assertNotIn("mac-fbit1", [e["source_kind"] for e in out])
+
     def test_mac10_raw_resource_is_other(self):
         by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}
         entry = by["v1/raw/Munjo16.fbit"]
