@@ -538,6 +538,16 @@ def _region_size(rec, region_id):
     return sum(files[fid]["size"] for fid in _region_files(rec, region_id))
 
 
+def _copied_as_is(item):
+    """True when a raw set is cut from its region byte for byte (its layout's own storage, or a plain row reading of a
+    row layout); False when the planner inks it to rows first (any other reading: stride, order, lsb, invert, tiles)."""
+    r = item["reading"]
+    if RAW_STORAGE[item["layout"]][item["length"]] != "rows":
+        return True
+    return ("gfx" not in r and r.get("order", "rows") == "rows" and "stride" not in r and not r.get("lsb")
+            and not r.get("invert"))
+
+
 def _span(item, region_bytes):
     """The bytes @p item reads from its region's start: offset + through its last glyph (a tile layout's footprint is
     the bits its planes and offsets reach, RGN_FRAC included); None for a compose item (the built-in spec reads its own
@@ -545,7 +555,7 @@ def _span(item, region_bytes):
     r = item["reading"]
     if item["kind"] == "compose":
         return None
-    if item["kind"] == "raw-set" and "gfx" not in r and r.get("order", "rows") == "rows":
+    if item["kind"] == "raw-set" and _copied_as_is(item):       # cut straight from the region: its length
         return item.get("offset", 0) + item["length"]
     w, h = r["glyph"]
     if "gfx" in r:
@@ -758,8 +768,7 @@ class _Plan:
     def raw(self, item_id):
         """A raw-set item as the file `jamoset.py --layout L` reads (`rawcarve.py cut`; a tile layout is inked first)."""
         item = self.items[item_id]
-        storage = RAW_STORAGE[item["layout"]][item["length"]]
-        if storage != "rows" or (self._plain(item) and not item["reading"].get("invert")):   # the bytes as they are
+        if _copied_as_is(item):                        # the bytes as they are
             src, offset = self.region(item["region"]), item.get("offset", 0)
         else:
             w, h = item["reading"]["glyph"]

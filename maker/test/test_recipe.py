@@ -292,6 +292,16 @@ class ValidateTest(unittest.TestCase):
         r["items"][0]["offset"] = 2097152 - 64                 # a tile layout's footprint (RGN_FRAC planes) counts
         self.refused(r, "item hangul reads past the end")
 
+    def test_a_strided_raw_set_is_checked_by_its_stride(self):
+        """A raw set the planner inks first (here a 64-byte stride) reads (n-1) * stride + one glyph, not its length."""
+        r = copy.deepcopy(recipe.library()["mame-xsedae"])
+        r["items"][0]["reading"] = {"glyph": [16, 16], "stride": 64}
+        r["items"][0]["offset"] = 4194304 - 11520                 # fits as 11,520 contiguous bytes, not at stride 64
+        with self.assertRaisesRegex(recipe.RecipeError, "item raw reads past the end of its region"):
+            recipe.loads(json.dumps(r).encode())
+        r["items"][0]["offset"] = 4194304 - (359 * 64 + 32)
+        recipe.loads(json.dumps(r).encode())                      # exactly its last glyph's end
+
     def test_pens_units_and_lists(self):
         r = copy.deepcopy(recipe.library()["mame-xsedae"]); r["items"][0]["reading"]["bg"] = 200
         self.refused(r, "background pen 200 is outside 0..15")
