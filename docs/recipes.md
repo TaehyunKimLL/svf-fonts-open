@@ -1369,7 +1369,8 @@ precomposed face has nothing to share: `--composite` then writes the plain TTF a
   (`strike: 6091 compound, 5081 expanded bitmaps` for GOTHA16A). Built with no expanded bitmaps, GOTHA16A draws
   exactly those 5,081 syllables wrong in FreeType (9,487 pixels at level 3 instead of 2), and NSQRB36A its 5,831.
   A component offset is a signed byte, so in a cell over 128 px a syllable whose pieces lie more than 127 pixels apart
-  also keeps an expanded bitmap: `--composite` converts every face the plain strike does.
+  also keeps an expanded bitmap, and a piece whose ink starts past x 127 has its own bitmap start at the pen (its
+  bearing x would not fit a byte): `--composite` converts every face the plain strike does.
 
 Verified (2026-11-23), each face through `ttf` and `ttf --composite`, the composite TTF baked back by `mkfont.py` and
 compared as above; every glyph rendered by Pillow at ppem and 2 x ppem and by freetype-py at ppem (the strike, and the

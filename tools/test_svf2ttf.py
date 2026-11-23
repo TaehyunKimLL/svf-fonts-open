@@ -428,7 +428,7 @@ class Composite(unittest.TestCase):
                 self.assertEqual(fa.read(), fb.read())
 
 
-def tall_jamo_face(path, cell_w=8, cell_h=140, ascent=127):
+def tall_jamo_face(path, cell_w=8, cell_h=140, ascent=127, place=None):
     """A jamo set (1x1 classes, one set each) whose initial pieces ink the cell's top row, medials row 60 and finals its
     bottom row, plus an 'A': a syllable with a final spans the whole cell, so a compound bitmap's offset of its final
     (cell_h - 1 rows) is past an int8 for cell_h > 128."""
@@ -446,7 +446,9 @@ def tall_jamo_face(path, cell_w=8, cell_h=140, ascent=127):
     glyphs = [(0x41, cell(ascent - 1, 1), cell_w, 1, 1)]
     for n in range(67):
         row, x = (0, n % cell_w) if n < 19 else (60, (n - 19) % cell_w) if n < 40 else (cell_h - 1, (n - 40) % cell_w)
-        glyphs.append((jamoset.PIECE_BASE + packed.piece_map[n], cell(row, x), cell_w, x, 1))
+        if place:
+            row, x = place(n)
+        glyphs.append((jamoset.PIECE_BASE + packed.piece_map[n], cell(row, x), cell_w, min(x, 127), 1))
     with open(path, "wb") as fh:
         fh.write(jamoset.write_svfn(cell_w, cell_h, ascent, glyphs, packed.block, extra_flags=jamoset.FLAG_JAMO))
     return path
@@ -470,6 +472,26 @@ class CompositeTall(unittest.TestCase):
                 self.assertTrue(f["glyf"][cmap[cp]].isComposite())
             self.assertIsInstance(strike[cmap[0xAC00]], ComponentBitmapGlyph)
             self.assertNotIsInstance(strike[cmap[0xAC01]], ComponentBitmapGlyph)
+
+    def test_piece_ink_past_x_127_starts_at_the_pen(self):
+        """A 200-wide 1 bpp jamo set: initials ink x 0, finals x 199. The plain strike holds every syllable (bearing x
+        0); the final pieces' own bitmaps start at the pen (bearing x 0, not 199), so --composite converts it too."""
+        with tempfile.TemporaryDirectory() as d:
+            face_path = tall_jamo_face(os.path.join(d, "wide.svf"), cell_w=200, cell_h=16, ascent=12,
+                                       place=lambda n: (1, 0) if n < 19 else (6, 1) if n < 40 else (14, 199))
+            face = svf2ttf.load_face(face_path)
+            plain = os.path.join(d, "plain.ttf")
+            run(os.path.join(HERE, "svf2ttf.py"), "ttf", face_path, plain, "--licence", "none")
+            out = os.path.join(d, "wide.ttf")
+            line = run(os.path.join(HERE, "svf2ttf.py"), "ttf", face_path, out, "--composite", "--licence", "none")
+            self.assertIn("(strike: 11172 compound, 0 expanded bitmaps)", line)
+            f = TTFont(out)
+            cmap = f.getBestCmap()
+            for cp in (0xAC00, 0xAC01, 0xD7A3):
+                adv, want = svf2ttf.glyph_pixels(face, cp)
+                self.assertEqual(resolved_strike_pixels(f, cmap[cp], 1), (want, adv), hex(cp))
+            final = f["glyf"][cmap[0xAC01]].components[-1].glyphName
+            self.assertEqual(f["EBDT"].strikeData[0][final].metrics.BearingX, 0)
 
 
 class Dy(unittest.TestCase):

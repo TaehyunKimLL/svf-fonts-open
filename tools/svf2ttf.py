@@ -66,7 +66,8 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
       or 8 bpp face starts at the pen (x0 = 0, the compound's offsets x 0); and OR is not the face's max of levels
       (2 bpp levels 1 | 2 = 3), so a syllable whose pieces overlap with levels a | b != max(a, b) keeps an expanded
       format-1 bitmap (bitmap_conflicts; its outline stays a composite). So does a syllable whose compound would place
-      a piece more than 127 pixels from its top-left (component offsets are int8: a cell over 128 px), so --composite
+      a piece more than 127 pixels from its top-left (component offsets are int8: a cell over 128 px), and a piece
+      whose ink starts past x 127 has its bitmap start at the pen (its bearing x would not fit), so --composite
       converts every face the plain strike does. The summary line counts them.
 
 
@@ -477,7 +478,11 @@ class CompositePlan:
             for n in nums:
                 if n not in self.pieces:
                     self.pieces[n] = piece_glyph(face, n)
-                    self.pieces[n].left0 = face.bpp > 1
+                    # a 2 / 8 bpp compound places components at x offset 0 only (FreeType shifts by bits); a piece
+                    # whose ink starts past x 127 has a bearing x no strike byte holds, though the syllables it is in
+                    # may start at 0: both start their bitmap at the pen
+                    box = self.pieces[n].box()
+                    self.pieces[n].left0 = face.bpp > 1 or (box is not None and box[0] > 127)
         self.expanded = bitmap_conflicts(face) & set(self.syllables)
         for cp, nums in self.syllables.items():
             boxes = [b for b in (self.pieces[k].box() for k in nums) if b]
