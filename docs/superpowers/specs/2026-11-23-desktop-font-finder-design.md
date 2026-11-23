@@ -468,7 +468,7 @@ Keys of each item kind, beside the common ones:
 
 | Object | Key | | Type and rule |
 |---|---|---|---|
-| face | `name` | R | the face's file stem, as `maker/naming.py` accepts it (`[A-Z0-9_]{1,8}` for `svf/` names) |
+| face | `name` | R | the face's file stem, as `maker/naming.py` accepts it (`[A-Z0-9]{1,8}`, `naming.NAME_RE` without `.SVF`) |
 | | `kind` | R | `precomposed` or `jamo` |
 | | `route` | R | a route label of `routes.py` that the item's entry kind offers (`bdfface`, `bdfface + from-svf fit`, `dos raw`, `johab844`, `spec`, ...) |
 | | `hangul` | R unless `from` | item id of the Hangul source |
