@@ -1784,7 +1784,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for font_id in dict.fromkeys(step.get("font") for step in steps):
             font = by_id.get(font_id) or {}
             mine = [step for step in steps if step.get("font") == font_id]
-            faces = [step for step in mine if step.get("kind") in ("precomposed", "jamo")]
+            faces = [step for step in mine if step.get("kind") in ("precomposed", "jamo") and not step.get("export_only")]
             if not faces:                                    # only a face step is named in a note (a prepare is not)
                 continue
             materialized = [dict(step, argv=jobs.materialized_argv([step], sources, work_dir)) for step in mine]

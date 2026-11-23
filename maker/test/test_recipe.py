@@ -200,6 +200,20 @@ class LibraryTest(unittest.TestCase):
             ["--layout", "adaptive", "--from-svf", "/w/precomposed.svf", "--mask-font", "none", "--eng",
              "/w/recipe-ascii-eng.bin", "--check", "-o", "/w/DQUIZGOJ.SVF", "--jset-version", "2"]])
 
+    def test_a_jamo_only_set_defaults_to_jamo(self):
+        """X Se Dae Quiz has one face, a jamo set: its defaults validate as they are; ascents are checked against 16."""
+        font = {"id": "f01", "path": "obj-1.u0811", "source_kind": "recipe", "sizes": [16], "sizes_fixed": True,
+                "format": "rom", "family": "X Se Dae Quiz", "face_index": 0, "licences": [], "companions": [],
+                "recipe": {"id": "mame-xsedae", "files": {}, "routes": ["dos raw"]}}
+        s = settings.defaults([font], local=True)
+        self.assertEqual((s["fonts"]["f01"].get("kinds"), s["fonts"]["f01"].get("dest")), (["jamo"], "jamo-extra"))
+        s["fonts"]["f01"]["selected"] = True
+        from sources import Sources
+        local = Sources("local", [REPO_DIR])                        # a local job: no licence needed
+        self.assertEqual(settings.validate([font], s, local), [])
+        s["fonts"]["f01"]["options"] = {"jamoset": {"jamo_ascent": 20}}
+        self.assertIn("f01: jamo_ascent 20 is over the cell 16", settings.validate([font], s, local))
+
     def test_routes_and_names_of_a_known_entry(self):
         font = {"id": "f01", "path": "tg_ksc5601.rom", "source_kind": "recipe", "sizes": [16], "sizes_fixed": True,
                 "family": "Trigem Korean VGA font ROM (ET4000)", "recipe": {"id": TG, "files": {}}}

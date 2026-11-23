@@ -113,7 +113,9 @@ class ExportSettingsTest(unittest.TestCase):
             face, ttf, bdf = steps[0], steps[1], steps[2]
             self.assertEqual((ttf["needs"], ttf["format"], bdf["format"]), ([face["id"]], "ttf", "bdf"))
             self.assertEqual(ttf["output"], "work/%s/NANUM16.ttf" % ttf["id"])
-            licence = os.path.join(self.root, "nanum", "OFL.txt")
+            licence = os.path.join(jd, "work", nan, "licence", "OFL.txt")   # staged, not the input itself
+            with open(os.path.join(self.root, "nanum", "OFL.txt"), "rb") as a, open(licence, "rb") as b:
+                self.assertEqual(a.read(), b.read())
             self.assertEqual(ttf["argv"], [toolrun.tool("svf2ttf", "/T") + [
                 "ttf", os.path.join(jd, face["output"]), os.path.join(jd, ttf["output"]), "--licence", licence]])
             self.assertEqual(bdf["argv"][0][3:6], ["bdf", os.path.join(jd, face["output"]), os.path.join(jd, bdf["output"])])
@@ -143,7 +145,7 @@ class ExportSettingsTest(unittest.TestCase):
             s = self.only("nanum/NanumGothic-Bold.ttf", bpp=[1], options={"export": {"ttf": True}},
                           licence={"kind": "text", "text": "Copyright X\n\nmy licence"})
             steps = settings.plan_steps({"fonts": self.fonts, "settings": s}, jd, "/T", self.root)
-            path = os.path.join(jd, "work", nan, "licence.txt")
+            path = os.path.join(jd, "work", nan, "licence", "licence.txt")
             self.assertEqual(steps[1]["argv"][0][-2:], ["--licence", path])
             with open(path, encoding="utf-8") as f:
                 self.assertEqual(f.read(), "Copyright X\n\nmy licence")
@@ -191,6 +193,85 @@ class ExportSettingsTest(unittest.TestCase):
         self.assertIn("%s: NANUM16.ttf already exists in svf/dos; choose another name" % fid, errors)
         self.assertEqual([e for e in settings.run_ready(self.fonts, s, naming.RepoIndex(out), self.root,
                                                         own_earlier={"dos/NANUM16.ttf"}) if "NANUM16.ttf" in e], [])
+
+
+class ExportLicenceStagingTest(unittest.TestCase):
+    """svf2ttf.py --licence follows the .TXT files a note names: the maker stages the licence and only the named files
+    the batch holds (through Sources), as UTF-8, so a link out of the root or an unpicked file is never embedded."""
+
+    def setUp(self):
+        self.tmp = os.path.realpath(tempfile.mkdtemp(prefix="svf-export-lic-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        import inputfx
+        self.a = os.path.join(self.tmp, "in", "a")
+        os.makedirs(self.a)
+        os.makedirs(os.path.join(self.tmp, "outside"))
+        with open(os.path.join(self.a, "Munjo.ttf"), "wb") as f:
+            f.write(inputfx.ttf("Munjo", (50, 0, 950, 800)))
+        with open(os.path.join(self.a, "LICENSE.txt"), "wb") as f:      # CP949, naming three files
+            f.write("문조 글꼴 Copyright 2026. See NOTICE.TXT, OTHER.TXT and FRIEND.TXT.\n".encode("cp949"))
+        with open(os.path.join(self.tmp, "outside", "secret.txt"), "w") as f:
+            f.write("SECRET outside the picked root\n")
+        os.symlink(os.path.join(self.tmp, "outside", "secret.txt"), os.path.join(self.a, "NOTICE.TXT"))
+        with open(os.path.join(self.a, "OTHER.TXT"), "w") as f:
+            f.write("OTHER: beside the font, not picked\n")
+        with open(os.path.join(self.a, "FRIEND.TXT"), "w") as f:
+            f.write("FRIEND: picked too\n")
+
+    def plan(self, roots, **over):
+        from sources import Sources
+        sources = Sources("local", roots)
+        fonts = detect.scan(sources, local=True)
+        s = settings.defaults(fonts, local=True)
+        fid = next(f["id"] for f in fonts if f["path"] == "Munjo.ttf")
+        lic = next(f for f in fonts if f["path"] == "LICENSE.txt")
+        s["fonts"][fid].update(selected=True, bpp=[1], options={"export": {"ttf": True}},
+                               licence={"kind": "upload", "path": "LICENSE.txt", "root": lic["root"]}, **over)
+        jd = tempfile.mkdtemp(prefix="svf-export-lic-job-", dir=self.tmp)
+        steps = settings.plan_steps({"fonts": fonts, "settings": s}, jd, os.path.join(REPO_DIR, "tools"), sources)
+        argv = steps[1]["argv"][0]
+        staged = argv[argv.index("--licence") + 1]
+        return staged, sorted(os.listdir(os.path.dirname(staged)))
+
+    def test_single_files_picked(self):
+        staged, names = self.plan([os.path.join(self.a, n) for n in ("Munjo.ttf", "LICENSE.txt", "FRIEND.TXT")])
+        self.assertEqual(names, ["FRIEND.TXT", "LICENSE.txt"])        # no link out of the root, no unpicked file
+        with open(staged, encoding="utf-8") as f:
+            self.assertIn("Copyright 2026", f.read())                   # CP949 bytes replaced, not a crash
+        out = os.path.join(self.tmp, "x.ttf")
+        r = subprocess.run([sys.executable, "-P", os.path.join(REPO_DIR, "tools", "svf2ttf.py"), "ttf", NEODG16, out,
+                            "--licence", staged], capture_output=True, text=True, timeout=300)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        from fontTools.ttLib import TTFont
+        with TTFont(out) as font:
+            desc = font["name"].getDebugName(13)
+        self.assertIn("FRIEND: picked too", desc)
+        self.assertNotIn("SECRET", desc)
+        self.assertNotIn("beside the font, not picked", desc)
+
+    def test_folder_picked(self):
+        _staged, names = self.plan([self.a])
+        self.assertEqual(names, ["FRIEND.TXT", "LICENSE.txt", "OTHER.TXT"])   # the link is still refused
+
+    def test_svf2ttf_route_takes_the_sources_note(self):
+        """An SVF read only for its exports, no licence chosen: the note beside it (and the OFL it names), as svf2ttf.py
+        would find them beside the source, staged through the batch."""
+        d = os.path.join(self.tmp, "svfin")
+        os.makedirs(d)
+        for name in ("NEODG16.SVF", "NEODGM.TXT", "OFL.TXT"):
+            shutil.copyfile(os.path.join(REPO_DIR, "svf", "dos", name), os.path.join(d, name))
+        from sources import Sources
+        sources = Sources("local", [d])
+        fonts = detect.scan(sources, local=True)
+        s = settings.defaults(fonts, local=True)
+        fid = next(f["id"] for f in fonts if f["path"] == "NEODG16.SVF")
+        s["fonts"][fid].update(selected=True, licence=None, precomposed_route="svf2ttf", options={"export": {"ttf": True}})
+        jd = tempfile.mkdtemp(prefix="svf-export-lic-job-", dir=self.tmp)
+        steps = settings.plan_steps({"fonts": fonts, "settings": s}, jd, os.path.join(REPO_DIR, "tools"), sources)
+        argv = steps[1]["argv"][0]
+        staged = argv[argv.index("--licence") + 1]
+        self.assertEqual((os.path.basename(staged), sorted(os.listdir(os.path.dirname(staged)))),
+                         ("NEODGM.TXT", ["NEODGM.TXT", "OFL.TXT"]))
 
 
 class ExportFactsTest(unittest.TestCase):
@@ -274,7 +355,7 @@ class ExportLocalJobTest(LocalRunBase):
         build = self.read_out("build-%s/BUILD.md" % jid).decode("utf-8")
         self.assertIn("python3 -P tools/svf2ttf.py ttf", build)
         self.assertRegex(build, r"svf2ttf\.py ttf \S+HAN16J\.SVF \S+ --composite\n")
-        self.assertRegex(build, r"svf2ttf\.py ttf \S+ \S+ --licence \S+/in/a/OFL\.txt\n")   # the TTF font's own licence
+        self.assertRegex(build, r"svf2ttf\.py ttf \S+ \S+ --licence \S+/licence/OFL\.txt\n")   # the TTF font's own, staged
         for f in files:
             if f.endswith((".ttf", ".bdf")):
                 self.assertIn("- written: %s" % f, build)
@@ -358,6 +439,45 @@ class SvfToTtfLocalJobTest(LocalBase):
         self.assertNotIn("written", face)
         ttf = next(s for s in job["steps"] if s.get("format") == "ttf")
         self.assertEqual(ttf["facts"]["glyphs"], 2905)
+
+    def svf_job(self, note_in_out=False):
+        src = os.path.join(self.tmp, "svfin")
+        os.makedirs(src, exist_ok=True)
+        shutil.copyfile(NEODG16, os.path.join(src, "NEODG16.SVF"))
+        jid = self.local_job(roots=[src])
+        job = self.job(jid)
+        st = job["settings"]
+        fid = next(f["id"] for f in job["fonts"] if f["path"] == "NEODG16.SVF")
+        st["fonts"][fid].update(selected=True, precomposed_route="svf2ttf", options={"export": {"ttf": True}})
+        status, body = self.api("PUT", "/api/jobs/%s/settings" % jid, st)
+        self.assertEqual(status, 200, body)
+        return jid, st["fonts"][fid]
+
+    def test_failed_exports_fail_an_export_only_job(self):
+        jid, _per = self.svf_job()
+        import jobs as jobsmod
+        real = jobsmod.run_command
+
+        def failing(argv, cwd, timeout, cancel, env=None):
+            if any("svf2ttf" in str(token) for token in argv[:3]):
+                return {"exit": 1, "stdout": "", "stderr": "", "seconds": 0.0, "error": None}
+            return real(argv, cwd, timeout, cancel, env)
+        from unittest import mock
+        with mock.patch.object(jobsmod, "run_command", failing):
+            job = self.run_to_done(jid)
+        self.assertEqual((job["state"], job["error"]), ("failed", "no successful step"))
+        self.assertEqual([s["state"] for s in job["steps"]], ["done", "failed"])     # the copy, the export
+
+    def test_note_and_licence_names_do_not_block_exports_only(self):
+        """svf2ttf writes no note or licence text: names of those already in svf/<dest>/ do not refuse the run."""
+        jid, per = self.svf_job()
+        os.makedirs(os.path.join(self.out, "svf", "dos"))
+        for name in (per["note_name"] or "NEODG.TXT", per["licence_name"] or "OFLNEODG.TXT"):
+            with open(os.path.join(self.out, "svf", "dos", name), "w") as f:
+                f.write("someone else's\n")
+        job = self.run_to_done(jid)
+        self.assertEqual(job["state"], "done", job.get("error"))
+        self.assertIsNone(next(s for s in job["steps"] if s["kind"] == "precomposed")["layout"])
 
     def read_lines(self, jid, name):
         with open(os.path.join(self.out, "build-%s" % jid, name), encoding="utf-8") as f:

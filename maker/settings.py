@@ -124,8 +124,12 @@ def _batch_defaults():
 # ---- defaults --------------------------------------------------------------------------------------------------
 
 def _font_kinds(font):
-    """The per-font `kinds` default: `jamo` alone for a native-jamo source, both for a composite TTF, else precomposed."""
+    """The per-font `kinds` default: `jamo` alone for a native-jamo source, both for a composite TTF, else precomposed;
+    a known set (`recipe`) the kinds its faces have, precomposed first when it has one (X Se Dae Quiz: jamo alone)."""
     kind = font.get("source_kind")
+    if kind == "recipe":
+        offered = [route.kind for route in routes.routes(font)]
+        return ["precomposed"] if "precomposed" in offered or not offered else ["jamo"]
     if kind in ("dos-raw", "bdf-johab", "svf-jamo", "mac-fbit3", "mac-fbit1", "hwp1"):
         return ["jamo"]
     if kind == "outline-composite":
@@ -410,6 +414,16 @@ def kind_route(font, eff, kind):
     return routes.route_for(font, kind, bool(eff.get("experimental")), labels[0], labels[1])
 
 
+def writes_face(font, eff):
+    """True when a selected kind of the font writes an SVF (its route is not export-only, as `svf2ttf` is): only then
+    does the job write the font's note and licence text, so only then are their names needed and checked."""
+    for kind in eff.get("kinds") if isinstance(eff.get("kinds"), list) else []:
+        route = kind_route(font, eff, kind) if isinstance(kind, str) else None
+        if route is not None and not route.export_only:
+            return True
+    return False
+
+
 def written_names(font, eff):
     """`[(name, what)]`: every file name a selected font's faces put in its destination, `what` = "face" for an SVF
     the job writes, "export" for a `.ttf` / `.bdf` export of a face. A face of an export-only route (`svf2ttf`) puts
@@ -608,6 +622,9 @@ def _ascent_cell_errors(fid, values, font=None, batch_covered=False):
         jamo_cell = font_sizes[0] if isinstance(font_sizes, list) and font_sizes else None
     elif kind == "bdf-johab":
         jamo_cell = box_h
+    elif kind == "recipe":                                   # a known set: its glyph height is the cell of both tools
+        font_sizes = font.get("sizes")
+        jamo_cell = box_h = font_sizes[0] if isinstance(font_sizes, list) and font_sizes else None
     if used & {"dos raw", "hanterm", "mac fbit 1.0", "hwp1", "hwp3 844"}:
         over("jamo_ascent", jamoset_options.get("jamo_ascent"), jamo_cell)
     if used & {"composite", "experimental fit", "mask fit", "vector fit"}:
@@ -1043,6 +1060,8 @@ def _route_errors(fid, font, eff, fmap=None, local=False):
     jamo_route = labels["jamo"]
     errors += _dy_errors(fid, eff, kinds, sizes)
     export = _export_formats(eff)
+    if (eff.get("options") or {}).get("export", {}).get("composite") is True and "ttf" not in export:
+        errors.append("%s: composite is a TTF option: tick \"also write TTF\"" % fid)
     for kind in kinds:
         route = routes.route_for(font, kind, bool(eff.get("experimental")), jamo_route, labels["precomposed"])
         if route is None:
@@ -1064,8 +1083,6 @@ def _route_errors(fid, font, eff, fmap=None, local=False):
         errors += _merged_flag_errors(fid, font, eff, route, sizes, bpps)
         if kind == "jamo" and font.get("source_kind") != "dos-raw" and route.layouts and eff.get("layout") not in route.layouts:
             errors.append("%s: layout %s is not offered for %s" % (fid, eff.get("layout"), kind))   # F7: dos_layout covers dos-raw
-        if (eff.get("options") or {}).get("export", {}).get("composite") is True and "ttf" not in export:
-            errors.append("%s: composite is a TTF option: tick \"also write TTF\"" % fid)
         if route.export_only and not export:
             errors.append("%s: svf2ttf writes a TTF or a BDF only: tick \"also write TTF\" or \"also write BDF\"" % fid)
     if font.get("source_kind") == "dos-raw":
@@ -1113,6 +1130,8 @@ def _route_errors(fid, font, eff, fmap=None, local=False):
         if preset["layout"] is not None and preset["layout"] != layout:
             errors.append("%s: preset %s is for layout %s" % (fid, preset_name, preset["layout"]))
     for key in ("licence_name", "note_name"):                 # a selected font needs both (F3)
+        if not writes_face(font, eff):
+            break                                             # exports only (svf2ttf): no note or licence text written
         value = eff.get(key) or ""
         if key == "licence_name" and local and eff.get("licence") is None:
             continue                                          # a local font converts without a licence
@@ -1376,6 +1395,8 @@ def run_ready(fonts, settings, index, sources, own_earlier=(), repo_index=None):
         for name in sorted(name for name, _what in written_names(font, eff)):
             if name.upper() in known and "%s/%s" % (dest, name) not in own_earlier:
                 add("%s: %s already exists in svf/%s; choose another name" % (fid, name, dest))
+        if not writes_face(font, eff):
+            continue                                          # exports only: its note and licence names are not written
         note_name = eff.get("note_name") or ""
         if (isinstance(note_name, str) and note_name and note_name.upper() in known
                 and "%s/%s" % (dest, note_name) not in own_earlier):
@@ -1391,7 +1412,8 @@ def run_ready(fonts, settings, index, sources, own_earlier=(), repo_index=None):
         all_names += [name for name, _what in written_names(font, eff)]
     for name in naming.duplicates(all_names):
         add("name %s is used twice" % name)
-    for message in _clash_errors(selected, repo, sources, licence_paths):
+    for message in _clash_errors([item for item in selected if writes_face(item[1], item[2])], repo, sources,
+                                 licence_paths):
         add(message)
     return errors
 
@@ -1518,30 +1540,81 @@ def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
     return toolrun.tool("svfdy", tools_dir) + [out if commands else src, out, "--json", path]
 
 
-def _export_licence(fid, eff, sources, work_root, tools_dir):
-    """The licence file `svf2ttf.py --licence` embeds in a font's exports: the licence the job knows for the font (an
-    input's licence file, a text under the checkout's `svf/`, or a typed text written to `work/<font id>/licence.txt`),
-    or None when the font has none (a local job's "not checked"): svf2ttf.py then says the source font's licence
-    applies."""
+# The licence files a note names (svf2ttf.licence_files_named's rule): followed only through the batch (below).
+_NAMED_TXT = re.compile(r"\b([A-Z0-9_-]+\.TXT)\b")
+LICENCE_STAGE = "licence"                    # work/<font id>/licence/: the texts svf2ttf.py --licence reads
+
+
+def _read_text_replace(path):
+    """@p path's text, UTF-8 with undecodable bytes replaced (a CP949 or Latin-1 licence still embeds)."""
+    with open(path, "rb") as f:
+        return f.read(naming.CHUNK_BYTES * 4).decode("utf-8", errors="replace")
+
+
+def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), export_only=False):
+    """The licence file `svf2ttf.py --licence` embeds in a font's exports, staged in `work/<font id>/licence/`: the
+    licence the job knows for the font (an input's licence file, a text under the checkout's `svf/`, or a typed text),
+    and every file it names that the batch holds too (an input's are resolved through @p sources: a name the note
+    mentions that is not one of the batch's files, or a link out of its root, is not followed). Each is written as
+    UTF-8 (undecodable bytes replaced), so svf2ttf.py reads nothing but the staged folder. An SVF read only for its
+    exports (@p export_only) with no licence chosen gets the licence files svf2ttf.py would find beside it, again only
+    those the batch holds. None when there is nothing: svf2ttf.py then says the source font's licence applies."""
+    import svf2ttf
+    sources = Sources.coerce(sources)
     licence = eff.get("licence")
-    if not isinstance(licence, dict):
-        return None
-    kind = licence.get("kind")
-    if kind == "upload" and isinstance(licence.get("path"), str):
-        return _upload_path(fid, licence["path"], sources, licence.get("root", 0))
-    if kind == "repo" and isinstance(licence.get("path"), str):
-        root = os.path.join(os.path.dirname(tools_dir), "svf")
-        full = os.path.normpath(os.path.join(root, licence["path"]))
-        if not full.startswith(root + os.sep):
-            raise ValueError("%s: licence path %s is outside svf/" % (fid, licence["path"]))
-        return full
-    if kind == "text" and isinstance(licence.get("text"), str):
-        folder = os.path.join(work_root, fid)
+    kind = licence.get("kind") if isinstance(licence, dict) else None
+    entries = {}                                 # real path -> True for every file of the batch (an input's own files)
+    for other in fonts:
+        try:
+            entries[os.path.realpath(sources.abs_of(other.get("root", 0), other.get("path")))] = True
+        except (ValueError, TypeError):
+            pass
+    folder = os.path.join(work_root, fid, LICENCE_STAGE)
+    shutil.rmtree(folder, ignore_errors=True)
+    staged = []
+
+    def stage(name, text):
         os.makedirs(folder, exist_ok=True)
-        path = os.path.join(folder, "licence.txt")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(licence["text"])
+        path = os.path.join(folder, os.path.basename(name))
+        if path not in staged:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            staged.append(path)
         return path
+
+    def stage_with_named(main_path, inside):
+        """Stage @p main_path and each file its text names beside it that @p inside(real path) allows."""
+        text = _read_text_replace(main_path)
+        main = stage(os.path.basename(main_path), text)
+        for name in _NAMED_TXT.findall(text):
+            sibling = os.path.realpath(os.path.join(os.path.dirname(main_path), name))
+            if name != os.path.basename(main_path) and os.path.isfile(sibling) and inside(sibling):
+                stage(name, _read_text_replace(sibling))
+        return main
+
+    if kind == "upload" and isinstance(licence.get("path"), str):
+        src = os.path.realpath(_upload_path(fid, licence["path"], sources, licence.get("root", 0)))
+        return stage_with_named(src, lambda real: real in entries)
+    if kind == "repo" and isinstance(licence.get("path"), str):
+        root = os.path.realpath(os.path.join(os.path.dirname(tools_dir), "svf"))
+        full = os.path.realpath(os.path.join(root, licence["path"]))
+        if not full.startswith(root + os.sep) or not os.path.isfile(full):
+            raise ValueError("%s: licence path %s is outside svf/" % (fid, licence["path"]))
+        return stage_with_named(full, lambda real: real.startswith(root + os.sep))
+    if kind == "text" and isinstance(licence.get("text"), str):
+        return stage("licence.txt", licence["text"])
+    if kind is None and export_only:
+        try:
+            src = os.path.realpath(_upload_path(fid, font.get("path"), sources, font.get("root", 0)))
+            found = [os.path.realpath(p) for p in svf2ttf.find_licence(src)[1]]
+        except (ValueError, OSError):
+            found = []
+        found = [p for p in found if p in entries and os.path.isfile(p)]
+        if found:
+            main = stage(os.path.basename(found[0]), _read_text_replace(found[0]))
+            for other in found[1:]:
+                stage(os.path.basename(other), _read_text_replace(other))
+            return main
     return None
 
 
@@ -1675,7 +1748,8 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
         master = None
         prepared_layouts = set()
         formats = _export_formats(eff)
-        licence_file = _export_licence(fid, eff, sources, work_root, tools_dir) if formats else None
+        licence_file = (_export_licence(fid, font, eff, sources, work_root, tools_dir, fonts,
+                                        export_only=not writes_face(font, eff)) if formats else None)
         for kind in ("precomposed", "jamo"):
             if kind not in (eff.get("kinds") or []):
                 continue
@@ -1710,7 +1784,7 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
                         raise ValueError("%s: no name for %s/%d/%d" % (fid, kind, size, bpp))
                     out = os.path.join(step_dir, name)
                     # a copy step (an SVF source) is not a jamo fit: it carries no layout of its own (F9)
-                    step_layout = None if kind == "precomposed" or route.label == "copy" else layout
+                    step_layout = None if kind == "precomposed" or route.label == "copy" or route.export_only else layout
                     paths = {"tools": tools_dir, "src": src, "out": out,
                              "work": step_dir, "eng": companion_abs, "latin": companion_abs, "master": master,
                              "range_file": range_file, "base": base, "pylib": pylib, "htbl": htbl_abs,

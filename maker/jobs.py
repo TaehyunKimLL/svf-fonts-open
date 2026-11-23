@@ -486,6 +486,14 @@ def materialized_argv(steps, sources, work_dir):
     return out
 
 
+def delivered(step):
+    """True when @p step made a file the job delivers: a `done` face step that is not export-only (route `svf2ttf` reads
+    its face for the exports alone), or a `done` export. A job is `done` only with one of these."""
+    if step.get("state") != "done":
+        return False
+    return step.get("kind") == "export" or (step.get("kind") in ("precomposed", "jamo") and not step.get("export_only"))
+
+
 def own_earlier(job):
     """The `<dest>/<NAME>` paths (relative to `svf/`) a local job wrote on an earlier run, from its top-level `owned`
     record (which `POST detect` and `POST run` never reset)."""
@@ -2105,7 +2113,7 @@ class Worker(threading.Thread):
             job["error"] = str(exc)
         else:
             job["result"] = result
-            if any(step.get("state") == "done" and step.get("kind") in ("precomposed", "jamo") for step in steps):
+            if any(delivered(step) for step in steps):
                 job["state"] = "done"
             else:
                 job["state"] = "failed"
@@ -2161,7 +2169,7 @@ class Worker(threading.Thread):
             result["files"] = landed + [rel for rel in kept if rel not in landed]
             result["output_dir"] = output_dir
             job["result"] = result
-            if any(step.get("state") == "done" and step.get("kind") in ("precomposed", "jamo") for step in steps):
+            if any(delivered(step) for step in steps):
                 job["state"] = "done"
             else:
                 job["state"] = "failed"
