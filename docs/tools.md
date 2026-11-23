@@ -1180,7 +1180,9 @@ bytes; screen fonts row-major, printer fonts column-major): `HANGUL.SFT` (16x16,
 `ASCII.SFT` / `ASCII.PFT` (8x16 / 14x24, 991: six faces of 147), `HANJA.SFT` (4,888), the symbol files (`other`). HWP 3.0
 `.FNT` (a 72-byte "FNT" 01 header: type 0 English, 1 Hangul, 2 hanja; LE16 width and height at 6 and 8; row-major
 glyphs): `HAN*.FNT` the 2,350 KS X 1001 syllables (+ a 360-glyph 8x4x4 set at 16 px), `ENG*.FNT` codes from 0x20,
-`HAJ16_0.FNT` the hanja. KS raw: a headerless file of exactly 2,350 square glyphs of 16, 24, 32, 40 or 48 px (75,200 /
+`HAJ16_0.FNT` the hanja; the glyph count is the body's, and one that differs from the header's is reported by `info`
+(HAN24 declares 2,710 and holds 2,350, ENG40 declares 147 and holds 96), an English FNT under the 95 codes 0x20-0x7E
+refused. The glyph order follows the height, not the file name: 24-row HWP 1.x fonts are column-major. KS raw: a headerless file of exactly 2,350 square glyphs of 16, 24, 32, 40 or 48 px (75,200 /
 169,200 / 300,800 / 470,000 / 676,800 bytes), its first and last glyph inked and different. Anything else is refused,
 as is a file over 16 MB. `--ascii` takes any English font `jamoset.py --eng` reads.
 
@@ -1190,7 +1192,8 @@ the faces' set counts, an HWP 3.0 font's name, the 8x4x4 tail). `bdf`: a BDF 2.1
 of KS X 1001; `--syllables all` all 11,172 of an HWP 1.x face), an English file's U+0020..U+007E (advance = glyph width),
 a hanja file's 4,888 hanja; with `--ascii` the English font's ASCII too (centred in height when shorter than the cell, its
 own advance). The ascent is `--ascent`, else the English face's baseline (the row below the ink of `H`), else 7/8 of the
-cell. One summary line (`wrote OUT: 2350 Hangul syllables, 95 ASCII of 14x24 from ASCII.PFT; cell 24x24, ascent 20`).
+cell. A blank U+0020 (half the cell wide) is written when the file brings none: FreeType takes a BDF's first glyph as
+`.notdef` and `mkfont.py` drops every glyph equal to it, which would drop U+AC00. One summary line (`wrote OUT: 2350 Hangul syllables, 95 ASCII of 14x24 from ASCII.PFT; cell 24x24, ascent 20`).
 
 **Synopsis.**
 

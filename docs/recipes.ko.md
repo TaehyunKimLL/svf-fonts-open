@@ -687,7 +687,7 @@ DOS용 HWP 2.x는 폰트를 `.HFT` 파일로 둔다(아래). HWP 2.x 화면 폰�
 **maker**(로컬 모드에서만. Mac 폰트와 같이 업로드 작업은 HWP 파일마다 "HWP font: not converted here (local-only mode)"로 보인다)는
 HWP 1.x 한글 파일을 페이스마다 하나씩 `hwp1` 항목 셋으로("HWP 1.x Hangul (printer .PFT, 24x24), face 1 of 3 (Gothic by HWP's menu
 order)") 경로 `hwp1`(자모, native)과 `hwp bdf + mkfont`(완성형)와 함께 보이고, 영문 파일은 라틴 짝으로("HWP 1.x English (--eng,
-14x24; face 0 of 6)") 보인다. 다른 파일은 `other`이다("HWP 1.x font: 4888 hanja of 16x16, not a Hangul face"). 위 파일의 사본에
+14x24; face 0 of 6)") 보인다. 이 짝은 HWP와 KS 페이스에만 주어진다(DOS 원시 폰트의 경로는 원시 영문 폰트를 읽는다). 다른 파일은 `other`이다("HWP 1.x font: 4888 hanja of 16x16, not a Hangul face"). 위 파일의 사본에
 `detect.scan(..., local=True)`와 `routes.routes`를 돌리고 모든 경로의 명령을 실행해 확인했다(2026-11-23). `hwp1` 경로는 표의
 16,712 바이트 페이스를, `hwp bdf + mkfont`는 218,748 바이트 페이스를 쓴다.
 
@@ -718,7 +718,7 @@ DOS용 HWP 3.0 CD(한글과컴퓨터, 1995; archive.org `hwp-30-dos`; 독점)로
 | `HAN24_0.FNT`("고딕체 24*24", 169,272 바이트), `--ascii ENG24_0.FNT`(12x24) | 완성형 | `218,472 바이트`; `width=216 ascent=22 descent=2`, 잉크 972 |
 | `HAN24_1.FNT`("명조체 24*24"), `--ascii ENG24_0.FNT` | 완성형 | `220,044 바이트`, 잉크 984 |
 | `HAN40_0.FNT`("명조체 40*40", 470,072 바이트), `--ascii ENG40_0.FNT`(20x40) | 완성형 | `492,420 바이트`; `width=360 ascent=34 descent=6`, 잉크 2,289 |
-| `96MT.FNT`("문화부 바탕체 96*96", 2,707,272 바이트), 영문 폰트 없음 | 완성형, `--size 96` | `2,153,212 바이트`; `width=480 ascent=84 descent=12`, 잉크 6,058(`line 480 104 0 96`) |
+| `96MT.FNT`("문화부 바탕체 96*96", 2,707,272 바이트), 영문 폰트 없음 | 완성형, `--size 96` | `2,154,232 바이트`, 음절 2,350자 모두; `width=576 ascent=84 descent=12`, 잉크 6,058(`line 576 104 0 96`. BDF의 빈 U+0020이 48씩 나아간다) |
 | `HAN24_0` / `HAN40_0` 페이스 | `jamoset.py --layout 844 --from-svf --mask-font none` | `28,928` / `64,904 바이트`, IoU 0.819 / 0.687 |
 
 16 px FNT의 음절 2,350자가 모두 그 자모 세트의 조합인 것은 아니다. 8x4x4 세트가 조합하는 것과 같은 음절은 2,083자(`HAN16_0`),

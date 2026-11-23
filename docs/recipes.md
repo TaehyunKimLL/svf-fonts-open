@@ -744,7 +744,7 @@ points (`hwpfont.py bdf`), which no route turns into a face.
 **The maker** (local mode only, as for the Mac fonts: an upload job lists each HWP file as "HWP font: not converted here
 (local-only mode)") lists an HWP 1.x Hangul file as three `hwp1` entries, one a face ("HWP 1.x Hangul (printer .PFT,
 24x24), face 1 of 3 (Gothic by HWP's menu order)"), with the routes `hwp1` (jamo, native) and `hwp bdf + mkfont`
-(precomposed), and the English files as Latin companions ("HWP 1.x English (--eng, 14x24; face 0 of 6)"); the other
+(precomposed), and the English files as Latin companions ("HWP 1.x English (--eng, 14x24; face 0 of 6)"), offered to HWP and KS faces only (a DOS raw font's routes read the raw English fonts); the other
 files are `other` ("HWP 1.x font: 4888 hanja of 16x16, not a Hangul face"). Checked with `detect.scan(..., local=True)`
 and `routes.routes` on copies of the files above, and every route's commands run on them (2026-11-23): the `hwp1` route
 writes the 16,712-byte face of the table, `hwp bdf + mkfont` the 218,748-byte one.
@@ -777,7 +777,7 @@ faces with `hwpfont.py bdf`, `mkfont.py` at the cell size and `svf2to3.py --prof
 | `HAN24_0.FNT` ("고딕체 24*24", 169,272 bytes), `--ascii ENG24_0.FNT` (12x24) | precomposed | `218,472 bytes`; `width=216 ascent=22 descent=2`, ink 972 |
 | `HAN24_1.FNT` ("명조체 24*24"), `--ascii ENG24_0.FNT` | precomposed | `220,044 bytes`, ink 984 |
 | `HAN40_0.FNT` ("명조체 40*40", 470,072 bytes), `--ascii ENG40_0.FNT` (20x40) | precomposed | `492,420 bytes`; `width=360 ascent=34 descent=6`, ink 2,289 |
-| `96MT.FNT` ("문화부 바탕체 96*96", 2,707,272 bytes), no English font | precomposed, `--size 96` | `2,153,212 bytes`; `width=480 ascent=84 descent=12`, ink 6,058 (`line 480 104 0 96`) |
+| `96MT.FNT` ("문화부 바탕체 96*96", 2,707,272 bytes), no English font | precomposed, `--size 96` | `2,154,232 bytes`, all 2,350 syllables; `width=576 ascent=84 descent=12`, ink 6,058 (`line 576 104 0 96`; the BDF's blank U+0020 steps 48) |
 | the `HAN24_0` / `HAN40_0` faces | `jamoset.py --layout 844 --from-svf --mask-font none` | `28,928` / `64,904 bytes`, IoU 0.819 / 0.687 |
 
 The 16 px FNTs' 2,350 syllables are not all their jamo set's composition: 2,083 (`HAN16_0`), 1,788 (`_1`), 2,221 (`_2`),
