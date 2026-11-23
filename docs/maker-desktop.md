@@ -71,7 +71,7 @@ deadlock them.
 | Frozen test | 26 tests, 0 skipped: byte-equal to the pinned wheels under `env -i`, frozen jobs and notes equal source mode |
 | Electron task counts (`--no-sandbox --disable-gpu` under xvfb) | one instance 87, second-instance case 114 (planning measurements, with the GPU 143 and 170); the lifecycle test's peak was 79-80 |
 | Debian Pillow comparison | equal |
-| `sample set` e2e step | dev 10.4 s, packaged 15.0 s (14 steps, 10 faces; whole e2e 48 s with no lock wait) |
+| `sample set` e2e step | dev 12.6 s, packaged 14.9 s (17 steps: 10 faces and 3 TTF / BDF exports; 2026-11-24, commit 8c10dc1); before the exports dev 10.4 s, packaged 15.0 s (14 steps) |
 
 ### Sample set (e2e, t_30b843b8)
 

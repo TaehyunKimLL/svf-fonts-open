@@ -72,7 +72,7 @@ Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
 | 동결 테스트 | 테스트 26개, 건너뜀 0: `env -i`에서 고정된 wheel과 바이트 단위로 같음, 동결된 작업과 노트가 소스 모드와 같음 |
 | Electron 태스크 수 (xvfb 아래 `--no-sandbox --disable-gpu`) | 인스턴스 하나 87, 두 번째 인스턴스 경우 114 (계획 단계 측정, GPU 포함 143과 170); 수명 주기 테스트의 최대값은 79-80 |
 | Debian Pillow 비교 | 같음 |
-| `sample set` e2e 단계 | dev 10.4 초, 패키지 15.0 초 (14단계, 페이스 10개; 락 대기가 없을 때 전체 e2e 48 초) |
+| `sample set` e2e 단계 | dev 12.6 초, 패키지 14.9 초 (17단계: 페이스 10개와 TTF / BDF 내보내기 3개; 2026-11-24, 커밋 8c10dc1); 내보내기 이전 dev 10.4 초, 패키지 15.0 초 (14단계) |
 
 ### Sample set (e2e, t_30b843b8)
 
