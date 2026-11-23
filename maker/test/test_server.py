@@ -1096,7 +1096,7 @@ class ApiTest(ApiBase):
         self.assertIn("has no code that makes an outbound connection and sends nothing anywhere (no telemetry, no crash "
                       "upload, no update check)", readme)
         self.assertNotIn("the tests pin that", readme)                          # the evidence is weaker: section 8 says how
-        self.assertIn("HANGUL*.PFT is not read; ASCII.PFT is a companion", readme)
+        self.assertIn("HWP 1.x: each `HANGUL.SFT` / `HANGULn.PFT` face (three a file) through `jamoset.py --layout", readme)
         self.assertIn("SVF_RECOG_DIR", readme)
         self.assertIn("responsibility", readme)
         self.assertIn("The maker (`maker/`) has a local mode for such fonts", notice)
