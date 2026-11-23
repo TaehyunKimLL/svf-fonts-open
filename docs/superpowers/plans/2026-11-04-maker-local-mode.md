@@ -1,5 +1,10 @@
 # Maker local-only mode for proprietary inputs Implementation Plan
 
+> **Correction (2026-11-23, t_d4cf7f46).** Where this document calls `ASCII.PFT` a 12x24 English font of 12,288 bytes,
+> it means the 12x24 `.PFT` layout of Taebaek 3.5.1 (`GASCII24.PFT` / `MASCII24.PFT`), which the tests build under the
+> name `ASCII.PFT`. HWP 1.x's own `ASCII.PFT` is 14x24 (41,654 bytes: a 32-byte header and 991 glyphs); since t_d4cf7f46
+> it is read by its header (`tools/hwpfont.py`, docs/recipes.md "HWP 1.x and 2.x fonts").
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The SVF maker gets a local mode, switched on by a per-launch token. In that mode it reads inputs the user
@@ -28,7 +33,7 @@ basenames in notes. D5 `report.json`/`identity.json` are kept in the metadata di
 D7 a prefilled "proprietary, own use" text licence. D8 archives are listed, not unpacked. D9 no HWP Hangul `.PFT`
 reader. D10 uploads stay available. D11 macOS named forks as an optional, env-gated commit (Task 13). D12 a
 non-loopback bind is refused only with the token. D13 no zip for local jobs. D14 all three Mac 7.1 routes. D15 the
-12x24 `ASCII.PFT` companion from anywhere in the batch. These stand. Where this plan has to choose inside a ruling, it
+12x24 `.PFT` companion (`ASCII.PFT` in the tests) from anywhere in the batch. These stand. Where this plan has to choose inside a ruling, it
 says so, and the choice is listed again under "Design issues found while planning".
 
 ## Global Constraints
