@@ -188,7 +188,9 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
   실행했다(recipes.ko.md). 작성자 호스트의 시스템에는 라이브러리가 여전히 없어서 maker의 정체성 검사는 스텁으로만 테스트했다. 실제 Mac, HWP,
   Johab 파일은 환경 변수가 사용자 자신의 사본을 가리킬 때만 테스트되고, 저장소의 테스트는 합성 입력을 쓴다. 레시피는 2026-11-22에 실제 원본
   (Mac fbit 1.0 / 7.1, HWP 1.20 / 2.1, DOS 원시 폰트, 스트라이크, hanterm, HBF)으로 실행했고(recipes.ko.md), 그 실행에서 나온 빈틈은 `docs/tools.ko.md`
-  "도구의 남은 한계"에 있다: Windows FNT/FON은 아무것도 그리지 못하고, 비트맵 전용 Mac TrueType은 advance 0으로 구워지며, maker가 실제 HangulTalk 1.0
-  `fbit`를 type 3으로 감지한다. `.dfont`와 SAGA IHNM(`844-ihnm`)은 원본을 찾지 못해 실행하지 않았다.
+  "도구의 남은 한계"에 있다: Windows FNT/FON은 아무것도 그리지 못한다(maker는 경로 없이 "no Unicode character map"으로 표시한다). 그 실행의
+  다른 빈틈은 고쳐 병합됐다: maker는 HangulTalk 1.0 `fbit`를 서술자 표로 감지해 `mac fbit 1.0` 경로를 주고, `.bin.gz`뿐인 HBF를 라틴 절반으로
+  받는다(faf981e). 비트맵 전용 Mac TrueType은 스트라이크의 advance로 구워진다(t_cf52974e), `--eng`는 40 / 48 px 영문 폰트도 받는다(t_262e222d;
+  둘 다 main 2e80647). `.dfont`와 SAGA IHNM(`844-ihnm`)은 원본을 찾지 못해 실행하지 않았다.
 - **AppImage는 비트 단위로 재현되지 않고** 자동 갱신도 없다. LGPL 소스 보관은 릴리스 게이트다.
 - 이 저장소는 공개 전까지 비공개이다 (`docs/maker-desktop.md`).
