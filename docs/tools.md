@@ -43,7 +43,7 @@ Both kinds may carry a **dy** range; a jamo set composes its syllables at dy 0 (
 
 A **layout** is a jamo set's set system: the lead and tail classes, the initial/medial/final set tables, and the piece
 tables. The named layouts are `844` (the DOS 8x4x4 standard), `844-ihnm`, `844-hbios24`, `1044-san`, `621`, `hanterm-johab`,
-`dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets` and `adaptive[:NI,NM,NF]`.
+`dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets`, `spec` and `adaptive[:NI,NM,NF]`.
 
 The one-paragraph map: `mkfont.py` bakes **precomposed faces** from an outline font and `bdfface.py`/`johab844.py`
 from a bitmap one;
@@ -82,7 +82,11 @@ HangulTalk, HWP 1.x) but is not tied to one game.
 - an HWP 1.x `HANGUL.SFT` / `HANGUL1/2/3.PFT` (`hwp1`, `--face 0..2`): the JSET tables are HWP.EXE's own rule for the
   face, read through `hwpfont.py`; an HWP 3.0 `HAN16_*.FNT` (`844-hwp3`: the 360-glyph 8x4x4 set after its 2,350
   syllables);
-- `--eng` a raw 8x16 DOS English font (2048 or 4096 bytes), or an HBIOS 12x24 (15360) / PFT 12x24 (12288) / Taebaek PFT 20x40 (30720, GASCII40) / 24x48 (49152, GASCII48), or an HWP English font: an HWP 1.x `ASCII.SFT` (8x16) / `ASCII.PFT` (14x24, step 14; face `--eng-face` of six) or an HWP 3.0 `ENG*.FNT` (8x16, 12x24, 20x40), recognised by its header;
+- any font a `rawcarve.py` compose spec describes (`spec`, with `--spec SPEC.json` or the built-in `spc1500`): the
+  positional file is the bytes the spec's offsets point into, and the JSET is the spec's own rule, exact;
+- `--eng` a raw 8x16 DOS English font (2048 or 4096 bytes), a 16x16 one (8192 bytes: 256 glyphs of 16 rows of 2 bytes, as
+  `rawcarve.py eng --width 16` writes; it steps by the right edge of the ink of 0-9, A-Z and a-z plus their smallest left
+  margin (16 when none has ink), or by `--eng-advance`), or an HBIOS 12x24 (15360) / PFT 12x24 (12288) / Taebaek PFT 20x40 (30720, GASCII40) / 24x48 (49152, GASCII48), or an HWP English font: an HWP 1.x `ASCII.SFT` (8x16) / `ASCII.PFT` (14x24, step 14; face `--eng-face` of six) or an HWP 3.0 `ENG*.FNT` (8x16, 12x24, 20x40), recognised by its header;
 - `--base` an SVFN v3 face (its non-syllable glyphs are kept; a v2 face is refused with the convert message (`tools/svf2to3.py`));
 - `--from-ttf` an outline TTF/OTF, read with freetype-py for 1 bpp `mono` targets and with fontTools (via `jamoaa.py`)
   for 2 bpp and for `--binarize threshold|ridge`;
@@ -108,9 +112,11 @@ where the table says "refused".
 
 | Option (default) | Modes | Meaning |
 |---|---|---|
-| `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` and `hwp1` are modes of their own (the positional file is the `fbit` resource fork, the HWP 1.x Hangul file) |
+| `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` and `hwp1` are modes of their own (the positional file is the `fbit` resource fork, the HWP 1.x Hangul file) |
 | `--face N` (0) | `source`, `hwp1` | typeface of a Dokkaebi printer font (0 or 1), of an HWP 1.x Hangul file (0, 1, 2) |
 | `--eng FILE` (none) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | raw 8x16 English font for ASCII (2048 or 4096 bytes; the 12x24, 20x40 and 24x48 faces and the HWP English fonts above also read); refused with `--bpp 2` and with `mac-fbit-45sets` |
+| `--spec SPEC.json\|spc1500` (none) | `spec` | the `rawcarve.py` compose spec of the positional file (a JSON file, or the built-in `spc1500`: that name always means the built-in, a file of that name is given as `./spc1500`); a JSET initial set per initial piece set the spec names (its `novowel` set first), a medial set per medial table (`nofinal`, `final`, and the `*_kk` tables, which make two lead classes), a final set per final piece set, two tail classes; refused with another layout |
+| `--eng-advance N` (none) | where `--eng` is | the step of the `--eng` glyphs of a 16x16, 12x24, 20x40 or 24x48 English font (1..255; refused for an 8x16 one, which steps by 8) |
 | `--eng-face N` (0) | where `--eng` is | the face of an HWP 1.x `ASCII.SFT` / `ASCII.PFT` given as `--eng` (0..5: Myeongjo, Gothic, superscript, subscript, italic, script by HWP's menu) |
 | `--base FILE` (none) | `source`, `hwp1`, `--from-ttf` | SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp); ignored by `--from-svf` (the input face is the base); refused with `--bpp 2` and with `mac-fbit-45sets` |
 | `-o`, `--output` (required) | all | output path |
@@ -121,7 +127,7 @@ where the table says "refused".
 | `--ascent N` (none) | `source`, `mac-fbit-45sets`, `hwp1` | the SVF's baseline row (the `--eng` face's baseline for a 12x24, 20x40 or 24x48 face, else 7/8 of the cell); ignored by the fit modes, which take it from the fitted face |
 | `--embolden` (off) | `source`, `mac-fbit-45sets`, `hwp1` | OR every piece and ASCII glyph with itself shifted right 1 px; ignored by the fit modes, refused with `--bpp 2` |
 | `--symbols` (off) | `source`, `mac-fbit-45sets`, `hwp1`, `--bpp 2` | add U+2026 and U+25A1; ignored by 1 bpp `--from-ttf`/`--from-svf` |
-| `--check` (off) | `source`, `mac-fbit-45sets`, `hwp1`, `--from-ttf`, `--from-svf`, `--bpp 2` | compose all 11,172 syllables from the output and verify (`844` and `844-hwp3` at 16 px: also against `johab844.py`; `hwp1`: also against `hwpfont.py`'s HWP rule, printing `hwp1: 11172 syllables identical to the HWP 1.x rule (hwpfont.py)`) |
+| `--check` (off) | `source`, `mac-fbit-45sets`, `hwp1`, `--from-ttf`, `--from-svf`, `--bpp 2` | compose all 11,172 syllables from the output and verify (`844` and `844-hwp3` at 16 px: also against `johab844.py`; `hwp1`: also against `hwpfont.py`'s HWP rule, printing `hwp1: 11172 syllables identical to the HWP 1.x rule (hwpfont.py)`; `spec`: also every syllable against `rawcarve.py compose`, printing `all 11172 syllables identical to rawcarve.py compose`) |
 | `--from-ttf FONT` (none) | mode | fit the pieces to the outline font's syllables at `--size` |
 | `--from-svf FACE.SVF` (none) | mode | decompose a 1 bpp precomposed SVFN face (refused at any other bpp) |
 | `--size N` (none) | `--from-ttf` | pixel size |
@@ -182,7 +188,9 @@ donors), freetype-py and uharfbuzz (for the mask font and for `--from-ttf` at 1 
 without them, `--from-ttf` fails unless `--binarize threshold|ridge` or `--bpp 2` is given, and the mask font is
 skipped with a message.
 
-**Test.** `tools/test_jamoset.py`; `tools/test_hwpfont.py` (`hwp1`, `844-hwp3`, the HWP `--eng`).
+**Test.** `tools/test_jamoset.py`; `tools/test_hwpfont.py` (`hwp1`, `844-hwp3`, the HWP `--eng`); `tools/test_tiles.py`
+(`spec`: the built-in `spc1500` spec against an independent reading of MAME's drawing code, an 8x4x4 spec with two lead
+classes against `johab844.py`, a spec with its own vowel order and a half-cell set; the 16x16 `--eng`, `--eng-advance`).
 
 ### `tools/mkfont.py`
 
@@ -1075,7 +1083,17 @@ offset, so a person or an assistant can see where a font starts and how it is st
 ceil(W/8) bytes a row), `strips` (8-pixel-wide strips of H bytes one after another: the Korean VGA font ROMs and the
 6x2x1 fonts, jamoset's `g_bytecols`), `cols` (column-major, MSB at the top: the Dokkaebi printer layout), `bytecols`
 (8-row bands of W bytes, one byte a column, bit 7 the band's top row), `--lsb` (bit 0 = the left pixel, or the top one
-in `cols` / `bytecols`). `render` reads only the bytes it draws (`--count` 1..4096, `--cols` 1..64, `--scale` 1..32),
+in `cols` / `bytecols`), `--invert` (ink is the 0 bits: ROMs stored as paper, such as the Samsung SPC-1500's).
+Multi-bit tiles (arcade sprite and tile ROMs): `--gfx LAYOUT`, a preset `WxHxN_packed_lsb` / `WxHxN_packed_msb` (N bits a
+pixel row after row; `_lsb` puts a byte's first pixel in its low bits, MAME's `gfx_16x16x4_packed_lsb`) or the driver's
+MAME `gfx_layout` as `planes=..;x=..;y=..;inc=N` (bit offsets from the tile's start, bit 0 the MSB of its first byte,
+`planes` from the pen's high bit; MAME's `STEP2` .. `STEP1024(start,step)` and their `_INV` forms (the same offsets
+reversed; MAME defines `STEP2_INV` and `STEP4_INV`, the larger ones are accepted too), `RGN_FRAC(a,b)` = a/b of the file in bits, `+ - * /`, decimal numbers without a leading 0 and 0x hex; copy
+the lists without their braces and without C comments; at most 1,024 offsets a list and 32 levels of nesting, offsets
+up to 2^36); the file is then the ROM region (`rawcarve.py region`). A pixel is ink when its pen is not `--bg PEN` (0), or, with
+`--fg PEN[,PEN...]`, when it is one of those (the body of an outlined glyph; `--bg` and `--fg` are two rules: give one,
+and only with `--gfx`); `--invert` swaps ink and paper. `--glyph`
+defaults to the tile's size and `--stride` to its `inc`. `render` reads only the bytes it draws (`--count` 1..4096, `--cols` 1..64, `--scale` 1..32),
 `info` a block at a time.
 
 **Outputs.** Text on stdout; `render --png` writes a grey PNG (zlib, no Pillow).
@@ -1083,10 +1101,10 @@ in `cols` / `bytecols`). `render` reads only the bytes it draws (`--count` 1..40
 **Synopsis.**
 
     python3 tools/binscan.py info FILE [--block B]
-    python3 tools/binscan.py runs FILE --glyph WxH [--min N] [--max-change C] [--start O] [--length N]
-    python3 tools/binscan.py sets FILE [--sets NI,NM,NF] [--slots SI,SM,SF] [--glyph WxH] [--min-inked F] [--start O] [--length N]
-    python3 tools/binscan.py ascii FILE [--height H] [--start O] [--length N]
-    python3 tools/binscan.py render FILE --offset O --glyph WxH [--count N] [--cols C] [--png OUT --scale S]
+    python3 tools/binscan.py runs FILE (--glyph WxH | --gfx LAYOUT [--bg PEN | --fg PENS]) [--invert] [--min N] [--max-change C] [--start O] [--length N]
+    python3 tools/binscan.py sets FILE [--sets NI,NM,NF] [--slots SI,SM,SF] [--glyph WxH] [--invert] [--min-inked F] [--start O] [--length N]
+    python3 tools/binscan.py ascii FILE [--height H] [--invert] [--start O] [--length N]
+    python3 tools/binscan.py render FILE --offset O (--glyph WxH | --gfx LAYOUT [--bg PEN | --fg PENS]) [--invert] [--count N] [--cols C] [--png OUT --scale S]
 
 | Command | What it prints |
 |---|---|
@@ -1097,10 +1115,15 @@ in `cols` / `bytecols`). `render` reads only the bytes it draws (`--count` 1..40
 | `render` | the glyphs from an offset, as `#`/`.` text labelled with index and file offset, or as a PNG |
 
 `runs`, `sets` and `ascii` try every offset of the window they scan: `--start O` / `--length N` name the window (offsets
-printed stay file offsets), and a window above 16 MiB is refused (scan a large file in overlapping windows). Use
-`--order strips` for the Korean VGA font ROMs. Exit 0; argparse errors (a zero or negative `--block`, `--step`,
+printed stay file offsets), and a window above 16 MiB is refused (scan a large file in overlapping windows); `runs --gfx`
+reads the whole file (a tile's planes may lie anywhere in it) and scans the window; `runs` and `render` (its default
+`--count`) take only tiles whose whole footprint is in the file; `sets` refuses `--gfx`, `--bg` and `--fg` (write an
+ink map with `rawcarve.py ink` first). Use `--order strips` for the Korean VGA font ROMs. Exit 0; argparse errors
+(a `--gfx` layout that does not parse, lacks one of its four keys, has an `inc` that is not whole bytes, a background or
+ink pen outside the planes, a `--glyph` that is not the tile's, `--fg` without `--gfx`; a zero or negative `--block`, `--step`,
 `--stride`, `--glyph`, `--count`, ...) exit 2. **Repository modules imported.** None. **Third-party.** None. **Test.**
-`tools/test_extract.py`.
+`tools/test_extract.py`; `tools/test_tiles.py` (`--invert`, `--gfx` presets and a driver's layout string against tiles
+built by hand, `--bg`, `--fg`, the refusals).
 
 ### `tools/nkpspec.py`
 
@@ -1133,20 +1156,31 @@ rule written as a JSON spec.
 
 **Status.** General-purpose.
 
-**Inputs.** Any file; for `compose` a spec (below). Geometry options as `binscan.py`.
+**Inputs.** Any file; for `region` the ROM files of a MAME region; for `compose` a spec (below). Geometry options as
+`binscan.py` (with `--invert`, `--gfx`, `--bg`, `--fg`).
 
 **Outputs.** `cut`: the bytes. `eng`: 4,096 bytes (256 glyphs of 8x16; an 8xH font padded to 16 rows, `--top` rows
-above). `bdf`, `compose`: a BDF with `CHARSET_REGISTRY "ISO10646"`, `CHARSET_ENCODING "1"`, `PIXEL_SIZE` = the glyph
+above), or with `--width 16` 8,192 bytes (256 glyphs of 16x16, 2 bytes a row); `--first C` is the code of the glyph at
+the offset and `--count N` how many are read (the other codes stay blank), `--invert` reads the 0 bits as ink. `region`: the files of each group (`A,B[,C,D]`) interleaved `--unit` 1, 2
+or 4 bytes at a time (MAME's `ROM_LOAD16_BYTE` / `ROM_LOAD32_BYTE` = 1, `ROM_LOAD32_WORD` / `ROM_LOAD64_WORD` = 2), the
+groups one after another, `--swap` swapping the bytes of each word (`ROM_LOAD16_WORD_SWAP`); files of a group must have
+the same size, a whole number of units; at most 64 MiB (checked from the files' sizes before reading; an empty group is refused). `ink`: the glyphs from
+`--offset` (`--count`, default all that fit; more than fit is refused) as plain 1 bpp row-major glyphs one after another, ceil(W/8) x H bytes each: an inverted, strip-ordered or
+multi-bit font made into the bytes `binscan.py sets`, `rawcarve.py cut` / `eng` / `bdf` and `jamoset.py --layout 844`
+read. `bdf`, `compose`: a BDF with `CHARSET_REGISTRY "ISO10646"`, `CHARSET_ENCODING "1"`, `PIXEL_SIZE` = the glyph
 height, `FONT_ASCENT` = `--ascent` (default 7/8 of the height, rounded up), every glyph the full cell; blank KS glyphs
 are left out.
 
 **Synopsis.**
 
     python3 tools/rawcarve.py cut FILE --offset O --length N -o OUT
-    python3 tools/rawcarve.py eng FILE --offset O [--height H] [--top T] -o OUT
-    python3 tools/rawcarve.py bdf FILE [--offset O] --glyph WxH --chars ascii|ks-hangul|ks-nonhanja|ks-all \
-        [--first C] [--count N] [--dense | --grid L0,T0,PITCH] [--ascent A] -o OUT.bdf
-    python3 tools/rawcarve.py compose FILE --spec SPEC.json [--syllables ks|all] \
+    python3 tools/rawcarve.py eng FILE --offset O [--height H] [--top T] [--first C] [--count N] [--width 8|16] [--invert] -o OUT
+    python3 tools/rawcarve.py region FILE[,FILE...] [FILE[,FILE...] ...] [--unit 1|2|4] [--swap] -o OUT
+    python3 tools/rawcarve.py ink FILE (--glyph WxH [--order O] | --gfx LAYOUT [--bg PEN | --fg PENS]) [--invert] \
+        [--offset O] [--count N] -o OUT
+    python3 tools/rawcarve.py bdf FILE [--offset O] (--glyph WxH | --gfx LAYOUT) [--invert] \
+        --chars ascii|ks-hangul|ks-nonhanja|ks-all [--first C] [--count N] [--dense | --grid L0,T0,PITCH] [--ascent A] -o OUT.bdf
+    python3 tools/rawcarve.py compose FILE --spec SPEC.json|spc1500 [--invert] [--syllables ks|all] \
         [--eng FILE2 --eng-offset O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
 
 `bdf --chars ks-*` places each KS X 1001 code by `--dense` (glyph i = the i-th code of the set: a 2,350-syllable dump)
@@ -1157,13 +1191,20 @@ refused; `cut`, `eng` and `bdf` read only the bytes they use (through the last g
 `--stride` shorter than a glyph), `compose` reads the whole file (up to 64 MiB). A compose
 spec with a cell outside 1..256, a negative piece, an unknown set or `--eng-top` + `--eng-height` past the cell is
 refused with a message. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
-`x`, `y`, `width`, `height`, `order`), the initial set per vowel without and with a final, the medial (set, piece) per
+`x`, `y`, `width`, `height`, `order`, and optionally `lsb`, `invert`, `gfx` with `bg` / `fg`; a top-level `"invert": true`
+or `--invert` inverts every set that does not say `"invert": false`, and the `--eng` font), the initial set per vowel without and with a final, the medial (set, piece) per
 vowel (optionally another table for ㄱ / ㅋ, the 8x4x4 rule), the final set per vowel or one set, and the font's own
-vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). Exit 1 with a message on
+vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). `--spec spc1500` (the name always
+means it; a JSON file of that name is `./spc1500`) is the built-in spec of the Samsung SPC-1500 Hangul ROMs (`spc1500_spec`, from MAME's
+`spc1500.cpp`), for the 32 KB region of `ss150fnt.bin` .. `ss153fnt.bin` one after another; `jamoset.py --layout spec`
+reads the same specs. Exit 1 with a message on
 a bad offset, spec or empty result.
 
 **Repository modules imported.** `binscan.py`. **Third-party.** None. **Test.** `tools/test_extract.py` (a carved
-8x4x4 font builds with `jamoset.py`; a KS grid ROM; a compose spec of the 8x4x4 rule equals jamoset's composition).
+8x4x4 font builds with `jamoset.py`; a KS grid ROM; a compose spec of the 8x4x4 rule equals jamoset's composition);
+`tools/test_tiles.py` (inverted fonts through `eng`, `ink`, `bdf` and `compose`; `region` interleaves, groups and swaps;
+`ink` and `bdf` of packed and planar tiles; the built-in `spc1500` spec; with `MAME_ROMS` set, the real SPC-1500, Date
+Quiz Go Go and X Se Dae Quiz ROMs by hash).
 
 ### `tools/os2dbcs.py`
 

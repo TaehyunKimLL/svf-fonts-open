@@ -18,13 +18,16 @@ section 3, docs/johab/2026-10-14-johab-font-formats.md section 2):
   dkb-printer-7x2x2    Dokkaebi printer HANGUL16/24.FNT (--face 0|1)
   dkb-printer-12x4x4   Dokkaebi printer HANGUL40/48.FNT (--face 0|1)
   kyra-lok         Kyra LoK MK15.BIT, jamo-major 10x4x4, 15x15
+  spec             any font a rawcarve.py compose spec describes (--spec FILE.json, or the built-in spc1500): the
+                   spec's own sets and rule, exact (--check compares every syllable with rawcarve.py compose)
 
   python3 jamoset.py --layout 844 GAM.KOR --eng SAN.ENG -o KOGAMJ.SVF --check
   python3 jamoset.py --layout dkb-printer-12x4x4 --face 1 HANGUL48.FNT -o DKB48J.SVF
 
 Only pieces some syllable (or compatibility jamo) uses are written, numbered
 in source order. ASCII comes from --eng (a raw 8x16 DOS English font, row
-major, 2048 or 4096 bytes; scaled by whole numbers to the cell) and/or --base
+major, 2048 or 4096 bytes; scaled by whole numbers to the cell; or a 16x16 one
+of 8192 bytes, stepping by its ink or --eng-advance) and/or --base
 (an SVFN whose glyphs, other than syllables, are kept). Compatibility jamo
 U+3131..U+3163 are drawn by piece: an initial's set-0 piece, a vowel's set-0
 medial, a final-only consonant's set-0 final.
@@ -434,6 +437,87 @@ def _dkb12():
 LAYOUTS = {l.name: l for l in (_844("844", 0), _844("844-ihnm", 1), _844("844-hbios24", 0, open_hbios24),
                                _844("844-hwp3", 0, open_hwp3_844), _san1044(), _621(), _hanterm(), _dkb7(),
                                _dkb12(), _kyra())}
+
+
+SPEC_LAYOUT = "spec"
+
+
+def _rawcarve():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
+    import rawcarve
+    return rawcarve
+
+
+def spec_layout(composer):
+    """(Layout, Source) of a rawcarve.py compose spec (rawcarve.Composer: the font's bytes and its spec): the jamo set
+    draws every syllable with the spec's own rule, exactly. A JSET initial set per initial piece set the spec names
+    (its "novowel" set first: it is set 0, the compatibility jamo's), a medial set per medial table (nofinal, final, and
+    the *_kk ones the spec has, which make two lead classes: ㄱ/ㅋ and the rest), a final set per final piece set; two tail
+    classes (no final, a final). A source piece is a (set name, piece number) pair, numbered as first met."""
+    spec, vo = composer.spec, composer.vorder
+    ini, med, fin = spec["initial"], spec["medial"], spec["final"]
+    keys, index = [], {}
+
+    def piece(name, k):
+        if (name, k) not in index:
+            composer.piece(name, k)  # refuses an unknown set or a bad piece number now
+            index[(name, k)] = len(keys)
+            keys.append((name, k))
+        return index[(name, k)]
+
+    inames = list(dict.fromkeys(([ini["novowel"]] if ini.get("novowel") else []) + list(ini["nofinal"])
+                                + list(ini["final"])))
+    mkeys = ["nofinal", "final"] + [k for k in ("nofinal_kk", "final_kk") if med.get(k)]
+    fnames = [fin["set"]] if "set" in fin else list(dict.fromkeys(fin["by_vowel"]))
+    kk = len(mkeys) > 2
+    for name in (ini["nofinal"], ini["final"], *(med[k] for k in mkeys)) + (() if "set" in fin else (fin["by_vowel"],)):
+        if len(name) != 21:
+            raise SourceError("every vowel table of the spec has 21 entries")
+
+    def med_set(lc, v, tc):
+        has = "final" if tc else "nofinal"
+        return mkeys.index(has + "_kk") if lc == 0 and kk and has + "_kk" in mkeys else mkeys.index(has)
+
+    layout = Layout(SPEC_LAYOUT, None, 2 if kk else 1, 2, len(inames), len(mkeys), len(fnames),
+                    (lambda L: 0 if L in KK else 1) if kk else (lambda L: 0), _has_tail,
+                    lambda lc, v, tc: inames.index(ini["final" if tc else "nofinal"][vo[v]]),
+                    med_set,
+                    lambda lc, v, tc: fnames.index(fin["set"] if "set" in fin else fin["by_vowel"][vo[v]]) if tc else 0,
+                    lambda st, L: piece(inames[st], L),
+                    lambda st, V: piece(*med[mkeys[st]][vo[V]]),
+                    lambda st, T: piece(fnames[st], T - 1))
+    tables_for(layout)  # numbers every piece the tables name
+    w, h = composer.w, composer.h
+
+    def get(i):
+        x0, y0, rows = composer.piece(*keys[i])
+        out = [0] * h
+        for y, r in enumerate(rows):
+            if 0 <= y0 + y < h:
+                for x, v in enumerate(r):
+                    if v and 0 <= x0 + x < w:
+                        out[y0 + y] |= 1 << (w - 1 - x0 - x)
+        return Glyph(w, h, out)
+
+    return layout, Source(w, h, len(keys), get)
+
+
+def check_spec(out_bytes, composer, bold=False):
+    """Every one of the 11,172 syllables of the written font, composed as the engine does, against
+    rawcarve.Composer.syllable (what rawcarve.py compose writes). Returns a message; ValueError on a difference."""
+    f = parse_svfn(out_bytes)
+    t = unpack(f.jset)
+    bad = []
+    for cp in range(0xAC00, 0xD7A4):
+        rows = composer.syllable(*decompose(cp))
+        ints = [int("".join(map(str, r)), 2) for r in rows]
+        if bold:
+            ints = [r | (r >> 1) for r in ints]
+        if compose(f, t, cp) != Glyph(composer.w, composer.h, ints).to_bytes():
+            bad.append(cp)
+    if bad:
+        raise ValueError(f"{len(bad)} syllables differ from rawcarve.py compose, first U+{bad[0]:04X}")
+    return "all 11172 syllables identical to rawcarve.py compose"
 
 
 # ---- JSET tables -------------------------------------------------------------
@@ -2056,10 +2140,33 @@ def read_eng(d, face=0):
         return EngCell(24, 40, lambda cp: g_rowmajor(d, cp * 120, 24, 40).rows, "pft20x40", 20)
     if len(d) == 49152:		# GASCII48 / MASCII48: 256 glyphs, 48 rows of 4 bytes, step 24, ink up to 32 wide
         return EngCell(32, 48, lambda cp: g_rowmajor(d, cp * 192, 32, 48).rows, "pft24x48", 24)
+    if len(d) == ENG16_BYTES:	# a 16x16 cell: 256 glyphs of 16 rows of 2 bytes (rawcarve.py eng --width 16)
+        get = lambda cp: g_rowmajor(d, cp * 32, 16, 16).rows  # noqa: E731
+        return EngCell(16, 16, get, "raw16x16", eng16_advance(get))
     if len(d) not in (2048, 4096):
-        raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), "
-                          f"30720 (PFT 20x40) or 49152 (PFT 24x48), or is an HWP ASCII / ENG font, not {len(d)} bytes")
+        raise SourceError(f"an English font has 2048 or 4096 bytes (8x16), 8192 (16x16), 15360 (HBIOS 12x24), 12288 "
+                          f"(PFT 12x24), 30720 (PFT 20x40) or 49152 (PFT 24x48), or is an HWP ASCII / ENG font, not "
+                          f"{len(d)} bytes")
     return d
+
+
+ENG16_BYTES = 8192
+ENG16_MEASURED = [c for c in range(0x30, 0x7B) if chr(c).isalnum()]
+
+
+def eng16_advance(get):
+    """The step of a 16x16 English font: the right edge of the ink of 0-9, A-Z and a-z plus their smallest left margin
+    (the widest glyph with as much room after it as before; 8 for an 8-wide font in the left half of the cell), 1..16;
+    16 when none of them has ink."""
+    right, left = 0, 16
+    for cp in ENG16_MEASURED:
+        cols = 0
+        for r in get(cp):
+            cols |= r
+        used = [x for x in range(16) if cols >> (15 - x) & 1]
+        if used:
+            left, right = min(left, used[0]), max(right, used[-1] + 1)
+    return max(1, min(16, right + left))  # no ink: 0 + 16
 
 
 def eng_glyph(eng, cp, w, h, bold=False):
@@ -2865,7 +2972,7 @@ def main_hwp1(ap, args):
         ap.error(f"{HWP1_LAYOUT} writes 1 bpp pieces (the HWP glyphs are 1 bpp): --bpp {args.bpp} is not offered")
     try:
         layout, src, h = hwp1_layout(read_capped(args.source), args.face)
-        eng = read_eng(read_capped(args.eng), args.eng_face) if args.eng else None
+        eng = read_eng_arg(args)
         check_eng_height(eng, src.h)
         base = open(args.base, "rb").read() if args.base else None
         out, mapping, _ = build_from_source(layout, src, eng, base, args.ascent, None, False, args.advance,
@@ -2951,7 +3058,7 @@ def summary_line(label, q):
 
 
 def _layout_arg(v):
-    if v in LAYOUTS or v in (MAC_LAYOUT, HWP1_LAYOUT):
+    if v in LAYOUTS or v in (MAC_LAYOUT, HWP1_LAYOUT, SPEC_LAYOUT):
         return v
     m = re.fullmatch(r"adaptive(?::(\d+),(\d+),(\d+))?", v)
     if m:
@@ -2972,8 +3079,9 @@ def adaptive_limits(name):
 def make_parser():
     ap = argparse.ArgumentParser(description="DOS Johab jamo-set font or outline font / precomposed face -> jamo-set SVF")
     ap.add_argument("source", nargs="?", help="the source font file (DOS Johab sources; not with --from-ttf/--from-svf)")
-    ap.add_argument("--layout", required=True, type=_layout_arg, metavar="{" + ",".join(sorted(list(LAYOUTS) + [MAC_LAYOUT, HWP1_LAYOUT])) + ",adaptive[:NI,NM,NF]}",
+    ap.add_argument("--layout", required=True, type=_layout_arg, metavar="{" + ",".join(sorted(list(LAYOUTS) + [MAC_LAYOUT, HWP1_LAYOUT, SPEC_LAYOUT])) + ",adaptive[:NI,NM,NF]}",
                     help=f"a set system; {MAC_LAYOUT} takes a HangulTalk 1.0 'fbit' resource fork (see MacFbit), "
+                    f"{SPEC_LAYOUT} a font described by a rawcarve.py compose spec (--spec), "
                     f"{HWP1_LAYOUT} an HWP 1.x HANGUL.SFT / HANGULn.PFT (--face 0..2); "
                     "adaptive (--from-ttf/--from-svf) starts from 844 and splits sets where the syllables sharing a "
                     "piece disagree, up to NI,NM,NF sets (default 32,24,12, most 32,24,16; jamoadapt.py)")
@@ -2981,6 +3089,10 @@ def make_parser():
     ap.add_argument("--eng", help="English font for ASCII: raw 8x16 (2048 or 4096 bytes), HBIOS 12x24 (15360), Taebaek PFT 12x24 (12288), "
                     "20x40 (30720) or 24x48 (49152), an HWP 1.x ASCII.SFT / ASCII.PFT or an HWP 3.0 ENG*.FNT")
     ap.add_argument("--eng-face", type=int, default=0, help="--eng of an HWP 1.x ASCII file: its face (0..5, default 0)")
+    ap.add_argument("--eng-advance", type=int, help="the step of the --eng glyphs of a 16x16, 12x24, 20x40 or 24x48 English "
+                    "font (default: the font's own; a 16x16 font measures it from its ink)")
+    ap.add_argument("--spec", metavar="SPEC.json|spc1500", help="--layout spec: the rawcarve.py compose spec of the source "
+                    "(a JSON file, or a built-in spec by name)")
     ap.add_argument("--base", help="SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp)")
     ap.add_argument("-o", "--output", required=True)
     ap.add_argument("--advance", type=int, help="the step of a composed syllable (JSET advance byte; default: the layout's, "
@@ -3152,10 +3264,58 @@ def fit_prep(layout, targets, w, h, origin, limits, clean, passes, outline=None,
     return layout, masks, info
 
 
+def read_eng_arg(args):
+    """The --eng font (read_eng), with --eng-advance applied; None without --eng."""
+    if not args.eng:
+        if args.eng_advance is not None:
+            raise SourceError("--eng-advance needs --eng")
+        return None
+    eng = read_eng(read_capped(args.eng), args.eng_face)
+    if args.eng_advance is not None:
+        if not isinstance(eng, EngCell):
+            raise SourceError("--eng-advance applies to a 16x16, 12x24, 20x40 or 24x48 English font (an 8x16 one steps by 8)")
+        if not 1 <= args.eng_advance <= 255:
+            raise SourceError("--eng-advance is 1..255")
+        eng.adv = args.eng_advance
+    return eng
+
+
+def main_spec(ap, args):
+    """--layout spec SOURCE --spec SPEC: the jamo set of a font described by a rawcarve.py compose spec, exact."""
+    if not args.source or args.from_ttf or args.from_svf or args.blank_compat or args.bpp != 1:
+        ap.error(f"--layout {SPEC_LAYOUT} takes the source font file (the bytes the spec's offsets point into), "
+                 "no --from-* or --bpp 2")
+    if not args.spec:
+        ap.error(f"--layout {SPEC_LAYOUT} needs --spec SPEC.json (or a built-in spec: spc1500)")
+    rc = _rawcarve()
+    try:
+        comp = rc.Composer(rc.read(args.source), rc.load_spec(args.spec))
+        layout, src0 = spec_layout(comp)
+        eng = read_eng_arg(args)
+        check_eng_height(eng, src0.h)
+        base = open(args.base, "rb").read() if args.base else None
+        out, mapping, src = build_from_source(layout, src0, eng, base, args.ascent, None, False, args.advance,
+                                               args.embolden, args.symbols, profile=profile_arg(ap, args),
+                                               jset_version=args.jset_version or 1, jset_big=args.jset_big)
+        open(args.output, "wb").write(out)
+        t = tables_for(layout)
+        print(f"{args.output}: {len(out)} bytes, {len(mapping)} pieces of {src.w}x{src.h} from {args.source} by the spec's "
+              f"rule ({t.ni}/{t.nm}/{t.nf} sets, {t.lc}x{t.tc} classes); " + jset_line(out))
+        if args.check:
+            print("check:", check(out, layout, None, args.embolden))
+            print("check:", check_spec(out, comp, args.embolden))
+    except (SourceError, ValueError, KeyError, IndexError, TypeError, OSError, rc.CarveError) as e:
+        sys.exit(f"{args.source}: {e}")
+
+
 def main():
     ap = make_parser()
     args = ap.parse_args()
     profile_arg(ap, args)
+    if args.spec and args.layout != SPEC_LAYOUT:
+        ap.error(f"--spec goes with --layout {SPEC_LAYOUT}")
+    if args.layout == SPEC_LAYOUT:
+        return main_spec(ap, args)
     if args.layout == MAC_LAYOUT:
         return main_mac(ap, args)
     if args.layout == HWP1_LAYOUT:
@@ -3175,7 +3335,7 @@ def main():
             open(args.output, "wb").write(out)
             print(f"{args.output}: {len(out)} bytes, compat jamo with a whole glyph left to the glyph; {jset_line(out)}")
             return
-        eng = read_eng(read_capped(args.eng), args.eng_face) if args.eng else None
+        eng = read_eng_arg(args)
         base = open(args.base, "rb").read() if args.base else None
         if args.bpp == 2:
             return main_aa(ap, args, layout, eng, base, time.time(), limits, clean)
