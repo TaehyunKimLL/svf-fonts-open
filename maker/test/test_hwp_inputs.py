@@ -171,6 +171,55 @@ class RoutesTest(Tree):
                           if e.startswith((face["id"], h16["id"]))], [])
 
 
+class ReviewFixTest(Tree):
+    def put(self, rel, data):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(data)
+
+    def test_hwp_english_is_not_offered_to_a_dos_raw_font_and_stays_alone(self):
+        import inputfx
+        self.put("dos/HAN24.FNT", inputfx.dos844_24())
+        self.put("dos/ENG24_0.FNT", fx.hwp3(0, 12, 24, 147, glyph=fx.ascii_glyph))
+        self.put("dos/GASCII24.PFT", inputfx.pft_eng())
+        self.put("alone/ASCII.SFT", FILES["h1/ASCII.SFT"]())
+        fonts, by = self.scan("dos", "alone")
+        dos, hwp_eng, raw_eng = by[(0, "HAN24.FNT", 0)], by[(0, "ENG24_0.FNT", 0)], by[(0, "GASCII24.PFT", 0)]
+        self.assertEqual(dos["companions"], [raw_eng["id"]])        # johab844 / jamoset reads the raw one
+        alone = by[(1, "ASCII.SFT", 0)]
+        self.assertEqual((alone["format"], alone["eng"]["cell"]), ("eng", "8x16"))
+
+    def test_companion_defaults_take_the_own_height_and_family(self):
+        self.put("k/MHAN24.PFT", ks_raw())
+        self.put("k/GASCII24.PFT", bytes(12288))
+        self.put("k/MASCII24.PFT", bytes(12288))
+        self.put("k/ENG16_0.FNT", fx.hwp3(0, 8, 16, 147, glyph=fx.ascii_glyph))
+        self.put("big/96MT.FNT", fx.hwp3(1, 32, 32, 2350))            # a tall face: the tallest companion that fits
+        self.put("big/ENG16_0.FNT", fx.hwp3(0, 8, 16, 147, glyph=fx.ascii_glyph))
+        self.put("big/ENG24_0.FNT", fx.hwp3(0, 12, 24, 147, glyph=fx.ascii_glyph))
+        fonts, by = self.scan("k", "big")
+        st = settings.defaults(fonts)
+        self.assertEqual(st["fonts"][by[(0, "MHAN24.PFT", 0)]["id"]]["latin_companion"], by[(0, "MASCII24.PFT", 0)]["id"])
+        self.assertEqual(st["fonts"][by[(1, "96MT.FNT", 0)]["id"]]["latin_companion"], by[(1, "ENG24_0.FNT", 0)]["id"])
+
+    def test_magic_without_the_size_falls_through(self):
+        self.put("m/A.BIN", hwpfont.HWP1_MAGIC + bytes(4096 - len(hwpfont.HWP1_MAGIC)))
+        self.put("m/B.BIN", b"FNT\x01" + bytes(2044))
+        fonts, by = self.scan("m")
+        for name in ("A.BIN", "B.BIN"):                   # read by its size as an 8x16 English font (alone: demoted)
+            self.assertIn("no DOS Johab font beside it", by[(0, name, 0)]["label"])
+
+    def test_clear_outputs_drops_the_hwp_intermediates(self):
+        import jobs
+        d = os.path.join(self.root, "step")
+        os.makedirs(d)
+        for name in (routes.HWP_BDF, routes.HWP_PRECOMPOSED):
+            open(os.path.join(d, name), "wb").close()
+        jobs.Worker._clear_outputs(d, os.path.join(d, "OUT.SVF"), {"kind": "jamo"})
+        self.assertEqual(os.listdir(d), [])
+
+
 class LocalJobTest(localfx.LocalBase):
     """An HWP 1.x face (jamo and precomposed) and an HWP 3.0 HAN16 (precomposed and its own 8x4x4) through a local job."""
 
@@ -216,6 +265,35 @@ class LocalJobTest(localfx.LocalBase):
         self.assertIn(0x41, pre.glyphs)
         self.assertEqual(read("HAN316.SVF").glyphs[0xAC00], fx.encode(fx.pattern(0, 16, 16), 16, 16, False))
         self.assertTrue(read("HAN316J.SVF").flags & jamoset.FLAG_JAMO)
+
+    def test_ks_dump_fit_and_preview_without_a_companion(self):
+        """A lone KS X 1001 dump: its source preview keeps 가 (the BDF's blank first glyph), and the experimental
+        `hwp bdf + from-svf fit` runs end to end and is scored against the precomposed face it made."""
+        d = os.path.join(self.tmp, "ks")
+        os.makedirs(d)
+        with open(os.path.join(d, "GHAN24.PFT"), "wb") as fh:
+            fh.write(ks_raw())
+        jid = self.local_job([d])
+        job = self.job(jid)
+        font = job["fonts"][0]
+        self.assertEqual(font["source_kind"], "ks-raw")
+        r = self.raw("GET", "/api/jobs/%s/source/%s.svf" % (jid, font["id"]))
+        self.assertEqual(r[0], 200)
+        self.assertIn(0xAC00, jamoset.parse_svfn(r[2]).glyphs)
+        st = job["settings"]
+        st["fonts"][font["id"]].update(selected=True, dest="jamo-extra", kinds=["jamo", "precomposed"], experimental=True,
+                                       jamo_route="hwp bdf + from-svf fit", layout="844",
+                                       names={"jamo/24/1": "GHAN24J.SVF", "precomposed/24/1": "GHAN24.SVF"})
+        status, body = self.api("PUT", "/api/jobs/%s/settings" % jid, st)
+        self.assertEqual(status, 200, body)
+        done = self.run_to_done(jid)
+        self.assertEqual(done["state"], "done", done.get("error") or [s.get("error") for s in done["steps"]])
+        jam = next(s for s in done["steps"] if s["kind"] == "jamo")
+        self.assertEqual(jam["quality"]["compared"], 2350)        # scored against the step's own precomposed face
+        self.assertLess(0, jam["quality"]["all"])
+        out = {os.path.basename(p): p for p in done["result"]["files"] if p.endswith(".SVF")}
+        pre = jamoset.parse_svfn(open(os.path.join(self.out, out["GHAN24.SVF"]), "rb").read())
+        self.assertEqual(sum(1 for cp in pre.glyphs if 0xAC00 <= cp <= 0xD7A3), 2350)
 
 
 if __name__ == "__main__":

@@ -177,26 +177,27 @@ def _licence_name(family, licence):
 
 
 def _default_companion(font, fmap):
-    """The default English companion: the first one the face can take. A 12x24 font needs a face of 24 px or more (20x40: 40, 24x48: 48),
-    so a smaller DOS face skips it when another companion sits beside it (the defaults must validate). A 40 or 48 px
-    face takes the companion of its own height first."""
+    """The default English companion: the one of the face's own height (8x16 for 16 px, 12x24 for 24, 20x40 for 40,
+    24x48 for 48), else the tallest that is not taller than the face (a 12x24 font needs a face of 24 px or more, so the
+    defaults validate); among equals the one of the face's family (Taebaek's G / M prefix: GHAN24 goes with GASCII24,
+    MHANC40 with MASCII40), then the first listed."""
     if font.get("source_kind") == "mac-fbit3":
         return None                             # an HTBL is not a Latin companion; the suitcase is optional
     companions = font.get("companions") or []
     px = (font.get("sizes") or [None])[0]
     if font.get("source_kind") in ENG_FONT_KINDS and isinstance(px, int) and fmap:
-        def h_of(fid):
-            return eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell"))
+        def h_of(fid):                          # an 8x16 font (eng_cell_h 0) is 16 rows
+            return eng_cell_h(((fmap.get(fid) or {}).get("eng") or {}).get("cell")) or 16
 
-        def family(path):                       # Taebaek's G / M prefix: GHANC40 goes with GASCII40, MHANC40 with MASCII40
+        def family(path):
             return os.path.basename(path or "")[:1].upper()
 
-        exact = [f for f in companions if px in (40, 48) and h_of(f) == px]
-        if exact:
-            return ([f for f in exact if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))] or exact)[0]
-        for fid in companions:
-            if h_of(fid) <= px:
-                return fid
+        fits = [f for f in companions if h_of(f) <= px]
+        if fits:
+            best = max(h_of(f) for f in fits)
+            tied = [f for f in fits if h_of(f) == best]
+            return ([f for f in tied if family((fmap.get(f) or {}).get("path")) == family(font.get("path"))]
+                    or tied)[0]
     return companions[0] if companions else None
 
 
