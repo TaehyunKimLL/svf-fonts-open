@@ -609,6 +609,8 @@ def _detect_file(abs_path, rel, local=False):
         return [_entry(rel, 0, "bdf", label, kind, family, style, bdf=bdf, sizes=sizes, sizes_fixed=True, gz=zipped)]
 
     if fmt == "hbf":
+        if gz:                        # its bitmaps resolve beside the compressed path and the tools read a plain .hbf only
+            return [_entry(rel, 0, "hbf", "HBF: gzipped HBF not supported", "other", _stem(rel), "", gz=zipped)]
         text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
         box = _hbf_box(text)
         missing = _hbf_missing(text)
@@ -796,19 +798,20 @@ def _fond_strikes(body):
 
 def _is_fbit1(body, types):
     """True for a HangulTalk 1.0 `fbit`: the 45-set descriptor table at 0x54 validates in full (count 45, every set has a
-    width and height and its first glyph lies inside the body), or the fork holds the `fdef` 3 resource.
+    width and height, a glyph size as jamoset.MacFbit computes it, and its first glyph inside the body), or the fork
+    holds the `fdef` 3 resource and the body reaches the first descriptor.
 
     A type-3 (7.1) fbit has pixel bytes at 0x54, so a count of 45 alone proves nothing."""
-    if len(body) < 0x56 or struct.unpack(">H", body[0x54:0x56])[0] != 45 * 12:
+    if len(body) < 0x5E or struct.unpack(">H", body[0x54:0x56])[0] != 45 * 12:
         return False
     if len(dict(types.get(b"fdef", ())).get(3, b"")) >= FDEF_MIN:
         return True
     data = 0x56 + 45 * 12
+    if len(body) < data:
+        return False
     for i in range(45):
-        if data > len(body):
-            return False
         w4, hi, lo, h = struct.unpack_from(">4H", body, 0x56 + 12 * i)
-        if not w4 or not h or w4 > 16 or h > 64 or data + ((hi << 16) | lo) + ((w4 * 4 + 7) // 8) * h > len(body):
+        if not w4 or not h or w4 > 16 or h > 64 or data + ((hi << 16) | lo) + (w4 * 4 * h) // 8 > len(body):
             return False
     return True
 
@@ -868,7 +871,7 @@ def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw=None
 
     A 1.0 font is an `fbit` with 45 glyph sets plus the `fdef` 3 resource of the same fork (the composition tables);
     a raw `fbit` resource has no `fdef`, so it cannot be read and the entry says which piece to choose instead."""
-    if len(body) < 0x56 or struct.unpack(">H", body[0x54:0x56])[0] // 12 != 45:
+    if len(body) < 0x5E or struct.unpack(">H", body[0x54:0x56])[0] // 12 != 45:
         return None
     fdef = dict(types.get(b"fdef", ())).get(3, b"")
     if raw == "mac-jm":
@@ -1057,7 +1060,29 @@ _HBF_RANGE = re.compile(r"HBF_CODE_RANGE\s+0x[0-9A-Fa-f]+-0x([0-9A-Fa-f]+)\s+(\S
 
 def _plain_name(name):
     """True for a bare file name: no separator, not `..`, not absolute."""
-    return bool(name) and name not in (".", "..") and "/" not in name and not os.path.isabs(name)
+    return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name and not os.path.isabs(name)
+
+
+def hbf_bitmaps(path):
+    """The bitmap files an HBF reads, as absolute paths (a `name.gz` where only that exists), in first-use order.
+    Names that are not plain are left out: `hbf_refusal` refuses such an HBF."""
+    try:
+        with open(path, "rb") as f:
+            text = f.read(MAX_DECOMPRESSED + 1).decode("latin-1")
+    except OSError:
+        return []
+    folder = os.path.dirname(os.path.abspath(path))
+    out = []
+    for m in _HBF_RANGE.finditer(text):
+        name = m.group(2)
+        if not _plain_name(name):
+            continue
+        p = os.path.join(folder, name)
+        if not os.path.lexists(p) and os.path.lexists(p + ".gz"):
+            p += ".gz"
+        if p not in out:
+            out.append(p)
+    return out
 
 
 def hbf_refusal(path, inside=None, deadline=None):
@@ -1102,6 +1127,8 @@ def hbf_refusal(path, inside=None, deadline=None):
         gz = not os.path.lexists(p) and os.path.lexists(p + ".gz")
         if gz:
             p += ".gz"
+        elif not os.path.lexists(p):
+            return "bitmap file missing"
         if inside is not None and not inside(p):
             return unsafe
         try:
@@ -1109,8 +1136,10 @@ def hbf_refusal(path, inside=None, deadline=None):
             total += bdfface.read_capped(p, gz, MAX_DECOMPRESSED - total, keep=False, tick=tick)
         except TimeoutError:
             return "bitmap check skipped (time budget)"
-        except bdfface.FaceError as e:
-            return "damaged bitmap file" if "gzip" in str(e) else unsafe
+        except bdfface.DamagedBitmapError:
+            return "damaged bitmap file"
+        except bdfface.FaceError:
+            return unsafe
     return ""
 
 
@@ -1549,7 +1578,7 @@ def _coverage_of_entry(path, entry, data=None, face_index=None, tmp_dir=None):
         if kind == "bdf-johab":
             return dict(JOHAB_COVERAGE)          # johab-1 glyph indices, not KS X 1001 codes: composed from jamo
         if kind == "hbf":
-            if entry.get("gzip") or entry["source_kind"] != "hbf":   # a refused HBF was demoted by the scan
+            if entry["source_kind"] != "hbf":      # a refused HBF was demoted by the scan
                 return None
             return coverage_bdf(bdfface.read_hbf(path)[1])
         if kind in ("svf-jamo", "svf-precomposed"):

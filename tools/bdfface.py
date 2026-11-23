@@ -40,6 +40,10 @@ class FaceError(Exception):
     pass
 
 
+class DamagedBitmapError(FaceError):
+    """A bitmap file whose gzip stream is corrupt, truncated or empty."""
+
+
 HBF_MAX = 128 << 20          # one HBF's bitmaps, decompressed, in total
 
 
@@ -80,10 +84,12 @@ def read_capped(path, gz=False, cap=HBF_MAX, keep=True, tick=None):
                     parts.append(chunk)
                 if tick is not None:
                     tick()
+        except TimeoutError:          # a `tick` deadline is not damage (TimeoutError is an OSError)
+            raise
         except (OSError, EOFError, zlib.error) as e:
-            raise FaceError(f"{path}: damaged gzip ({e})")
+            raise DamagedBitmapError(f"{path}: damaged gzip ({e})")
     if gz and n == 0:
-        raise FaceError(f"{path}: empty gzip")
+        raise DamagedBitmapError(f"{path}: empty gzip")
     return b"".join(parts) if keep else n
 
 

@@ -224,6 +224,8 @@ class Fbit3:
         if self.kind != 3:
             raise ValueError("fbit handler type %d, not 3" % self.kind)
         self.h = struct.unpack(">H", fbit[0x16:0x18])[0]
+        if not self.h:
+            raise ValueError("fbit cell height 0")
         self.gb = (self.h * self.h + 7) // 8
         self.base = 0x4E + 6 * struct.unpack(">H", fbit[0x4C:0x4E])[0]
         self.n = (len(fbit) - self.base) // self.gb

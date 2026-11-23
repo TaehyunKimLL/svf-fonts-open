@@ -1119,6 +1119,40 @@ class Task4FixOneTest(FixtureCase):
         for f in fonts.values():
             self.assertFalse(ids & set(f.get("companions", [])))
 
+    def test_the_deadline_is_a_time_budget_not_a_damaged_bitmap(self):
+        import itertools
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "p.bin"), "wb") as f:
+                f.write(b"\xff" * (3 << 20))
+            gzip_bytes(os.path.join(d, "g.bin.gz"), b"\xff" * (3 << 20))
+            for name in ("p", "g"):
+                p = hbf_naming(os.path.join(d, name + ".hbf"), name + ".bin")
+                self.assertEqual(detect.hbf_refusal(p, deadline=time.monotonic() - 1),
+                                 "bitmap check skipped (time budget)")
+                # the first tick passes, the one inside the read (after the first MiB) crosses the deadline
+                with mock.patch.object(detect.time, "monotonic", side_effect=itertools.chain([0.0], itertools.repeat(100.0))):
+                    self.assertEqual(detect.hbf_refusal(p, deadline=50.0), "bitmap check skipped (time budget)", name)
+
+    def test_reasons_come_from_the_error_type_not_the_message(self):
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "gzip dir")             # a path with "gzip" in it must not read as damage
+            os.makedirs(sub)
+            gzip_bytes(os.path.join(sub, "real.gz"), b"\xff" * 32)
+            os.symlink(os.path.join(sub, "real.gz"), os.path.join(sub, "x.bin.gz"))
+            self.assertEqual(detect.hbf_refusal(hbf_naming(os.path.join(sub, "x.hbf"), "x.bin")),
+                             "unsafe bitmap reference")
+            self.assertEqual(detect.hbf_refusal(hbf_naming(os.path.join(sub, "m.hbf"), "m.bin")), "bitmap file missing")
+            self.assertEqual(detect.hbf_refusal(hbf_naming(os.path.join(sub, "b.hbf"), "a\\b.bin")),
+                             "unsafe bitmap reference")
+
+    def test_a_gzipped_hbf_is_not_a_latin_companion(self):
+        with tempfile.TemporaryDirectory() as d:
+            gzip_bytes(os.path.join(d, "h.hbf.gz"), open(hbf_naming(os.path.join(d, "t.hbf"), "x.bin")).read().encode())
+            os.remove(os.path.join(d, "t.hbf"))
+            fonts = {f["path"]: f for f in detect.scan(d)}
+        self.assertEqual((fonts["h.hbf.gz"]["source_kind"], fonts["h.hbf.gz"]["label"]),
+                         ("other", "HBF: gzipped HBF not supported"))
+
     def test_an_unsafe_hbf_is_refused_without_reading_any_bitmap(self):
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "secret.bin"), "wb") as f:

@@ -1230,12 +1230,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 font["file_id"] = [st.st_dev, st.st_ino, st.st_size]
             except (OSError, ValueError):
                 font["file_id"] = None
+            if font.get("source_kind") == "hbf" and font["file_id"]:
+                font["bitmap_ids"] = self._bitmap_ids(sources.abs_of(font.get("root", 0), font.get("path")))
             detail = font.pop("error", None)
             if detail:                                       # BUILD.md keeps only the first line (zipout._DETECT_BLOCK)
                 notes.append("## Detection error: %s (%s)\n%s\n## End detection error\n"
                              % (font.get("path"), font.get("error_type", ""), detail))
         if notes:
             zipout.append_log(self.server.store.meta_dir(job), "\n" + "\n".join(notes))
+
+    @staticmethod
+    def _bitmap_ids(hbf_path):
+        """`[name, dev, ino, size]` of each bitmap file an HBF reads (its `.gz` fallback included), pinned like `file_id`."""
+        out = []
+        for p in detect.hbf_bitmaps(hbf_path):
+            try:
+                st = os.lstat(p)
+                out.append([os.path.basename(p), st.st_dev, st.st_ino, st.st_size])
+            except OSError:
+                out.append([os.path.basename(p), None, None, None])
+        return out
 
     def _refuse_upload_in_flight(self, job):
         """409 while a `PUT files` for @p job is between its reservation and its reply (Y3).
@@ -1681,9 +1695,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """The scan entries a run of the selected fonts reads: each font, its Latin companion, its HTBL table, its chosen
         licence file and its range list.
 
-        An HBF's bitmap files are not listed: only the `.hbf` is pinned by `file_id`. The tool reads each bitmap
-        without following a link, from one regular fd, with a decompressed-size cap (bdfface.read_capped), so a swap
-        between detection and the run can change the glyphs but not what the run may read."""
+        An HBF's bitmap files are pinned with it (`bitmap_ids`, checked by `_check_unchanged`)."""
         by_id = {font.get("id"): font for font in fonts}
         by_key = {(font.get("root", 0), font.get("path")): font for font in fonts}
         st = j.get("settings") or {}
@@ -1718,7 +1730,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raise _HttpError(409, message)
         if list(entry.get("file_id") or ()) != [st.st_dev, st.st_ino, st.st_size] or not stat.S_ISREG(st.st_mode):
             raise _HttpError(409, message)
-        return st.st_size
+        total = st.st_size
+        folder = os.path.dirname(sources.abs_of(entry.get("root", 0), entry.get("path")))
+        for name, dev, ino, size in entry.get("bitmap_ids") or ():      # an HBF's bitmaps are inputs too
+            try:
+                bst = os.lstat(os.path.join(folder, name))
+            except OSError:
+                raise _HttpError(409, message)
+            if [dev, ino, size] != [bst.st_dev, bst.st_ino, bst.st_size] or not stat.S_ISREG(bst.st_mode):
+                raise _HttpError(409, message)
+            total += bst.st_size
+        return total
 
     def _check_steps(self, files_dir, sources, fonts, steps):
         """Refuse a step whose `output` is not inside the files directory or whose font's `path` is not under its
