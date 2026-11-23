@@ -537,7 +537,7 @@ face (see Outputs) unless `--licence` names one.
   and its multiples, no hinting (a `prep` of one no-op keeps FreeType from autohinting it, so other sizes render the
   exact area coverage). `EBLC`/`EBDT`: one strike at ppem in the face's bit depth (1, 2 or 8; image format 1,
   index format 1), each glyph cut to its ink box with its bearings and advance (signed bytes: an ascent, descent, glyph
-  bearing x or ink top, or a strike-wide least side bearing or ink extreme past -128..127 is an error that names the field and suggests `--no-strike`, which leaves the strike out;
+  bearing x or ink top, or a strike-wide least side bearing or ink extreme past -128..127 is an error that names the field and suggests `--no-strike`, which leaves the strike out, except a least right side bearing above 127, stored as 127;
   `--apple` adds it as `bloc`/`bdat` too). At most 65,534 glyphs. `cmap` (4, and 12 past U+FFFF), `hmtx` (the face's advances; a combining mark advance 0
   at its origin, as `svfline.py` places it), `hhea` / OS/2 typo metrics = ascent and cell height - ascent, OS/2 win
   metrics covering ink moved by a dy, `post` format 3, `head`, `maxp`, `gasp`, `name` (family, style, version, a
@@ -550,7 +550,8 @@ face (see Outputs) unless `--licence` names one.
   jamo piece one glyph, every syllable a `glyf` composite of its pieces (`OVERLAP_COMPOUND`) and an `EBDT` compound
   bitmap (image format 8, its own index subtable); the compatibility jamo map to their piece glyphs. 2 and 8 bpp: piece bitmaps start at the pen, and a syllable whose
   pieces overlap with levels whose OR is not their maximum keeps an expanded bitmap (FreeType ORs compound
-  components); the summary line counts them.
+  components), as does one whose component offset would pass a signed byte (a cell over 128 px); the summary line
+  counts them.
 - `bdf`: BDF 2.1 (1 bpp) or 2.3 (2 / 8 bpp: the bit depth as the fourth field of `SIZE`; `--bpp1` cuts it to 1 bpp),
   ISO10646-1, each glyph its ink box (BBX) and advance (DWIDTH), `FONT_ASCENT` / `FONT_DESCENT` the face's, 72 dpi
   (`SIZE ppem 72 72`, `POINT_SIZE` ppem x 10, `SWIDTH` advance x 1000 / ppem), `AVERAGE_WIDTH`, the licence note as
