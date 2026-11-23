@@ -1932,8 +1932,15 @@ def _recipe_entries(entries, keys, abs_of, refusal, local, with_root):
                                      # the route labels its faces use (the page's offeredRoutes filters by them)
                                      "routes": [face["route"] for face in recipe.offered_faces(rec)]}
         elif found["state"] == "part":
+            other = {names[fid_] for fid_ in found["similar"]}
+            needs = [name for name in found["missing"] if name not in other]
+            why = (["also needs %s; pick the folder" % ", ".join(needs)] if needs else []) + \
+                  (["%s here is another revision (its SHA-256 differs)" % ", ".join(sorted(other))] if other else [])
             for fid_, key in found["bound"].items():
-                relabel(key, "part of %s: also needs %s; pick the folder" % (title, ", ".join(found["missing"])))
+                relabel(key, "part of %s: %s" % (title, "; ".join(why)))
+            for fid_, key in found["similar"].items():
+                relabel(key, "looks like %s (%s), another revision: its SHA-256 differs; not converted"
+                        % (title, names[fid_]))
         else:
             for fid_, key in found["similar"].items():
                 relabel(key, "looks like %s (%s), another revision: its SHA-256 differs; not converted"

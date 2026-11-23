@@ -436,6 +436,17 @@ class Region(unittest.TestCase):
             self.assertEqual(len(rd(o)), 32)
             run(RC, "region", na, nb, "--swap", "-o", o)  # concatenated, then ROM_LOAD16_WORD_SWAP
             self.assertEqual(rd(o)[:4], bytes((a[1], a[0], a[3], a[2])))
+            comma = os.path.join(d, "ROMs, Korean")              # --group: a path with a comma is one file
+            os.makedirs(comma)
+            ca, cb = os.path.join(comma, "a"), os.path.join(comma, "b")
+            wr(ca, a)
+            wr(cb, b)
+            run(RC, "region", "--group", ca, cb, "--group", nc, ne, "-o", o)
+            self.assertEqual(rd(o), bytes(v for p in zip(a, b) for v in p) + bytes(v for p in zip(c, e) for v in p))
+            self.assertEqual(fails(RC, "region", "--group", ca, f"{na},{nb}", "-o", o)[0], 1)   # not both forms
+            self.assertEqual(fails(RC, "region", "-o", o)[0], 1)                                  # no group
+            run(RC, "region", na, nb, "--swap", "-o", o)
+            self.assertEqual(rd(o)[:4], bytes((a[1], a[0], a[3], a[2])))
             wr(os.path.join(d, "odd"), bytes(3))
             big = os.path.join(d, "big")
             with open(big, "wb") as fh:  # sparse: 40 MiB that take no disk

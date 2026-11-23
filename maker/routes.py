@@ -406,8 +406,15 @@ def _recipe_commands(rec, face_name):
             raise ValueError("bdfface needs a range file")
         face = next(f for f in rec["faces"] if f["name"] == face_name)
         fit_layout = layout if face["route"] == "bdfface + from-svf fit" and layout else None
-        argvs = recipe.face_commands(rec, face_name, files, paths, chars, paths["tools"], layout=fit_layout)
-        return _with_extra(argvs, extra)
+        argvs, roles = recipe.face_plan(rec, face_name, files, paths, chars, paths["tools"], layout=fit_layout)
+        extra = list(extra or [])
+        # the panel's fragments by role, never by position: one fragment is the face writer's; the fit's two are
+        # bdfface.py's (the face it reads) and the fit's
+        targets = [roles["writer"]] if len(extra) < 2 else [roles["bdfface"], roles["writer"]]
+        for index, fragment in zip(targets, extra[-len(targets):] if extra else []):
+            if fragment and index is not None:
+                argvs[index] = apply_flags(argvs[index], fragment)
+        return argvs
     return commands
 
 

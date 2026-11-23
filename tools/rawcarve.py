@@ -13,9 +13,12 @@ with `python3 -I` on untrusted downloads.
       --count: how many glyphs (default: through code 255; the other codes stay blank);
       --width 16: 16-wide glyphs (2 bytes a row) as the 8,192-byte 16x16 file `jamoset.py --eng` reads.
   rawcarve.py region FILE[,FILE...] [FILE[,FILE...] ...] [--unit 1|2|4] [--swap] -o OUT
+  rawcarve.py region --group FILE [FILE...] [--group FILE [FILE...] ...] [--unit 1|2|4] [--swap] -o OUT
       a ROM region as a MAME driver loads it: the files of a group interleaved --unit bytes at a time (1:
       ROM_LOAD16_BYTE / ROM_LOAD32_BYTE, 2: ROM_LOAD32_WORD / ROM_LOAD64_WORD), the groups one after the other
       (a single file is a group of one); --swap swaps the bytes of each 16-bit word (ROM_LOAD16_WORD_SWAP).
+      --group names one group's files as separate arguments (no comma splitting: a path with a comma in it), once
+      per group; it is not mixed with the positional FILE,FILE groups.
   rawcarve.py ink FILE (--glyph WxH [--order ...] | --gfx LAYOUT [--bg PEN]) [--invert] [--offset O] [--count N] -o OUT
       glyphs (1 bpp in any order, inverted, or multi-bit tiles reduced by the pen rule) as plain 1 bpp row-major glyphs
       one after another (ceil(W/8) x H bytes each), for binscan.py sets / runs, rawcarve.py bdf / eng / cut and
@@ -371,7 +374,15 @@ MAX_REGION = 64 << 20
 
 
 def cmd_region(a):
-    groups = [[f for f in group.split(",") if f] for group in a.groups]
+    if a.group and a.groups:
+        raise CarveError("give the groups as FILE,FILE arguments or as --group FILE ..., not both")
+    if a.group:
+        groups = [list(g) for g in a.group]
+        a.groups = [",".join(g) for g in groups]           # the error messages' names
+    else:
+        groups = [[f for f in group.split(",") if f] for group in a.groups]
+    if not groups:
+        raise CarveError("no group: give FILE[,FILE...] or --group FILE [FILE...]")
     if any(not g for g in groups):
         raise CarveError("an empty group: give FILE or FILE,FILE,...")
     total = sum(os.path.getsize(f) for g in groups for f in g)
@@ -495,7 +506,9 @@ def main(argv=None):
     p.set_defaults(fn=cmd_ink)
 
     p = sub.add_parser("region")
-    p.add_argument("groups", nargs="+", metavar="FILE[,FILE...]")
+    p.add_argument("groups", nargs="*", metavar="FILE[,FILE...]")
+    p.add_argument("--group", action="append", nargs="+", metavar="FILE",
+                   help="one group's files, each a whole path (commas are not split); repeat for the next group")
     p.add_argument("--unit", type=int, choices=(1, 2, 4), default=1,
                    help="bytes taken from each file of a group in turn (1: ROM_LOAD16_BYTE / ROM_LOAD32_BYTE, "
                    "2: ROM_LOAD32_WORD / ROM_LOAD64_WORD)")

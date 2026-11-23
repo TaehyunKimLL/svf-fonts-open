@@ -52,6 +52,12 @@ DECIDED = ("by eye", "loose copy", "driver code")
 ORDERS = ("rows", "strips", "cols", "bytecols")
 KS_CHARS = ("ks-hangul", "ks-nonhanja", "ks-all")
 RAW_LAYOUTS = ("844", "844-ihnm", "844-hbios24", "1044-san", "621", "kyra-lok")   # jamoset.py raw layouts
+# The storage jamoset.py reads each raw layout in, by length (finder design 8.2): "rows" (headerless row-major cells: any
+# reading, a non-plain one inked to rows first), "strips" (621: exactly 16x16 strips, cut as it is), "plain" (a
+# header or the layout's own framing: a plain reading only, cut as it is). The printer layouts are not offered.
+RAW_STORAGE = {"844": {11520: "rows", 25920: "rows", 72000: "rows", 103680: "rows", 11522: "plain", 15584: "plain"},
+               "1044-san": {12800: "rows"}, "621": {6144: "strips"}, "844-ihnm": {11520: "plain"},
+               "844-hbios24": {243900: "plain"}, "kyra-lok": {11550: "plain"}}
 BUILTIN_SPECS = ("spc1500",)                       # rawcarve.py / jamoset.py --spec NAME
 
 # The routes a face may name: route -> (kind, the Hangul item kinds it reads; None: it reads an earlier face).
@@ -147,7 +153,7 @@ def _reading(obj, what, region_bytes):
             for pen in obj["fg"]:
                 _int(pen, what + ".fg", 0, 255)
         try:
-            gfx = binscan.parse_gfx(obj["gfx"], region_bytes)
+            gfx = binscan.parse_gfx(obj["gfx"], region_bytes, obj.get("bg", 0), obj.get("fg"))   # pens < 2^planes
         except Exception as exc:                       # binscan.GfxError, or a number past a bound
             raise RecipeError("%s.gfx: %s" % (what, (str(exc).splitlines() or [type(exc).__name__])[0]))
         if (gfx.w, gfx.h) != (w, h):
@@ -195,11 +201,29 @@ def _item(obj, regions):
         if not ((w == 8 and 8 <= h <= 16) or (w, h) == (16, 16)):
             raise RecipeError("%s.reading.glyph: [8, 8..16] or [16, 16]" % what)
     elif kind == "raw-set":
+        if "ascent" in obj:                            # jamoset.py reads a raw layout's own cell
+            raise RecipeError("%s: a raw-set item takes no ascent" % what)
         _required(obj, ("layout", "length"), what)
         if obj["layout"] not in RAW_LAYOUTS:
-            raise RecipeError("%s.layout: one of %s" % (what, ", ".join(RAW_LAYOUTS)))
+            raise RecipeError("%s: not supported yet: layout %s (one of %s)" % (what, obj["layout"], ", ".join(RAW_LAYOUTS)))
         _int(obj["length"], what + ".length", 1, MAX_SIZE)
+        storage = RAW_STORAGE[obj["layout"]].get(obj["length"])
+        if storage is None:
+            raise RecipeError("%s.length: a %s raw set is %s bytes" % (what, obj["layout"], " or ".join(
+                str(n) for n in sorted(RAW_STORAGE[obj["layout"]]))))
+        r = obj["reading"]
+        if storage == "strips" and r != {"glyph": [16, 16], "order": "strips"}:
+            raise RecipeError("%s.reading: not supported yet: a 621 set read other than as its own 16x16 strips "
+                              "({\"glyph\": [16, 16], \"order\": \"strips\"})" % what)
+        if storage == "plain" and (set(r) - {"glyph", "order"} or r.get("order", "rows") != "rows"):
+            raise RecipeError("%s.reading: not supported yet: a %s set of %d bytes keeps its own framing, so only a "
+                              "plain reading (rows, no stride, lsb, invert or gfx)" % (what, obj["layout"], obj["length"]))
+        if storage == "rows" and obj["length"] % ((w + 7) // 8 * h):
+            raise RecipeError("%s.reading.glyph: %dx%d glyphs do not fill the %d bytes" % (what, w, h, obj["length"]))
     elif kind == "compose":
+        ignored = sorted(set(obj["reading"]) - {"glyph"}) + (["offset"] if "offset" in obj else [])
+        if ignored:                                    # the built-in spec reads its own region: nothing else applies
+            raise RecipeError("%s: a compose item takes no %s" % (what, ", ".join(ignored)))
         _required(obj, ("spec",), what)
         spec = obj["spec"]
         if not isinstance(spec, dict) or set(spec) != {"builtin"}:
@@ -237,11 +261,12 @@ def _face(obj, items, earlier):
     for eid in _english_ids(obj):
         if not isinstance(eid, str) or (items.get(eid) or {}).get("kind") != "english":
             raise RecipeError("%s.english: an item of kind english" % what)
+    if len({tuple(items[eid]["reading"]["glyph"]) for eid in _english_ids(obj)}) > 1:
+        raise RecipeError("%s.english: the items of a list are OR-ed, so of one glyph size" % what)
     takes = ROUTES[route][1]
     if takes is None:                                  # a fit of an earlier face
-        for key in ("hangul",):
-            if key in obj:
-                raise RecipeError("%s: %s on a fit (it reads its from face)" % (what, key))
+        if "hangul" in obj:
+            raise RecipeError("%s: not supported yet: hangul on a fit (a fit reads its from face)" % what)
         _required(obj, ("from",), what)
         if earlier.get(obj["from"], {}).get("kind") != "precomposed":
             raise RecipeError("%s.from: an earlier precomposed face of the recipe" % what)
@@ -320,8 +345,8 @@ def validate(obj):
             raise RecipeError("%s.sha256: 64 lower-case hex characters" % what)
         if "sha1" in f and (not isinstance(f["sha1"], str) or not HEX40.match(f["sha1"])):
             raise RecipeError("%s.sha1: 40 lower-case hex characters" % what)
-        if "optional" in f:
-            _bool(f["optional"], what + ".optional")
+        if "optional" in f and _bool(f["optional"], what + ".optional"):
+            raise RecipeError("%s: not supported yet: optional (every file of a set is needed)" % what)
         if f["id"] in files:
             raise RecipeError("files: id %s twice" % f["id"])
         files[f["id"]] = f
@@ -349,8 +374,10 @@ def validate(obj):
         unit = r.get("unit", 1)
         if unit not in (1, 2, 4) or not _is_int(unit):
             raise RecipeError("%s.unit: 1, 2 or 4" % what)
-        if "swap" in r:
-            _bool(r["swap"], what + ".swap")
+        if any(files[g]["size"] % unit for group in groups for g in group):
+            raise RecipeError("%s.unit: %d does not divide every file's size" % (what, unit))
+        if "swap" in r and _bool(r["swap"], what + ".swap") and total % 2:
+            raise RecipeError("%s.swap: the region's %d bytes are not whole 16-bit words" % (what, total))
         sizes_of[r["id"]] = _int(total, what + " size", 1, MAX_SIZE)
     items = {}
     for item in obj["items"]:
@@ -366,6 +393,7 @@ def validate(obj):
         faces[face["name"]] = face
     if "expect" in obj:
         _expect(obj["expect"], items, faces)
+    check_fit(obj)                                     # every size is in the recipe: an item past its region is refused
     return obj
 
 
@@ -398,7 +426,9 @@ def library(folder=None):
     folder = folder or builtin_dir()
     if folder not in _LIBRARY:
         out = {}
-        names = sorted(n for n in os.listdir(folder) if n.endswith(".json")) if os.path.isdir(folder) else []
+        if not os.path.isdir(folder):                  # the built-in folder is part of the maker (and of the sidecar)
+            raise RecipeError("the recipes folder %s is missing" % folder)
+        names = sorted(n for n in os.listdir(folder) if n.endswith(".json"))
         for name in names:
             with open(os.path.join(folder, name), "rb") as f:
                 rec = loads(f.read(MAX_BYTES + 1), name)
@@ -435,7 +465,7 @@ def match(files, lib=None):
     non-optional file bound by size and sha256, and sha1 when the recipe has one), `part` (some bound, some missing) or
     `similar` (none bound; a file of a recipe file's name and size whose hash differs). `bound` maps a recipe file id
     to the key of the batch file, `missing` lists the names of the unbound non-optional files, `similar` maps a file id
-    to a key."""
+    to a key (in a `part` set too: the missing file is there, in another revision)."""
     lib = lib if lib is not None else library()
     wanted = sizes(lib)
     hashes = {}
@@ -458,9 +488,9 @@ def match(files, lib=None):
                 elif os.path.basename(path).lower() == f["name"].lower():
                     similar.setdefault(f["id"], key)
         missing = [f["name"] for f in rec["files"] if not f.get("optional") and f["id"] not in bound]
-        if bound:
+        if bound:                                      # a file of the set here in another revision is named as such
             out.append({"recipe": rec, "state": "part" if missing else "known", "bound": bound, "missing": missing,
-                        "similar": {}})
+                        "similar": {fid: key for fid, key in similar.items() if fid not in bound}})
         elif similar:
             out.append({"recipe": rec, "state": "similar", "bound": {}, "missing": missing, "similar": similar})
     return out
@@ -509,14 +539,21 @@ def _region_size(rec, region_id):
 
 
 def _span(item, region_bytes):
-    """The bytes @p item reads from its region's start (offset + through its last glyph); None for a tile layout (its
-    planes may span the region: binscan checks it when it reads)."""
+    """The bytes @p item reads from its region's start: offset + through its last glyph (a tile layout's footprint is
+    the bits its planes and offsets reach, RGN_FRAC included); None for a compose item (the built-in spec reads its own
+    region, `rawcarve.py` checks it)."""
     r = item["reading"]
-    if "gfx" in r:
+    if item["kind"] == "compose":
         return None
+    if item["kind"] == "raw-set" and "gfx" not in r and r.get("order", "rows") == "rows":
+        return item.get("offset", 0) + item["length"]
     w, h = r["glyph"]
-    foot = binscan.glyph_bytes(w, h, r.get("order", "rows"))
-    stride = r.get("stride", foot)
+    if "gfx" in r:
+        gfx = binscan.parse_gfx(r["gfx"], region_bytes, r.get("bg", 0), r.get("fg"))
+        foot, stride = gfx.foot, gfx.stride
+    else:
+        foot = binscan.glyph_bytes(w, h, r.get("order", "rows"))
+        stride = r.get("stride", foot)
     if item["kind"] == "english":
         last = item.get("count", 256 - item.get("first", 0)) - 1
     elif item["kind"] == "ks-grid":
@@ -524,15 +561,14 @@ def _span(item, region_bytes):
         last = max((lead - l0) * pitch + (trail - t0) for lead, trail, _cp in rawcarve.ks_codes(item["chars"]))
     elif item["kind"] == "ks-dense":
         last = len(rawcarve.ks_codes(item["chars"])) - 1
-    elif item["kind"] == "raw-set":
-        return item.get("offset", 0) + item["length"]
-    else:                                              # compose: the built-in spec reads its own region
-        return None
+    else:                                              # raw-set read as tiles: the glyphs its length takes
+        last = -(-item["length"] // ((w + 7) // 8 * h)) - 1
     return item.get("offset", 0) + last * stride + foot
 
 
 def check_fit(rec):
-    """RecipeError when an item's reading does not fit its region (checked when files are bound, not at load)."""
+    """RecipeError when an item's reading does not fit its region: every size is in the recipe, so `validate` runs it
+    (a bound file has the recipe's size, its hash says so)."""
     for item in rec["items"]:
         if item["kind"] == "ks-grid":
             l0, t0, pitch = item["grid"]
@@ -580,7 +616,9 @@ class _Plan:
                 if fid not in self.files:
                     raise RecipeError("needs the file %s" % fid)
             out = self.path("region-%s.bin" % region_id)
-            argv = self.tool("rawcarve") + ["region"] + [",".join(self.files[f] for f in g) for g in r["groups"]]
+            argv = self.tool("rawcarve") + ["region"]
+            for g in r["groups"]:                      # --group: a whole path each (a comma in a folder name stays)
+                argv += ["--group"] + [self.files[f] for f in g]
             if r.get("unit", 1) != 1:
                 argv += ["--unit", str(r["unit"])]
             if r.get("swap"):
@@ -720,7 +758,8 @@ class _Plan:
     def raw(self, item_id):
         """A raw-set item as the file `jamoset.py --layout L` reads (`rawcarve.py cut`; a tile layout is inked first)."""
         item = self.items[item_id]
-        if self._plain(item) and not item["reading"].get("invert"):
+        storage = RAW_STORAGE[item["layout"]][item["length"]]
+        if storage != "rows" or (self._plain(item) and not item["reading"].get("invert")):   # the bytes as they are
             src, offset = self.region(item["region"]), item.get("offset", 0)
         else:
             w, h = item["reading"]["glyph"]
@@ -732,36 +771,41 @@ class _Plan:
         return out
 
 
-def face_commands(rec, face_name, files, paths, chars_from, tools_dir, layout=None):
-    """The argvs that make face @p face_name of @p rec in the step's work folder (`paths["work"]`) at `paths["out"]`:
-    the regions (`rawcarve.py region`), the items as the route reads them (`rawcarve.py bdf` / `compose` / `eng` /
-    `ink` + `cut`), then the route: `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST`; a fit makes the face
-    it reads as `precomposed.svf`, then `jamoset.py --layout L --from-svf precomposed.svf --mask-font none [--eng E]
-    --check`; `spec` is `jamoset.py --layout spec --spec NAME REGION [--eng E] --check`; `dos raw` is `jamoset.py RAW
-    --layout L [--eng E] --check`. @p files maps a recipe file id to the bound file's absolute path, @p chars_from is
-    the range list, @p layout a fit's layout (default the face's). The commands of docs/recipes.md ("Korean VGA font
-    ROMs (86Box)", "Korean font ROMs in MAME sets")."""
+def face_plan(rec, face_name, files, paths, chars_from, tools_dir, layout=None, plan=None):
+    """`(argvs, roles)`: the argvs that make face @p face_name of @p rec in the step's work folder (`paths["work"]`) at
+    `paths["out"]`, and `roles` = `{"writer": index of the command that writes the face, "bdfface": index of the
+    bdfface.py command or None}` (where the page's panel flags go: `routes._recipe_commands`).
+
+    The regions (`rawcarve.py region --group ...`), the items as the route reads them (`rawcarve.py bdf` / `compose` /
+    `eng` / `ink` + `cut`), then the route: `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST`; a fit makes
+    the face it reads as `precomposed.svf` (with the same plan: each region and item once), then `jamoset.py --layout L
+    --from-svf precomposed.svf --mask-font none [--eng E] --check`; `spec` is `jamoset.py --layout spec --spec NAME
+    REGION [--eng E] --check`; `dos raw` is `jamoset.py RAW --layout L [--eng E] --check`. @p files maps a recipe file id
+    to the bound file's absolute path, @p chars_from is the range list, @p layout a fit's layout (default the face's).
+    The commands of docs/recipes.md ("Korean VGA font ROMs (86Box)", "Korean font ROMs in MAME sets")."""
     faces = {face["name"]: face for face in rec["faces"]}
     face = faces[face_name]
-    plan = _Plan(rec, files, paths["work"], tools_dir)
+    plan = plan or _Plan(rec, files, paths["work"], tools_dir)
     route = face["route"]
     eng_ids = _english_ids(face)
     if route == "bdfface + from-svf fit":
         precomposed = os.path.join(paths["work"], PRECOMPOSED)
-        first = face_commands(rec, face["from"], files, dict(paths, out=precomposed), chars_from, tools_dir)
-        plan.argvs = first
+        _argvs, inner = face_plan(rec, face["from"], files, dict(paths, out=precomposed), chars_from, tools_dir,
+                                  plan=plan)
         fit = plan.tool("jamoset") + ["--layout", layout or face.get("layout", "844"), "--from-svf", precomposed,
                                       "--mask-font", "none"]
         if eng_ids:
             fit += ["--eng", plan.english_eng(eng_ids)]
-        return plan.argvs + [fit + ["--check", "-o", paths["out"]]]
+        plan.argvs.append(fit + ["--check", "-o", paths["out"]])
+        return plan.argvs, {"writer": len(plan.argvs) - 1, "bdfface": inner["bdfface"]}
     hangul = plan.items[face["hangul"]]
     if route == "bdfface":
         hbdf = plan.bdf(hangul["id"])
         ebdf = plan.english_bdf(eng_ids)
         w, h = hangul["reading"]["glyph"]
-        return plan.argvs + [plan.tool("bdfface") + ["--hangul", hbdf, "--ascii", ebdf, "--cell", "%dx%d" % (w, h),
-                                                     "--chars-from", chars_from, "-o", paths["out"]]]
+        plan.argvs.append(plan.tool("bdfface") + ["--hangul", hbdf, "--ascii", ebdf, "--cell", "%dx%d" % (w, h),
+                                                  "--chars-from", chars_from, "-o", paths["out"]])
+        return plan.argvs, {"writer": len(plan.argvs) - 1, "bdfface": len(plan.argvs) - 1}
     if route == "spec":
         argv = plan.tool("jamoset") + ["--layout", "spec", "--spec", hangul["spec"]["builtin"],
                                        plan.region(hangul["region"])]
@@ -770,4 +814,10 @@ def face_commands(rec, face_name, files, paths, chars_from, tools_dir, layout=No
         argv = plan.tool("jamoset") + ["--layout", hangul["layout"], raw]
     if eng_ids:
         argv += ["--eng", plan.english_eng(eng_ids)]
-    return plan.argvs + [argv + ["--check", "-o", paths["out"]]]
+    plan.argvs.append(argv + ["--check", "-o", paths["out"]])
+    return plan.argvs, {"writer": len(plan.argvs) - 1, "bdfface": None}
+
+
+def face_commands(rec, face_name, files, paths, chars_from, tools_dir, layout=None):
+    """`face_plan`'s argvs alone."""
+    return face_plan(rec, face_name, files, paths, chars_from, tools_dir, layout)[0]

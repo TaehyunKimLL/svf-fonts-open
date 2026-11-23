@@ -137,7 +137,8 @@ class LibraryTest(unittest.TestCase):
         spc = {f["id"]: "/u/" + f["name"] for f in lib["mame-spc1500"]["files"]}
         p = {"work": "/w", "out": "/w/SPC1500J.SVF"}
         self.assertEqual(rest(recipe.face_commands(lib["mame-spc1500"], "SPC1500J", spc, p, "/w/ks.txt", "/T")), [
-            ["region", "/u/ss150fnt.bin", "/u/ss151fnt.bin", "/u/ss152fnt.bin", "/u/ss153fnt.bin",
+            ["region", "--group", "/u/ss150fnt.bin", "--group", "/u/ss151fnt.bin", "--group", "/u/ss152fnt.bin",
+             "--group", "/u/ss153fnt.bin",
              "-o", "/w/recipe-region-font1.bin"],
             ["eng", "/w/recipe-region-font1.bin", "--offset", "0x1000", "--invert", "-o", "/w/recipe-ascii-eng.bin"],
             ["--layout", "spec", "--spec", "spc1500", "/w/recipe-region-font1.bin", "--eng", "/w/recipe-ascii-eng.bin",
@@ -150,7 +151,7 @@ class LibraryTest(unittest.TestCase):
         xs = {f["id"]: "/u/" + f["name"] for f in lib["mame-xsedae"]["files"]}
         self.assertEqual(rest(recipe.face_commands(lib["mame-xsedae"], "XSEDA16J", xs, dict(p, out="/w/X.SVF"),
                                                    "/w/ks.txt", "/T")), [
-            ["region", "/u/obj-1.u0811,/u/obj-2.u082", "--unit", "2", "-o", "/w/recipe-region-obj.bin"],
+            ["region", "--group", "/u/obj-1.u0811", "/u/obj-2.u082", "--unit", "2", "-o", "/w/recipe-region-obj.bin"],
             ["ink", "/w/recipe-region-obj.bin", "--count", "360", "--gfx", "16x16x4_packed_lsb", "--bg", "15",
              "-o", "/w/recipe-raw-ink.bin"],
             ["cut", "/w/recipe-raw-ink.bin", "--offset", "0x0", "--length", "11520", "-o", "/w/recipe-raw.fnt"],
@@ -171,6 +172,33 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(toolrun.prefix_name(toolrun.split_prefix(
             recipe.face_commands(lib["mame-quizkofk"], "QUIZKOFK", qk, dict(p, out="/w/Q.SVF"), "/w/ks.txt", "/T")[-3])[0]),
             "srcprep")
+
+    def test_dquizgo_tokens_and_panel_flags_by_role(self):
+        """DQUIZGOJ: the English for --eng comes after bdfface; the panel's bdfface flags still land on bdfface.py and the
+        fit's on jamoset.py (through the route wrapper), and the region is built once."""
+        rec = recipe.library()["mame-dquizgo"]
+        files = {f["id"]: "/u/" + f["name"] for f in rec["files"]}
+        font = {"id": "f01", "source_kind": "recipe", "sizes": [16], "recipe": {"id": "mame-dquizgo", "files": {},
+                                                                                 "routes": ["bdfface", "bdfface + from-svf fit"]}}
+        fit = [r for r in routes.routes(font) if r.kind == "jamo"][0]
+        paths = {"tools": "/T", "work": "/w", "out": "/w/DQUIZGOJ.SVF", "recipe_files": files, "range_file": "/w/ks.txt"}
+        argvs = fit.commands(font, 16, 1, "adaptive", ("2350", None), paths, [["--ascent", "13", "--hangul-ascent", "12"],
+                                                                                ["--jset-version", "2"]])
+        rest = [toolrun.split_prefix(a)[1] for a in argvs]
+        L = rec["items"][0]["reading"]["gfx"]
+        self.assertEqual(rest, [
+            ["region", "--group", "/u/uor1", "/u/uor2", "--group", "/u/uor3", "/u/uor4", "-o", "/w/recipe-region-spr.bin"],
+            ["bdf", "/w/recipe-region-spr.bin", "--offset", "0xd08c0", "--gfx", L, "--chars", "ks-hangul", "--dense",
+             "--ascent", "14", "-o", "/w/recipe-hangul.bdf"],
+            ["bdf", "/w/recipe-region-spr.bin", "--gfx", L, "--chars", "ascii", "--first", "0x20", "--count", "95",
+             "--ascent", "14", "-o", "/w/recipe-ascii.bdf"],
+            ["--hangul", "/w/recipe-hangul.bdf", "--ascii", "/w/recipe-ascii.bdf", "--cell", "16x16", "--chars-from",
+             "/w/ks.txt", "-o", "/w/precomposed.svf", "--ascent", "13", "--hangul-ascent", "12"],
+            ["ink", "/w/recipe-region-spr.bin", "--count", "95", "--gfx", L, "-o", "/w/recipe-ascii-ink.bin"],
+            ["eng", "/w/recipe-ascii-ink.bin", "--offset", "0x0", "--width", "16", "--first", "0x20", "--count", "95",
+             "-o", "/w/recipe-ascii-eng.bin"],
+            ["--layout", "adaptive", "--from-svf", "/w/precomposed.svf", "--mask-font", "none", "--eng",
+             "/w/recipe-ascii-eng.bin", "--check", "-o", "/w/DQUIZGOJ.SVF", "--jset-version", "2"]])
 
     def test_routes_and_names_of_a_known_entry(self):
         font = {"id": "f01", "path": "tg_ksc5601.rom", "source_kind": "recipe", "sizes": [16], "sizes_fixed": True,
@@ -237,12 +265,75 @@ class ValidateTest(unittest.TestCase):
             recipe.loads(b'{"recipe": NaN}')
         self.assertEqual(recipe.loads(json.dumps(self.base()).encode())["id"], TG)
 
-    def test_fit_is_checked_when_bound(self):
+    def test_fit_is_checked_at_load(self):
+        """Every size is in the recipe, so an item past its region is refused by validate (loads, the library)."""
         r = self.base()
         r["items"][1]["offset"] = 32768 - 100
-        recipe.validate(r)                                  # fine at load
-        with self.assertRaisesRegex(recipe.RecipeError, "past the end"):
-            recipe.check_fit(r)
+        with self.assertRaisesRegex(recipe.RecipeError, "item ascii reads past the end of its region"):
+            recipe.loads(json.dumps(r).encode())
+        r = copy.deepcopy(recipe.library()["mame-xsedae"])
+        r["items"][0]["offset"] = 4194304 - 128 * 100         # 360 tiles from 100 before the 4 MB region's end
+        self.refused(r, "item raw reads past the end")
+        r = copy.deepcopy(recipe.library()["mame-dquizgo"])
+        r["items"][0]["offset"] = 2097152 - 64                 # a tile layout's footprint (RGN_FRAC planes) counts
+        self.refused(r, "item hangul reads past the end")
+
+    def test_pens_units_and_lists(self):
+        r = copy.deepcopy(recipe.library()["mame-xsedae"]); r["items"][0]["reading"]["bg"] = 200
+        self.refused(r, "background pen 200 is outside 0..15")
+        r = copy.deepcopy(recipe.library()["mame-quizkofk"]); r["items"][0]["reading"]["fg"] = [1, 16]
+        self.refused(r, "ink pens")
+        r = copy.deepcopy(recipe.library()["mame-quizkofk"]); r["items"][1]["reading"] = {"glyph": [8, 16]}
+        self.refused(r, "of one glyph size")
+        r = copy.deepcopy(recipe.library()["mame-spc1500"]); r["items"][0]["offset"] = 16
+        self.refused(r, "a compose item takes no offset")
+        r = copy.deepcopy(recipe.library()["mame-spc1500"]); r["items"][0]["reading"]["invert"] = True
+        self.refused(r, "a compose item takes no invert")
+        r = copy.deepcopy(recipe.library()["mame-xsedae"]); r["items"][0]["ascent"] = 14
+        self.refused(r, "a raw-set item takes no ascent")
+        r = copy.deepcopy(recipe.library()["mame-xsedae"]); r["files"][0]["size"] = 2097151
+        r["files"][1]["size"] = 2097151; self.refused(r, "does not divide")
+        r = copy.deepcopy(recipe.library()["mame-xsedae"]); r["regions"][0]["unit"] = 1; r["regions"][0]["swap"] = True
+        r["regions"][0]["groups"] = [["obj1"]]; r["files"][0]["size"] = 2097151
+        r["items"][1]["offset"] = 0; self.refused(r, "not whole 16-bit words")
+        r = self.base(); r["files"][1]["optional"] = True; self.refused(r, "not supported yet: optional")
+
+    def test_raw_sets_by_storage(self):
+        """Finder design 8.2: a raw set's reading must fit the storage jamoset.py reads its layout in."""
+        def raw(layout, length, reading):
+            r = copy.deepcopy(recipe.library()["mame-xsedae"])
+            r["items"][0].update(layout=layout, length=length, reading=reading)
+            return r
+        tiles = {"glyph": [16, 16], "gfx": "16x16x4_packed_lsb", "bg": 15}
+        recipe.validate(raw("844", 11520, tiles))                                 # rows: any reading, inked
+        recipe.validate(raw("1044-san", 12800, {"glyph": [16, 16], "order": "cols"}))
+        recipe.validate(raw("621", 6144, {"glyph": [16, 16], "order": "strips"}))   # its own strips
+        recipe.validate(raw("844-ihnm", 11520, {"glyph": [16, 16]}))               # plain
+        self.refused(raw("621", 6144, tiles), "not supported yet: a 621 set read other than as its own 16x16 strips")
+        self.refused(raw("621", 6144, {"glyph": [16, 16]}), "not supported yet: a 621 set")
+        for layout, length in (("844", 11522), ("844", 15584), ("844-ihnm", 11520), ("844-hbios24", 243900),
+                               ("kyra-lok", 11550)):
+            self.refused(raw(layout, length, tiles), "not supported yet: a %s set of %d bytes keeps its own framing"
+                         % (layout, length))
+            self.refused(raw(layout, length, {"glyph": [16, 16], "invert": True}), "only a plain reading")
+        self.refused(raw("844", 12000, tiles), "a 844 raw set is 11520 or 11522")
+        self.refused(raw("dkb-printer-7x2x2", 15360, tiles), "not supported yet: layout dkb-printer-7x2x2")
+        rec = raw("621", 6144, {"glyph": [16, 16], "order": "strips"})
+        files = {f["id"]: "/u/" + f["name"] for f in rec["files"]}
+        argvs = recipe.face_commands(rec, "XSEDA16J", files, {"work": "/w", "out": "/w/X.SVF"}, "/w/ks.txt", "/T")
+        self.assertEqual(toolrun.split_prefix(argvs[1])[1],                       # cut as it is, no ink
+                         ["cut", "/w/recipe-region-obj.bin", "--offset", "0x0", "--length", "6144", "-o", "/w/recipe-raw.fnt"])
+
+    def test_a_fit_reads_its_from_face(self):
+        r = self.base()
+        r["faces"][1]["hangul"] = "hangul"
+        self.refused(r, "face TGVGA16J: not supported yet: hangul on a fit (a fit reads its from face)")
+        r["faces"][1].pop("from")
+        self.refused(r, "not supported yet: hangul on a fit")
+
+    def test_library_needs_its_folder(self):
+        with self.assertRaisesRegex(recipe.RecipeError, "is missing"):
+            recipe.library(os.path.join(tempfile.gettempdir(), "no-such-recipes-folder-%d" % os.getpid()))
 
 
 class MatchTest(unittest.TestCase):
@@ -261,6 +352,12 @@ class MatchTest(unittest.TestCase):
                          ("known", {"font": (0, "tg_ksc5601.rom"), "bios": (0, "tgkorvga.bin")}, []))
         [m] = recipe.match(self.files(self.rom), self.lib)
         self.assertEqual((m["state"], m["missing"]), ("part", ["tgkorvga.bin"]))
+        rev = os.path.join(self.tmp, "rev", "tgkorvga.bin")      # the BIOS here in another revision
+        os.makedirs(os.path.dirname(rev))
+        with open(self.bios, "rb") as f, open(rev, "wb") as g:
+            data = bytearray(f.read()); data[0] ^= 1; g.write(bytes(data))
+        [m] = recipe.match(self.files(self.rom, rev), self.lib)
+        self.assertEqual((m["state"], m["missing"], m["similar"]), ("part", ["tgkorvga.bin"], {"bios": (0, "tgkorvga.bin")}))
         other = os.path.join(self.tmp, "tg_ksc5601.rom")
         with open(other, "wb") as f:
             f.write(b"\1" * 524288)
@@ -291,6 +388,14 @@ class MatchTest(unittest.TestCase):
             self.assertEqual(fonts[0]["label"],
                              "part of Trigem Korean VGA font ROM (ET4000): also needs tgkorvga.bin; pick the folder")
             self.assertEqual(routes.routes(fonts[0]), [])
+            with open(self.bios + ".x", "wb") as f:               # the BIOS back, in another revision
+                f.write(b"\1" * 32768)
+            os.rename(self.bios + ".x", self.bios)
+            fonts = {f["path"]: f for f in detect.scan(Sources("local", [os.path.dirname(self.rom)]), local=True)}
+            self.assertEqual(fonts["tg_ksc5601.rom"]["label"], "part of Trigem Korean VGA font ROM (ET4000): "
+                             "tgkorvga.bin here is another revision (its SHA-256 differs)")
+            self.assertEqual(fonts["tgkorvga.bin"]["label"], "looks like Trigem Korean VGA font ROM (ET4000) "
+                             "(tgkorvga.bin), another revision: its SHA-256 differs; not converted")
 
 
 class RecipeLocalJobTest(LocalBase):
@@ -298,7 +403,7 @@ class RecipeLocalJobTest(LocalBase):
     face and the 8x4x4 fit written, BUILD.md naming the recipe's commands."""
 
     def test_synthetic_86box_pair(self):
-        folder = os.path.join(self.tmp, "roms")
+        folder = os.path.join(self.tmp, "ROMs, Korean")            # a comma in the folder: rawcarve region --group
         rom, bios = synthetic_pair(folder)
         with mock.patch.dict(recipe._LIBRARY, {recipe.builtin_dir(): library_for(rom, bios)}):
             jid = self.local_job(roots=[folder])
