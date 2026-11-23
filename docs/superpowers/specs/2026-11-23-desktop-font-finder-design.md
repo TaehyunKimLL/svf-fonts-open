@@ -8,7 +8,7 @@ run on this host; what was not run says "not verified" or "target". Where a choi
 builder, marked "(design call)". The owner answered the ten questions of the first draft on 2026-11-23, every one as
 recommended (section 15). Revised the same day after two rounds of two independent reviews; section 17 lists every
 finding and what was done with it, and section 15.1 the points where a finding touches a decision. Card t_97acecf9
-implemented the recipe subset meanwhile (`maker/recipe.py`, `maker/recipes/` on branch `desktop-export` at `9be5fc7`);
+implemented the recipe subset meanwhile (`maker/recipe.py`, `maker/recipes/` on branch `desktop-export`, read at `9be5fc7` and again at `a103f56`);
 sections 8 and 9 describe that code where it exists and say what the finder adds (9.5).
 
 Read with this document: `docs/recipes.md` "Finding a font inside a program or data file, with Claude" (the prompt, the
@@ -271,7 +271,10 @@ with a button to run it alone, never as "nothing found".
   of one byte value. A region larger than `binscan.MAX_SCAN` (16 MiB) is scanned in windows of at most that size
   (`--start` / `--length`), each **overlapping the next by the scan's whole candidate span minus one byte**: for
   `sets` the bytes of the whole set (11,520 for 8x4x4 at 16 px, 25,920 at 24 px), for `ascii` 256 x H bytes, for
-  `runs` (stage 2) one glyph, where runs that meet at a window edge in the same phase are joined. Offsets are
+  `runs` (stage 2) one glyph. A run cut by a window edge may be shorter than `--min` on both sides and would be
+  dropped before it could be joined, so a windowed `runs` also reports the unfinished runs that touch its window's
+  first or last glyph, whatever their length, marked as such (in `--json`; 7.5); the analysis joins fragments of one
+  phase that meet, and only then applies `--min` and the choice among overlapping runs. Offsets are
   absolute (the tools print `--start` + offset), and a candidate found in two windows is kept once.
 - **Stage 2, `runs`, coarse then fine**, in this order: 16x16 rows, 16x16 strips, 8x16, 24x24 rows, 8x8.
   - **Windows.** Only blocks at 7.5 bits or more are left out, and only of `runs`; blocks of one byte value stay (a
@@ -334,7 +337,9 @@ taken when the session opened the file (the pattern of `bdfface.open_regular`); 
 changed: open it again". Bytes are read with `os.pread` of a bounded length: **a user's file is never `mmap`ed** (a
 truncation under a mapping is a SIGBUS that would take the sidecar down). A gfx layout whose planes span the whole
 region is rendered from a bounded whole read (at most 64 MiB, one region held at a time for a session) or from the
-ink map. SHA-256 is computed once in the background through the same descriptor rule.
+ink map. SHA-256 is computed once in the background through the same descriptor rule; `apply`, `trial`, `GET recipe`,
+`export` and "save" need the hashes of the files their marks read and wait for them (the page shows "hashing"; a
+request that would wait past its timeout answers 409 `finder.hashing`).
 
 **Scratch** is `.svf-maker-<id>/finder/<n>/` in the output folder: assembled regions, extracted zip members, ink
 maps, trial work. It is **disposable**: everything in it can be written again from `job.json` and the sources, and
@@ -429,7 +434,7 @@ Before phase 0: `mame-roms` merged into main (4.2). Then:
 | Where | Change | Phase |
 |---|---|---|
 | `binscan.py` | `--json` on `info`, `runs`, `sets`, `ascii` (numbers and fixed words, one object) | 0 |
-| | `runs --phases a,b,...` and `--around OFFSET,LENGTH` (the coarse and fine passes of section 6) | 0 |
+| | `runs --phases a,b,...` and `--around OFFSET,LENGTH` (the coarse and fine passes of section 6); with `--start` / `--length`, the unfinished runs at the window's edges below `--min`, marked | 0 |
 | | `grid_png(glyphs, w, h, cols)`: gapless, one pixel a glyph pixel, zlib level 1; `pens` variant (phase 2) | 0 |
 | | `kind_of`: RAR (`Rar!`), 7z, gzip, xz, LHA (`-lh?-` at 2) named as archives or packed data | 0 |
 | | the 94 x 94 signature line worded for any 94 x 94 set (section 3) | 0 |
@@ -473,12 +478,22 @@ that is not saved yet; nothing else about them is special.
   its faces name are copied into each). They are kept in `job["finders"][n]["applied"]`, validated by the same
   `recipe.validate` as a library recipe.
 - **Entries.** As for a known set, the file the recipe's faces read their Hangul from (`recipe.host_file`) carries an
-  entry of kind `recipe` with `recipe: {id, files: {file id: (root, path)}, routes}`; here it also has `finder:
+  entry of kind `recipe` with `recipe: {id, files: {file id: [root, path]}, routes}`; here it also has `finder:
   {session, item}`, and its label is "found: <mark>". `detect._recipe_entries` appends these on **every** `POST
   detect` and on `apply` (which, like detect, clears steps and results), from the stable identities of 7.2; a session
   recipe whose file left the sources gives no entry and a notice. The host file's own entry (`unknown`, or a kind
   decided by size) stays in the table beside it. Detection does not run `srcprep.prepared_bytes` on recipe entries:
   their facts (cell, sizes, coverage) come from the recipe.
+- **Which recipe.** `routes.recipe_routes` and `settings.py` look a recipe up with `recipe.get(id)`, which knows the
+  built-in folder only: a session or user recipe would get no route. They resolve through one lookup instead,
+  `recipe.resolve(font, job)`: the job's applied session recipes by `finder: {session, item}`, then the user
+  library, then the built-in one (the recipe object holds no source byte, so keeping it in `job.json` is within 7.4).
+  How the lookup is passed down is phase 0's to settle.
+- **Appended, not relabelled.** For a known set `_recipe_entries` relabels the host file's entry in place. A session
+  recipe's entry is **added** by a helper of its own, with a new font id and the host entry's `file_id` (so
+  `_check_unchanged` sees the same file), and the host's own entry stays; code that maps `(root, path)` to one font
+  (`_inputs_of_selected`) must take several. From phase 2 a `files` value may be `[root, path, member]` (7.6), and
+  the three places that unpack the pair (`settings.py`, `server.py`, the planner) take the third element.
 - **Identity.** `_kept_settings` keys such an entry by `(root path, path, face_index, session, item)`, so two marks of
   one file keep their own settings and a re-detect does not move them. A library recipe's entry is keyed by the recipe
   id in the same place.
@@ -501,7 +516,7 @@ default stride and no gfx layout: what `rawcarve.py eng` and `cut` read.
 | What | Command | When |
 |---|---|---|
 | a zip member (phase 2) | `srcprep.py zip-member ZIP NAME member.bin` | a file inside a zip |
-| a region | `rawcarve.py region A,B C,D [--unit N] [--swap] -o recipe-region-R.bin` | an assembled region |
+| a region | `rawcarve.py region --group A B --group C D [--unit N] [--swap] -o recipe-region-R.bin` (the comma-free form t_97acecf9 added: a comma in a path cannot split a group) | an assembled region |
 | ink | `rawcarve.py ink SRC [--offset O] --count N (--glyph WxH [--order R] [--stride B] [--lsb] \| --gfx L [--bg P \| --fg P,..]) [--invert] -o recipe-I-ink.bin` | a reading that is not plain, before `eng` or `cut` (tiles included: `ink --offset --count`, then `eng` / `cut` at offset 0) |
 | English, raw form | `rawcarve.py eng SRC --offset O [--height H] [--top T] [--width 16] [--first C] [--count N] [--invert] -o recipe-I-eng.bin` | plain (or plain and inverted): straight from the file; otherwise from the ink file |
 | several English items | `srcprep.py or-files recipe-english-merged.bin E1 E2 ...` | a face whose `english` is a list: the raw forms OR-ed (one glyph width) |
@@ -516,7 +531,10 @@ rows above; `rawcarve.py bdf` has no such padding and puts a glyph at its cell t
 from the ASCII BDF, so a BDF cut straight from an 8x8 font at `top` 4 would sit four rows higher than the same mark
 through `--eng` (and t_97acecf9's code refuses `top` on a `bdfface` face for that reason). Rule: **the BDF form of an
 English item that is not already a 16-row cell at `top` 0 is cut from its padded raw form** (`eng`, then `bdf --glyph
-8x16`), exactly as the code already does for a list of items. Both forms then hold the same 16 rows. No `--top` is
+8x16`), exactly as the code already does for a list of items. Both forms then hold the same 16 rows. The `--ascent`
+of that 16-row BDF is counted in the 16-row cell, not in the item's own H rows: the Hangul item's ascent when the
+face has one, else `top` + the English item's `ascent`, else the tool's default for 16 rows (14); the built face's
+header ascent is part of the test. No `--top` is
 added to `rawcarve.py bdf`; finder phase 0 replaces the refusal with this rule.
 
 **Raw sets: selection is not storage.** `jamoset.py` reads each raw layout in that layout's own storage (`844`,
@@ -533,13 +551,14 @@ storage is plain rows. The contract, by layout:
 
 A reading outside its row is refused when the mark is made (422 `mark.reading`, naming the layout's storage) and when
 a recipe is validated; choosing a layout in the mark panel sets the viewer to the layout's storage. (t_97acecf9's
-planner inks every non-plain raw set, which is right for the one it has, X Se Dae's tiled `844`; it lists `621` and
-`kyra-lok` among its layouts without this rule: 9.5.)
+validator has this rule since `a103f56`.)
 
 - Two faces of one recipe run in separate step folders, so no two steps write one file; inside a step each region and
   item is made once.
 - A parameter a command names by file (a compose `SPEC.json`, a gfx `@FILE`, a region `@LIST`: 7.5) is written to
-  `build-<id>/finder/<item>.<what>` by the run and the command line names that copy: it stays when the scratch goes.
+  `build-<id>/finder/<recipe id>/<item>.<what>` by the run and the command line names that copy: it stays when the
+  scratch goes. A session recipe's id is unique in the job (`found-<session>-<item>`), so two sessions that both
+  call an item `hangul` do not share a file; a parameter belongs to an item, not to a face or a form.
 - **Proof** (section 13): for every order, bit order, inversion and stride, and for every raw layout of the table, the
   glyphs of the built face equal glyphs the test built itself, not glyphs read back through the tools.
 
@@ -572,7 +591,7 @@ planner inks every non-plain raw set, which is right for the one it has, X Se Da
 ### 8.4 What a run writes
 
 `svf/<dest>/<NAME>.SVF` and its note as today, and in `build-<id>/`: `BUILD.md` (with the carving commands),
-`RECIPE-<id>.json`, and `finder/` with the parameter files of 8.2. An export (section 10) writes
+`RECIPE-<recipe id>.json` for each recipe run, and `finder/<recipe id>/` with the parameter files of 8.2. An export (section 10) writes
 `finder-export-<job>-<k>/` at the top of the output folder, `k` the first number not taken (nothing is replaced).
 `docs/desktop-app.md` section 6 lists both.
 
@@ -697,7 +716,7 @@ brackets).
 | | `region` | R | a file id or a region id |
 | | `offset` | O | integer byte offset of glyph 0 in the region [0] |
 | | `reading` | R | reading object |
-| | `ascent` | O | integer 1..height [the tool's default: 7/8 of the height, rounded up] |
+| | `ascent` | O | integer 1..height, counted from the top of the item's own glyph [the tool's default: 7/8 of the height, rounded up]; for a padded English BDF see 8.2 |
 | | `decided` | O | `by eye`, `loose copy` or `driver code` |
 | reading | `glyph` | R | `[W, H]`, each 1..1024 |
 | | `order` | O | `rows`, `strips`, `cols` or `bytecols` [`rows`] |
@@ -736,7 +755,7 @@ W` and `y + height <= H`, the reading keys above; `vowel_order` 21 distinct inte
 | | `from` | O | fits only: the name of an earlier precomposed face of this recipe whose items the fit reads; the step builds that face itself (8.3). A fit has `from` or `hangul` (+ `english` for the precomposed face it builds), not both |
 | | `layout` | O | fits only: `844` or `adaptive` [`844`] |
 | | `dest` | O | the output subfolder, `naming.DEST_RE` (`dos`, `jamo-extra`, `games/<name>`, `new/<name>`) [`new/<recipe id>`]; the app's batch setting replaces the default |
-| expect item | `glyphs`, `sha256` | O | inked glyphs carved (0 .. 2^26); the SHA-256 of the file the item's last carve command wrote |
+| expect item | `glyphs`, `sha256` | O | of the item's **canonical file**, whichever faces are selected and in whatever order they run: `english` the raw form (`rawcarve.py eng`), `raw-set` the cut file, `ks-dense` / `ks-grid` / `compose` the BDF. `glyphs` = its inked glyphs (0 .. 2^26). A run checks an item once, in the first step that makes that file; a form the run did not make is not checked (and said so) |
 | expect face | `bytes`, `glyphs`, `ink` | O | the SVF's size, its glyph count, the ink of 8.5 (each 0 .. 2^26) |
 
 Rules across objects: every id an item, a region or a face names exists; `from` names an earlier precomposed face (no
@@ -754,7 +773,8 @@ with the first three commands again).
 
 ### 9.5 The code of t_97acecf9 and this schema
 
-`maker/recipe.py` on `desktop-export` (`9be5fc7`) is the schema above, with these differences. The first group is in
+`maker/recipe.py` on `desktop-export` (read at `9be5fc7`, again at `a103f56` after its first review round) is the
+schema above, with these differences. The first group is in
 the code and now in the schema; the second is what the finder's phase 0 adds to the code.
 
 | | Point | Where |
@@ -765,9 +785,11 @@ the code and now in the schema; the second is what the finder's phase 0 adds to 
 | | tiled or otherwise non-plain items: `ink --offset --count`, then `eng` / `cut` at offset 0 | 8.2 |
 | | one `recipe` entry a set, on the file the first face's Hangul item reads; the first face of each kind is offered | 8.1 |
 | | MAME sets as unpacked folders (no zip) | 7.6, 9.2 |
+| | the raw-set storage contract of 8.2 and `rawcarve.py region --group` (both since `a103f56`) | 8.2 |
 | the finder adds | `top` on a `bdfface` face (refused today): the BDF from the padded raw form | 8.2 |
-| | the raw-set storage contract (today every non-plain raw set is inked, `621` and `kyra-lok` included: wrong for them, though no built-in recipe uses them) | 8.2 |
-| | a fit with `hangul` + `english` instead of `from` (refused today) | 8.3, 9.4 |
+| | a fit with `hangul` + `english` instead of `from` (refused by name since `a103f56`) | 8.3, 9.4 |
+| | the ascent of a padded English BDF in 16-row coordinates; `expect` items by canonical file | 8.2, 9.4 |
+| | `recipe.resolve` in place of the built-in-only `recipe.get` in `routes.py` and `settings.py`; appended session entries with the host's `file_id`; `files` values with a zip member (phase 2) | 8.1 |
 | | `dest` on a face (an unknown key today); the route `johab844`; inline and derived compose specs; `regions` rules beyond the code's (a file id once a region) | 9.4 |
 | | the user library, session recipes, `expect` checked at run, the rule that a face is offered only when its files are present, `recipe check / run / list` | 8.6, 9.2 |
 
@@ -854,7 +876,13 @@ inside a file" and `docs/recipes.md` a paragraph pointing from the prompt sectio
   are reordered, each followed by `POST detect`: every mark is still bound to its original file (by content), its
   entry and settings are kept, and a mark whose file was removed is reported missing, not rebound.
 - **Windows** (6): a sparse region of 32 MiB with an 8x4x4 set and an 8x16 ASCII font each lying across the 16 MiB
-  boundary, and a run of glyphs crossing it: each is found once, at its absolute offset.
+  boundary, and a run of 40 glyphs crossing it with 20 on each side (each half under `--min` 32): each is found once,
+  at its absolute offset.
+- **Session recipes** (8.1): an applied mark and a user-library recipe each get their routes and run (not only a
+  built-in one); the host file's own entry is still there and `POST run` passes `_check_unchanged`; two sessions with
+  an item `hangul` and different parameter files reproduce from `build-<id>/finder/`; an English item used by a
+  `bdfface` face and its fit has one `expect` hash that holds with either face deselected and in either order; the
+  8x8 `top` 4 face's header ascent is the Hangul item's; `apply` during hashing waits or answers 409.
 - **Server**: every endpoint with and without the token and with a foreign `Host`; `no-store` on the byte GETs; bounds
   before allocation; the analysis and trial budgets kill their tools (no process left in `tools.pids`); cancel of a
   trial; `PUT /api/recipes/<rid>` with `..`, a built-in id, a mismatched id, the 501st recipe; `/api/recipes` and
@@ -929,10 +957,12 @@ All ten decisions stand. Two are now worded more exactly than they were answered
    BIOS). Proposed: accept this reading. The alternative, strictly one file a session, makes phase 1 Hangul-only for
    the VGA ROMs.
 3. **Under decision 3**: t_97acecf9 has implemented the recipes (9.3), and the schema was brought in line with its
-   code where the code went further (9.5, first group). What the code does not have yet is the second group of 9.5;
-   two of those are corrections rather than additions and are worth a look before that card merges: the raw-set
-   storage rule (its planner would ink a `621` or `kyra-lok` set, which `jamoset.py` then misreads; no built-in recipe
-   uses those layouts) and a fit's `hangul` being refused with a plain error instead of "not supported yet".
+   code where the code went further (9.5, first group). What the code does not have yet is the second group of 9.5.
+   The two corrections the second round asked of that card (the raw-set storage rule, a fit's `hangul` refused by
+   name) are in its `a103f56`. Nothing of the third round has to change before it merges: its recipes are built-in,
+   16-row English and loose files, so `recipe.get`, the BDF ascent and the two-element `files` are right for it; one
+   thing is worth doing there because it is cheap now and a migration later: defining `expect.items.*.sha256` as the
+   canonical file of 9.4, if that card checks or records item hashes at all.
 4. **Under decision 8**: the finder now needs `mame-roms` on main before phase 0, not only from phase 2 (4.2): main's
    tools have no `--invert`, no `ink` and no `eng --first`, so a phase 1 on main alone would show readings it cannot
    convert.
@@ -1032,4 +1062,20 @@ this round:
 | Neon r2 4 (Minor): `ink` then `cut` on headered or dual-size layouts | True | **fixed**: with SOL r2 1 |
 | Neon r2 5 (Minor): `/api/recipes` and `/api/prefs` wording and hardening | True | **fixed**: 7.3; tests in 13 |
 | t_97acecf9's code goes further than 9.4 (`english` lists, `or-files`, value ranges, `bdfface` on `compose`, one `recipe` entry a set, per-step carving) | Read in `maker/recipe.py`, `routes.py`, `detect.py`, `settings.py` on `desktop-export` | **changed**: section 8 rewritten on that model (a session recipe, no companion entries, no `carved-bdf` / `carved-spec` kinds: this withdraws the first-round answer to SOL 2 / Neon 2.1, which generalised `companion_file`); 9.4 brought in line; 9.5 lists both directions |
+
+### 17.2 Third round (2026-11-23, on `3adb284`)
+
+SOL: approve with changes (its four second-round findings addressed). agy Neon: approve with changes (all addressed).
+New findings; the Neon ones were checked against `desktop-export`, which moved to `a103f56` meanwhile.
+
+| Finding | Checked | Disposition |
+|---|---|---|
+| SOL r3 1 (Medium): a run split by a window edge is dropped below `--min` before it can be joined | True: `binscan.py` emits only runs of `--min` inked glyphs | **fixed**: 6 and 7.5: windowed `runs` reports unfinished edge runs, joined before `--min`; fixture with 20 + 20 glyphs |
+| SOL r3 2 (Medium): persisted parameter files collide across sessions | True | **fixed**: 8.2, 8.4: `build-<id>/finder/<recipe id>/<item>.<what>`, session recipe ids unique in the job. Face or form in the name **rejected**: a parameter file belongs to an item |
+| SOL r3 3 (Medium): an item's `expect` hash is ambiguous with two forms | True | **fixed**: 9.4: one canonical file an item kind, checked once, independent of selection and order |
+| Neon r3 1 (Important): `recipe_routes` finds built-in recipes only | True (`routes.py` 425, `settings.py` 327 call `recipe.get`) | **fixed**: 8.1: one `recipe.resolve`; how it is passed down is left to phase 0 |
+| Neon r3 2 (Important): the padded English BDF's ascent in the wrong coordinates | True: `ascent` is bounded by the item's H and passed to a 16-row BDF | **fixed**: 8.2, 9.4: the 16-row BDF's ascent is the Hangul item's (else `top` + the item's, else 14); tested |
+| Neon r3 3 (Important): `_recipe_entries` relabels in place; `files` pairs have no zip member | True | **fixed**: 8.1: session entries appended with the host's `file_id`; a three-element `files` value from phase 2; the unpacking sites named |
+| Neon r3 4 (Minor): the `region` command's syntax | True; t_97acecf9 moved to `--group` | **fixed**: 8.2 |
+| Neon r3 5 (Minor): requests racing the background hash | True | **fixed**: 7.2 |
 
