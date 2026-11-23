@@ -68,7 +68,7 @@ deadlock them.
 |---|---|
 | Sidecar one-dir | 47 MB; build 8-9 s (about 30 s with the frozen test); startup port line well under 2 s |
 | AppImage | 140 MB (133.9 MiB, commit 3d40de8, 2026-11-22; 149.7 MB before the static runtime and zstd); `linux-unpacked` 335 MB; electron-builder about 50 s; the whole script 1 min 26 s with warm caches |
-| Frozen test | 26 tests, 0 skipped: byte-equal to the pinned wheels under `env -i`, frozen jobs and notes equal source mode |
+| Frozen test | 28 tests, 0 skipped: byte-equal to the pinned wheels under `env -i` (svf2ttf and rawcarve too), the 7 bundled recipes, frozen jobs and notes equal source mode |
 | Electron task counts (`--no-sandbox --disable-gpu` under xvfb) | one instance 87, second-instance case 114 (planning measurements, with the GPU 143 and 170); the lifecycle test's peak was 79-80 |
 | Debian Pillow comparison | equal |
 | `sample set` e2e step | dev 12.6 s, packaged 14.9 s (17 steps: 10 faces and 3 TTF / BDF exports; 2026-11-24, commit 8c10dc1); before the exports dev 10.4 s, packaged 15.0 s (14 steps) |
