@@ -237,7 +237,7 @@ class ExportLicenceStagingTest(unittest.TestCase):
         staged, names = self.plan([os.path.join(self.a, n) for n in ("Munjo.ttf", "LICENSE.txt", "FRIEND.TXT")])
         self.assertEqual(names, ["FRIEND.TXT", "LICENSE.txt"])        # no link out of the root, no unpicked file
         with open(staged, encoding="utf-8") as f:
-            self.assertIn("Copyright 2026", f.read())                   # CP949 bytes replaced, not a crash
+            self.assertIn("문조 글꼴 Copyright 2026", f.read())            # CP949 read as CP949: the Hangul kept
         out = os.path.join(self.tmp, "x.ttf")
         r = subprocess.run([sys.executable, "-P", os.path.join(REPO_DIR, "tools", "svf2ttf.py"), "ttf", NEODG16, out,
                             "--licence", staged], capture_output=True, text=True, timeout=300)
@@ -246,12 +246,71 @@ class ExportLicenceStagingTest(unittest.TestCase):
         with TTFont(out) as font:
             desc = font["name"].getDebugName(13)
         self.assertIn("FRIEND: picked too", desc)
+        self.assertIn("문조 글꼴", desc)
         self.assertNotIn("SECRET", desc)
         self.assertNotIn("beside the font, not picked", desc)
 
     def test_folder_picked(self):
         _staged, names = self.plan([self.a])
         self.assertEqual(names, ["FRIEND.TXT", "LICENSE.txt", "OTHER.TXT"])   # the link is still refused
+
+    def export_only_plan(self, roots):
+        from sources import Sources
+        sources = Sources("local", roots)
+        fonts = detect.scan(sources, local=True)
+        s = settings.defaults(fonts, local=True)
+        fid = next(f["id"] for f in fonts if f["path"] == "NEODG16.SVF")
+        s["fonts"][fid].update(selected=True, licence=None, precomposed_route="svf2ttf", options={"export": {"ttf": True}})
+        jd = tempfile.mkdtemp(prefix="svf-export-lic-job-", dir=self.tmp)
+        import builtins
+        from unittest import mock
+        real_open, self.opened = builtins.open, []
+
+        def spy(path, *args, **kwargs):                       # every file the plan opens
+            self.opened.append(os.path.realpath(path) if isinstance(path, str) else path)
+            return real_open(path, *args, **kwargs)
+        with mock.patch("builtins.open", spy):
+            steps = settings.plan_steps({"fonts": fonts, "settings": s}, jd, os.path.join(REPO_DIR, "tools"), sources)
+        argv = steps[1]["argv"][0]
+        staged = argv[argv.index("--licence") + 1] if "--licence" in argv else None
+        return staged, (sorted(os.listdir(os.path.dirname(staged))) if staged else [])
+
+    def test_export_only_discovery_opens_batch_files_only(self):
+        """No licence chosen: the note found beside the SVF is one the batch holds. An unpicked note that sorts first and
+        names the face, and a note that links out of the folder, are never opened (both unreadable here: opening one
+        would fail the plan) and do not hide the picked note."""
+        d = os.path.join(self.tmp, "svfin")
+        os.makedirs(d)
+        shutil.copyfile(NEODG16, os.path.join(d, "NEODG16.SVF"))
+        title = "Neo faces (NEODG*.SVF)\n\nnote text; see OFL.TXT\n"
+        for name in ("A_NOTE.TXT", "B_NOTE.TXT"):
+            with open(os.path.join(d, name), "w") as f:
+                f.write(title.replace("note text", name))
+        shutil.copyfile(os.path.join(REPO_DIR, "svf", "dos", "OFL.TXT"), os.path.join(d, "OFL.TXT"))
+        outside = os.path.join(self.tmp, "outside", "AA_LINK.txt")
+        with open(outside, "w") as f:
+            f.write(title)
+        os.symlink(outside, os.path.join(d, "AA_LINK.TXT"))
+        for path in (outside, os.path.join(d, "A_NOTE.TXT")):
+            os.chmod(path, 0)
+        self.addCleanup(os.chmod, outside, 0o644)
+        self.addCleanup(os.chmod, os.path.join(d, "A_NOTE.TXT"), 0o644)
+        staged, names = self.export_only_plan([os.path.join(d, n) for n in ("NEODG16.SVF", "B_NOTE.TXT", "OFL.TXT")])
+        self.assertEqual((os.path.basename(staged), names), ("B_NOTE.TXT", ["B_NOTE.TXT", "OFL.TXT"]))
+        never = {os.path.realpath(outside), os.path.realpath(os.path.join(d, "A_NOTE.TXT"))}
+        self.assertEqual(never & set(self.opened), set())
+        staged, names = self.export_only_plan([os.path.join(d, n) for n in ("NEODG16.SVF", "B_NOTE.TXT")])
+        self.assertEqual(names, ["B_NOTE.TXT"])                   # OFL.TXT not picked: not followed
+        staged, names = self.export_only_plan([os.path.join(d, "NEODG16.SVF")])
+        self.assertIsNone(staged)                                 # nothing picked: svf2ttf says the source's applies
+        f2 = os.path.join(self.tmp, "svfin2")                    # a folder pick: the link is in the folder, refused
+        os.makedirs(f2)
+        for name in ("NEODG16.SVF", "B_NOTE.TXT", "OFL.TXT"):
+            shutil.copyfile(os.path.join(d, name), os.path.join(f2, name))
+        os.symlink(outside, os.path.join(f2, "AA_LINK.TXT"))
+        staged, names = self.export_only_plan([f2])
+        self.assertEqual((os.path.basename(staged), names), ("B_NOTE.TXT", ["B_NOTE.TXT", "OFL.TXT"]))
+        self.assertNotIn(os.path.realpath(outside), self.opened)
 
     def test_svf2ttf_route_takes_the_sources_note(self):
         """An SVF read only for its exports, no licence chosen: the note beside it (and the OFL it names), as svf2ttf.py

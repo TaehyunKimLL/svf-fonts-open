@@ -16,6 +16,7 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 """
 
 import datetime
+import fnmatch
 import hashlib
 import json
 import os
@@ -1546,9 +1547,16 @@ LICENCE_STAGE = "licence"                    # work/<font id>/licence/: the text
 
 
 def _read_text_replace(path):
-    """@p path's text, UTF-8 with undecodable bytes replaced (a CP949 or Latin-1 licence still embeds)."""
+    """@p path's text: UTF-8, else CP949 (a Korean DOS-era licence keeps its Hangul), else UTF-8 with the undecodable
+    bytes replaced (a licence in any other encoding still embeds)."""
     with open(path, "rb") as f:
-        return f.read(naming.CHUNK_BYTES * 4).decode("utf-8", errors="replace")
+        data = f.read(naming.CHUNK_BYTES * 4)
+    for encoding in ("utf-8", "cp949"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            pass
+    return data.decode("utf-8", errors="replace")
 
 
 def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), export_only=False):
@@ -1556,9 +1564,9 @@ def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), exp
     licence the job knows for the font (an input's licence file, a text under the checkout's `svf/`, or a typed text),
     and every file it names that the batch holds too (an input's are resolved through @p sources: a name the note
     mentions that is not one of the batch's files, or a link out of its root, is not followed). Each is written as
-    UTF-8 (undecodable bytes replaced), so svf2ttf.py reads nothing but the staged folder. An SVF read only for its
-    exports (@p export_only) with no licence chosen gets the licence files svf2ttf.py would find beside it, again only
-    those the batch holds. None when there is nothing: svf2ttf.py then says the source font's licence applies."""
+    UTF-8 (`_read_text_replace`), so svf2ttf.py reads nothing but the staged folder. An SVF read only for its exports
+    (@p export_only) with no licence chosen gets the note svf2ttf.py's rule finds beside it, applied to the batch's
+    files alone (a file the batch does not hold is never opened). None when there is nothing: svf2ttf.py then says the source font's licence applies."""
     import svf2ttf
     sources = Sources.coerce(sources)
     licence = eff.get("licence")
@@ -1604,17 +1612,34 @@ def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), exp
     if kind == "text" and isinstance(licence.get("text"), str):
         return stage("licence.txt", licence["text"])
     if kind is None and export_only:
+        # svf2ttf.py's rule for a face outside a repository (find_licence), over the batch's files only: the first
+        # .TXT beside the face (in name order) whose title line names it, with the files that note names; else the
+        # licence column of a FACES.TSV beside it. Nothing that is not a batch file is opened.
         try:
             src = os.path.realpath(_upload_path(fid, font.get("path"), sources, font.get("root", 0)))
-            found = [os.path.realpath(p) for p in svf2ttf.find_licence(src)[1]]
-        except (ValueError, OSError):
-            found = []
-        found = [p for p in found if p in entries and os.path.isfile(p)]
-        if found:
-            main = stage(os.path.basename(found[0]), _read_text_replace(found[0]))
-            for other in found[1:]:
-                stage(os.path.basename(other), _read_text_replace(other))
-            return main
+        except ValueError:
+            return None
+        here = os.path.dirname(src)
+        beside = sorted(p for p in entries if os.path.dirname(p) == here and os.path.isfile(p))
+        base = os.path.basename(src).upper()
+        for path in (p for p in beside if p.lower().endswith(".txt")):
+            first = (_read_text_replace(path).splitlines() or [""])[0]
+            if any(fnmatch.fnmatchcase(base, pattern.upper()) for pattern in svf2ttf._title_patterns(first)):
+                return stage_with_named(path, lambda real: real in entries)
+        tsv = os.path.join(here, "FACES.TSV")
+        if tsv in entries:
+            head = None
+            for line in _read_text_replace(tsv).splitlines():
+                if line.startswith("#") or not line.strip():
+                    continue
+                cols = line.split("\t")
+                if head is None:
+                    head = cols
+                    continue
+                row = dict(zip(head, cols))
+                lic = os.path.realpath(os.path.join(here, row.get("licence", ""))) if row.get("licence") else None
+                if row.get("file", "").upper() == base and lic in entries and os.path.isfile(lic):
+                    return stage(os.path.basename(lic), _read_text_replace(lic))
     return None
 
 
