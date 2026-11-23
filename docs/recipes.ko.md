@@ -981,6 +981,9 @@ ROM 파일들을 MAME 드라이버가 올리는 영역으로 잇는다. `binscan
 | A는 0, B는 2에 `ROM_LOAD32_WORD`; A, B, C, D를 0, 2, 4, 6에 `ROM_LOAD64_WORD` | `region --unit 2 A,B` / `A,B,C,D` |
 | `ROM_LOAD16_WORD_SWAP` (68000 프로그램) | `region --swap A` |
 
+쉼표가 든 경로(`ROMs, Korean` 같은 폴더)는 `--group`으로 한 파일이 된다: `region --group A B --group C D`(`region A,B C,D`와 같은
+영역. 데스크톱 앱은 늘 이 형식을 쓴다).
+
 타일 배치는 드라이버의 `gfx_layout`(또는 `gfx_WxHxN_packed_lsb` / `_msb` 프리셋)이고, `--gfx`에 `planes=..;x=..;y=..;inc=N`으로
 옮겨 적는다: `STEP8(...)`과 `RGN_FRAC(1,2)`까지 같은 숫자이며, 중괄호와 C 주석은 뺀다.
 
@@ -1565,7 +1568,7 @@ maker(`maker/`, [desktop-app.md](desktop-app.ko.md)의 데스크톱 앱, [maker/
 | 완성형, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형 또는 자모, `copy` | svf-precomposed, svf-jamo | 업로드된 그대로 쓰면 없음. v2 페이스나 요청한 JSET 변경에는 `svf2to3.py SRC OUT --jset-version V --check` | [기존 SVF](#기존-svf) |
 | 완성형 또는 자모, `svf2ttf` | svf-precomposed, svf-jamo | `copy`가 읽는 페이스를 아래의 내보내기로만 쓴다. SVF는 쓰지 않음 | [SVF 페이스를 다시 TTF 비트맵 폰트로](#svf-페이스를-다시-ttf-비트맵-폰트로) |
-| 완성형, `bdfface`; 자모, `bdfface + from-svf fit` | recipe(`maker/recipes/`의 알려진 ROM 세트, 로컬 모드) | 레시피의 한글 항목과 영문 항목을 `rawcarve.py bdf`로, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`. fit은 그 페이스를 `precomposed.svf`로 만든 뒤 `jamoset.py --layout L --from-svf precomposed.svf --mask-font none [--eng E] --check -o OUT`. 그 앞에 세트 파일들의 `rawcarve.py region`, 조합 항목은 `rawcarve.py compose`, 타일 속 영문 폰트는 `ink` + `eng` | [한글 VGA 폰트 ROM (86Box)](#한글-vga-폰트-rom-86box) |
+| 완성형, `bdfface`; 자모, `bdfface + from-svf fit` | recipe(`maker/recipes/`의 알려진 ROM 세트, 로컬 모드) | 레시피의 한글 항목과 영문 항목을 `rawcarve.py bdf`로, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`. fit은 그 페이스를 `precomposed.svf`로 만든 뒤 `jamoset.py --layout L --from-svf precomposed.svf --mask-font none [--eng E] --check -o OUT`. 그 앞에 세트 파일들의 `rawcarve.py region --group ...`(경로를 통째로: 폴더 이름의 쉼표도 그대로), 조합 항목은 `rawcarve.py compose`, 타일 속 영문 폰트는 `ink` + `eng` | [한글 VGA 폰트 ROM (86Box)](#한글-vga-폰트-rom-86box) |
 | 자모, `spec` | recipe(SPC-1500) | `rawcarve.py region ...`, `rawcarve.py eng REGION ...`, `jamoset.py --layout spec --spec spc1500 REGION --eng E --check -o OUT` | [삼성 SPC-1500](#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확) |
 | 자모, `dos raw` | recipe(ROM 속 raw 세트: X Se Dae Quiz) | `rawcarve.py region`, `ink`, `cut`(raw 폰트), `ink` + `eng`(영문 폰트), `jamoset.py RAW --layout L --eng E --check -o OUT` | [X Se Dae Quiz](#x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용) |
 | 자모, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]` 다음 `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | [기존 SVF](#기존-svf) |

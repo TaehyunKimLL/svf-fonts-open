@@ -1064,6 +1064,9 @@ the region is built:
 | `ROM_LOAD32_WORD` A at 0, B at 2; `ROM_LOAD64_WORD` A, B, C, D at 0, 2, 4, 6 | `region --unit 2 A,B` / `A,B,C,D` |
 | `ROM_LOAD16_WORD_SWAP` (a 68000 program) | `region --swap A` |
 
+A path with a comma in it (a folder named `ROMs, Korean`) is one file with `--group`: `region --group A B --group C D`
+(the same region as `region A,B C,D`; the desktop app always writes this form).
+
 The tile layout is the driver's `gfx_layout` (or a `gfx_WxHxN_packed_lsb` / `_msb` preset), copied into `--gfx` as
 `planes=..;x=..;y=..;inc=N`: the same numbers, `STEP8(...)` and `RGN_FRAC(1,2)` included, without the braces and any C
 comments.
@@ -1708,7 +1711,7 @@ what the route makes; the others are fits and are marked experimental):
 | precomposed, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | precomposed or jamo, `copy` | svf-precomposed, svf-jamo | none when used as uploaded; `svf2to3.py SRC OUT --jset-version V --check` for a v2 face or a requested JSET change | [An existing SVF](#an-existing-svf) |
 | precomposed or jamo, `svf2ttf` | svf-precomposed, svf-jamo | the face as `copy` reads it, written only as its exports (below): no SVF | [An SVF face back to a TTF bitmap font](#an-svf-face-back-to-a-ttf-bitmap-font) |
-| precomposed, `bdfface`; jamo, `bdfface + from-svf fit` | recipe (a known ROM set of `maker/recipes/`, local mode) | `rawcarve.py bdf` of the recipe's Hangul and English items, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`; the fit makes that face as `precomposed.svf`, then `jamoset.py --layout L --from-svf precomposed.svf --mask-font none [--eng E] --check -o OUT`; before them `rawcarve.py region` of a set's files, and `rawcarve.py compose` for a composed item or `ink` + `eng` for an English font in tiles | [Korean VGA font ROMs (86Box)](#korean-vga-font-roms-86box), [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets) |
+| precomposed, `bdfface`; jamo, `bdfface + from-svf fit` | recipe (a known ROM set of `maker/recipes/`, local mode) | `rawcarve.py bdf` of the recipe's Hangul and English items, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`; the fit makes that face as `precomposed.svf`, then `jamoset.py --layout L --from-svf precomposed.svf --mask-font none [--eng E] --check -o OUT`; before them `rawcarve.py region --group ...` of a set's files (each path whole: a comma in a folder name stays), and `rawcarve.py compose` for a composed item or `ink` + `eng` for an English font in tiles | [Korean VGA font ROMs (86Box)](#korean-vga-font-roms-86box), [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets) |
 | jamo, `spec` | recipe (SPC-1500) | `rawcarve.py region ...`, `rawcarve.py eng REGION ...`, `jamoset.py --layout spec --spec spc1500 REGION --eng E --check -o OUT` | [Samsung SPC-1500](#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) |
 | jamo, `dos raw` | recipe (a raw set in a ROM: X Se Dae Quiz) | `rawcarve.py region`, `ink`, `cut` (the raw font), `ink` + `eng` (the English font), `jamoset.py RAW --layout L --eng E --check -o OUT` | [X Se Dae Quiz](#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check) |
 | jamo, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]`, then `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | [An existing SVF](#an-existing-svf) |
