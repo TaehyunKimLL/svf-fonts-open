@@ -2,7 +2,7 @@
 """svf2ttf.py - an SVF face back to a bitmap font: a TrueType font (pixel outlines + an embedded bitmap strike) or a BDF.
 
   svf2ttf.py ttf FACE.SVF OUT.ttf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
-                                  [--licence FILE|none] [--no-strike] [--apple]
+                                  [--licence FILE|none] [--no-strike] [--apple] [--composite]
   svf2ttf.py bdf FACE.SVF OUT.bdf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
                                   [--licence FILE|none] [--bpp1]
   svf2ttf.py compare A.SVF B.SVF
@@ -47,6 +47,24 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
     go into the licence description (name 13), the copyright paragraph above the OFL header into name 0 (copyright_of),
     the OFL URL into name 14 when an OFL text is embedded. --licence none writes no licence text.
   - head created / modified: $SOURCE_DATE_EPOCH when set, else now.
+  - --composite (a jamo set; a precomposed face is written as without it, with a note): each jamo piece a glyph once
+    (outline and strike bitmap, placed as a composed syllable places it, the composed advance), every composed syllable
+    a composite of its non-blank pieces, each compatibility jamo the cmap mapped to its piece glyph. The other glyphs
+    stay plain.
+      glyf: a composite glyph of the pieces at offset (0, 0) (pieces are whole cells and carry no dy), the syllable's own
+      advance in hmtx, OVERLAP_COMPOUND on the first component. The outline of the union of the pieces is the outline
+      of the pixels >= --threshold of their max-composed syllable (the threshold is monotonic), so it is exact for
+      1, 2 and 8 bpp. (The no-op prep matters here too: FreeType's autohinter would move the overlapping contours of
+      a composite by up to half a pixel, at ppem x 2 too.)
+      maxp's component limits (maxComponentElements, maxComponentDepth 1) are recalculated by fontTools.
+      EBDT: a syllable is a compound bitmap, image format 8 (small metrics, a pad byte, the components' glyph ids
+      with x / y offsets from its top-left), in its own index subtable after the format-1 glyphs. FreeType
+      (ttsbit.c) ORs a component's rows into the compound; for 1 bpp that is the SVF rule. For 2 and 8 bpp two
+      FreeType limits apply: it shifts a component by its x offset in bits, not pixels, so every piece bitmap of a 2
+      or 8 bpp face starts at the pen (x0 = 0, the compound's offsets x 0); and OR is not the face's max of levels
+      (2 bpp levels 1 | 2 = 3), so a syllable whose pieces overlap with levels a | b != max(a, b) keeps an expanded
+      format-1 bitmap (bitmap_conflicts; its outline stays a composite). The summary line counts them.
+
 
 bdf: BDF 2.1 (1 bpp) or 2.3 (2 and 8 bpp: SIZE's fourth field is the bit depth; --bpp1 writes 1 bpp by --threshold),
   ISO10646-1, one glyph a code point with BBX = its ink box (a blank glyph 0 x 0) and DWIDTH = its advance,
@@ -357,26 +375,104 @@ def glyph_name(cp):
 
 
 class Glyph:
-    __slots__ = ("cp", "name", "adv", "px")
+    __slots__ = ("cp", "name", "adv", "px", "left0")
 
-    def __init__(self, cp, adv, px):
-        self.cp, self.name, self.adv, self.px = cp, glyph_name(cp), adv, px
+    def __init__(self, cp, adv, px, name=None):
+        self.cp, self.name, self.adv, self.px = cp, name or glyph_name(cp), adv, px
+        self.left0 = False
 
     def box(self):
-        """(x0, y0, x1, y1) of the ink, half-open, y down from the baseline; None when blank."""
+        """(x0, y0, x1, y1) of the ink, half-open, y down from the baseline; None when blank. With left0 the box starts
+        at the pen (x0 = 0; a compound strike of 2 or 8 bpp places its components at x offset 0, see composite_plan)."""
         if not self.px:
             return None
         xs = [x for x, _ in self.px]
         ys = [y for _, y in self.px]
-        return min(xs), min(ys), max(xs) + 1, max(ys) + 1
+        x0 = min(xs)
+        if self.left0 and x0 > 0:
+            x0 = 0
+        return x0, min(ys), max(xs) + 1, max(ys) + 1
 
 
-def face_glyphs(face):
+def face_glyphs(face, skip=()):
     out = []
     for cp in face_cps(face):
+        if cp in skip:
+            continue
         adv, px = glyph_pixels(face, cp)
         out.append(Glyph(cp, adv, px))
     return out
+
+
+# ---- composite glyphs of a jamo set ---------------------------------------------------------------------------------
+
+def piece_glyph(face, n):
+    """The Glyph of jamo piece @p n as a composed syllable places it: the piece's cell at the pen, its top row ascent
+    rows above the baseline (pieces carry no dy), the composed advance."""
+    px = {}
+    for r, row in enumerate(_levels(face, jamoset.PIECE_BASE + n)):
+        for c, v in enumerate(row):
+            if v:
+                px[(c, r - face.ascent)] = v
+    return Glyph(jamoset.PIECE_BASE + n, face.tables.advance or face.cell_w, px, name="jamo%04d" % n)
+
+
+def bitmap_conflicts(face):
+    """The syllables of the jamo set @p face whose pieces overlap at a pixel with levels a, b where a | b != max(a, b)
+    (2 bpp: levels 1 and 2; 8 bpp: most pairs). The face draws max(a, b) (jamoset.compose); FreeType ORs the rows of
+    a compound bitmap's components (ttsbit.c, tt_sbit_decoder_load_byte_aligned), so these syllables keep an expanded
+    bitmap. Empty for a 1 bpp face, where OR is max."""
+    if face.bpp == 1 or not face.tables:
+        return set()
+    cache = {}
+
+    def px(n):
+        if n not in cache:
+            cache[n] = {(x, y): v for y, row in enumerate(_levels(face, jamoset.PIECE_BASE + n))
+                        for x, v in enumerate(row) if v}
+        return cache[n]
+
+    out = set()
+    for cp in range(0xAC00, 0xD7A4):
+        nums = jamoset.pieces_of(face.tables, cp) if face.composed(cp) else None
+        if not nums:
+            continue
+        acc = {}
+        for n in nums:
+            if n == jamoset.BLANK:
+                continue
+            for k, v in px(n).items():
+                a = acc.get(k)
+                if a is not None and a | v != max(a, v):
+                    out.add(cp)
+                acc[k] = v if a is None else max(a, v)
+    return out
+
+
+class CompositePlan:
+    """How a jamo set becomes composite glyphs (svf2ttf.py ttf --composite):
+    pieces       {n: Glyph} of every piece a syllable or a compatibility jamo uses (ink or not);
+    syllables    {cp: [n, ...]} the non-blank pieces of each composed syllable with any (in draw order);
+    compat       {cp: n} the compatibility jamo, mapped by the cmap to their piece glyph itself;
+    expanded     the syllables whose strike bitmap stays expanded (bitmap_conflicts)."""
+
+    def __init__(self, face):
+        self.pieces, self.syllables, self.compat = {}, {}, {}
+        for cp in face_cps(face):
+            if not face.composed(cp):
+                continue
+            if 0xAC00 <= cp <= 0xD7A3:
+                nums = [n for n in jamoset.pieces_of(face.tables, cp) if n != jamoset.BLANK]
+                if nums:
+                    self.syllables[cp] = nums
+            else:
+                nums = [face.compat_piece(cp)]
+                self.compat[cp] = nums[0]
+            for n in nums:
+                if n not in self.pieces:
+                    self.pieces[n] = piece_glyph(face, n)
+                    self.pieces[n].left0 = face.bpp > 1
+        self.expanded = bitmap_conflicts(face) & set(self.syllables)
 
 
 def _pack_rows(g, depth):
@@ -394,38 +490,57 @@ def _pack_rows(g, depth):
     return out
 
 
-def strike_tables(glyphs, ppem, depth, ascent, descent):
-    """(EBLC, EBDT) bytes: one strike, glyph ids 1..len(glyphs) (.notdef is id 0 and has no bitmap), image format 1
-    (small metrics, byte-aligned rows), index format 1."""
+def strike_tables(glyphs, ppem, depth, ascent, descent, compounds=()):
+    """(EBLC, EBDT) bytes: one strike. Glyph ids 1..len(glyphs) (.notdef is id 0 and has no bitmap) are image format 1
+    (small metrics, byte-aligned rows); the @p compounds that follow them ((Glyph, [(glyph id, component Glyph)]), the
+    compound's own pixels unused) are image format 8 (small metrics, a pad byte, components at their x / y offset from
+    the compound's top-left), each run an index subtable of format 1."""
     def i8(v, what):
         if not -128 <= v <= 127:
             raise ValueError("%s %d does not fit the bitmap strike's signed byte (-128..127); --no-strike writes the "
                              "outlines only" % (what, v))
         return v
 
+    if not glyphs:
+        raise ValueError("no glyphs")
     i8(ascent, "the ascent")
     i8(-descent, "the descent")
     data = bytearray(struct.pack(">L", 0x00020000))
-    offs = []
-    inked = [g.box() + (g.adv,) for g in glyphs if g.box() is not None]
+    offs, coffs = [], []
+    inked = []          # (x0, y0, x1, y1, advance) of every inked bitmap, compounds included
     wmax = 0
+
+    def metrics(cp, box, adv):
+        if not 0 <= adv <= 255:
+            raise ValueError("U+%04X: advance %d is outside 0..255" % (cp, adv))
+        i8(box[0], "U+%04X: the bearing x" % cp)
+        i8(-box[1], "U+%04X: the bearing y (ink top above the baseline)" % cp)
+        inked.append(box + (adv,))
+        x0, y0, x1, y1 = box
+        return struct.pack(">BBbbB", y1 - y0, x1 - x0, x0, -y0, adv)
+
     for g in glyphs:
         offs.append(len(data))
         box = g.box()
-        if not 0 <= g.adv <= 255:
-            raise ValueError("U+%04X: advance %d is outside 0..255" % (g.cp, g.adv))
-        if box is not None:
-            i8(box[0], "U+%04X: the bearing x" % g.cp)
-            i8(-box[1], "U+%04X: the bearing y (ink top above the baseline)" % g.cp)
         if box is None:
+            if not 0 <= g.adv <= 255:
+                raise ValueError("U+%04X: advance %d is outside 0..255" % (g.cp, g.adv))
             data += struct.pack(">BBbbB", 0, 0, 0, 0, g.adv)
         else:
-            x0, y0, x1, y1 = box
-            w, h = x1 - x0, y1 - y0
-            data += struct.pack(">BBbbB", h, w, x0, -y0, g.adv)
+            data += metrics(g.cp, box, g.adv)
             data += _pack_rows(g, depth)
         wmax = max(wmax, g.adv)
     offs.append(len(data))
+    for g, comps in compounds:
+        coffs.append(len(data))
+        boxes = [(gid, c.box()) for gid, c in comps if c.box() is not None]
+        box = (min(b[0] for _, b in boxes), min(b[1] for _, b in boxes),
+               max(b[2] for _, b in boxes), max(b[3] for _, b in boxes))
+        data += metrics(g.cp, box, g.adv)[:5] + struct.pack(">xH", len(boxes))
+        for gid, b in boxes:
+            data += struct.pack(">Hbb", gid, b[0] - box[0], b[1] - box[1])
+        wmax = max(wmax, g.adv)
+    coffs.append(len(data))
     # the strike's line metrics hold only the extremes (EBDT small metrics have no right side bearing or ink bottom):
     # those are checked, not each glyph's
     if inked:
@@ -435,18 +550,21 @@ def strike_tables(glyphs, ppem, depth, ascent, descent):
         bl_min = i8(min(-b[3] for b in inked), "the strike's lowest ink below the baseline")
     else:
         bx_min = rsb_min = bl_max = bl_min = 0
-    if not glyphs:
-        raise ValueError("no glyphs")
-    first, last = 1, len(glyphs)
     hori = struct.pack(">bbBbbbbbbbbb", ascent, -descent, wmax, 1, 0, 0, bx_min, rsb_min, bl_max, bl_min, 0, 0)
     vert = struct.pack(">bbBbbbbbbbbb", ascent, -descent, wmax, 1, 0, 0, 0, 0, 0, 0, 0, 0)
-    sub = struct.pack(">HHL", 1, 1, 0) + b"".join(struct.pack(">L", o) for o in offs)
-    # index subtable header: indexFormat 1, imageFormat 1, imageDataOffset 0 (offsets are from the EBDT start)
-    arr = struct.pack(">HHL", first, last, 8)
-    table_size = len(arr) + len(sub)
-    size = (struct.pack(">LLLL", 8 + 48, table_size, 1, 0) + hori + vert
-            + struct.pack(">HHBBBb", first, last, ppem, ppem, depth, 1))
-    eblc = struct.pack(">LL", 0x00020000, 1) + size + arr + sub
+    # index subtables: indexFormat 1, the image format, imageDataOffset 0 (offsets are from the EBDT start)
+    runs = [(1, len(glyphs), 1, offs)]
+    if compounds:
+        runs.append((len(glyphs) + 1, len(glyphs) + len(compounds), 8, coffs))
+    subs = [struct.pack(">HHL", 1, fmt, 0) + b"".join(struct.pack(">L", o) for o in o_) for _, _, fmt, o_ in runs]
+    arr, at = b"", 8 * len(runs)
+    for (first, last, _, _), sub in zip(runs, subs):
+        arr += struct.pack(">HHL", first, last, at)
+        at += len(sub)
+    table_size = len(arr) + sum(len(x) for x in subs)
+    size = (struct.pack(">LLLL", 8 + 48, table_size, len(runs), 0) + hori + vert
+            + struct.pack(">HHBBBb", 1, runs[-1][1], ppem, ppem, depth, 1))
+    eblc = struct.pack(">LL", 0x00020000, 1) + size + arr + b"".join(subs)
     return bytes(eblc), bytes(data)
 
 
@@ -482,9 +600,9 @@ def checked_ppem(ppem, face):
     return ppem
 
 
-def checked_glyphs(face, face_path, limit):
-    glyphs = face_glyphs(face)
-    if not glyphs:
+def checked_glyphs(face, face_path, limit, skip=()):
+    glyphs = face_glyphs(face, skip)     # @p skip: the code points written as composites instead (build_ttf)
+    if not glyphs and not skip:
         raise ValueError("%s has no glyph to export" % face_path)
     if len(glyphs) > limit:
         raise ValueError("%s has %d glyphs; a TrueType font holds %d besides .notdef" % (face_path, len(glyphs), limit))
@@ -497,9 +615,41 @@ def _timestamp():
     return t - epoch_diff
 
 
+def _outline(pen, px, face, threshold):
+    """Draw the pixels of @p px with coverage >= @p threshold into @p pen; returns the outline's x minimum in pixels
+    (None when it has none)."""
+    on = {(x, -y - 1) for (x, y), v in px.items() if coverage_of(face, v) >= threshold}
+    xmin = None
+    for poly in contours(on):
+        pen.moveTo((poly[0][0] * UNITS, poly[0][1] * UNITS))
+        for x, y in poly[1:]:
+            pen.lineTo((x * UNITS, y * UNITS))
+        pen.closePath()
+        m = min(x for x, _ in poly)
+        xmin = m if xmin is None else min(xmin, m)
+    return xmin
+
+
+def _composite_glyph(names):
+    """A glyf composite of the glyphs @p names, each at offset 0. The pieces overlap, so the first component has
+    OVERLAP_COMPOUND: FreeType then renders the composite oversampled, and at sizes that are not whole multiples of
+    ppem an edge pixel two pieces share is not covered twice (as the expanded outline draws it)."""
+    from fontTools.ttLib.tables._g_l_y_f import Glyph as TTGlyph, GlyphComponent
+    g = TTGlyph()
+    g.numberOfContours = -1
+    g.components = []
+    for i, name in enumerate(names):
+        c = GlyphComponent()
+        c.glyphName, c.x, c.y = name, 0, 0
+        c.flags = 0x0004 | (0x0400 if i == 0 and len(names) > 1 else 0)   # ROUND_XY_TO_GRID, OVERLAP_COMPOUND
+        g.components.append(c)
+    return g
+
+
 def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppem=None, threshold=DEFAULT_THRESHOLD,
-              licence=None, strike=True, apple=False):
-    """Write the TrueType font of the face at @p face_path to @p out; returns a summary dict."""
+              licence=None, strike=True, apple=False, composite=False):
+    """Write the TrueType font of the face at @p face_path to @p out; returns a summary dict. @p composite: a jamo set's
+    pieces become glyphs and its syllables composites of them (see the module doc); a no-op for a precomposed face."""
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
     from fontTools.ttLib import newTable
@@ -510,9 +660,37 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     ppem = checked_ppem(ppem, face)
     k = UNITS
     family = family or default_family(face_path)
-    glyphs = checked_glyphs(face, face_path, 65534)
+    plan = None
+    if composite and face.tables:
+        plan = CompositePlan(face)
+        # a syllable whose pieces have no ink at all stays a plain (blank) glyph
+        for cp in [cp for cp, nums in plan.syllables.items() if not any(plan.pieces[n].px for n in nums)]:
+            del plan.syllables[cp]
+        plan.expanded &= set(plan.syllables)
+    elif composite:
+        print("svf2ttf: --composite: %s is precomposed (no jamo set); writing the plain TTF" % face_path,
+              file=sys.stderr)
+    glyphs = checked_glyphs(face, face_path, 65534, skip=set(plan.syllables) | set(plan.compat) if plan else ())
+    cmap = {g.cp: g.name for g in glyphs}
+    n_cps = len(glyphs)
+    syll_expanded, syll_compound, pieces = [], [], []
+    if plan:
+        pieces = [plan.pieces[n] for n in sorted(plan.pieces)]
+        for cp, n in plan.compat.items():
+            cmap[cp] = plan.pieces[n].name
+        for cp in sorted(plan.syllables):
+            if cp in plan.expanded:
+                adv, px = glyph_pixels(face, cp)
+                syll_expanded.append(Glyph(cp, adv, px))
+            else:
+                syll_compound.append(Glyph(cp, face.metrics(cp)[0], {}))
+            cmap[cp] = glyph_name(cp)
+        n_cps += len(plan.syllables) + len(plan.compat)
+    plain = glyphs + pieces + syll_expanded         # strike image format 1, in this order after .notdef
+    order = [".notdef"] + [g.name for g in plain + syll_compound]
+    if len(order) - 1 > 65534:
+        raise ValueError("%s needs %d glyphs; a TrueType font holds 65534 besides .notdef" % (face_path, len(order) - 1))
     ascent, descent = face.ascent, face.cell_h - face.ascent
-    order = [".notdef"] + [g.name for g in glyphs]
 
     glyf, hmtx = {}, {}
     nb_w, nb_h = max(3, face.cell_w // 2), max(3, ascent)
@@ -525,26 +703,28 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     glyf[".notdef"] = pen.glyph()
     hmtx[".notdef"] = ((nb_w + 1) * k, 0)
     ink_top, ink_bottom = max(0, ascent), max(0, descent)
-    for g in glyphs:
+    piece_xmin = {}
+    for g in glyphs + pieces:
         pen = TTGlyphPen(None)
-        on = {(x, -y - 1) for (x, y), v in g.px.items() if coverage_of(face, v) >= threshold}
-        xmin = None
-        for poly in contours(on):
-            pen.moveTo((poly[0][0] * k, poly[0][1] * k))
-            for x, y in poly[1:]:
-                pen.lineTo((x * k, y * k))
-            pen.closePath()
-            m = min(x for x, _ in poly)
-            xmin = m if xmin is None else min(xmin, m)
+        xmin = _outline(pen, g.px, face, threshold)
         glyf[g.name] = pen.glyph()
         hmtx[g.name] = (g.adv * k, (xmin or 0) * k)
+        piece_xmin[g.name] = xmin
         box = g.box()
         if box:
             ink_top, ink_bottom = max(ink_top, -box[1]), max(ink_bottom, box[3])
+    for g in syll_expanded + syll_compound:
+        names = [plan.pieces[n].name for n in plan.syllables[g.cp] if piece_xmin[plan.pieces[n].name] is not None]
+        if names:
+            glyf[g.name] = _composite_glyph(names)
+            hmtx[g.name] = (g.adv * k, min(piece_xmin[n] for n in names) * k)
+        else:
+            glyf[g.name] = TTGlyphPen(None).glyph()
+            hmtx[g.name] = (g.adv * k, 0)
 
     fb = FontBuilder(ppem * k, isTTF=True)
     fb.setupGlyphOrder(order)
-    fb.setupCharacterMap({g.cp: g.name for g in glyphs})
+    fb.setupCharacterMap(cmap)
     fb.setupGlyf(glyf)
     fb.setupHorizontalMetrics(hmtx)
     fb.setupHorizontalHeader(ascent=ascent * k, descent=-descent * k, lineGap=0)
@@ -556,7 +736,8 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
         "fullName": family if style == "Regular" else "%s %s" % (family, style), "psName": ps_name(family, style, face_path),
         "version": "Version %s; svf2ttf.py from %s" % (version, base),
         "description": "Generated by svf2ttf.py from %s (%dx%d cell, %d bpp, %s, %d glyphs, %s).%s"
-                       % (base, face.cell_w, face.cell_h, face.bpp, _kind(face), len(glyphs),
+                       % (base, face.cell_w, face.cell_h, face.bpp, _kind(face)
+                          + (", syllables composite of %d jamo pieces" % len(pieces) if plan else ""), n_cps,
                           "%d px strike" % ppem if strike else "outlines only, %d px em" % ppem,
                           " Its licence is the licence of the font the face was made from (see the licence "
                           "description)." if desc else ""),
@@ -568,7 +749,7 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     if url:
         names["licenseInfoURL"] = url
     fb.setupNameTable(names, mac=False)
-    cps = {g.cp for g in glyphs}
+    cps = set(cmap)
     cpr1 = (1 if cps & set(range(0x41, 0x5B)) else 0)
     if cps & set(range(0xAC00, 0xD7A4)):
         cpr1 |= 1 << 19
@@ -580,7 +761,7 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
                 usWinAscent=ink_top * k, usWinDescent=ink_bottom * k, sxHeight=xh * k, sCapHeight=cap * k,
                 fsType=0, fsSelection=fs_sel | 0x80, achVendID="NONE", usWeightClass=weight,
                 ulCodePageRange1=cpr1, ulCodePageRange2=0, version=4)
-    advs = {g.adv for g in glyphs if g.adv}
+    advs = {g.adv for g in glyphs + pieces if g.adv}
     fb.setupPost(isFixedPitch=1 if len(advs) == 1 else 0, keepGlyphNames=False,
                  underlinePosition=-max(1, descent // 2) * k, underlineThickness=k)
     font = fb.font
@@ -600,7 +781,10 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     font["prep"].program.fromBytecode(PREP_NOOP)
     font["maxp"].maxStackElements = max(font["maxp"].maxStackElements, 1)
     if strike:
-        eblc, ebdt = strike_tables(glyphs, ppem, face.bpp, ascent, descent)
+        gid = {g.name: i + 1 for i, g in enumerate(plain)}
+        compounds = [(g, [(gid[plan.pieces[n].name], plan.pieces[n]) for n in plan.syllables[g.cp]])
+                     for g in syll_compound]
+        eblc, ebdt = strike_tables(plain, ppem, face.bpp, ascent, descent, compounds)
         pairs = [("EBLC", eblc), ("EBDT", ebdt)]
         if apple:
             pairs += [("bloc", eblc), ("bdat", ebdt)]
@@ -610,8 +794,9 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
             font[tag] = t
     font.recalcTimestamp = False
     font.save(out)
-    return {"glyphs": len(glyphs), "bytes": os.path.getsize(out), "ppem": ppem, "bpp": face.bpp,
-            "kind": _kind(face), "family": family}
+    return {"glyphs": n_cps, "bytes": os.path.getsize(out), "ppem": ppem, "bpp": face.bpp,
+            "kind": _kind(face), "family": family, "composite": plan is not None, "pieces": len(pieces),
+            "composites": len(syll_expanded) + len(syll_compound), "expanded": len(syll_expanded)}
 
 
 # ---- BDF ----------------------------------------------------------------------------------------------------------
@@ -750,6 +935,8 @@ def main(argv=None):
     common(pt)
     pt.add_argument("--no-strike", action="store_true", help="no EBLC/EBDT strike: outlines only")
     pt.add_argument("--apple", action="store_true", help="also write the strike as bloc/bdat")
+    pt.add_argument("--composite", action="store_true",
+                    help="a jamo set: each piece once, every syllable a composite of its pieces (glyf and strike)")
     pb = sub.add_parser("bdf", help="SVF -> BDF")
     common(pb)
     pb.add_argument("--bpp1", action="store_true", help="a 2 or 8 bpp face as a 1 bpp BDF (pixels >= --threshold)")
@@ -780,7 +967,7 @@ def main(argv=None):
     try:
         if args.cmd == "ttf":
             r = build_ttf(args.face, args.output, args.family, args.style, args.version, args.ppem, args.threshold,
-                          args.licence, not args.no_strike, args.apple)
+                          args.licence, not args.no_strike, args.apple, args.composite)
             what = "TrueType, %d px %d bpp strike" % (r["ppem"], r["bpp"]) if not args.no_strike else "TrueType, outlines only"
         else:
             r = build_bdf(args.face, args.output, args.family, args.style, args.version, args.ppem, args.licence,
@@ -789,6 +976,10 @@ def main(argv=None):
     except (ValueError, OSError) as e:
         print("svf2ttf: %s" % e, file=sys.stderr)
         return 1
+    if r.get("composite"):
+        what += "; composite: %d jamo pieces, %d composite syllables" % (r["pieces"], r["composites"])
+        if not args.no_strike:
+            what += " (strike: %d compound, %d expanded bitmaps)" % (r["composites"] - r["expanded"], r["expanded"])
     print("%s: %s, %s face, %d glyphs, %d bytes" % (args.output, what, r["kind"], r["glyphs"], r["bytes"]))
     return 0
 

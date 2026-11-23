@@ -20,6 +20,7 @@ import svfline  # noqa: E402
 import jamoset  # noqa: E402
 
 from fontTools.ttLib import TTFont  # noqa: E402
+from fontTools.ttLib.tables.E_B_D_T_ import ComponentBitmapGlyph  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 DOS = os.path.join(ROOT, "svf", "dos")
@@ -27,6 +28,7 @@ NEODG16 = os.path.join(DOS, "NEODG16.SVF")        # precomposed 1 bpp 16x16
 NEODG16A = os.path.join(DOS, "NEODG16A.SVF")      # jamo set 1 bpp 16x16
 NEODG16J = os.path.join(DOS, "NEODG16J.SVF")      # precomposed 1 bpp 18x18, 779 glyphs
 NGOTB15C = os.path.join(DOS, "NGOTB15C.SVF")      # precomposed 2 bpp 16x16, 781 glyphs
+GOTHA16A = os.path.join(ROOT, "svf", "jamo-extra", "GOTHA16A.SVF")   # jamo set 2 bpp 16x16, 24/16/16 sets
 
 
 def run(*argv):
@@ -218,6 +220,152 @@ class Ttf(unittest.TestCase):
         run(os.path.join(HERE, "mkfont.py"), ttf, back, "--size", 18, "--bpp", 1, "--probe", "--width", face.cell_w,
             "--only-listed", "--unicode", run(os.path.join(HERE, "svf2ttf.py"), "cps", NEODG16J).strip())
         self.assertIn("mismatches 0", run(os.path.join(HERE, "svf2ttf.py"), "compare", NEODG16J, back))
+
+
+def resolved_strike_pixels(font, name, depth):
+    """strike_pixels of @p name with a compound (format 8 / 9) glyph resolved as FreeType does (ttsbit.c): each
+    component's rows ORed into the compound's bitmap at its offset (for 2 / 8 bpp, an x offset only at 0: FreeType
+    shifts by the offset in bits)."""
+    g = font["EBDT"].strikeData[0][name]
+    if not isinstance(g, ComponentBitmapGlyph):
+        return strike_pixels(font, name, depth)
+    m = g.metrics
+    out = {}
+    for c in g.componentArray:
+        sub = font["EBDT"].strikeData[0][c.name]
+        if depth > 1:
+            assert c.xOffset == 0, (name, c.name, c.xOffset)
+        sm = sub.metrics
+        px, _ = resolved_strike_pixels(font, c.name, depth)
+        for (x, y), v in px.items():
+            # the component's own bearings are ignored: it lands at the offset from the compound's top-left
+            k = (m.BearingX + c.xOffset + x - sm.BearingX, -m.BearingY + c.yOffset + y + sm.BearingY)
+            out[k] = out.get(k, 0) | v
+    return out, m.Advance
+
+
+class Composite(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.d = cls.tmp.name
+        cls.ttf1 = os.path.join(cls.d, "neodg16a-c.ttf")
+        cls.out1 = run(os.path.join(HERE, "svf2ttf.py"), "ttf", NEODG16A, cls.ttf1, "--composite")
+        cls.exp1 = os.path.join(cls.d, "neodg16a.ttf")
+        run(os.path.join(HERE, "svf2ttf.py"), "ttf", NEODG16A, cls.exp1)
+        cls.ttf2 = os.path.join(cls.d, "gotha16a-c.ttf")
+        cls.out2 = run(os.path.join(HERE, "svf2ttf.py"), "ttf", GOTHA16A, cls.ttf2, "--composite")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_structure(self):
+        f = TTFont(self.ttf1)
+        face = svfline.Face.load(NEODG16A)
+        cmap = f.getBestCmap()
+        glyf = f["glyf"]
+        for cp, n in ((0xAC00, 2), (0xAC01, 3), (0xD55C, 3)):
+            g = glyf[cmap[cp]]
+            self.assertTrue(g.isComposite(), hex(cp))
+            self.assertEqual(len(g.components), n, hex(cp))
+            self.assertEqual({(c.x, c.y) for c in g.components}, {(0, 0)})
+            for c in g.components:
+                self.assertFalse(glyf[c.glyphName].isComposite())
+            self.assertEqual(f["hmtx"][cmap[cp]][0], face.metrics(cp)[0] * 64)
+            eb = f["EBDT"].strikeData[0][cmap[cp]]
+            self.assertIsInstance(eb, ComponentBitmapGlyph, hex(cp))
+            self.assertEqual(len(eb.componentArray), n)
+        self.assertFalse(glyf[cmap[0x41]].isComposite())
+        self.assertNotIsInstance(f["EBDT"].strikeData[0][cmap[0x41]], ComponentBitmapGlyph)
+        # compatibility jamo map to the piece glyph itself
+        self.assertFalse(glyf[cmap[0x3131]].isComposite())
+        self.assertEqual(f["maxp"].maxComponentElements, 3)
+        self.assertEqual(f["maxp"].maxComponentDepth, 1)
+        pieces = {c.glyphName for cp in range(0xAC00, 0xD7A4) for c in glyf[cmap[cp]].components}
+        used = {n for cp in range(0xAC00, 0xD7A4) for n in svfline.jamoset.pieces_of(face.tables, cp)
+                if n != svfline.jamoset.BLANK}
+        self.assertLessEqual(len(pieces), len(used))
+        self.assertLess(len(f.getGlyphOrder()), 11319 + len(used) + 1)
+        self.assertIn("composite", self.out1)
+        self.assertLess(os.path.getsize(self.ttf1), os.path.getsize(self.exp1) * 2 // 5)
+        self.assertIn("prep", f)        # keeps FreeType's autohinter off (see build_ttf)
+
+    def test_strike_is_the_face(self):
+        for path, ttf, depth in ((NEODG16A, self.ttf1, 1), (GOTHA16A, self.ttf2, 2)):
+            f = TTFont(ttf)
+            face = svfline.Face.load(path)
+            cmap = f.getBestCmap()
+            bad = []
+            for cp in svf2ttf.face_cps(face):
+                adv, want = svf2ttf.glyph_pixels(face, cp)
+                got, gadv = resolved_strike_pixels(f, cmap[cp], depth)
+                if got != want or gadv != adv:
+                    bad.append(cp)
+            self.assertEqual(bad, [], path)
+
+    def test_two_bit_fallback(self):
+        """A 2 bpp syllable whose pieces overlap with levels 1 and 2 (FreeType's OR gives 3, the SVF rule max 2) keeps
+        an expanded bitmap; the others are compound bitmaps; the outlines are composites for all."""
+        f = TTFont(self.ttf2)
+        face = svfline.Face.load(GOTHA16A)
+        cmap = f.getBestCmap()
+        want = svf2ttf.bitmap_conflicts(face)
+        self.assertGreater(len(want), 1000)
+        strike = f["EBDT"].strikeData[0]
+        expanded = {cp for cp in range(0xAC00, 0xD7A4) if not isinstance(strike[cmap[cp]], ComponentBitmapGlyph)}
+        self.assertEqual(expanded, want)
+        self.assertTrue(all(f["glyf"][cmap[cp]].isComposite() for cp in range(0xAC00, 0xD7A4)))
+        self.assertIn("%d expanded" % len(want), self.out2)
+
+    def test_freetype_draws_the_face(self):
+        """Pillow (FreeType) draws the compound strike at ppem (2 bpp: the levels) and the composite outlines at 2 x."""
+        for path, ttf, ppem in ((NEODG16A, self.ttf1, 16), (GOTHA16A, self.ttf2, 16)):
+            face = svfline.Face.load(path)
+            text = "가각간한글 ABC 123 " + "".join(chr(cp) for cp in range(0xAC00, 0xD7A4, 397))
+            w, h = 20 * len(text), face.cell_h
+            want = svfline.layout([path], text, 0, face.ascent, w, h)
+            for k in (1, 2):
+                font = ImageFont.truetype(ttf, ppem * k)
+                img = Image.new("L", (w * k, h * k), 0)
+                ImageDraw.Draw(img).text((0, face.ascent * k), text, font=font, fill=255, anchor="ls")
+                if k == 1:
+                    self.assertEqual(img.tobytes(), bytes(want), path)
+                else:
+                    got = img.point(lambda v: 255 if v >= 128 else 0).tobytes()
+                    exp = bytes(255 if want[(y // k) * w + x // k] >= 128 else 0
+                                for y in range(h * k) for x in range(w * k))
+                    self.assertEqual(got, exp, path)
+
+    def test_roundtrip_through_mkfont(self):
+        back = os.path.join(self.d, "back.svf")
+        run(os.path.join(HERE, "mkfont.py"), self.ttf2, back, "--size", 16, "--bpp", 2, "--probe", "--width", 16,
+            "--only-listed", "--unicode", run(os.path.join(HERE, "svf2ttf.py"), "cps", GOTHA16A).strip())
+        out = run(os.path.join(HERE, "svf2ttf.py"), "compare", GOTHA16A, back)
+        self.assertIn("mismatches 0", out, out)
+
+    def test_reopen_and_recompile(self):
+        f = TTFont(self.ttf2)
+        out = os.path.join(self.d, "re.ttf")
+        f.save(out)
+        g = TTFont(out)
+        self.assertEqual(len(g.getGlyphOrder()), len(f.getGlyphOrder()))
+        cmap = g.getBestCmap()
+        self.assertTrue(g["glyf"][cmap[0xAC00]].isComposite())
+        self.assertEqual(resolved_strike_pixels(g, cmap[0xAC01], 2), resolved_strike_pixels(f, cmap[0xAC01], 2))
+
+    def test_precomposed_face_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "a.ttf"), os.path.join(d, "b.ttf")
+            env = dict(os.environ, SOURCE_DATE_EPOCH="1700000000")
+            r = subprocess.run([sys.executable, os.path.join(HERE, "svf2ttf.py"), "ttf", NGOTB15C, a, "--composite"],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("no jamo set", r.stderr)
+            subprocess.run([sys.executable, os.path.join(HERE, "svf2ttf.py"), "ttf", NGOTB15C, b], check=True,
+                           capture_output=True, env=env)
+            with open(a, "rb") as fa, open(b, "rb") as fb:
+                self.assertEqual(fa.read(), fb.read())
 
 
 class Dy(unittest.TestCase):
