@@ -390,7 +390,13 @@ answer `Cache-Control: no-store`.
 `render` answers with the PNG and the headers `X-Finder-Count` (glyphs really drawn before the region ends) and
 `X-Finder-Pens` (the pens present, for the legend). A candidate is `{id, region, kind, offset, reading, count, score,
 why, ties, suggest}`; `reading` is the same object a mark and the `render` query carry. `<rid>` must match the id
-rule of 9.4 and equal the recipe's `id`; the file is `<data root>/recipes/<rid>.json`, written through a temporary file
+rule of 9.4 and equal the recipe's `id`. A session recipe's id (`found-<session>-<item>`) is unique in its job only,
+so it is never a library id: the **first save** of a session recipe gives it a library id that no built-in or user
+recipe has (the user's own name for it when it is free, else `<stem of the host file's name>-<8 hex digits of its
+SHA-256>`, cut to the 48 characters of the id rule, with `-2`, `-3`, ... while taken), the recipe is stored under
+that id, and the session remembers it, so a later save of the same marks updates that one file. A `PUT` to an id that
+exists is accepted only from the session that made it or with `"replace": true` (the page asks first); otherwise it
+answers 409 `recipe.exists`. The file is `<data root>/recipes/<rid>.json`, written through a temporary file
 in that folder and `os.replace`, never through a path taken from the request; a built-in id is refused; the user
 library holds at most 500 recipes. `PUT /api/prefs` takes a body of at most 1 KiB that is exactly `{"lang": "en"}` or
 `{"lang": "ko"}` (any other key or value is 400) and writes `prefs.json` the same way (a temporary file in the data
@@ -886,7 +892,10 @@ inside a file" and `docs/recipes.md` a paragraph pointing from the prompt sectio
   8x8 `top` 4 face's header ascent is the Hangul item's; `apply` during hashing waits or answers 409.
 - **Server**: every endpoint with and without the token and with a foreign `Host`; `no-store` on the byte GETs; bounds
   before allocation; the analysis and trial budgets kill their tools (no process left in `tools.pids`); cancel of a
-  trial; `PUT /api/recipes/<rid>` with `..`, a built-in id, a mismatched id, the 501st recipe; `/api/recipes` and
+  trial; `PUT /api/recipes/<rid>` with `..`, a built-in id, a mismatched id, the 501st recipe, an existing id
+  without `replace` (409); two jobs whose sessions and items have the same names, each saved to the user library:
+  two files with two ids, both recognised as `known` in a third job, and a second save from either job updates its
+  own file only; `/api/recipes` and
   `/api/prefs` without local mode or the token (403) and with no job; `PUT /api/prefs` with another key, another
   value, an oversized body, and a kill between the write and the replace (the old file stays); an export into a
   folder where `finder-export-*` exists, and where it is a symlink; no source byte pattern of the fixture in
@@ -1079,4 +1088,12 @@ New findings; the Neon ones were checked against `desktop-export`, which moved t
 | Neon r3 3 (Important): `_recipe_entries` relabels in place; `files` pairs have no zip member | True | **fixed**: 8.1: session entries appended with the host's `file_id`; a three-element `files` value from phase 2; the unpacking sites named |
 | Neon r3 4 (Minor): the `region` command's syntax | True; t_97acecf9 moved to `--group` | **fixed**: 8.2 |
 | Neon r3 5 (Minor): requests racing the background hash | True | **fixed**: 7.2 |
+
+### 17.3 Fourth round (2026-11-23, on `df848f7`)
+
+agy Neon: approve. SOL: approve with changes, one finding.
+
+| Finding | Checked | Disposition |
+|---|---|---|
+| SOL r4 1 (Medium): `found-<session>-<item>` ids collide across jobs when saved to the user library, and `os.replace` of `<rid>.json` overwrites the first discovery | True: the id was unique in a job only | **fixed**: 7.3: a library id unique among built-in and user recipes is allocated at the first save and kept by the session; a `PUT` to an existing id needs its owner session or `replace`; test with two jobs of identical session and item ids (13) |
 
