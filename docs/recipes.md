@@ -1266,11 +1266,15 @@ a combining mark at its origin with advance 0, the advance the face's own.
   public-domain attribution) into the copyright; the OFL URL only when an OFL text is embedded. `--licence FILE` names
   the note; `--licence none` writes none. A face outside the repository with no note (one you made in `$OUT`) gets a
   line saying the source font's licence applies, and a warning: give it `--licence`.
-- **Not produced**: conjoining-jamo (U+1100) shaping, GSUB or GPOS (a jamo set's pieces at U+F0000 are not exported),
-  kerning, hinting instructions, vertical metrics. The timestamps are `$SOURCE_DATE_EPOCH` when set, else now.
+- **Code points**: a jamo set's pieces (the plane U+F0000..U+FFFFF) are not exported; a precomposed face keeps its
+  private-use glyphs there and past it. Surrogates and U+FFFF never become characters. A face with nothing to export,
+  or a TTF of more than 65,534 glyphs, is an error.
+- **Not produced**: conjoining-jamo (U+1100) shaping, GSUB or GPOS, kerning, hinting instructions, vertical metrics. The timestamps are `$SOURCE_DATE_EPOCH` when set, else now.
 
 **The BDF** (`bdf`): every code point a glyph (BBX the ink box, DWIDTH the advance), `FONT_ASCENT` / `FONT_DESCENT` the
-face's, `PIXEL_SIZE` ppem, the licence note as `COMMENT` lines and the copyright as `COPYRIGHT`. A 1 bpp face writes BDF
+face's, `PIXEL_SIZE` ppem at 72 dpi (`SIZE ppem 72 72`, `POINT_SIZE` ppem x 10, `SWIDTH` advance x 1000 / ppem),
+`AVERAGE_WIDTH` the mean advance x 10, the licence note as `COMMENT` lines and the copyright as `COPYRIGHT`, written in
+UTF-8 (a note's Korean text is kept as it is; FreeType reads it). A 1 bpp face writes BDF
 2.1; a 2 or 8 bpp face writes BDF 2.3 with its bit depth as the fourth field of `SIZE` (FreeType reads it), or 1 bpp with
 `--bpp1` (pixels >= `--threshold`).
 
@@ -1284,8 +1288,9 @@ face's, `PIXEL_SIZE` ppem, the licence note as `COMMENT` lines and the copyright
 `--only-listed` bakes those and no more; `--probe` takes a cell tall enough to cut nothing and keeps one baseline;
 `--width` is the face's cell width. `compare` places every glyph of both faces as
 `svfline.py` does and counts glyphs whose pixels (as coverage) or advance differ, and inked glyphs only one face has;
-blank glyphs only one face has are counted apart, as `mkfont.py` drops every blank glyph but the spaces. Exit 0 when the
-mismatches are 0.
+blank glyphs only one face has are counted apart, as `mkfont.py` drops every blank glyph but the spaces (U+0020,
+U+00A0 and U+3000 only one face has are mismatches: `mkfont.py` keeps them). Exit 0 when the mismatches are 0; an
+unreadable face exits 1.
 
 Verified (2026-11-23), every face through `ttf` and `bdf`, each output baked back by `mkfont.py` as above (`--bpp 2`
 for the 2 bpp faces) and compared; rendered by Pillow (FreeType) at ppem and at 2 x ppem, the line `가각간한글 ABC 123`
@@ -1317,12 +1322,15 @@ and `GOTHA16A SVF`, and `fc-match "NEODG16A SVF:pixelsize=16"` picks the file. f
 for a face that has every character of its Korean orthography, compatibility jamo U+3165-U+318E included (NGOTB16 does;
 NEODG16 and the jamo sets do not), which matters only to font fallback by language. Windows and macOS: not tested here
 (install as any `.ttf`; whether a program draws the strike or the outline at ppem is up to its renderer; Windows
-reads `EBLC`/`EBDT` strikes, and `--apple` adds the Apple names of the same tables, `bloc`/`bdat`, untested on a Mac).
+reads `EBLC`/`EBDT` strikes, but whether it draws a 2 or 8 bit strike as levels is untested; `--apple` adds the Apple
+names of the same tables, `bloc`/`bdat`, untested on a Mac).
 
 **Limits.** The strike holds the face's size only; at other sizes the outlines draw blocky pixels (exact at whole
 multiples), anti-aliased by the renderer at the rest. A 2 bpp face's levels exist only in its strike. The output is
-precomposed: a jamo set's small size does not survive the conversion. Advances and bearings must fit the strike's byte
-fields (advance 0..255, which every SVF advance does). The licence of the face's source font applies to the TTF; an
+precomposed: a jamo set's small size does not survive the conversion. The strike's metrics are bytes: the advance
+0..255 (every SVF advance fits) and the ascent, descent and each glyph's bearings signed, -128..127, so a face whose
+ascent or ink reaches more than 127 rows from the baseline (a cell over about 127 rows) stops with an error naming the
+field; `--no-strike` converts it to outlines only, and its BDF is not limited. The licence of the face's source font applies to the TTF; an
 OFL font's Reserved Font Names must not be the new family name (the default name avoids them).
 
 ## Choosing the number of sets (벌 수)

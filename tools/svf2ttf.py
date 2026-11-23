@@ -3,14 +3,17 @@
 
   svf2ttf.py ttf FACE.SVF OUT.ttf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
                                   [--licence FILE|none] [--no-strike] [--apple]
-  svf2ttf.py bdf FACE.SVF OUT.bdf [--family F] [--style S] [--version V] [--ppem N] [--licence FILE|none] [--bpp1]
+  svf2ttf.py bdf FACE.SVF OUT.bdf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
+                                  [--licence FILE|none] [--bpp1]
   svf2ttf.py compare A.SVF B.SVF
   svf2ttf.py cps FACE.SVF            prints the face's code points as mkfont.py --unicode ranges (20-7e,ac00-d7a3,...)
 
 The face is read as the C library loads it (svfline.Face): a precomposed face gives its glyphs, a jamo set gives every
 syllable its JSET composes (all 11,172 for a full table, as svfline draws them, through jamoset.compose) and the
-compatibility jamo its table maps, plus its other glyphs. The jamo pieces themselves (U+F0000 + n) are not exported, and
-no conjoining-jamo (U+1100) shaping, GSUB or GPOS is written: the output is a precomposed font.
+compatibility jamo its table maps, plus its other glyphs. A jamo set's pieces (the plane U+F0000..U+FFFFF) are not
+exported; a precomposed face keeps its private-use glyphs there. Surrogates and U+FFFF are never exported. No
+conjoining-jamo (U+1100) shaping, GSUB or GPOS is written: the output is a precomposed font. A face with no glyph to
+export is an error, and so is a TTF of more than 65,534 glyphs.
 
 Every glyph is placed exactly as svfline draws it: the cell's left column at the pen (a combining mark U+0300..U+036F of
 a face with flags bit 2 and a negative bearing_x: min(-bearing_x, cell_w) columns left of it, and advance 0), its top row
@@ -25,7 +28,9 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
   - EBLC/EBDT: one strike at ppem x ppem with the face's own bit depth (1, 2 or 8), every glyph's pixels cut to its ink
     box (image format 1: small metrics, byte-aligned rows; index format 1), its advance and bearings in the metrics.
     A renderer that uses embedded bitmaps (FreeType, Windows GDI/DirectWrite) draws the face's own pixels and levels at
-    ppem, and the outlines at other sizes. --no-strike leaves it out; --apple adds the same strike as bloc/bdat.
+    ppem, and the outlines at other sizes. --no-strike leaves it out; --apple adds the same strike as bloc/bdat. The
+    strike's metrics are signed bytes: an ascent, descent or a glyph's bearing past -128..127 (a face over about 127
+    rows) is an error naming the field; --no-strike converts such a face.
   - cmap (format 4, and 12 when a code point is past U+FFFF), hmtx (advance * 64, lsb = the outline's x minimum),
     hhea / OS/2 typo ascender and descender = the face's ascent and cell height - ascent (USE_TYPO_METRICS), OS/2 win
     ascent / descent = the larger of those and the ink's reach (a dy may take ink past the cell), post format 3,
@@ -42,17 +47,18 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
 
 bdf: BDF 2.1 (1 bpp) or 2.3 (2 and 8 bpp: SIZE's fourth field is the bit depth; --bpp1 writes 1 bpp by --threshold),
   ISO10646-1, one glyph a code point with BBX = its ink box (a blank glyph 0 x 0) and DWIDTH = its advance,
-  FONT_ASCENT / FONT_DESCENT the face's, PIXEL_SIZE ppem, COPYRIGHT / NOTICE from the licence note. FreeType (and so
-  mkfont.py, at the BDF's pixel size) reads it.
+  FONT_ASCENT / FONT_DESCENT the face's, PIXEL_SIZE ppem at 72 dpi (POINT_SIZE ppem * 10, SWIDTH advance * 1000 / ppem),
+  AVERAGE_WIDTH the mean advance * 10, the licence note as COMMENT lines, COPYRIGHT / NOTICE; written in UTF-8 (a note's
+  Korean text stays as it is). FreeType (and so mkfont.py, at the BDF's pixel size) reads it.
 
 compare: every code point either face has, compared as svfline places it (pixels with their level relative to the
   pen and the baseline, and the advance). Prints the counts and the first differing code points; mismatches = glyphs
   whose pixels or advance differ plus inked glyphs only one face has (blank glyphs only one face has, as mkfont.py drops
-  every blank glyph but the spaces, are counted apart). Exit 0 when mismatches is 0, else 1.
+  every blank glyph but the spaces, are counted apart, except a missing U+0020 / U+00A0 / U+3000, which mkfont.py keeps). Exit 0 when mismatches is 0,
+  else 1.
 """
 
 import argparse
-import datetime
 import fnmatch
 import glob
 import os
@@ -70,14 +76,35 @@ import svfline  # noqa: E402
 UNITS = 64                     # font units per pixel
 DEFAULT_THRESHOLD = 128        # svfline Target mono threshold
 OFL_URL = "https://openfontlicense.org"
+SPACES = {0x20, 0xA0, 0x3000}  # blank glyphs mkfont.py keeps (BLANK_OK): one face missing them is a mismatch
 
 
 # ---- the face as svfline draws it ----------------------------------------------------------------------------------
 
+def load_face(path):
+    """The face at @p path, read afresh (svfline.Face.load caches by path)."""
+    with open(path, "rb") as fh:
+        return svfline.Face(fh.read())
+
+
+def is_jamo_face(face):
+    return face.tables is not None or bool(face.flags & jamoset.FLAG_JAMO)
+
+
+def exportable(cp, jamo):
+    """Whether code point @p cp can be a character of the output: a Unicode scalar value other than U+FFFF (the cmap
+    format 4 sentinel), and for a jamo set (@p jamo) not in the piece plane U+F0000..U+FFFFF, whose glyphs are its
+    pieces. A precomposed face keeps its private-use glyphs there."""
+    if cp > 0x10FFFF or 0xD800 <= cp <= 0xDFFF or cp == 0xFFFF:
+        return False
+    return not (jamo and jamoset.PIECE_BASE <= cp < jamoset.PIECE_BASE + 0x10000)
+
+
 def face_cps(face):
-    """The code points @p face draws (svfline.Face.has), in order: its glyphs below the jamo-piece plane, and with a JSET
-    every syllable it composes and the compatibility jamo it maps."""
-    cps = {cp for cp in face.glyphs if cp < jamoset.PIECE_BASE}
+    """The code points @p face draws (svfline.Face.has), in order: its glyphs (exportable), and with a JSET every syllable
+    it composes and the compatibility jamo it maps."""
+    jamo = is_jamo_face(face)
+    cps = {cp for cp in face.glyphs if exportable(cp, jamo)}
     if face.tables:
         cps.update(cp for cp in range(0xAC00, 0xD7A4) if face.composed(cp))
         cps.update(cp for cp in range(0x3131, 0x3164) if face.composed(cp))
@@ -366,14 +393,27 @@ def _pack_rows(g, depth):
 def strike_tables(glyphs, ppem, depth, ascent, descent):
     """(EBLC, EBDT) bytes: one strike, glyph ids 1..len(glyphs) (.notdef is id 0 and has no bitmap), image format 1
     (small metrics, byte-aligned rows), index format 1."""
+    def i8(v, what):
+        if not -128 <= v <= 127:
+            raise ValueError("%s %d does not fit the bitmap strike's signed byte (-128..127); --no-strike writes the "
+                             "outlines only" % (what, v))
+        return v
+
+    i8(ascent, "the ascent")
+    i8(-descent, "the descent")
     data = bytearray(struct.pack(">L", 0x00020000))
     offs = []
     bx_min, rsb_min, bl_max, bl_min, wmax = 127, 127, -128, 127, 0
     for g in glyphs:
         offs.append(len(data))
         box = g.box()
-        if g.adv > 255:
-            raise ValueError("U+%04X: advance %d is past 255" % (g.cp, g.adv))
+        if not 0 <= g.adv <= 255:
+            raise ValueError("U+%04X: advance %d is outside 0..255" % (g.cp, g.adv))
+        if box is not None:
+            i8(box[0], "U+%04X: the bearing x" % g.cp)
+            i8(-box[1], "U+%04X: the bearing y (ink top above the baseline)" % g.cp)
+            i8(g.adv - box[2], "U+%04X: the right side bearing" % g.cp)
+            i8(-box[3], "U+%04X: the ink bottom" % g.cp)
         if box is None:
             data += struct.pack(">BBbbB", 0, 0, 0, 0, g.adv)
         else:
@@ -387,6 +427,8 @@ def strike_tables(glyphs, ppem, depth, ascent, descent):
     offs.append(len(data))
     if bl_max < bl_min:
         bx_min = rsb_min = bl_max = bl_min = 0
+    if not glyphs:
+        raise ValueError("no glyphs")
     first, last = 1, len(glyphs)
     hori = struct.pack(">bbBbbbbbbbbb", ascent, -descent, wmax, 1, 0, 0, bx_min, rsb_min, bl_max, bl_min, 0, 0)
     vert = struct.pack(">bbBbbbbbbbbb", ascent, -descent, wmax, 1, 0, 0, 0, 0, 0, 0, 0, 0)
@@ -416,6 +458,31 @@ def default_family(face_path):
     return os.path.splitext(os.path.basename(face_path))[0].upper() + " SVF"
 
 
+def ps_name(family, style, face_path):
+    """The PostScript name (name 6): the ASCII letters and digits of @p family (else of the face's file stem, else
+    "SVF"), "-", those of @p style (else "Regular"); at most 63 characters."""
+    alnum = lambda t: re.sub(r"[^A-Za-z0-9]", "", t)  # noqa: E731
+    fam = alnum(family) or alnum(os.path.splitext(os.path.basename(face_path))[0]) or "SVF"
+    sty = (alnum(style) or "Regular")[:29]
+    return fam[:62 - len(sty)] + "-" + sty
+
+
+def checked_ppem(ppem, face):
+    ppem = face.cell_h if ppem is None else ppem
+    if not 1 <= ppem <= 255:
+        raise ValueError("ppem %d is not 1..255" % ppem)
+    return ppem
+
+
+def checked_glyphs(face, face_path, limit):
+    glyphs = face_glyphs(face)
+    if not glyphs:
+        raise ValueError("%s has no glyph to export" % face_path)
+    if len(glyphs) > limit:
+        raise ValueError("%s has %d glyphs; a TrueType font holds %d besides .notdef" % (face_path, len(glyphs), limit))
+    return glyphs
+
+
 def _timestamp():
     from fontTools.misc.timeTools import epoch_diff
     t = int(os.environ.get("SOURCE_DATE_EPOCH", time.time()))
@@ -430,18 +497,16 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     from fontTools.ttLib import newTable
     from fontTools.ttLib.tables.DefaultTable import DefaultTable
 
-    face = svfline.Face.load(face_path)
-    ppem = ppem or face.cell_h
-    if not 1 <= ppem <= 255:
-        raise ValueError("ppem %d is not 1..255" % ppem)
+    face = load_face(face_path)
+    ppem = checked_ppem(ppem, face)
     k = UNITS
     family = family or default_family(face_path)
-    glyphs = face_glyphs(face)
+    glyphs = checked_glyphs(face, face_path, 65534)
     ascent, descent = face.ascent, face.cell_h - face.ascent
     order = [".notdef"] + [g.name for g in glyphs]
 
     glyf, hmtx = {}, {}
-    nb_w, nb_h = max(2, face.cell_w // 2), max(3, ascent)
+    nb_w, nb_h = max(3, face.cell_w // 2), max(3, ascent)
     pen = TTGlyphPen(None)
     for poly in ([(0, 0), (0, nb_h), (nb_w, nb_h), (nb_w, 0)], [(1, 1), (nb_w - 1, 1), (nb_w - 1, nb_h - 1), (1, nb_h - 1)]):
         pen.moveTo((poly[0][0] * k, poly[0][1] * k))
@@ -450,7 +515,7 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
         pen.closePath()
     glyf[".notdef"] = pen.glyph()
     hmtx[".notdef"] = ((nb_w + 1) * k, 0)
-    ink_top, ink_bottom = ascent, descent
+    ink_top, ink_bottom = max(0, ascent), max(0, descent)
     for g in glyphs:
         pen = TTGlyphPen(None)
         on = {(x, -y - 1) for (x, y), v in g.px.items() if coverage_of(face, v) >= threshold}
@@ -475,16 +540,16 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     fb.setupHorizontalMetrics(hmtx)
     fb.setupHorizontalHeader(ascent=ascent * k, descent=-descent * k, lineGap=0)
     fs_sel, mac_style, weight = _style_bits(style)
-    ps_name = re.sub(r"[^A-Za-z0-9]", "", family)[:40] + "-" + re.sub(r"[^A-Za-z0-9]", "", style)
     desc, copyright_, url = licence_text(face_path, licence)
     base = os.path.basename(face_path)
     names = {
         "familyName": family, "styleName": style, "uniqueFontIdentifier": "%s;%s;%s" % (family, style, version),
-        "fullName": family if style == "Regular" else "%s %s" % (family, style), "psName": ps_name,
+        "fullName": family if style == "Regular" else "%s %s" % (family, style), "psName": ps_name(family, style, face_path),
         "version": "Version %s; svf2ttf.py from %s" % (version, base),
-        "description": "Generated by svf2ttf.py from %s (%dx%d cell, %d bpp, %s, %d glyphs, %d px strike). %s"
-                       % (base, face.cell_w, face.cell_h, face.bpp, _kind(face), len(glyphs), ppem,
-                          "Its licence is the licence of the font the face was made from (see the licence "
+        "description": "Generated by svf2ttf.py from %s (%dx%d cell, %d bpp, %s, %d glyphs, %s).%s"
+                       % (base, face.cell_w, face.cell_h, face.bpp, _kind(face), len(glyphs),
+                          "%d px strike" % ppem if strike else "outlines only, %d px em" % ppem,
+                          " Its licence is the licence of the font the face was made from (see the licence "
                           "description)." if desc else ""),
     }
     if copyright_:
@@ -541,10 +606,10 @@ def _bdf_quote(s):
 
 def build_bdf(face_path, out, family=None, style="Regular", version="1.000", ppem=None, licence=None, bpp1=False,
               threshold=DEFAULT_THRESHOLD):
-    face = svfline.Face.load(face_path)
-    ppem = ppem or face.cell_h
+    face = load_face(face_path)
+    ppem = checked_ppem(ppem, face)
     family = family or default_family(face_path)
-    glyphs = face_glyphs(face)
+    glyphs = checked_glyphs(face, face_path, 0x10FFFF)
     depth = 1 if bpp1 or face.bpp == 1 else face.bpp
     if depth == 1 and face.bpp != 1:
         for g in glyphs:
@@ -557,14 +622,16 @@ def build_bdf(face_path, out, family=None, style="Regular", version="1.000", ppe
     fy1 = max([b[3] for b in boxes] + [1])
     desc, copyright_, _ = licence_text(face_path, licence)
     weight = "Bold" if "bold" in style.lower() else "Medium"
-    slant = "I" if "italic" in style.lower() else "R"
+    slant = "I" if "italic" in style.lower() else "O" if "oblique" in style.lower() else "R"
     advs = {g.adv for g in glyphs if g.adv}
     spacing = "C" if len(advs) == 1 else "P"
-    xlfd = "-svf-%s-%s-%s-normal--%d-%d-75-75-%s-%d-ISO10646-1" % (
-        family.replace("-", " "), weight, slant, ppem, ppem * 10, spacing, (sum(advs) // len(advs) * 10) if advs else 0)
+    avg = round(sum(g.adv for g in glyphs) * 10 / len(glyphs))
+    xlfd = "-svf-%s-%s-%s-normal--%d-%d-72-72-%s-%d-ISO10646-1" % (
+        family.replace("-", " "), weight, slant, ppem, ppem * 10, spacing, avg)
     props = [("FOUNDRY", _bdf_quote("svf")), ("FAMILY_NAME", _bdf_quote(family)), ("WEIGHT_NAME", _bdf_quote(weight)),
              ("SLANT", _bdf_quote(slant)), ("SETWIDTH_NAME", _bdf_quote("Normal")), ("PIXEL_SIZE", str(ppem)),
-             ("POINT_SIZE", str(ppem * 10)), ("RESOLUTION_X", "75"), ("RESOLUTION_Y", "75"),
+             ("POINT_SIZE", str(ppem * 10)), ("RESOLUTION_X", "72"), ("RESOLUTION_Y", "72"),
+             ("AVERAGE_WIDTH", str(avg)),
              ("SPACING", _bdf_quote(spacing)), ("CHARSET_REGISTRY", _bdf_quote("ISO10646")),
              ("CHARSET_ENCODING", _bdf_quote("1")), ("FONT_ASCENT", str(ascent)), ("FONT_DESCENT", str(descent)),
              ("FONT_VERSION", _bdf_quote(version)),
@@ -573,7 +640,7 @@ def build_bdf(face_path, out, family=None, style="Regular", version="1.000", ppe
         props.append(("COPYRIGHT", _bdf_quote(copyright_)))
     lines = ["STARTFONT %s" % ("2.1" if depth == 1 else "2.3")]
     lines += ["COMMENT " + ln for ln in desc.splitlines()] if desc else []
-    lines += ["FONT " + xlfd, "SIZE %d 75 75%s" % (ppem, "" if depth == 1 else " %d" % depth),
+    lines += ["FONT " + xlfd, "SIZE %d 72 72%s" % (ppem, "" if depth == 1 else " %d" % depth),
               "FONTBOUNDINGBOX %d %d %d %d" % (fx1 - fx0, fy1 - fy0, fx0, -fy1),
               "STARTPROPERTIES %d" % len(props)]
     lines += ["%s %s" % p for p in props]
@@ -592,7 +659,7 @@ def build_bdf(face_path, out, family=None, style="Regular", version="1.000", ppe
             lines += [rows[i:i + pitch].hex().upper() for i in range(0, len(rows), pitch)]
         lines.append("ENDCHAR")
     lines.append("ENDFONT")
-    with open(out, "w", encoding="ascii", errors="replace", newline="\n") as fh:
+    with open(out, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines) + "\n")
     return {"glyphs": len(glyphs), "bytes": os.path.getsize(out), "ppem": ppem, "bpp": depth, "kind": _kind(face)}
 
@@ -602,7 +669,7 @@ def build_bdf(face_path, out, family=None, style="Regular", version="1.000", ppe
 def compare(path_a, path_b):
     """{'compared', 'mismatches', 'pixel', 'advance', 'only_a', 'only_b', 'blank_only', 'first'} of two faces (see the
     module doc). Levels are compared as coverage (svfline's GRAY8), so faces of one bit depth compare level for level."""
-    a, b = svfline.Face.load(path_a), svfline.Face.load(path_b)
+    a, b = load_face(path_a), load_face(path_b)
     ca, cb = set(face_cps(a)), set(face_cps(b))
     res = {"compared": 0, "pixel": 0, "advance": 0, "only_a": 0, "only_b": 0, "blank_only": 0, "first": []}
     for cp in sorted(ca | cb):
@@ -624,7 +691,7 @@ def compare(path_a, path_b):
             res["mismatches"] = res.get("mismatches", 0) + bad
         else:
             face, key = (a, "only_a") if cp in ca else (b, "only_b")
-            if glyph_pixels(face, cp)[1]:
+            if glyph_pixels(face, cp)[1] or cp in SPACES:
                 res[key] += 1
                 if len(res["first"]) < 20:
                     res["first"].append(cp)
@@ -677,12 +744,15 @@ def main(argv=None):
     pp.add_argument("face")
     args = ap.parse_args(argv)
 
-    if args.cmd == "cps":
-        print(cp_ranges(face_cps(svfline.Face.load(args.face))))
-        return 0
-
-    if args.cmd == "compare":
-        r = compare(args.a, args.b)
+    if args.cmd in ("cps", "compare"):
+        try:
+            if args.cmd == "cps":
+                print(cp_ranges(face_cps(load_face(args.face))))
+                return 0
+            r = compare(args.a, args.b)
+        except (ValueError, OSError) as e:
+            print("svf2ttf: %s" % e, file=sys.stderr)
+            return 1
         print("compared %d glyphs: mismatches %d (pixels %d, advance %d, inked only in A %d, only in B %d); "
               "blank glyphs only one face has %d" % (r["compared"], r["mismatches"], r["pixel"], r["advance"],
                                                      r["only_a"], r["only_b"], r["blank_only"]))

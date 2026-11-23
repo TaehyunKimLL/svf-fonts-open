@@ -503,15 +503,17 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 
 **상태.** 범용이다.
 
-**입력.** SVFN v3 페이스. C 라이브러리가 읽는 방식(`svfline.Face`)으로 읽는다: U+F0000 아래의 글리프와, 자모 세트라면 그 표가
-주는 모든 음절과 호환 자모(`jamoset.compose`로 합성). `--licence`가 지정하지 않으면 페이스 옆의 라이선스 노트(출력 참고).
+**입력.** SVFN v3 페이스. C 라이브러리가 읽는 방식(`svfline.Face`)으로 읽는다: 글리프(자모 세트의 U+F0000..U+FFFFF 조각은 빼고, 완성형
+페이스의 사용자 정의 영역 글리프는 지킨다. 서로게이트와 U+FFFF는 내보내지 않는다)와, 자모 세트라면 그 표가 주는 모든 음절과 호환
+자모(`jamoset.compose`로 합성). 내보낼 것이 없는 페이스는 오류이다. `--licence`가 지정하지 않으면 페이스 옆의 라이선스 노트(출력 참고).
 
 **출력.**
 
 - `ttf`: `unitsPerEm` = ppem x 64인 TrueType 폰트(ppem의 기본은 셀 높이). `glyf`: 각 글리프에서 커버리지가 `--threshold`(기본
   128: 1 bpp는 모든 픽셀, 2 bpp는 단계 2와 3) 이상인 픽셀을 윤곽선으로 추적한 것. ppem과 그 정수배에서 정확하며 힌팅은 없다.
   `EBLC`/`EBDT`: 페이스의 비트 깊이(1, 2, 8)로 ppem의 스트라이크 하나(이미지 형식 1, 인덱스 형식 1). 각 글리프는 잉크 상자로
-  잘리고 bearing과 advance를 가진다(`--no-strike`는 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). `cmap`(4, U+FFFF를 넘으면 12),
+  잘리고 bearing과 advance를 가진다(부호 있는 바이트: -128..127을 넘는 ascent, descent, bearing은 그 필드를 밝히고 `--no-strike`를
+  권하는 오류. `--no-strike`는 스트라이크를 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). 글리프는 65,534개까지. `cmap`(4, U+FFFF를 넘으면 12),
   `hmtx`(페이스의 advance. 결합 부호는 `svfline.py`가 놓는 대로 원점에 advance 0), `hhea` / OS/2 typo 메트릭 = ascent와 셀 높이 -
   ascent, dy가 옮긴 잉크까지 덮는 OS/2 win 메트릭, `post` 형식 3, `head`, `maxp`, `gasp`, `name`(패밀리, 스타일, 버전, 페이스를
   밝히는 설명, 그리고 라이선스: 저장소 `svf/`의 페이스는 `web/LICENCES.tsv`의 해당 행이 지명하는 파일(`svf/` 아래에서 행이 없는
@@ -520,10 +522,11 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
   URL은 OFL 텍스트가 들어갈 때만 name 14).
   GSUB, GPOS, 첫가끝 자모 셰이핑은 없다: 출력은 완성형이다. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값.
 - `bdf`: BDF 2.1(1 bpp) 또는 2.3(2 / 8 bpp: 비트 깊이를 `SIZE`의 네 번째 필드에. `--bpp1`은 1 bpp로 자른다), ISO10646-1,
-  글리프마다 잉크 상자(BBX)와 advance(DWIDTH), `FONT_ASCENT` / `FONT_DESCENT`는 페이스의 값, 라이선스 노트는 `COMMENT` 줄.
+  글리프마다 잉크 상자(BBX)와 advance(DWIDTH), `FONT_ASCENT` / `FONT_DESCENT`는 페이스의 값, 72 dpi(`SIZE ppem 72 72`,
+  `POINT_SIZE`는 ppem x 10, `SWIDTH`는 advance x 1000 / ppem), `AVERAGE_WIDTH`, 라이선스 노트는 `COMMENT` 줄, 저작권은 `COPYRIGHT`, UTF-8로.
 - `compare`: 한 줄 `compared N glyphs: mismatches M (pixels P, advance A, inked only in A X, only in B Y); blank glyphs only
   one face has Z`와, 이어서 처음 다른 코드 포인트들. 글리프는 `svfline.py`가 놓는 대로 놓는다(펜과 기준선에 대한 픽셀의
-  커버리지, 그리고 advance).
+  커버리지, 그리고 advance). 한쪽에만 있는 빈 글리프는 따로 세지만 U+0020, U+00A0, U+3000은 불일치이다.
 - `cps`: 페이스의 코드 포인트를 `mkfont.py --unicode` 범위로.
 
 **개요(Synopsis).**
@@ -547,7 +550,7 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 | `--apple` (ttf) | off | 스트라이크를 `bloc`/`bdat`으로도 쓴다 |
 | `--bpp1` (bdf) | off | 2 또는 8 bpp 페이스를 1 bpp BDF로 |
 
-종료 상태: 0. 1은 읽을 수 없는 페이스나 범위를 벗어난 값(`compare`: 불일치가 있으면 1). 2는 사용법 오류. 저장소 `svf/` 아래에서
+종료 상태: 0. 1은 읽을 수 없는 페이스(모든 하위 명령), 범위를 벗어난 값(1..255 밖의 `--ppem`, 스트라이크 필드), 내보낼 것이 없는 페이스(`compare`: 불일치가 있으면 1). 2는 사용법 오류. 저장소 `svf/` 아래에서
 `web/LICENCES.tsv`가 다루지 않는 페이스는 `--licence`가 없으면 1로 끝난다. 그 밖에서 옆에 라이선스 노트가 없는 페이스는 경고를
 찍고, 원본 폰트의 라이선스가 적용된다는 한 줄을 받는다.
 

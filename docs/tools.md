@@ -525,8 +525,9 @@ an embedded bitmap strike) or a BDF; and compare two faces glyph by glyph (the r
 
 **Status.** General-purpose.
 
-**Inputs.** An SVFN v3 face, read as the C library loads it (`svfline.Face`): its glyphs below U+F0000 and, for a jamo
-set, every syllable and compatibility jamo its table gives (composed by `jamoset.compose`). The licence note beside the
+**Inputs.** An SVFN v3 face, read as the C library loads it (`svfline.Face`): its glyphs (a jamo set's pieces in U+F0000..U+FFFFF
+left out, a precomposed face's private-use glyphs kept; surrogates and U+FFFF never) and, for a jamo set, every syllable
+and compatibility jamo its table gives (composed by `jamoset.compose`). A face with nothing to export is an error. The licence note beside the
 face (see Outputs) unless `--licence` names one.
 
 **Outputs.**
@@ -534,8 +535,9 @@ face (see Outputs) unless `--licence` names one.
 - `ttf`: a TrueType font with `unitsPerEm` = ppem x 64 (ppem defaults to the cell height). `glyf`: each glyph's pixels
   of coverage >= `--threshold` (default 128: every 1 bpp pixel, 2 bpp levels 2 and 3) traced into contours, exact at ppem
   and its multiples, no hinting. `EBLC`/`EBDT`: one strike at ppem in the face's bit depth (1, 2 or 8; image format 1,
-  index format 1), each glyph cut to its ink box with its bearings and advance (`--no-strike` leaves it out; `--apple`
-  adds it as `bloc`/`bdat` too). `cmap` (4, and 12 past U+FFFF), `hmtx` (the face's advances; a combining mark advance 0
+  index format 1), each glyph cut to its ink box with its bearings and advance (signed bytes: an ascent, descent or
+  bearing past -128..127 is an error that names the field and suggests `--no-strike`, which leaves the strike out;
+  `--apple` adds it as `bloc`/`bdat` too). At most 65,534 glyphs. `cmap` (4, and 12 past U+FFFF), `hmtx` (the face's advances; a combining mark advance 0
   at its origin, as `svfline.py` places it), `hhea` / OS/2 typo metrics = ascent and cell height - ascent, OS/2 win
   metrics covering ink moved by a dy, `post` format 3, `head`, `maxp`, `gasp`, `name` (family, style, version, a
   description naming the face, and the licence: for a face of the repository's `svf/` the files its row of
@@ -545,11 +547,13 @@ face (see Outputs) unless `--licence` names one.
   as name 0; the OFL URL as name 14 when an OFL text is embedded). No GSUB, GPOS or conjoining-jamo
   shaping: the output is precomposed. Timestamps from `$SOURCE_DATE_EPOCH` when set.
 - `bdf`: BDF 2.1 (1 bpp) or 2.3 (2 / 8 bpp: the bit depth as the fourth field of `SIZE`; `--bpp1` cuts it to 1 bpp),
-  ISO10646-1, each glyph its ink box (BBX) and advance (DWIDTH), `FONT_ASCENT` / `FONT_DESCENT` the face's, the licence
-  note as `COMMENT` lines.
+  ISO10646-1, each glyph its ink box (BBX) and advance (DWIDTH), `FONT_ASCENT` / `FONT_DESCENT` the face's, 72 dpi
+  (`SIZE ppem 72 72`, `POINT_SIZE` ppem x 10, `SWIDTH` advance x 1000 / ppem), `AVERAGE_WIDTH`, the licence note as
+  `COMMENT` lines and the copyright as `COPYRIGHT`, in UTF-8.
 - `compare`: one line, `compared N glyphs: mismatches M (pixels P, advance A, inked only in A X, only in B Y); blank
   glyphs only one face has Z`, then the first differing code points. Glyphs are placed as `svfline.py` places them
-  (pixels as coverage relative to the pen and baseline, and the advance).
+  (pixels as coverage relative to the pen and baseline, and the advance); a blank glyph only one face has counts apart,
+  except U+0020, U+00A0 and U+3000, which are mismatches.
 - `cps`: the face's code points as `mkfont.py --unicode` ranges.
 
 **Synopsis.**
@@ -573,7 +577,8 @@ face (see Outputs) unless `--licence` names one.
 | `--apple` (ttf) | off | also write the strike as `bloc`/`bdat` |
 | `--bpp1` (bdf) | off | a 2 or 8 bpp face as a 1 bpp BDF |
 
-Exit status: 0; 1 an unreadable face or a value out of range (`compare`: 1 when mismatches > 0); 2 a usage error. A face
+Exit status: 0; 1 an unreadable face (every subcommand), a value out of range (`--ppem` outside 1..255, a strike
+field), a face with nothing to export (`compare`: 1 when mismatches > 0); 2 a usage error. A face
 under the repository's `svf/` that `web/LICENCES.tsv` does not cover exits 1 unless `--licence` is given; a face
 elsewhere with no licence note beside it prints a warning and gets a line saying its source font's licence applies.
 

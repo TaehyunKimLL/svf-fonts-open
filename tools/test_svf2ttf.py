@@ -17,6 +17,7 @@ ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import svf2ttf  # noqa: E402
 import svfline  # noqa: E402
+import jamoset  # noqa: E402
 
 from fontTools.ttLib import TTFont  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
@@ -50,6 +51,35 @@ def strike_pixels(font, name, depth):
             if v:
                 out[(m.BearingX + c, r - m.BearingY)] = v
     return out, m.Advance
+
+
+def synth(path, cell_w, cell_h, ascent, glyphs, bpp=1, flags=jamoset.FLAG_MARKS_AT_ORIGIN, dy=None):
+    """Write a precomposed SVFN v3 face: @p glyphs {cp: (advance, bearing_x, rows)}, rows a list of cell_h strings of
+    cell_w characters ('.' blank, '#' ink for 1 bpp, '0'..'3' levels for 2 bpp)."""
+    cells, cmap, metrics = [], [], []
+    for i, (cp, (adv, bx, rows)) in enumerate(sorted(glyphs.items())):
+        pitch = (cell_w * bpp + 7) // 8
+        data = bytearray()
+        ink = [x for r in rows for x, ch in enumerate(r) if ch not in ".0"]
+        for r in rows:
+            row = bytearray(pitch)
+            for x, ch in enumerate(r):
+                v = 1 if ch == "#" else 0 if ch == "." else int(ch)
+                if v:
+                    row[(x * bpp) >> 3] |= v << (8 - bpp - ((x * bpp) & 7))
+            data += row
+        cells.append(bytes(data))
+        cmap.append((cp, i))
+        metrics.append((adv, bx, (max(ink) - min(ink) + 1) if ink else 0, (dy or {}).get(cp, 0)))
+    dys = [m[3] for m in metrics]
+    with open(path, "wb") as fh:
+        fh.write(jamoset.pack_svfn(cell_w, cell_h, ascent, bpp, flags, cells, cmap, metrics, None,
+                                   (min(dys + [0]), max(dys + [0]))))
+    return path
+
+
+def box_rows(w, h, x0, y0, x1, y1, ch="#"):
+    return ["".join(ch if x0 <= x < x1 and y0 <= y < y1 else "." for x in range(w)) for y in range(h)]
 
 
 class GlyphSet(unittest.TestCase):
@@ -106,6 +136,8 @@ class Ttf(unittest.TestCase):
         self.assertEqual(names.getDebugName(2), "Regular")
         self.assertIn("1.5", names.getDebugName(5))
         self.assertIn("NEODG16J.SVF", names.getDebugName(10))
+        self.assertIn("18 px strike", names.getDebugName(10))
+        self.assertEqual(svf2ttf.default_family("/x/neodg16j.svf"), "NEODG16J SVF")
         self.assertIn("Neo Dunggeunmo", names.getDebugName(13))       # the licence note beside the face
         self.assertIn("Copyright (c) 2017-2021", names.getDebugName(0))
         strike = f["EBLC"].strikes[0].bitmapSizeTable
@@ -194,7 +226,7 @@ class Bdf(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "a.bdf")
             run(os.path.join(HERE, "svf2ttf.py"), "bdf", NEODG16A, out)
-            with open(out, encoding="ascii") as fh:
+            with open(out, encoding="utf-8") as fh:
                 text = fh.read()
             face = svfline.Face.load(NEODG16A)
             n = len(svf2ttf.face_cps(face))
@@ -212,9 +244,19 @@ class Bdf(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "b.bdf")
             run(os.path.join(HERE, "svf2ttf.py"), "bdf", NGOTB15C, out)
-            with open(out, encoding="ascii") as fh:
+            with open(out, encoding="utf-8") as fh:
                 text = fh.read()
-            self.assertIn("SIZE 16 75 75 2\n", text)
+            self.assertIn("SIZE 16 72 72 2\n", text)
+            self.assertIn("POINT_SIZE 160\n", text)
+            self.assertIn("RESOLUTION_X 72\n", text)
+            face = svfline.Face.load(NGOTB15C)
+            adv = face.metrics(0x41)[0]
+            self.assertIn("ENCODING 65\nSWIDTH %d 0\nDWIDTH %d 0\n" % (round(adv * 1000 / 16), adv), text)
+            # FreeType reads the 2-bit BDF and draws the levels
+            font = ImageFont.truetype(out, 16)
+            img = Image.new("L", (100, 16), 0)
+            ImageDraw.Draw(img).text((0, face.ascent), "가A", font=font, fill=255, anchor="ls")
+            self.assertEqual(img.tobytes(), bytes(svfline.layout([NGOTB15C], "가A", 0, face.ascent, 100, 16)))
 
 
 class Cps(unittest.TestCase):
@@ -341,7 +383,181 @@ class Licence(unittest.TestCase):
             self.assertEqual(svf2ttf.licence_text(face, "none"), ("", "", ""))
 
 
+class Synthetic(unittest.TestCase):
+    """Faces built here: marks, private use, limits, header fields."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def path(self, name):
+        return os.path.join(self.d, name)
+
+    def ttf(self, face, *opts):
+        out = self.path(os.path.basename(face) + ".ttf")
+        run(os.path.join(HERE, "svf2ttf.py"), "ttf", face, out, "--licence", "none", *opts)
+        return TTFont(out)
+
+    def fails(self, *argv):
+        r = subprocess.run([sys.executable, os.path.join(HERE, "svf2ttf.py")] + [str(a) for a in argv],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        return r.stderr
+
+    def test_mark_at_its_origin_with_advance_0(self):
+        face = synth(self.path("m.svf"), 8, 8, 6, {
+            0x41: (6, 0, box_rows(8, 8, 1, 1, 5, 6)),
+            0x301: (5, -4, box_rows(8, 8, 1, 0, 3, 1))})
+        f = self.ttf(face)
+        cmap = f.getBestCmap()
+        adv, px = svf2ttf.glyph_pixels(svf2ttf.load_face(face), 0x301)
+        self.assertEqual(adv, 0)
+        self.assertEqual(min(x for x, _ in px), 1 - 4)           # min(-bearing_x, cell_w) columns left of the pen
+        self.assertEqual(f["hmtx"][cmap[0x301]], (0, -3 * 64))
+        self.assertEqual(strike_pixels(f, cmap[0x301], 1), (px, 0))
+        # without flags bit 2 the cell stays at the pen
+        plain = synth(self.path("p.svf"), 8, 8, 6, {0x301: (5, -4, box_rows(8, 8, 1, 0, 3, 1))}, flags=0)
+        self.assertEqual(min(x for x, _ in svf2ttf.glyph_pixels(svf2ttf.load_face(plain), 0x301)[1]), 1)
+
+    def test_private_use_glyphs_of_a_precomposed_face(self):
+        g = {0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7)), 0xF0000: (8, 0, box_rows(8, 8, 0, 0, 8, 8)),
+             0x100000: (8, 0, box_rows(8, 8, 2, 2, 4, 4))}
+        face = synth(self.path("pua.svf"), 8, 8, 6, g)
+        self.assertEqual(svf2ttf.face_cps(svf2ttf.load_face(face)), [0x41, 0xF0000, 0x100000])
+        cmap = self.ttf(face).getBestCmap()
+        self.assertIn(0xF0000, cmap)
+        self.assertIn(0x100000, cmap)
+        self.assertEqual(run(os.path.join(HERE, "svf2ttf.py"), "cps", face).strip(), "41,f0000,100000")
+        # compare sees an inked private-use glyph that only one face has
+        del g[0xF0000]
+        less = synth(self.path("less.svf"), 8, 8, 6, g)
+        r = svf2ttf.compare(face, less)
+        self.assertEqual((r["only_a"], r["mismatches"]), (1, 1))
+        # a jamo set's piece plane is not exported
+        self.assertEqual(svf2ttf.face_cps(svf2ttf.load_face(NEODG16A))[-1], 0xD7A3)
+
+    def test_non_characters_are_not_exported(self):
+        g = {0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7)), 0xD800: (8, 0, box_rows(8, 8, 1, 1, 6, 7)),
+             0xFFFF: (8, 0, box_rows(8, 8, 1, 1, 6, 7))}
+        self.assertEqual(svf2ttf.face_cps(svf2ttf.load_face(synth(self.path("s.svf"), 8, 8, 6, g))), [0x41])
+        empty = synth(self.path("e.svf"), 8, 8, 6, {0xD800: (8, 0, box_rows(8, 8, 1, 1, 6, 7))})
+        for cmd in ("ttf", "bdf"):
+            self.assertIn("no glyph", self.fails(cmd, empty, self.path("e.out")))
+
+    def test_strike_byte_limits(self):
+        rows = lambda h, top: box_rows(4, h, 0, top, 2, top + 1)  # noqa: E731
+        ok = synth(self.path("ok.svf"), 4, 130, 127, {0x41: (4, 0, rows(130, 0))})
+        f = self.ttf(ok)
+        self.assertEqual(f["EBLC"].strikes[0].bitmapSizeTable.hori.ascender, 127)
+        self.assertEqual(strike_pixels(f, f.getBestCmap()[0x41], 1)[0], {(0, -127): 1, (1, -127): 1})
+        high = synth(self.path("high.svf"), 4, 130, 128, {0x41: (4, 0, rows(130, 0))})
+        err = self.fails("ttf", high, self.path("high.ttf"), "--licence", "none")
+        self.assertIn("-128..127", err)
+        self.assertIn("--no-strike", err)
+        self.assertNotIn("EBDT", self.ttf(high, "--no-strike"))
+        run(os.path.join(HERE, "svf2ttf.py"), "bdf", high, self.path("high.bdf"), "--licence", "none")
+
+    def test_ppem_and_errors(self):
+        for ppem in ("0", "256", "-5"):
+            self.assertIn("ppem", self.fails("ttf", NEODG16J, self.path("x.ttf"), "--ppem", ppem))
+            self.assertIn("ppem", self.fails("bdf", NEODG16J, self.path("x.bdf"), "--ppem", ppem))
+        bad = self.path("bad.svf")
+        with open(bad, "wb") as fh:
+            fh.write(b"SVFN\x03\x00junk")
+        self.fails("cps", bad)
+        self.fails("compare", bad, NEODG16J)
+        self.fails("compare", self.path("missing.svf"), NEODG16J)
+        self.fails("ttf", bad, self.path("bad.ttf"))
+
+    def test_default_ppem_is_the_cell_height(self):
+        f = self.ttf(os.path.join(DOS, "GBA17BX1.SVF"))                   # a 26x24 cell
+        self.assertEqual(f["head"].unitsPerEm, 24 * 64)
+        self.assertEqual(f["EBLC"].strikes[0].bitmapSizeTable.ppemX, 24)
+        self.assertEqual(f["name"].getDebugName(1), "GBA17BX1 SVF")
+        self.assertEqual(f["name"].getDebugName(6), "GBA17BX1SVF-Regular")
+
+    def test_header_fields(self):
+        f = self.ttf(NEODG16)
+        os2 = f["OS/2"]
+        self.assertEqual(os2.fsType, 0)
+        self.assertEqual(os2.fsSelection, 0x40 | 0x80)                    # REGULAR | USE_TYPO_METRICS
+        self.assertEqual(os2.ulCodePageRange1, 1 | 1 << 19)               # Latin 1, Korean Wansung (2,350 syllables)
+        self.assertEqual(f["post"].isFixedPitch, 0)
+        j = self.ttf(NEODG16A)
+        self.assertEqual(j["OS/2"].ulCodePageRange1, 1 | 1 << 19 | 1 << 21)  # all 11,172: Johab too
+        mono = synth(self.path("mono.svf"), 8, 8, 6, {0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7)),
+                                                       0x42: (8, 0, box_rows(8, 8, 2, 1, 6, 7))})
+        m = self.ttf(mono, "--style", "Bold Italic")
+        self.assertEqual(m["post"].isFixedPitch, 1)
+        self.assertEqual(m["OS/2"].fsSelection, 1 | 32 | 0x80)
+        self.assertEqual((m["OS/2"].usWeightClass, m["head"].macStyle), (700, 3))
+        self.assertEqual(m["OS/2"].ulCodePageRange1, 1)
+        self.assertNotIn(".notdef", m.getBestCmap().values())
+
+    def test_postscript_name(self):
+        self.assertEqual(svf2ttf.ps_name("내 폰트", "Regular", "/x/neo16.svf"), "neo16-Regular")
+        self.assertEqual(svf2ttf.ps_name("가", "굵게", "/x/한.svf"), "SVF-Regular")
+        long = svf2ttf.ps_name("A" * 80, "B" * 40, "/x/f.svf")
+        self.assertEqual(len(long), 63)
+        self.assertTrue(long.endswith("-" + "B" * 29))
+
+    def test_two_bpp_outline_threshold(self):
+        face = synth(self.path("g.svf"), 4, 4, 3, {0x41: (4, 0, ["1230", "0000", "3000", "0000"])}, bpp=2)
+        for threshold, want in (("128", {(1, 0), (2, 0), (0, 2)}), ("80", {(0, 0), (1, 0), (2, 0), (0, 2)}),
+                                ("200", {(2, 0), (0, 2)})):
+            f = self.ttf(face, "--threshold", threshold)
+            glyph = f["glyf"][f.getBestCmap()[0x41]]
+            got = {(c, r) for c in range(4) for r in range(4)
+                   if _inside(glyph, f["glyf"], c * 64 + 32, (3 - r - 1) * 64 + 32)}
+            self.assertEqual(got, want, threshold)
+            self.assertEqual(f["EBLC"].strikes[0].bitmapSizeTable.bitDepth, 2)
+
+    def test_win_metrics_with_dy_below_the_cell(self):
+        face = synth(self.path("dy.svf"), 8, 8, 6, {0x67: (8, 0, box_rows(8, 8, 1, 4, 6, 8))}, dy={0x67: 3})
+        f = self.ttf(face)
+        # rows 4..7 of the cell, top at the baseline - 6 + 3: ink rows 1..4 below the baseline (bottom edge 5)
+        self.assertEqual((f["OS/2"].usWinAscent, f["OS/2"].usWinDescent), (6 * 64, 5 * 64))
+        self.assertEqual((f["hhea"].ascent, f["hhea"].descent), (6 * 64, -2 * 64))
+
+
+def _inside(glyph, glyf, x, y):
+    """Whether point (x, y) is inside @p glyph (nonzero winding over its line segments)."""
+    coords, ends, _ = glyph.getCoordinates(glyf)
+    wind, start = 0, 0
+    for end in ends:
+        pts = list(coords[start:end + 1])
+        start = end + 1
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]):
+            if y0 <= y < y1 and (x1 - x0) * (y - y0) - (x - x0) * (y1 - y0) > 0:
+                wind += 1
+            elif y1 <= y < y0 and (x1 - x0) * (y - y0) - (x - x0) * (y1 - y0) < 0:
+                wind -= 1
+    return wind != 0
+
+
 class Compare(unittest.TestCase):
+    def test_counters(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = {0x20: (4, 0, box_rows(8, 8, 0, 0, 0, 0)), 0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7)),
+                    0x42: (8, 0, box_rows(8, 8, 1, 1, 5, 7)), 0x43: (8, 0, box_rows(8, 8, 2, 2, 5, 7)),
+                    0x2E: (3, 0, box_rows(8, 8, 0, 0, 0, 0))}
+            a = synth(os.path.join(d, "a.svf"), 8, 8, 6, base)
+            b_g = dict(base)
+            b_g[0x41] = (7, 0, base[0x41][2])          # an advance difference
+            del b_g[0x43]                              # an inked glyph only A has
+            del b_g[0x20]                              # a space only A has: a mismatch
+            del b_g[0x2E]                              # another blank glyph only A has: counted apart
+            b = synth(os.path.join(d, "b.svf"), 8, 8, 6, b_g)
+            r = svf2ttf.compare(a, b)
+            self.assertEqual((r["compared"], r["pixel"], r["advance"], r["only_a"], r["only_b"], r["blank_only"],
+                              r["mismatches"]), (2, 0, 1, 2, 0, 1, 3))
+            r = svf2ttf.compare(b, a)
+            self.assertEqual((r["only_a"], r["only_b"]), (0, 2))
+
     def test_compare_finds_a_difference(self):
         with tempfile.TemporaryDirectory() as d:
             src = os.path.join(d, "dy.svf")

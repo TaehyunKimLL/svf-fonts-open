@@ -1164,11 +1164,14 @@ Verified: NanumGothic Bold의 1 bpp 자모 세트는 `--jset-version 2`로 `20,0
   "Copyright"나 "(c)"를 말하는 문단, 없으면 첫 문단: Neo Dunggeunmo Pro의 퍼블릭 도메인 출처 표기처럼)은 저작권으로, OFL URL은 OFL
   텍스트가 들어갈 때만 넣는다. `--licence FILE`로 노트를 지정하고 `--licence none`은 넣지 않는다. 저장소 밖에서 노트가 없는
   페이스(`$OUT`에서 직접 만든 것)에는 원본 폰트의 라이선스가 적용된다는 한 줄과 경고가 붙는다: `--licence`를 주어라.
-- **만들지 않는 것**: 첫가끝 자모(U+1100) 셰이핑, GSUB나 GPOS(자모 세트의 U+F0000 조각은 내보내지 않는다), 커닝, 힌팅 명령, 세로
-  메트릭. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값, 없으면 지금이다.
+- **코드 포인트**: 자모 세트의 조각(평면 U+F0000..U+FFFFF)은 내보내지 않는다. 완성형 페이스는 거기와 그 너머의 사용자 정의 영역
+  글리프를 지킨다. 서로게이트와 U+FFFF는 글자가 되지 않는다. 내보낼 것이 없는 페이스나 글리프가 65,534개를 넘는 TTF는 오류이다.
+- **만들지 않는 것**: 첫가끝 자모(U+1100) 셰이핑, GSUB나 GPOS, 커닝, 힌팅 명령, 세로 메트릭. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값, 없으면 지금이다.
 
 **BDF**(`bdf`): 코드 포인트마다 글리프 하나(BBX는 잉크 상자, DWIDTH는 advance), `FONT_ASCENT` / `FONT_DESCENT`는 페이스의 값,
-`PIXEL_SIZE`는 ppem, 라이선스 노트는 `COMMENT` 줄로, 저작권은 `COPYRIGHT`로. 1 bpp 페이스는 BDF 2.1을 쓰고, 2 또는 8 bpp 페이스는
+`PIXEL_SIZE`는 72 dpi의 ppem(`SIZE ppem 72 72`, `POINT_SIZE`는 ppem x 10, `SWIDTH`는 advance x 1000 / ppem), `AVERAGE_WIDTH`는
+평균 advance x 10, 라이선스 노트는 `COMMENT` 줄로, 저작권은 `COPYRIGHT`로, UTF-8로 쓴다(노트의 한글은 그대로 남고 FreeType이 읽는다).
+1 bpp 페이스는 BDF 2.1을 쓰고, 2 또는 8 bpp 페이스는
 `SIZE`의 네 번째 필드에 비트 깊이를 적은 BDF 2.3을 쓴다(FreeType이 읽는다). `--bpp1`이면 1 bpp로 쓴다(`--threshold` 이상의 픽셀).
 
 **왕복(round trip).** TTF를 스트라이크 크기와 페이스의 비트 깊이로 `mkfont.py`에 다시 굽고 비교한다:
@@ -1180,7 +1183,8 @@ Verified: NanumGothic Bold의 1 bpp 자모 세트는 `--jset-version 2`로 `20,0
 `cps`는 페이스의 코드 포인트를 `--unicode` 범위로 찍고(NEODG16A는 `20-7e,25a1,3131-3163,ac00-d7a3`), `--only-listed`는 그것만
 굽는다. `--probe`는 아무것도 자르지 않는 키 큰 셀을 잡고 기준선 하나를 지키며, `--width`는 페이스의 셀 폭이다. `compare`는 두
 페이스의 모든 글리프를 `svfline.py`처럼 놓고, 픽셀(커버리지로)이나 advance가 다른 글리프와 한쪽에만 있는 잉크 있는 글리프를 센다.
-한쪽에만 있는 빈 글리프는 따로 센다: `mkfont.py`는 공백을 뺀 모든 빈 글리프를 버린다. 불일치가 0이면 종료 코드 0이다.
+한쪽에만 있는 빈 글리프는 따로 센다: `mkfont.py`는 공백을 뺀 모든 빈 글리프를 버린다(한쪽에만 있는 U+0020, U+00A0, U+3000은
+불일치이다: `mkfont.py`가 이들은 지킨다). 불일치가 0이면 종료 코드 0이고, 읽을 수 없는 페이스는 1이다.
 
 Verified(2026-11-23). 모든 페이스를 `ttf`와 `bdf`로 만들고, 각 출력을 위와 같이 `mkfont.py`로 다시 구워(2 bpp 페이스는 `--bpp 2`)
 비교했다. Pillow(FreeType)로 ppem과 2 x ppem에서 `가각간한글 ABC 123` 줄을 그려 `svfline.py`와 비교했다(2 x에서는 2 bpp 줄을 128에서
@@ -1209,12 +1213,14 @@ Verified(2026-11-23). 모든 페이스를 `ttf`와 `bdf`로 만들고, 각 출�
 `fc-match "NEODG16A SVF:pixelsize=16"`이 그 파일을 고른다. fontconfig는 한국어 철자 목록의 모든 글자(호환 자모 U+3165-U+318E 포함)를
 가진 페이스에만 언어 `ko`를 붙인다(NGOTB16은 붙고, NEODG16과 자모 세트들은 안 붙는다). 이는 언어에 따른 대체 폰트 선택에만
 영향을 준다. Windows와 macOS: 여기서 테스트하지 않았다(다른 `.ttf`처럼 설치한다. ppem에서 스트라이크를 그릴지 아웃라인을 그릴지는
-렌더러가 정한다. Windows는 `EBLC`/`EBDT` 스트라이크를 읽고, `--apple`은 같은 표를 Apple의 이름 `bloc`/`bdat`으로 더하지만 Mac에서
+렌더러가 정한다. Windows는 `EBLC`/`EBDT` 스트라이크를 읽지만 2 또는 8비트 스트라이크를 단계로 그리는지는 테스트하지 않았다. `--apple`은 같은 표를 Apple의 이름 `bloc`/`bdat`으로 더하지만 Mac에서
 테스트하지 않았다).
 
 **한계.** 스트라이크는 페이스의 크기 하나만 담는다. 다른 크기에서는 아웃라인이 네모난 픽셀을 그린다(정수배에서 정확하고, 그 밖에서는
 렌더러가 안티에일리어싱한다). 2 bpp 페이스의 단계는 스트라이크에만 있다. 출력은 완성형이다: 자모 세트의 작은 크기는 변환 뒤에 남지
-않는다. advance와 bearing은 스트라이크의 바이트 필드에 들어가야 한다(advance 0..255, SVF의 모든 advance가 그렇다). TTF에는 페이스의
+않는다. 스트라이크의 메트릭은 바이트이다: advance는 0..255(SVF의 모든 advance가 들어간다), ascent, descent와 글리프마다의 bearing은
+부호 있는 -128..127이라, ascent나 잉크가 기준선에서 127행보다 멀리 가는 페이스(셀이 약 127행을 넘는 것)는 그 필드를 밝히는 오류로
+멈춘다. `--no-strike`는 이를 아웃라인만으로 변환하며, BDF에는 이 한계가 없다. TTF에는 페이스의
 원본 폰트 라이선스가 적용된다. OFL 폰트의 Reserved Font Name은 새 패밀리 이름이 되어서는 안 된다(기본 이름은 이를 피한다).
 
 ## 세트 수(벌 수) 정하기
