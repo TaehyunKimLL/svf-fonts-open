@@ -77,7 +77,7 @@ HangulTalk)의 이름을 갖지만 특정 게임에 묶여 있지 않다.
   `HANGUL16/24.FNT`(15360/34560, 열 우선)와 `HANGUL40/48.FNT`(176000/253440);
 - `ENCODING`이 johab-1 글리프 번호인 hanterm BDF(`hanterm-johab`). 정규식 리더로 파싱한다;
 - Mac HangulTalk 1.0 `fbit` 리소스 포크(`mac-fbit-45sets`). 원시 리소스 맵에서 파싱한다;
-- `--eng` 원시 8x16 DOS 영문 폰트(2048 또는 4096바이트), 또는 HBIOS 12x24(15360) / PFT 12x24(12288);
+- `--eng` 원시 8x16 DOS 영문 폰트(2048 또는 4096바이트), 또는 HBIOS 12x24(15360) / PFT 12x24(12288) / Taebaek PFT 20x40(30720, GASCII40) / 24x48(49152, GASCII48);
 - `--base` SVFN v3 페이스(음절이 아닌 글리프를 유지한다. v2 페이스는 변환 안내 메시지와 함께 거부된다(`tools/svf2to3.py`));
 - `--from-ttf` 아웃라인 TTF/OTF. 1 bpp `mono` 대상은 freetype-py로, 2 bpp와 `--binarize threshold|ridge`는
   fontTools(`jamoaa.py`를 통해)로 읽는다;
@@ -104,14 +104,14 @@ hanterm BDF, Kyra `.BIT`, Dokkaebi FNT 파일), `mac-fbit-45sets`(위치 인자�
 |---|---|---|
 | `--layout` (required) | all | 세트 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`는 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크) |
 | `--face N` (0) | `source` | 프린터 폰트의 서체(0 또는 1) |
-| `--eng FILE` (none) | `source`, `--from-ttf`, `--from-svf` | ASCII용 원시 8x16 영문 폰트(2048 또는 4096바이트). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
+| `--eng FILE` (none) | `source`, `--from-ttf`, `--from-svf` | ASCII용 원시 8x16 영문 폰트(2048 또는 4096바이트; 12x24, 20x40, 24x48 페이스도 읽는다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
 | `--base FILE` (none) | `source`, `--from-ttf` | 음절이 아닌 글리프를 유지하는 SVFN v3(같은 셀, 1 bpp). `--from-svf`는 무시한다(입력 페이스가 base이다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
 | `-o`, `--output` (required) | all | 출력 경로 |
 | `--profile NAME` (`default`), `--box x\|y\|full` (the profile's) | all | 출력의 SVFN v3 레이아웃 프로파일과 잉크 박스 정책(`svf2to3.py` 참고) |
 | `--jset-version 1\|2\|auto` (1; `--blank-compat`: the input's) | all | 쓰는 JSET 블록의 버전(아래 "JSET 버전" 참고) |
 | `--jset-big` (off) | all | 표준 한계(19 x 28 클래스, 128/128/64 세트)를 넘는 JSET을 허용한다(리더에 `SVF_JSET_BIG`가 필요하다). 표준 한계 안의 출력은 이 옵션이 있든 없든 같다("JSET 버전" 참고) |
 | `--advance N` (none) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | 합성된 음절의 이동 폭(JSET advance 바이트. 레이아웃의 값, 0 = 셀 폭) |
-| `--ascent N` (none) | `source`, `mac-fbit-45sets` | SVF의 베이스라인 행(12x24 페이스는 `--eng` 페이스의 베이스라인, 그 외에는 셀의 7/8). 맞춤 모드는 맞춘 페이스에서 가져오므로 무시한다 |
+| `--ascent N` (none) | `source`, `mac-fbit-45sets` | SVF의 베이스라인 행(12x24, 20x40, 24x48 페이스는 `--eng` 페이스의 베이스라인, 그 외에는 셀의 7/8). 맞춤 모드는 맞춘 페이스에서 가져오므로 무시한다 |
 | `--embolden` (off) | `source`, `mac-fbit-45sets` | 모든 조각과 ASCII 글리프를 오른쪽으로 1 px 민 자기 자신과 OR한다. 맞춤 모드는 무시하고, `--bpp 2`와 함께면 거부된다 |
 | `--symbols` (off) | `source`, `mac-fbit-45sets`, `--bpp 2` | U+2026과 U+25A1을 추가한다. 1 bpp `--from-ttf`/`--from-svf`는 무시한다 |
 | `--check` (off) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | 출력에서 11,172개 음절 전부를 합성해 검증한다 |
@@ -1138,15 +1138,13 @@ syllables>`를 거쳐 음절 2,350개, 누락 0, 잘림 0이 된다.
 - **Windows `.FNT` / `.FON`은 아무것도 그리지 못한다.** FreeType은 이를 열지만(maker는 이런 파일을 `mkfont.py`로 보낸다) `FT_ENCODING_NONE`
   맵만 주므로, Windows 95 한글판 FON에서 `mkfont.py`는 "`--unicode`의 글자가 글꼴에 하나도 없다"로 끝난다. 한글 글리프가 있는 FNT나 FON도
   찾지 못했다(recipes.ko.md, Windows FNT와 FON).
-- **비트맵 전용 Mac TrueType(`bdat` + `bloc` + `bhed`, `head` 없음)은 모든 글리프의 advance가 0으로 구워진다**(`svfline.py measure`가
-  `width=0`). 윤곽선이 있는 같은 폰트의 전체 사본은 같은 픽셀과 실제 advance를 준다.
 - **maker는 실제 HangulTalk 1.0 `fbit`를 type 3으로 오인한다.** 실제 1.0 폰트(Munjo24, Gotic12)는 헤더에 세대 3을 담고 있고 `detect.py`가
   45 세트보다 세대를 먼저 검사하므로 `mac fbit 1.0` 경로가 제공되지 않는다(그 테스트 픽스처는 거기에 0을 담는다). `jamoset.py --layout
   mac-fbit-45sets` 자체는 이를 읽는다.
 - **HWP `.PFT` 한글 파일의 리더가 없다**(HWP 1.20의 HANGUL1.PFT로 실행: `is not an 8x4x4 size`로 거부). KS X 1001 음절 원시 덤프,
   KS 코드 격자, 프로그램과 ROM 안의 폰트는 `rawcarve.py`가 BDF로 잘라 낸다(이를 바로 읽는 빌더는 없다). `jamoset.py`의 어느 배치도
-  아닌 자모 조각 폰트는 그 규칙을 `rawcarve.py compose` 명세로 적어야 한다. `--eng`는 8x16과 12x24 영문 폰트만 받고 40 / 48 px 영문
-  폰트는 받지 않는다.
+  아닌 자모 조각 폰트는 그 규칙을 `rawcarve.py compose` 명세로 적어야 한다. `--eng`는 8x16, 12x24, 20x40, 24x48 영문 폰트를
+  받는다.
 - **같은 크기에서 1 bpp를 안티에일리어싱으로 바꾸는 변환이 없다.** 1 bpp 페이스에서 같은 크기의 2 bpp 페이스를 만드는 도구가 없다.
   `svfscale.py --bpp 2`는 더 큰 비트맵 페이스에서 만들고(박스 필터), 다른 2 bpp 페이스는 아웃라인 폰트에서 나온다(`mkfont.py --bpp 2`,
   `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`). 비트맵 원본에서 2 bpp 자모 세트로 가는 길은 없다: `jamoset.py --bpp 2`는

@@ -539,10 +539,11 @@ FON은 외부 도구로 먼저 BDF로 변환해야 하며, 이 저장소에는 �
 [Mac 형식 TrueType](#mac-형식-truetype) 참고): `macsfnt.py extract`와 `unicode` 뒤에 `mkfont.py --size 16 --bpp 1
 --unicode ascii,ksx1001-hangul`은 스트라이크의 픽셀을 쓴다(`124,868 바이트`, 잉크 346). `--size 17`에서는 윤곽선을 그린다.
 같은 CD에 있는 같은 패밀리의 비트맵 전용 사본(`CD Extras/Bitmap 서체 설치/Seoul/Seoul[FFIL]`, 2,626,404 바이트, `bdat` + `bloc` + `bhed`,
-`glyf` 없음, maker 종류 `bitmap`, 크기 [9, 10, 12, 14, 16, 18, 20, 24])는 16 px, 12 px(`105,972 바이트`), 24 px(`219,116 바이트`)에서 같은 글리프 바이트를
-주고, `--size 17`은 `폰트를 17px 로 열 수 없다: invalid pixel size`로 멈춘다. 그러나 메트릭은 잃는다. `head`가 없어(대신 Apple의 `bhed`)
-`mkfont.py`가 모든 글리프의 advance를 0으로 쓰고, `svfline.py measure`는 `width=0`을, `fontmetrics.py`는 2,446개 중 2,445개가 advance를 넘어선다고
-알린다. 스트라이크는 비트맵 전용 사본이 아니라 전체 폰트에서 구워라.
+`glyf` 없음, maker 종류 `bitmap`, 크기 [9, 10, 12, 14, 16, 18, 20, 24])는 16 px(`124,868 바이트`), 12 px(`105,972 바이트`), 24 px(`219,116 바이트`)에서
+같은 글리프 바이트를 주고, `--size 17`은 `폰트를 17px 로 열 수 없다: invalid pixel size`로 멈춘다. `head`가 없어(대신 Apple의 `bhed`)
+Pillow는 모든 advance를 0으로 재지만, `mkfont.py`가 글리프마다 스트라이크 자체의 메트릭에서 advance를 가져오므로 비트맵 전용 사본도 전체 폰트처럼 구워진다:
+16 px `width=156 ascent=13 descent=3`, 잉크 346, `fontmetrics.py`는 모든 글리프가 advance 안에 있다고 알린다. 12 px `width=111 ascent=10
+descent=2`, 잉크 252.
 
 *굴림*(Gulim), Windows의 폰트(`GULIM.TTC`, Microsoft와 한양정보통신, 독점; `EBLC` 스트라이크 11~25 ppem):
 
@@ -592,8 +593,9 @@ DOS 한글 시스템(한글 BIOS, 이야기, 한메, san, 도깨비, 게임)은 
 | `844` | TBG1.FNT, 2 바이트 헤더가 붙은 11,522 바이트(T-Hangul, 초기 태백), `--eng ROMAN16.FNT` | `15,712 바이트`, 같은 조각 344개, 잉크 566 |
 | `844` | DKBBM.FNT, 15,584 바이트(한글 도깨비 B 명조), `--eng ROMAN16.FNT` | `15,744 바이트`, 글리프 441개, `johab844.py`와 동일. 잉크 512 |
 | `844` | MHANC24.PFT, 25,920 바이트(태백 3.5.1 명조 24 px), `--eng MASCII24.PFT`(12,288 바이트, 12x24 영문 폰트) | `23,088 바이트`, 조각 344개. `width=216 ascent=20 descent=4`, 잉크 916 |
-| `844` | GHANC40.PFT, 72,000 바이트(태백 3.5.1 고딕 40 px), `--eng` 없음 | `34,040 바이트`, 글리프 346개. `width=200 ascent=35 descent=5`, 잉크 1,751 |
-| `844` | MHANC48.PFT, 103,680 바이트(태백 3.5.1 명조 48 px), `--eng` 없음 | `42,020 바이트`. `width=240 ascent=42 descent=6`, 잉크 1,865 |
+| `844` | GHANC40.PFT, 72,000 바이트(태백 3.5.1 고딕 40 px), `--eng GASCII40.PFT`(30,720 바이트, 20x40 영문 폰트) | `42,716 바이트`, 글리프 441개. `width=360 ascent=34 descent=6`, 잉크 3,078 |
+| `844` | GHANC48.PFT, 103,680 바이트(태백 3.5.1 고딕 48 px), `--eng GASCII48.PFT`(49,152 바이트, 24x48) | `51,972 바이트`. `width=432 ascent=40 descent=8`, 잉크 3,921(`line 440 56 0 48`: 줄이 400보다 넓다) |
+| `844` | MHANC48.PFT, 103,680 바이트(태백 3.5.1 명조 48 px), `--eng MASCII48.PFT`(49,152 바이트) | `54,112 바이트`. `width=432 ascent=40 descent=8`, 잉크 3,573(`line 440 56 0 48`) |
 | `844-hbios24` | GOTHIC24.FNT, 243,900 바이트(태백 3.5.1, HBIOS 24x30 레이아웃) | `17,776 바이트`, 글리프 346개. `width=120 ascent=21 descent=3`, 잉크 551 |
 | `844-hbios24` | MY24.FNT, 243,900 바이트(태백 3.5.1 명조 24), `--eng GASCII24.PFT` | `23,136 바이트`. `width=216 ascent=20 descent=4`, 잉크 964 |
 | `1044-san` | HANPL.KOR, 12,800 바이트(san 1.0의 `font-kor/`. GitHub의 san 프로젝트) | `13,988 바이트`, 조각 382개, 글리프 384개. `width=80 ascent=14 descent=2`, 잉크 328 |
@@ -612,8 +614,9 @@ GOTHIC16.FNT(레이블 "844, 844-ihnm". 두 레이아웃의 크기가 같다)는
 
 **함정.** 크기가 맞는 파일이 다른 레이아웃이어도 크기 점검은 통과한다. 슬롯 0의 채움 조각이 비어 있지 않으면 `jamoset.py`가
 거부하지만, 결과를 직접 보라(`svfline.py line ... "가나다"`). 2 바이트 헤더가 있는 폰트(T-Hangul)는 오프셋 2에서 읽는다. 24 px
-이상의 원본에는 거기에 맞는 영문 폰트나 `--base`가 필요하다. 위의 40, 48 px 줄에 ASCII가 없는 이유는 `--eng`가 8x16과 12x24 폰트만 받고 같은 패키지의
-40 / 48 px 영문 폰트(GASCII40.PFT, 30,720 바이트)는 받지 않기 때문이다.
+이상의 원본에는 거기에 맞는 영문 폰트나 `--base`가 필요하다. `--eng`는 8x16 폰트와 같은 패키지의 12x24, 20x40(30,720 바이트),
+24x48(49,152 바이트) PFT 영문 폰트를 받아 셀에 맞게 정수배로 키운다. 데스크톱 앱은 40, 48 px 페이스에 같은 높이의 영문 폰트를, 같은
+계열(G / M)을 먼저 짝짓는다.
 
 ### HWP 1.x와 2.x 폰트
 
@@ -622,7 +625,8 @@ GOTHIC16.FNT(레이블 "844, 844-ihnm". 두 레이아웃의 크기가 같다)는
 
 - 12x24 영문 폰트: `jamoset.py ... --eng GASCII24.PFT` 또는 `MASCII24.PFT`(태백 3.5.1. 12,288 바이트, 48 바이트짜리 글리프 256개. 위 표에서
   썼다)와 HBIOS 12x24(15,360 바이트). HWP 1.20 자신의 `ASCII.PFT`는 다른 파일이며(41,654 바이트: 32 바이트 "HWP Font Editor v1.0" 헤더와 14x24
-  글리프 991개, 각 42 바이트, 열 우선) 거부된다: `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), not 41654`;
+  글리프 991개, 각 42 바이트, 열 우선) 거부된다: `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), 30720 (PFT 20x40) or 49152
+  (PFT 24x48), not 41654`;
 - 평범한 원시 8x4x4인 HWP 2.x 화면 폰트: 한글 2.1 PRO 디스크(13번)의 `HMJ.FNT`(11,520 바이트)는 다른 `844` 폰트처럼 읽힌다.
   `python3 tools/jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF`는 `15,700 바이트`를 쓰고 음절 11,172개를 모두 조합하며
   `johab844.py`와 동일하다;
@@ -905,7 +909,7 @@ OS/2 Warp 4 한국어판(IBM. CD의 FTCOMP 묶음을 johab-fonts 연구에서 �
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/ZN24TO16.SVF --mask-font none --check -o $OUT/ZN24TO16J.SVF
 
 다른 두 원본도 같은 길이다: `bdfface.py --hangul dotum24.bdf --ascii $OUT/12x24.bdf --cell 24x24 ...`(비교할 페이스는 `dotum16.bdf`와
-`8x16.bdf`), `jamoset.py --layout 844 GHANC40.PFT --check -o $OUT/GHANC40J.SVF`(비교용은 `GOTHIC16.FNT --eng ROMAN16.FNT`). 각각 그다음
+`8x16.bdf`), `jamoset.py --layout 844 GHANC40.PFT --eng GASCII40.PFT --symbols --check -o $OUT/GHANC40J.SVF`(비교용은 `GOTHIC16.FNT --eng ROMAN16.FNT`). 각각 그다음
 `svfscale.py --size 16`.
 
 2 bpp 결과는 렌더러가 24 px 페이스를 2/3로 축소해 그리고 커버리지를 네 단계로 양자화한 것과 정확히 같다(아래 OS/2 페이스의 2,350
@@ -921,7 +925,7 @@ from an outline font (--from-ttf)`) 비트맵 원본에서 2 bpp 자모 세트�
 |---|---|---:|---|---:|---|---|
 | 백묵 돋움 24 (Baekmuk BDF 2.2의 `dotum24.bdf` + Misc Fixed 12x24, `bdfface.py`를 거쳐 `216,196 bytes`) | `122,016 bytes`, 글리프 2,447개, `width=144 ascent=15 descent=1` | 330 | `194,208 bytes` | 612 | `18,292 bytes`, IoU 0.597 | `dotum16.bdf`(`122,804 bytes`, 잉크 411)와 0.520 |
 | OS/2 `$korZN24.FNT` ([OS/2 한글 폰트](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기), `220,164 bytes`) | `125,084 bytes`, 글리프 2,447개, `width=144 ascent=15 descent=1` | 410 | `200,760 bytes` | 691 | `18,596 bytes`, IoU 0.710 | `$korZN16.FNT`와 0.387 |
-| 태백 3.5.1 고딕 40 (`GHANC40.PFT`, [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트)의 8x4x4 페이스, `33,944 bytes`) | `121,772 bytes`, 음절 2,350개(ASCII 없음: `--eng`는 8x16과 12x24 영문 폰트만 받고 40 px GASCII40.PFT는 받지 않는다), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | GOTHIC16.FNT와 0.471 |
+| 태백 3.5.1 고딕 40 (`GHANC40.PFT`와 `--eng GASCII40.PFT`, [그 밖의 DOS 시대 한글 폰트](#그-밖의-dos-시대-한글-폰트)의 8x4x4 페이스, `42,716 bytes`) | `124,940 bytes`, 글리프 2,447개, `width=144 ascent=14 descent=2` | 476 | `197,288 bytes` | 764 | `17,088 bytes`, IoU 0.990 | GOTHIC16.FNT와 0.471 |
 
 40 px 원본은 그 자체가 8x4x4 조각의 OR이라 16 px로 다시 샘플링해도 거의 그대로다(IoU 0.990). 음절마다 그린 두 디자인은 8x4x4에 잘
 맞지 않는다. 임계값은 획과 뭉침을 맞바꾼다: OS/2 페이스를 `--threshold 0.25`로 하면 잉크 615(`0.5`는 410), 그린 16 px 페이스와 겹침

@@ -586,11 +586,11 @@ font's strikes and offers them as sizes. Run on two real fonts.
 18, 20, 24 ppem, see [Mac-format TrueType](#mac-format-truetype)): after `macsfnt.py extract` and `unicode`, `mkfont.py --size 16
 --bpp 1 --unicode ascii,ksx1001-hangul` writes the strike's pixels (`124,868 bytes`, ink 346); at `--size 17` it draws the outline.
 The CD's bitmap-only copy of the same family (`CD Extras/Bitmap 서체 설치/Seoul/Seoul[FFIL]`, 2,626,404 bytes, `bdat` + `bloc` +
-`bhed`, no `glyf`, maker kind `bitmap`, sizes [9, 10, 12, 14, 16, 18, 20, 24]) gives the same glyph bytes at 16 px, 12 px
-(`105,972 bytes`) and 24 px (`219,116 bytes`), and `--size 17` stops with `폰트를 17px 로 열 수 없다: invalid pixel size`. But its
-metrics are lost: it has no `head` (Apple's `bhed` instead), `mkfont.py` writes advance 0 for every glyph, `svfline.py measure`
-says `width=0` and `fontmetrics.py` flags 2,445 of 2,446 glyphs as reaching past their advance. Bake the strikes from the
-full font, not from the bitmap-only copy.
+`bhed`, no `glyf`, maker kind `bitmap`, sizes [9, 10, 12, 14, 16, 18, 20, 24]) gives the same glyph bytes at 16 px
+(`124,868 bytes`), 12 px (`105,972 bytes`) and 24 px (`219,116 bytes`), and `--size 17` stops with `폰트를 17px 로 열 수 없다:
+invalid pixel size`. It has no `head` (Apple's `bhed` instead), so Pillow measures every advance as 0; `mkfont.py` takes
+each glyph's advance from the strike's own metrics instead, so the bitmap-only copy bakes as the full font does: 16 px `width=156 ascent=13 descent=3`,
+ink 346, and `fontmetrics.py` finds every glyph inside its advance; 12 px `width=111 ascent=10 descent=2`, ink 252.
 
 *Gulim* (굴림) of Windows (`GULIM.TTC`, Microsoft with HanYang I&C, proprietary; `EBLC` strikes 11 to 25 ppem):
 
@@ -641,8 +641,9 @@ count of the render check; ASCII is drawn only when `--eng` is given, so a face 
 | `844` | TBG1.FNT, 11,522 bytes with the 2-byte header (T-Hangul, an early Taebaek), `--eng ROMAN16.FNT` | `15,712 bytes`, the same 344 pieces and ink 566 |
 | `844` | DKBBM.FNT, 15,584 bytes (Hangul Dokkaebi B Myeongjo), `--eng ROMAN16.FNT` | `15,744 bytes`, 441 glyphs, identical to `johab844.py`; ink 512 |
 | `844` | MHANC24.PFT, 25,920 bytes (Taebaek 3.5.1 Myeongjo 24 px), `--eng MASCII24.PFT` (12,288 bytes, the 12x24 English font) | `23,088 bytes`, 344 pieces; `width=216 ascent=20 descent=4`, ink 916 |
-| `844` | GHANC40.PFT, 72,000 bytes (Taebaek 3.5.1 Gothic 40 px), no `--eng` | `34,040 bytes`, 346 glyphs; `width=200 ascent=35 descent=5`, ink 1,751 |
-| `844` | MHANC48.PFT, 103,680 bytes (Taebaek 3.5.1 Myeongjo 48 px), no `--eng` | `42,020 bytes`; `width=240 ascent=42 descent=6`, ink 1,865 |
+| `844` | GHANC40.PFT, 72,000 bytes (Taebaek 3.5.1 Gothic 40 px), `--eng GASCII40.PFT` (30,720 bytes, the 20x40 English font) | `42,716 bytes`, 441 glyphs; `width=360 ascent=34 descent=6`, ink 3,078 |
+| `844` | GHANC48.PFT, 103,680 bytes (Taebaek 3.5.1 Gothic 48 px), `--eng GASCII48.PFT` (49,152 bytes, 24x48) | `51,972 bytes`; `width=432 ascent=40 descent=8`, ink 3,921 (`line 440 56 0 48`: the line is wider than 400) |
+| `844` | MHANC48.PFT, 103,680 bytes (Taebaek 3.5.1 Myeongjo 48 px), `--eng MASCII48.PFT` (49,152 bytes) | `54,112 bytes`; `width=432 ascent=40 descent=8`, ink 3,573 (`line 440 56 0 48`) |
 | `844-hbios24` | GOTHIC24.FNT, 243,900 bytes (Taebaek 3.5.1, the HBIOS 24x30 layout) | `17,776 bytes`, 346 glyphs; `width=120 ascent=21 descent=3`, ink 551 |
 | `844-hbios24` | MY24.FNT, 243,900 bytes (Taebaek 3.5.1 Myeongjo 24), `--eng GASCII24.PFT` | `23,136 bytes`; `width=216 ascent=20 descent=4`, ink 964 |
 | `1044-san` | HANPL.KOR, 12,800 bytes (san 1.0, `font-kor/`; the san project on GitHub) | `13,988 bytes`, 382 pieces, 384 glyphs; `width=80 ascent=14 descent=2`, ink 328 |
@@ -662,7 +663,9 @@ the Dokkaebi printer files give one entry per face; GASCII24.PFT / MASCII24.PFT 
 
 **Pitfalls.** A file of the right size in another layout passes the size check; `jamoset.py` refuses it when the slot-0
 fill pieces are not blank, but look at the result (`svfline.py line ... "가나다"`). Fonts with a 2-byte header
-(T-Hangul) are read at offset 2. A 24 px or larger source needs a matching English font or `--base`: the 40 and 48 px lines above have no ASCII, because `--eng` takes only 8x16 and the 12x24 fonts, not the 40 / 48 px English fonts (GASCII40.PFT, 30,720 bytes) of the same package.
+(T-Hangul) are read at offset 2. A 24 px or larger source needs a matching English font or `--base`: `--eng` takes the 8x16 fonts and the 12x24, 20x40
+(30,720 bytes) and 24x48 (49,152 bytes) PFT English fonts of the same package, each scaled by whole numbers to the cell;
+the desktop app pairs a 40 or 48 px face with the English font of its own height, the same family (G / M) first.
 
 ### HWP 1.x and 2.x fonts
 
@@ -672,7 +675,8 @@ this repository reads directly:
 - the 12x24 English fonts: `jamoset.py ... --eng GASCII24.PFT` or `MASCII24.PFT` (Taebaek 3.5.1; 12,288 bytes, 256 glyphs of
   48 bytes: used in the table above) and HBIOS 12x24 (15,360 bytes). HWP 1.20's own `ASCII.PFT` is a different file (41,654
   bytes: a 32-byte "HWP Font Editor v1.0" header and 991 glyphs of 14x24, 42 bytes each, column-major) and is refused:
-  `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24) or 12288 (PFT 12x24), not 41654`;
+  `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), 30720 (PFT 20x40) or 49152
+  (PFT 24x48), not 41654`;
 - HWP 2.x screen fonts that are plain raw 8x4x4: `HMJ.FNT` (11,520 bytes) of the Hangul 2.1 PRO disks (disk 13), read
   as any `844` font: `python3 tools/jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF` writes `15,700 bytes`
   and composes all 11,172 syllables, identical to `johab844.py`;
@@ -981,8 +985,8 @@ precomposed face, 1 bpp by a threshold or 2 bpp in four levels:
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/ZN24TO16.SVF --mask-font none --check -o $OUT/ZN24TO16J.SVF
 
 The other two sources go the same way: `bdfface.py --hangul dotum24.bdf --ascii $OUT/12x24.bdf --cell 24x24 ...` (and
-`dotum16.bdf` with `8x16.bdf` for the face to compare), and `jamoset.py --layout 844 GHANC40.PFT --check -o
-$OUT/GHANC40J.SVF` (and `GOTHIC16.FNT --eng ROMAN16.FNT` for the comparison), each then through `svfscale.py --size 16`.
+`dotum16.bdf` with `8x16.bdf` for the face to compare), and `jamoset.py --layout 844 GHANC40.PFT --eng GASCII40.PFT
+--symbols --check -o $OUT/GHANC40J.SVF` (and `GOTHIC16.FNT --eng ROMAN16.FNT` for the comparison), each then through `svfscale.py --size 16`.
 
 The 2 bpp result is exactly what the renderer draws when it scales the 24 px face by 2/3 and the coverage is quantised
 to four levels (checked on all 2,350 syllables of the OS/2 face below: every one equal), so a stored 2 bpp face and
@@ -999,7 +1003,7 @@ score):
 |---|---|---:|---|---:|---|---|
 | Baekmuk Dotum 24 (`dotum24.bdf` of Baekmuk BDF 2.2 + Misc Fixed 12x24, through `bdfface.py`, `216,196 bytes`) | `122,016 bytes`, 2,447 glyphs, `width=144 ascent=15 descent=1` | 330 | `194,208 bytes` | 612 | `18,292 bytes`, IoU 0.597 | 0.520 against `dotum16.bdf` (`122,804 bytes`, ink 411) |
 | OS/2 `$korZN24.FNT` ([OS/2 Korean fonts](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set), `220,164 bytes`) | `125,084 bytes`, 2,447 glyphs, `width=144 ascent=15 descent=1` | 410 | `200,760 bytes` | 691 | `18,596 bytes`, IoU 0.710 | 0.387 against `$korZN16.FNT` |
-| Taebaek 3.5.1 Gothic 40 (`GHANC40.PFT`, the 8x4x4 face of [Other DOS-era Korean fonts](#other-dos-era-korean-fonts), `33,944 bytes`) | `121,772 bytes`, 2,350 syllables (no ASCII: `--eng` takes only 8x16 and 12x24 English fonts, not the 40 px GASCII40.PFT), `width=80 ascent=14 descent=2` | 259 | `192,800 bytes` | 451 | `13,920 bytes`, IoU 0.990 | 0.471 against GOTHIC16.FNT |
+| Taebaek 3.5.1 Gothic 40 (`GHANC40.PFT` with `--eng GASCII40.PFT`, the 8x4x4 face of [Other DOS-era Korean fonts](#other-dos-era-korean-fonts), `42,716 bytes`) | `124,940 bytes`, 2,447 glyphs, `width=144 ascent=14 descent=2` | 476 | `197,288 bytes` | 764 | `17,088 bytes`, IoU 0.990 | 0.471 against GOTHIC16.FNT |
 
 The 40 px source is itself an OR of 8x4x4 pieces, so its 16 px resample still nearly is (IoU 0.990); the two whole-
 syllable designs fit 8x4x4 poorly. The threshold trades strokes for blobs: the OS/2 face at `--threshold 0.25` has ink

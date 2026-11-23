@@ -79,7 +79,7 @@ HangulTalk) but is not tied to one game.
 - a hanterm BDF (`hanterm-johab`) whose `ENCODING` is the johab-1 glyph number, parsed with a regular-expression
   reader;
 - a Mac HangulTalk 1.0 `fbit` resource fork (`mac-fbit-45sets`), parsed from its raw resource map;
-- `--eng` a raw 8x16 DOS English font (2048 or 4096 bytes), or an HBIOS 12x24 (15360) / PFT 12x24 (12288);
+- `--eng` a raw 8x16 DOS English font (2048 or 4096 bytes), or an HBIOS 12x24 (15360) / PFT 12x24 (12288) / Taebaek PFT 20x40 (30720, GASCII40) / 24x48 (49152, GASCII48);
 - `--base` an SVFN v3 face (its non-syllable glyphs are kept; a v2 face is refused with the convert message (`tools/svf2to3.py`));
 - `--from-ttf` an outline TTF/OTF, read with freetype-py for 1 bpp `mono` targets and with fontTools (via `jamoaa.py`)
   for 2 bpp and for `--binarize threshold|ridge`;
@@ -106,14 +106,14 @@ where the table says "refused".
 |---|---|---|
 | `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `kyra-lok`, `mac-fbit-45sets`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` is a mode of its own (the positional file is the `fbit` resource fork) |
 | `--face N` (0) | `source` | typeface of a printer font (0 or 1) |
-| `--eng FILE` (none) | `source`, `--from-ttf`, `--from-svf` | raw 8x16 English font for ASCII (2048 or 4096 bytes); refused with `--bpp 2` and with `mac-fbit-45sets` |
+| `--eng FILE` (none) | `source`, `--from-ttf`, `--from-svf` | raw 8x16 English font for ASCII (2048 or 4096 bytes; the 12x24, 20x40 and 24x48 faces above also read); refused with `--bpp 2` and with `mac-fbit-45sets` |
 | `--base FILE` (none) | `source`, `--from-ttf` | SVFN v3 whose non-syllable glyphs are kept (same cell, 1 bpp); ignored by `--from-svf` (the input face is the base); refused with `--bpp 2` and with `mac-fbit-45sets` |
 | `-o`, `--output` (required) | all | output path |
 | `--profile NAME` (`default`), `--box x\|y\|full` (the profile's) | all | the SVFN v3 layout profile and ink box policy of the output (see `svf2to3.py`) |
 | `--jset-version 1\|2\|auto` (1; `--blank-compat`: the input's) | all | the JSET block version written (see "JSET versions" below) |
 | `--jset-big` (off) | all | allow a JSET over the standard limits (19 x 28 classes, 128/128/64 sets; the reader needs `SVF_JSET_BIG`); output within the standard limits is identical with or without it (see "JSET versions") |
 | `--advance N` (none) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | the composed syllable's step (JSET advance byte; the layout's value, 0 = cell width) |
-| `--ascent N` (none) | `source`, `mac-fbit-45sets` | the SVF's baseline row (the `--eng` face's baseline for a 12x24 face, else 7/8 of the cell); ignored by the fit modes, which take it from the fitted face |
+| `--ascent N` (none) | `source`, `mac-fbit-45sets` | the SVF's baseline row (the `--eng` face's baseline for a 12x24, 20x40 or 24x48 face, else 7/8 of the cell); ignored by the fit modes, which take it from the fitted face |
 | `--embolden` (off) | `source`, `mac-fbit-45sets` | OR every piece and ASCII glyph with itself shifted right 1 px; ignored by the fit modes, refused with `--bpp 2` |
 | `--symbols` (off) | `source`, `mac-fbit-45sets`, `--bpp 2` | add U+2026 and U+25A1; ignored by 1 bpp `--from-ttf`/`--from-svf` |
 | `--check` (off) | `source`, `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | compose all 11,172 syllables from the output and verify |
@@ -1216,15 +1216,13 @@ What the tools themselves still do not do. The maker (`maker/`, `maker/README.md
 - **Windows `.FNT` / `.FON` draw nothing.** FreeType opens them (the maker routes such a file through `mkfont.py`) but
   gives them only an `FT_ENCODING_NONE` charmap: on the Windows 95 Korean FONs `mkfont.py` exits with "no `--unicode`
   character is in the font". No FNT or FON with Hangul glyphs was found either (recipes.md, Windows FNT and FON).
-- **A bitmap-only Mac TrueType (`bdat` + `bloc` + `bhed`, no `head`) bakes with advance 0** for every glyph
-  (`svfline.py measure` says `width=0`); the same font's full copy with outlines gives the same pixels and real advances.
 - **The maker mistakes a real HangulTalk 1.0 `fbit` for type 3.** Real 1.0 fonts (Munjo24, Gotic12) carry generation 3
   in the header, and `detect.py` tests the generation before the 45 sets, so the `mac fbit 1.0` route is not offered
   (its test fixtures carry 0 there). `jamoset.py --layout mac-fbit-45sets` itself reads them.
 - **No reader** for the HWP `.PFT` Hangul files (run on HWP 1.20's HANGUL1.PFT: refused, `is not an 8x4x4 size`). Raw
   KS X 1001 syllable dumps, KS code grids and fonts inside programs and ROMs are cut by `rawcarve.py` into a BDF (no
   builder reads them directly); a jamo-piece font in a layout no `jamoset.py` layout names needs its rule written as a
-  `rawcarve.py compose` spec. `--eng` takes only 8x16 and 12x24 English fonts, not the 40 / 48 px ones.
+  `rawcarve.py compose` spec. `--eng` takes the 8x16, 12x24, 20x40 and 24x48 English fonts.
 - **No 1 bpp to anti-aliased conversion at the same size.** No tool makes a 2 bpp face from a 1 bpp face of the same
   size; `svfscale.py --bpp 2` makes one from a larger bitmap face (a box filter), and the other 2 bpp faces come from an
   outline font (`mkfont.py --bpp 2`, `jamoset.py --bpp 2`, `jamovec.py render --bpp 2`). A 2 bpp jamo set from a bitmap

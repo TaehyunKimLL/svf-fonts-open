@@ -464,6 +464,122 @@ def choose_ascent(font, cell_h, latin=False):
 MONO_HINT = False
 
 
+_STRIKE_ADVANCES = {}
+
+
+def strike_advance(path, size, ch):
+    """The advance in px of @p ch from a bitmap-only TrueType's own metrics; None when not applicable.
+
+    A TrueType with only bitmaps (bloc/bdat with bhed, as the Mac bitmap-only 'Seoul'; EBLC/EBDT; CBLC/CBDT)
+    and no outlines (glyf, CFF) may have no `head`, so Pillow's getlength() is 0 for every glyph. The strike
+    FreeType opens for @p size (the first whose ppemX and ppemY are both @p size; FreeType refuses a 14x16
+    strike at 16) gives the advance: the glyph's own small or big metrics (formats 1, 2, 6, 7), or for the
+    shared-metrics formats (5) the metrics of its index subtable. A glyph the strike lacks falls back to
+    hmtx scaled by the unitsPerEm of head (else bhed; none, no fallback). An explicit 0 in the strike stays
+    0. Face 0 of a collection is read. Fonts with outlines and non-sfnt files give None, and font_advance
+    asks only when Pillow says 0. A bitmap-only font whose data cannot be read (or without fontTools)
+    prints one note on stderr and gives None.
+    """
+    key = (path, size)
+    if key not in _STRIKE_ADVANCES:
+        _STRIKE_ADVANCES[key] = _read_strike_advances(path, size)
+    cmap, adv = _STRIKE_ADVANCES[key]
+    return adv.get(cmap.get(ord(ch))) if cmap is not None else None
+
+
+def _metrics_advance(m):
+    """Horizontal advance of a small (Advance) or big (horiAdvance) glyph metrics record; None if neither."""
+    for name in ("Advance", "horiAdvance"):
+        v = getattr(m, name, None)
+        if v is not None:
+            return v
+    return None
+
+
+def _sfnt_tags(path):
+    """Table tags of the first font of an sfnt or TTC file, read without fontTools; None if it is neither
+    (or the file is cut short: a partial table directory is not a font)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(12)
+            if head[:4] == b"ttcf":
+                if len(head) < 12 or struct.unpack(">I", head[8:12])[0] < 1:
+                    return None
+                raw = f.read(4)
+                if len(raw) < 4:
+                    return None
+                f.seek(struct.unpack(">I", raw)[0])
+                head = f.read(12)
+            if len(head) < 12 or head[:4] not in (b"\x00\x01\x00\x00", b"true", b"OTTO", b"typ1"):
+                return None
+            n = struct.unpack(">H", head[4:6])[0]
+            table = f.read(n * 16)
+            if len(table) < n * 16:
+                return None
+            return {table[i:i + 4].decode("latin-1") for i in range(0, n * 16, 16)}
+    except (OSError, struct.error, OverflowError):
+        return None
+
+
+_OUTLINE_TABLES = ("glyf", "CFF ", "CFF2")
+_BITMAP_PAIRS = (("bloc", "bdat"), ("EBLC", "EBDT"), ("CBLC", "CBDT"))
+
+
+def _bitmap_pair(tags):
+    """(location, data) table names of the bitmap strikes of a font that has no outlines; None otherwise."""
+    if any(t in tags for t in _OUTLINE_TABLES):
+        return None
+    for pair in _BITMAP_PAIRS:
+        if pair[0] in tags and pair[1] in tags:
+            return pair
+    return None
+
+
+def _read_strike_advances(path, size):
+    tags = _sfnt_tags(path)
+    pair = _bitmap_pair(tags) if tags else None
+    if pair is None:
+        return None, {}      # not a bitmap-only TrueType: Pillow's own advances are right
+    try:
+        from fontTools.ttLib import TTFont
+        f = TTFont(path, lazy=True, fontNumber=0)       # face 0, as Pillow and cmap_has open it
+        cmap = f.getBestCmap() or {}
+        adv = {}
+        upem = f["head"].unitsPerEm if "head" in f else f["bhed"].unitsPerEm if "bhed" in f else 0
+        if "hmtx" in f and upem:
+            for name, (w, _) in f["hmtx"].metrics.items():
+                adv[name] = int(round(w * size / upem))
+        for i, strike in enumerate(f[pair[0]].strikes):
+            t = strike.bitmapSizeTable
+            if (t.ppemX, t.ppemY) != (size, size):
+                continue
+            data = f[pair[1]].strikeData[i]
+            for sub in strike.indexSubTables:
+                for name in sub.names:
+                    g = data.get(name)
+                    m = getattr(g, "metrics", None) if g is not None else None
+                    a = _metrics_advance(m) if m is not None else _metrics_advance(getattr(sub, "metrics", None))
+                    if a is not None:
+                        adv[name] = a
+            break
+        return cmap, adv
+    except Exception as e:
+        # ImportError (no fontTools) as well: the font is bitmap-only and its advances would stay 0
+        print(f"{path}: 비트맵 전용 글꼴의 스트라이크 폭을 읽지 못했다 ({e!r}); advance 는 0 으로 남을 수 있다",
+              file=sys.stderr)
+        return None, {}
+
+
+def font_advance(font, ch, path, size):
+    """Advance of @p ch in px: Pillow's, or the strike's when the font has no `head` and Pillow says 0."""
+    adv = int(round(font.getlength(ch)))
+    if adv == 0:
+        alt = strike_advance(path, size, ch)
+        if alt is not None:
+            return alt
+    return adv
+
+
 def cmap_has(path, cp):
     """Whether the font file's cmap maps cp; None when fontTools is not there to ask, or the file is
     not an sfnt (BDF, PCF, FNT)."""
@@ -1064,7 +1180,7 @@ def main():
 
         if is_mark(ch):
             # 결합 부호는 나아가지 않는다.
-            adv = int(round(font.getlength(ch)))
+            adv = int(round(font.getlength(ch)))   # a mark does not advance; a bitmap-only font keeps 0
         elif args.ink_advance and ch and ink_w:
             # Advance from the ink, not the face's own metric.
             #
@@ -1081,7 +1197,7 @@ def main():
             # past this, so a wrong guess here cannot cause an overlap.
             adv = ink_x + ink_w + 1
         else:
-            adv = int(round(font.getlength(ch))) if ch else cell_w
+            adv = font_advance(font, ch, args.input if font is primary else args.fallback_ttf, size) if ch else cell_w
         if ch and ord(ch) in SPACE_CPS and args.space_advance is not None:
             adv = args.space_advance
         elif ch and ch in PUNCT_EXTRA_CHARS:
