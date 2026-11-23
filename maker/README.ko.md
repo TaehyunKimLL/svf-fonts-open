@@ -50,9 +50,9 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   그 명령줄과 레시피에 대응시킨다.
   `options.export`(`{"ttf": true, "bdf": true}`, 일괄 또는 폰트별)가 있으면 모든 페이스를 그 옆에 `<NAME>.ttf` / `<NAME>.bdf`로도
   쓴다. 페이스 단계 뒤의 `export` 단계가 `tools/svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`을 실행하고(작업이 그 폰트에 대해 아는
-  라이선스를, 그것이 이름을 든 `.TXT` 중 배치에 있는 것만 소스를 거쳐 찾아 `work/<font id>/licence/`에 UTF-8로 옮겨 둔 것. svf2ttf.py는
+  라이선스를, 그것이 이름을 든 `.TXT` 중 배치에 있는 것만 소스를 거쳐 찾아 `work/<font id>/licence/`에 UTF-8로 옮겨 둔 것(UTF-8로, 아니면 CP949로, 아니면 바이트를 바꾸어 읽는다). svf2ttf.py는
   이름 든 파일을 따라가므로 루트 밖으로 가는 링크나 고르지 않은 파일은 보지 못한다. 라이선스를 고르지 않은 채 내보내기만 하는 SVF는
-  그 옆의 노트를 같은 방식으로 받는다), 그 확인(`quality.export_facts`)은 파일을
+  svf2ttf.py의 규칙으로 그 옆의 노트를 배치의 파일 중에서만 찾는다. 다른 파일은 열지 않는다), 그 확인(`quality.export_facts`)은 파일을
   열어(TTF는 fontTools로) 페이스의 코드 포인트를 정확히 담았는지 요구한다. 내보낸 파일은 `.lines` 행이 없고 페이스의 노트에도
   없으며 `BUILD.md`가 나열한다. SVF 소스의 경로 `svf2ttf`(`precomposed_route` / `jamo_route`)는 페이스를 내보내기용으로만 읽고
   SVF, 노트, 라이선스 본문을 쓰지 않으며(그 이름은 필요하지도 검사하지도 않는다), `ttf`나 `bdf`가 필요하고, 내보낸 파일이 하나라도

@@ -324,8 +324,8 @@ Inside the output folder, and nothing else:
 - A name the job did not write itself is never replaced. If a file is already there the run skips or refuses; it does not
   overwrite your files. The same rule holds for a `.ttf` / `.bdf`.
 - A TTF / BDF carries the licence the job knows for its font (the licence file you chose, and the `.TXT` files it names
-  that you picked too, in its name table or its `COMMENT` lines; a licence in another encoding than UTF-8 is embedded with
-  its unreadable bytes replaced); without one it says that the licence of the font it was made from applies (for an SVF
+  that you picked too, in its name table or its `COMMENT` lines; a licence in CP949 is read as CP949, one in any other
+  encoding than UTF-8 is embedded with its unreadable bytes replaced); without one it says that the licence of the font it was made from applies (for an SVF
   converted by `svf2ttf`, the note picked beside it). A file a licence names that you did not pick, or a link out of the
   folder you picked, is never read. It is listed in `BUILD.md`
   (its `svf2ttf.py` command and a "written" line) but has no row in the `.lines` files and is not named in the face's

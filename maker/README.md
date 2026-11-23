@@ -50,10 +50,10 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   route label of the page to its command line and recipe.
   With `options.export` (`{"ttf": true, "bdf": true}`, batch or per font) every face is also written beside it as
   `<NAME>.ttf` / `<NAME>.bdf`: an `export` step after the face step runs `tools/svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`
-  (the licence the job knows for the font, staged in `work/<font id>/licence/` as UTF-8 with only the `.TXT` files it
-  names that the batch holds, resolved through the sources: svf2ttf.py follows named files, so it never sees a link out of
-  a root or a file you did not pick; an SVF read for its exports with no licence chosen gets the note beside it the same
-  way), and its
+  (the licence the job knows for the font, staged in `work/<font id>/licence/` as UTF-8 (read as UTF-8, else CP949, else with
+  bytes replaced) with only the `.TXT` files it names that the batch holds, resolved through the sources: svf2ttf.py
+  follows named files, so it never sees a link out of a root or a file you did not pick; an SVF read for its exports with
+  no licence chosen gets the note svf2ttf.py's rule finds beside it among the batch's files, opening no other file), and its
   read-back (`quality.export_facts`) opens the file (fontTools for a TTF) and requires exactly the face's code points. The
   exports have no `.lines` rows and are not in the face's note; `BUILD.md` lists them. An SVF source's route `svf2ttf`
   (`precomposed_route` / `jamo_route`) reads the face for its exports only and writes no SVF, note or licence text (their
