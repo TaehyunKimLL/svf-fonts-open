@@ -307,6 +307,91 @@ class Hwp3AndKsRaw(unittest.TestCase):
             self.assertIn("7/2/3", r.stdout)
 
 
+# sha256 of repr([pieces(cp) for every syllable]) per (table, face): pins HWP.EXE's selection tables (L/V/T_IDX, the
+# classes, SEL, SETS) without font data. The values are those of the tables whose compositions equal the research
+# renderer's on the real HWP 1.20 files (RealFiles below, 2026-11-23).
+PIECES_SHA = {("sft", 0): "e0a6bc4ee45f10537ef655f45084557141c98f2774fce2278947dc365003735b",
+              ("sft", 1): "1a8911fcf85ea55e8f6e632dfe2674b6f6e77c242560e6d315c4a37db2267b50",
+              ("sft", 2): "9aee06c04718afa7c86bc2ff7bd8c26d258b4d958be0d19d3b60ee61d841b6e9",
+              ("pft", 0): "20b206307a492ba88c12ee20939764923b44cb1597bcf7596621ab6d5ececd2c",
+              ("pft", 1): "772b5408550b0381f6c479e7e4c01048e51a3ac1c7c4dc951ab2c7474ae6d201",
+              ("pft", 2): "8d74cd3a1bb24a867d64ce9d0da5ce40484f996f4f9257d88fde0752a6f0367a"}
+
+
+class ReviewFixes(unittest.TestCase):
+    def test_selection_tables_are_pinned(self):
+        for (table, face), want in PIECES_SHA.items():
+            w, n = (16, 1193) if table == "sft" else (24, 980)
+            h = hwpfont.Hwp1Hangul(hwpfont.read(hwp1(w, w, n, glyph=lambda i, a, b: [0] * b)), face)
+            got = hashlib.sha256(repr([h.pieces(c) for c in range(0xAC00, 0xD7A4)]).encode()).hexdigest()
+            self.assertEqual(got, want, (table, face))
+        with self.assertRaisesRegex(hwpfont.HwpError, "not a Hangul syllable"):
+            h.pieces(0x41)
+
+    def test_short_and_lying_headers_are_clean_errors(self):
+        for data in (hwp1(16, 16, 1193), hwp1(24, 24, 980), hwp3(1, 16, 16, 2710), hwp3(0, 12, 24, 147)):
+            for n in list(range(0, 80)) + [len(data) - 1]:
+                with self.assertRaises(hwpfont.HwpError):
+                    hwpfont.read(data[:n])
+                self.assertIsNone(hwpfont.sniff(data[:n], n))
+            self.assertIsNotNone(hwpfont.sniff(data[:512], len(data)))
+        self.assertIsNone(hwpfont.sniff(hwpfont.HWP1_MAGIC + bytes(12), 2048))     # the magic alone is not an HWP font
+        self.assertIsNone(hwpfont.sniff(b"FNT\x01" + bytes(100), 4096))
+
+    def test_hwp3_english_count(self):
+        eng40 = hwpfont.read(hwp3(0, 20, 40, 96, count=147, glyph=ascii_glyph))   # ENG40_0: declares 147, holds 96
+        self.assertIn("the header declares 147", eng40.describe())
+        self.assertEqual(len(hwpfont.ascii_glyphs(eng40)), 95)
+        with self.assertRaisesRegex(hwpfont.HwpError, "95 codes"):
+            hwpfont.read(hwp3(0, 8, 16, 60, count=147))
+
+    def test_bounded_read_and_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "big")
+            wr(p, bytes(101))
+            with self.assertRaisesRegex(hwpfont.HwpError, "larger than 100"):
+                hwpfont.read_bounded(p, 100)
+            self.assertEqual(len(hwpfont.read_bounded(p, 101)), 101)
+            raw = os.path.join(d, "GHAN24.PFT")
+            wr(raw, b"".join(encode(pattern(i, 24, 24), 24, 24, False) for i in range(2350)))
+            r = run(os.path.join(HERE, "hwpfont.py"), "bdf", raw, "--name", "한글", "-o", p, ok=False)
+            self.assertEqual(r.returncode, 2)
+
+    def test_first_syllable_survives_mkfont_without_ascii(self):
+        """A BDF without ASCII starts with a blank U+0020: FreeType's .notdef is the first glyph, and mkfont.py drops
+        glyphs equal to it, so 가 would be lost (96MT.FNT lost it before this)."""
+        with tempfile.TemporaryDirectory() as d:
+            raw, bdf, tmp = os.path.join(d, "GHAN24.PFT"), os.path.join(d, "k.bdf"), os.path.join(d, "k.tmp")
+            wr(raw, b"".join(encode(pattern(i, 24, 24), 24, 24, False) for i in range(2350)))
+            run(os.path.join(HERE, "hwpfont.py"), "bdf", raw, "-o", bdf)
+            self.assertLess(txt(bdf).index("STARTCHAR U+0020"), txt(bdf).index("STARTCHAR U+AC00"))
+            run(os.path.join(HERE, "mkfont.py"), bdf, tmp, "--size", 24, "--bpp", 1, "--unicode", "ksx1001-hangul")
+            sv = jamoset.parse_svfn(rd(tmp))
+            self.assertEqual(sum(1 for cp in sv.glyphs if 0xAC00 <= cp <= 0xD7A3), 2350)
+            self.assertEqual(sv.glyphs[0xAC00], encode(pattern(0, 24, 24), 24, 24, False))
+
+    def test_jamoset_refusals_and_embolden_check(self):
+        blank = set(jamoset.slots_of(8, 4, 4, 160, 248))
+        def g(i, w, h):
+            return [0] * h if i >= 2350 and (i - 2350) in blank else pattern(i, w, h)
+        J = os.path.join(HERE, "jamoset.py")
+        with tempfile.TemporaryDirectory() as d:
+            sft, pft_eng, out = os.path.join(d, "H.SFT"), os.path.join(d, "ASCII.PFT"), os.path.join(d, "o.svf")
+            wr(sft, hwp1(16, 16, 1193))
+            wr(pft_eng, hwp1(14, 24, 991, glyph=ascii_glyph))
+            r = run(J, "--layout", "hwp1", sft, "--bpp", 2, "-o", out, ok=False)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("1 bpp", r.stderr)
+            r = run(J, "--layout", "hwp1", sft, "--eng", pft_eng, "-o", out, ok=False)
+            self.assertIn("taller than the 16-row cell", r.stderr)
+            fnt = os.path.join(d, "HAN16_0.FNT")
+            wr(fnt, hwp3(1, 16, 16, 2710, glyph=g))
+            r = run(J, "--layout", "844-hwp3", fnt, "--embolden", "--check", "-o", out)
+            self.assertIn("identical to johab844.py", r.stdout)
+            r = run(J, "--layout", "844-hwp3", fnt, "--eng", pft_eng, "-o", out, ok=False)
+            self.assertIn("taller than the 16-row cell", r.stderr)
+
+
 JOHAB_FONTS = os.environ.get("JOHAB_FONTS", os.path.join(HERE, "no-johab-fonts"))
 HWP120 = os.path.join(JOHAB_FONTS, "printer/extracted/ia-HWP120.zip")
 HWP30 = os.path.join(JOHAB_FONTS, "dos/extracted/hwp-30-dos__HWP30_DOS/HNCAPP/HDR30/FONT")

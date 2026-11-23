@@ -32,7 +32,7 @@ printer fonts (24 rows, a 24-pin head) are column-major, w columns of 3 bytes, M
   HANJA.SFT: the 4,888 KS X 1001 hanja (16x16). The other files (SPECIAL*, JAPAN, USER*, SYSTEM.PFT) are symbol sets.
 
 HWP 3.0 (1995) HDR30/FONT/*.FNT: a 72-byte header "FNT" 01, a type byte (0 English, 1 Hangul, 2 hanja), 01, LE16 width
-and height at 6 and 8, (8, 4, 4) at 10 for a 16 px Hangul font, LE32 glyph count at 0x10, a Johab name at 0x14; then
+and height at 6 and 8, three LE16 words at 10 that are (8, 4, 4) in a 16 px Hangul font and 0 elsewhere, LE32 glyph count at 0x10, a Johab name at 0x14; then
 row-major glyphs (ceil(w/8) bytes a row, MSB left). Hangul: the 2,350 KS X 1001 syllables in code order; HAN16_*.FNT
 adds a 360-glyph 8x4x4 jamo set (jamoset.py --layout 844-hwp3); HAN24/HAN40/96MT hold the 2,350 only (HAN24's header
 still says 2,710). English: glyph i is code 0x20 + i (147 glyphs; ENG40 stores 96). Hanja: the 4,888 in KS order.
@@ -103,7 +103,9 @@ class HwpError(Exception):
 
 
 def johab_fields(cp):
-    """(L, V, T) 5-bit Johab fields of a Unicode syllable."""
+    """(L, V, T) 5-bit Johab fields of a Unicode syllable (HwpError for any other code point)."""
+    if not 0xAC00 <= cp <= 0xD7A3:
+        raise HwpError(f"U+{cp:04X} is not a Hangul syllable")
     s = cp - 0xAC00
     L, V, T = s // 588, (s // 28) % 21, s % 28
     return L + 2, JUNG_FIELD[V], T + 1 if T <= 16 else T + 2
@@ -179,6 +181,8 @@ class Font:
             s += ", column-major (printer)" if self.colmajor else ", row-major (screen)"
         if self.name:
             s += f", name {self.name!r}"
+        if getattr(self, "declared", None) not in (None, self.count):
+            s += f" (the header declares {self.declared})"
         if self.table:
             sets = ", ".join(f"face {i} ({FACE_NAMES[i]}) {a}/{b}/{c}" for i, (a, b, c) in enumerate(SETS[self.table]))
             s += f"; three faces of initial/vowel/final sets: {sets}"
@@ -189,11 +193,46 @@ class Font:
         return s
 
 
+def _hwp1_geometry(head):
+    """(count, w, h, column-major, glyph bytes) from an HWP 1.x header (its first 32 bytes at least). The order is taken
+    from the height, not the file's extension: the printer fonts are 24 rows (a 24-pin head, column-major), the screen
+    fonts 16 (row-major)."""
+    if len(head) < 32:
+        raise HwpError("shorter than the 32-byte HWP 1.x header")
+    count = struct.unpack_from(">H", head, 0x1C)[0]
+    w, h = head[0x1E] + 1, head[0x1F] + 1
+    col = h == 24
+    return count, w, h, col, w * 3 if col else (w + 7) // 8 * h
+
+
+def _hwp3_geometry(head):
+    """(type, w, h, glyph bytes, declared count) from an HWP 3.0 header (its first 72 bytes at least)."""
+    if len(head) < HWP3_HEADER:
+        raise HwpError("shorter than the 72-byte HWP 3.0 header")
+    w, h = struct.unpack_from("<HH", head, 6)
+    if not (1 <= w <= 128 and 1 <= h <= 128):
+        raise HwpError(f"HWP 3.0 FNT glyph size {w}x{h} is out of range")
+    return head[4], w, h, (w + 7) // 8 * h, struct.unpack_from("<I", head, 0x10)[0]
+
+
+def sniff(head, size):
+    """`hwp1`, `hwp3` or `ks-raw` when the first bytes @p head (512 are enough) and the file @p size fit that format's
+    header and size rule, else None: a file that merely starts with the magic bytes is not taken."""
+    try:
+        if head.startswith(HWP1_MAGIC) or head[:4] == HWP1_FE:
+            count, _w, _h, _c, gsize = _hwp1_geometry(head)
+            return "hwp1" if size == 32 + count * gsize else None
+        if head[:4] == HWP3_MAGIC:
+            _t, _w, _h, gsize, _n = _hwp3_geometry(head)
+            body = size - HWP3_HEADER
+            return "hwp3" if body > 0 and body % gsize == 0 else None
+    except HwpError:
+        return None
+    return "ks-raw" if ks_raw_px(size) else None
+
+
 def _hwp1(data):
-    count = struct.unpack_from(">H", data, 0x1C)[0]
-    w, h = data[0x1E] + 1, data[0x1F] + 1
-    col = h == 24                          # the printer fonts (24-pin head order); the screen fonts are 16 rows
-    gsize = w * 3 if col else (w + 7) // 8 * h
+    count, w, h, col, gsize = _hwp1_geometry(data)
     if len(data) != 32 + count * gsize:
         raise HwpError(f"size {len(data)} is not 32 + {count} glyphs of {gsize} bytes ({w}x{h})")
     table = HANGUL_FILES.get((w, h, count))
@@ -209,13 +248,7 @@ def _hwp1(data):
 
 
 def _hwp3(data):
-    if len(data) < HWP3_HEADER:
-        raise HwpError("shorter than the 72-byte HWP 3.0 header")
-    typ = data[4]
-    w, h = struct.unpack_from("<HH", data, 6)
-    if not (1 <= w <= 128 and 1 <= h <= 128):
-        raise HwpError(f"HWP 3.0 FNT glyph size {w}x{h} is out of range")
-    gsize = (w + 7) // 8 * h
+    typ, w, h, gsize, declared = _hwp3_geometry(data)
     body = len(data) - HWP3_HEADER
     if body <= 0 or body % gsize:
         raise HwpError(f"size {len(data)} is not 72 + whole glyphs of {gsize} bytes ({w}x{h})")
@@ -230,8 +263,13 @@ def _hwp3(data):
         raise HwpError(f"an HWP 3.0 Hangul FNT holds 2350 or 2710 glyphs, not {count}")
     if kind == "hanja" and count != 4888:
         kind = "other"
-    return Font("hwp3", kind, data, HWP3_HEADER, w, h, count, name=name,
-                jamo844=kind == "hangul" and count == 2710 and w == h == 16)
+    if kind == "ascii" and count < 95:
+        raise HwpError(f"an HWP 3.0 English FNT holds the 95 codes 0x20..0x7E at least, this one {count} "
+                       f"(its header declares {declared})")
+    f = Font("hwp3", kind, data, HWP3_HEADER, w, h, count, name=name,
+             jamo844=kind == "hangul" and count == 2710 and w == h == 16)
+    f.declared = declared        # HAN24 declares 2,710 and holds 2,350, ENG40 declares 147 and holds 96: reported, not refused
+    return f
 
 
 def _ks_raw(data):
@@ -250,8 +288,6 @@ def read(data):
     if len(data) > MAX_FILE:
         raise HwpError(f"larger than {MAX_FILE} bytes")
     if data.startswith(HWP1_MAGIC) or data.startswith(HWP1_FE):
-        if len(data) < 32:
-            raise HwpError("shorter than the 32-byte HWP 1.x header")
         return _hwp1(data)
     if data.startswith(HWP3_MAGIC):
         return _hwp3(data)
@@ -260,11 +296,17 @@ def read(data):
     raise HwpError("not an HWP 1.x or 3.0 font nor a KS X 1001 raw dump")
 
 
-def read_file(path):
-    if os.path.getsize(path) > MAX_FILE:
-        raise HwpError(f"{path}: larger than {MAX_FILE} bytes")
+def read_bounded(path, cap=MAX_FILE):
+    """The bytes of @p path, refused (HwpError) past @p cap without reading more than cap + 1 of them."""
     with open(path, "rb") as fh:
-        return read(fh.read())
+        data = fh.read(cap + 1)
+    if len(data) > cap:
+        raise HwpError(f"{path}: larger than {cap} bytes")
+    return data
+
+
+def read_file(path):
+    return read(read_bounded(path))
 
 
 # ---- HWP 1.x composition -----------------------------------------------------------------------------------------
@@ -378,8 +420,7 @@ def english(path, face=0):
     reads: a raw 8x16 DOS font, HBIOS / Taebaek 12x24, Taebaek 20x40 / 24x48, an HWP 1.x ASCII file (face @p face) or an
     HWP 3.0 ENG*.FNT."""
     import jamoset
-    with open(path, "rb") as fh:
-        data = fh.read(MAX_FILE + 1)
+    data = read_bounded(path)
     try:
         eng = jamoset.read_eng(data, face)
     except jamoset.SourceError as e:
@@ -422,6 +463,11 @@ def cmd_bdf(a):
             advance[cp] = adv
             widths[cp] = ew
         what.append(f"{len(eg)} ASCII of {adv}x{eh} from {os.path.basename(a.ascii)}")
+    if 0x20 not in glyphs:
+        # a blank U+0020 first: FreeType takes a BDF's first glyph as .notdef, and mkfont.py drops every glyph equal to
+        # .notdef, so without it the first syllable (U+AC00) would vanish from the face
+        glyphs[0x20] = [0] * f.h
+        advance[0x20] = widths[0x20] = max(1, f.w // 2)
     if a.ascent is not None:
         ascent = a.ascent
     if ascent is None:
@@ -433,6 +479,12 @@ def cmd_bdf(a):
     with open(a.output, "w", encoding="ascii") as fh:
         fh.write(rawcarve.bdf_text(bits, f.w, f.h, ascent, a.name, advance))
     print(f"wrote {a.output}: {', '.join(what)}; cell {f.w}x{f.h}, ascent {ascent}")
+
+
+def _bdf_name(v):
+    if not v or len(v) > 64 or not all(c.isascii() and (c.isalnum() or c in "-_") for c in v):
+        raise argparse.ArgumentTypeError("a name of 1-64 ASCII letters, digits, - and _")
+    return v
 
 
 def main(argv=None):
@@ -449,7 +501,7 @@ def main(argv=None):
     p.add_argument("--ascii", help="an English font whose U+0020..U+007E go into the BDF (any jamoset.py --eng reads)")
     p.add_argument("--ascii-face", type=int, default=0, help="--ascii of HWP 1.x: its face (0..5, default 0)")
     p.add_argument("--ascent", type=int, help="the BDF's ascent (default: the English face's baseline, else 7/8)")
-    p.add_argument("--name", default="hwp", help="the BDF's family name")
+    p.add_argument("--name", default="hwp", type=_bdf_name, help="the BDF's family name (ASCII letters, digits, - and _)")
     p.add_argument("-o", "--output", required=True)
     p.set_defaults(fn=cmd_bdf)
     a = ap.parse_args(argv)

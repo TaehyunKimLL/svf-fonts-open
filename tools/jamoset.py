@@ -2293,7 +2293,7 @@ def check_dy(f):
         raise ValueError(f"{len(pieces)} jamo pieces have a dy, first U+{min(pieces):04X}")
 
 
-def check(out_bytes, layout, src_bytes):
+def check(out_bytes, layout, src_bytes, bold=False):
     """Parse the written font back and compose all 11,172 syllables with the engine's rule. For layout 844 at
     16x16 the result must equal johab844.py's composition of the source, byte for byte. Returns a message."""
     f = parse_svfn(out_bytes)
@@ -2319,7 +2319,13 @@ def check(out_bytes, layout, src_bytes):
         import johab844
         off = 2 if len(src_bytes) == 11522 else HWP3_JAMO_OFFSET if layout.name == "844-hwp3" else 0
         jamo = src_bytes[off:off + 360 * 32]
-        bad = [cp for cp in composed if composed[cp] != johab844.compose(jamo, cp)]
+        want = johab844.compose
+        if bold:			# --embolden: the pieces were ORed with themselves shifted right 1 px, so is the reference
+            def want(j, cp):
+                raw = johab844.compose(j, cp)
+                return b"".join((lambda r: (r | r >> 1).to_bytes(2, "big"))(int.from_bytes(raw[i:i + 2], "big"))
+                                for i in range(0, len(raw), 2))
+        bad = [cp for cp in composed if composed[cp] != want(jamo, cp)]
         if bad:
             raise ValueError(f"{len(bad)} syllables differ from johab844.py, first U+{bad[0]:04X}")
         msg += "; identical to johab844.py"
@@ -2823,6 +2829,21 @@ def hwp1_layout(data, face=0):
     return layout, src, h
 
 
+def read_capped(path, cap=None):
+    """The bytes of a source or --eng file, refused (SourceError) past @p cap (hwpfont.MAX_FILE) without reading more."""
+    hwpfont = _hwpfont()
+    try:
+        return hwpfont.read_bounded(path, cap or hwpfont.MAX_FILE)
+    except hwpfont.HwpError as e:
+        raise SourceError(str(e))
+
+
+def check_eng_height(eng, cell_h):
+    """SourceError when an --eng face is taller than the cell it goes into (a 14x24 HWP ASCII.PFT for a 16 px face)."""
+    if isinstance(eng, EngCell) and eng.h > cell_h:
+        raise SourceError(f"the --eng font is {eng.w}x{eng.h}, taller than the {cell_h}-row cell")
+
+
 def hwp1_compare(out, h):
     """The syllables (U+AC00 + n) whose composition from the written font differs from hwpfont's own HWP rule."""
     f = parse_svfn(out)
@@ -2840,11 +2861,12 @@ def main_hwp1(ap, args):
     """--layout hwp1 HANGUL.SFT|HANGULn.PFT --face N: the JSET tables of HWP.EXE's rule, compared with hwpfont.py's."""
     if not args.source or args.from_ttf or args.from_svf or args.blank_compat:
         ap.error(f"{HWP1_LAYOUT} takes the HWP 1.x Hangul file as its source (no --from-*)")
+    if args.bpp != 1:
+        ap.error(f"{HWP1_LAYOUT} writes 1 bpp pieces (the HWP glyphs are 1 bpp): --bpp {args.bpp} is not offered")
     try:
-        with open(args.source, "rb") as fh:
-            data = fh.read()
-        layout, src, h = hwp1_layout(data, args.face)
-        eng = read_eng(open(args.eng, "rb").read(), args.eng_face) if args.eng else None
+        layout, src, h = hwp1_layout(read_capped(args.source), args.face)
+        eng = read_eng(read_capped(args.eng), args.eng_face) if args.eng else None
+        check_eng_height(eng, src.h)
         base = open(args.base, "rb").read() if args.base else None
         out, mapping, _ = build_from_source(layout, src, eng, base, args.ascent, None, False, args.advance,
                                             args.embolden, args.symbols, profile=profile_arg(ap, args),
@@ -3153,7 +3175,7 @@ def main():
             open(args.output, "wb").write(out)
             print(f"{args.output}: {len(out)} bytes, compat jamo with a whole glyph left to the glyph; {jset_line(out)}")
             return
-        eng = read_eng(open(args.eng, "rb").read(), args.eng_face) if args.eng else None
+        eng = read_eng(read_capped(args.eng), args.eng_face) if args.eng else None
         base = open(args.base, "rb").read() if args.base else None
         if args.bpp == 2:
             return main_aa(ap, args, layout, eng, base, time.time(), limits, clean)
@@ -3232,7 +3254,11 @@ def main():
             if args.report:
                 write_report(args.report, info)
             return
-        out, mapping, src = build_from_source(layout, layout.opener(open(args.source, "rb").read(), args.face, args.source),
+        raw = read_capped(args.source) if layout.name == "844-hwp3" else open(args.source, "rb").read()
+        src0 = layout.opener(raw, args.face, args.source)
+        if layout.name == "844-hwp3":
+            check_eng_height(eng, src0.h)
+        out, mapping, src = build_from_source(layout, src0,
                                                eng, base, args.ascent, None, False, args.advance, args.embolden,
                                                args.symbols, profile=profile_arg(ap, args),
                                                jset_version=args.jset_version or 1, jset_big=args.jset_big)
@@ -3240,7 +3266,7 @@ def main():
         print(f"{args.output}: {len(out)} bytes, {len(mapping)} pieces of {src.w}x{src.h} from {args.source}; "
               + jset_line(out))
         if args.check:
-            print("check:", check(out, layout, open(args.source, "rb").read()))
+            print("check:", check(out, layout, raw, args.embolden))
     except (SourceError, ValueError, _jamofit().FitError) as e:
         sys.exit(f"{label}: {e}")
 
