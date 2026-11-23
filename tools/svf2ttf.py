@@ -33,7 +33,8 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
     ppem, and the outlines at other sizes. --no-strike leaves it out; --apple adds the same strike as bloc/bdat. The
     strike's metrics are signed bytes: the ascent, descent, each glyph's bearing x and ink top, and the strike's
     extremes (least bearing x and right side bearing, highest and lowest ink; a glyph's own right side bearing is not
-    stored) past -128..127 (a face over about 127 rows) is an error naming the field; --no-strike converts such a face.
+    stored) past -128..127 (a face over about 127 rows) is an error naming the field, except that a least value above
+    127 is stored as 127 (still a lower bound); --no-strike converts such a face.
   - cmap (format 4, and 12 when a code point is past U+FFFF), hmtx (advance * 64, lsb = the outline's x minimum),
     hhea / OS/2 typo ascender and descender = the face's ascent and cell height - ascent (USE_TYPO_METRICS), OS/2 win
     ascent / descent = the larger of those and the ink's reach (a dy may take ink past the cell), post format 3,
@@ -542,12 +543,14 @@ def strike_tables(glyphs, ppem, depth, ascent, descent, compounds=()):
         wmax = max(wmax, g.adv)
     coffs.append(len(data))
     # the strike's line metrics hold only the extremes (EBDT small metrics have no right side bearing or ink bottom):
-    # those are checked, not each glyph's
+    # those are checked, not each glyph's. A least value (bearing x, right side bearing, lowest ink) past 127 is
+    # stored as 127, still a true lower bound (a 200-wide '.' of advance 200: right side bearing 199); below -128 it
+    # cannot be bounded and is refused.
     if inked:
-        bx_min = i8(min(b[0] for b in inked), "the strike's least bearing x")
-        rsb_min = i8(min(b[4] - b[2] for b in inked), "the strike's least right side bearing")
+        bx_min = i8(min(127, min(b[0] for b in inked)), "the strike's least bearing x")
+        rsb_min = i8(min(127, min(b[4] - b[2] for b in inked)), "the strike's least right side bearing")
         bl_max = i8(max(-b[1] for b in inked), "the strike's highest ink above the baseline")
-        bl_min = i8(min(-b[3] for b in inked), "the strike's lowest ink below the baseline")
+        bl_min = i8(min(127, min(-b[3] for b in inked)), "the strike's lowest ink below the baseline")
     else:
         bx_min = rsb_min = bl_max = bl_min = 0
     hori = struct.pack(">bbBbbbbbbbbb", ascent, -descent, wmax, 1, 0, 0, bx_min, rsb_min, bl_max, bl_min, 0, 0)

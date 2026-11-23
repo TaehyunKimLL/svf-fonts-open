@@ -7,6 +7,7 @@ import glob
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -640,6 +641,19 @@ class Synthetic(unittest.TestCase):
         g[0x41] = (60, 0, box_rows(200, 16, 0, 2, 200, 12))           # ink 140 past its advance: least rsb -140
         err = self.fails("ttf", synth(self.path("over.svf"), 200, 16, 12, g), self.path("o.ttf"), "--licence", "none")
         self.assertIn("least right side bearing -140", err)
+
+    def test_strike_wide_least_values_past_127_are_clamped(self):
+        """A 200-wide cell whose only glyph is a '.' of advance 200: the least right side bearing (199) is stored as
+        127, a valid lower bound, not refused; a per-glyph bearing x past 127 is still an error naming the glyph."""
+        face = synth(self.path("dot.svf"), 200, 16, 12, {0x2E: (200, 0, box_rows(200, 16, 0, 10, 1, 12))})
+        f = self.ttf(face)
+        hori = f["EBLC"].strikes[0].bitmapSizeTable.hori
+        self.assertEqual((hori.minOriginSB, hori.minAdvanceSB, hori.widthMax), (0, 127, 200))
+        self.assertEqual(strike_pixels(f, f.getBestCmap()[0x2E], 1),
+                         svf2ttf.glyph_pixels(svf2ttf.load_face(face), 0x2E)[::-1])
+        far = synth(self.path("far.svf"), 200, 16, 12, {0x2E: (200, 0, box_rows(200, 16, 150, 10, 151, 12))})
+        err = self.fails("ttf", far, self.path("far.ttf"), "--licence", "none")
+        self.assertIn("U+002E: the bearing x 150", err)
 
     def test_ppem_and_errors(self):
         for ppem in ("0", "256", "-5"):

@@ -1333,7 +1333,8 @@ multiples), anti-aliased by the renderer at the rest. A 2 bpp face's levels exis
 precomposed: a jamo set's small size does not survive the conversion. The strike's metrics are bytes: the advance
 0..255 (every SVF advance fits) and the ascent, descent, each glyph's bearing x and ink top and the strike's extremes (least left and right side
 bearing, highest and lowest ink; a glyph's own right side bearing is not stored, so a 200-wide cell with wide and
-narrow glyphs fits) signed, -128..127, so a face whose
+narrow glyphs fits, and a least value past 127, such as a 200-wide cell whose only glyph is a '.', is stored as 127, still a
+lower bound) signed, -128..127, so a face whose
 ascent or ink reaches more than 127 rows from the baseline (a cell over about 127 rows) stops with an error naming the
 field; `--no-strike` converts it to outlines only, and its BDF is not limited. The licence of the face's source font applies to the TTF; an
 OFL font's Reserved Font Names must not be the new family name (the default name avoids them).
