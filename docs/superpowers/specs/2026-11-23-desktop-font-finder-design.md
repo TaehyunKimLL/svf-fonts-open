@@ -5,15 +5,18 @@ Card t_235403fe: "desktop app: font finder for unknown programs/ROMs (binscan/ra
 repository. This is a design only: no code is changed by this card, and no implementation card is created before the
 owner has approved it. Facts below were read from the tree (main, and branch `mame-roms` at `55c0be1` where said) or
 run on this host; what was not run says "not verified" or "target". Where a choice is the owner's I decided for the
-builder, marked "(design call)", and collected it again in section 15; the owner answered all ten on 2026-11-23, every
-one as recommended, and section 15 now records the answers.
+builder, marked "(design call)". The owner answered the ten questions of the first draft on 2026-11-23, every one as
+recommended (section 15). Revised the same day after two independent reviews; section 17 lists every finding and what
+was done with it, and section 15.1 the two points where a finding touches a decision.
 
 Read with this document: `docs/recipes.md` "Finding a font inside a program or data file, with Claude" (the prompt, the
 byte-size signatures, the NKP / Dokkaebi / 86Box examples) and, on `mame-roms`, "Korean font ROMs in MAME sets";
 `tools/binscan.py`, `tools/rawcarve.py`, `tools/nkpspec.py` (on `mame-roms`: `--invert`, `--gfx`, `--bg` / `--fg`,
-`rawcarve.py region` / `ink`, `jamoset.py --layout spec`); `maker/README.md`, `docs/desktop-app.md`, `maker/server.py`
-(the route table at line 642), `maker/detect.py` (entries, `prep` ops), `maker/routes.py`, `maker/sources.py`,
-`maker/preview.py`, `maker/static/maker.js` / `svfview.js`; the designs
+`rawcarve.py region` / `ink`, `eng --first / --count / --width / --invert`, `jamoset.py --layout spec`);
+`maker/README.md`, `docs/desktop-app.md`, `maker/server.py` (`_ROUTES`, `_sweep_idle`, `_kept_settings`),
+`maker/detect.py` (entries, `prep` ops, companions), `maker/settings.py` (`plan_steps`, `companion_file`),
+`maker/routes.py` (`source_commands`), `maker/jobs.py` (`_finish_local`), `maker/sources.py`, `maker/preview.py`,
+`maker/zipout.py` (`_OutputTree`), `maker/static/maker.js` / `svfview.js`, `desktop/main.js`; the designs
 `2026-11-04-maker-local-mode-design.md` and `2026-11-05-maker-desktop-design.md`.
 
 ## 1. Intent
@@ -29,93 +32,136 @@ maker recognises next time, re-runs headless, and that can be passed to someone 
 ## 2. Goals
 
 - One flow in the app from "an unknown file" to "SVF faces in the output folder", for the cases the recipes have worked:
-  a raw 8x4x4 (or other known-size) jamo set, an 8xH / 16x16 English font, a dense KS X 1001 dump, a KS code grid,
-  1 bpp in any stored order, inverted, multi-bit tiles with a pen rule, a region interleaved from several ROM files, and
-  a font with its own compose rule given as a `rawcarve.py compose` spec.
+  a raw 8x4x4 (or other known-size) jamo set, an 8xH / 16x16 English font, a dense KS X 1001 syllable dump, a KS code
+  grid, 1 bpp in any stored order, inverted, multi-bit tiles with a pen rule, a region interleaved from several ROM
+  files, and a font with its own compose rule given as a `rawcarve.py compose` spec.
 - Every pixel rule stays in the Python tools. The finder adds no decoder and no composer of its own: the page draws what
   the sidecar decoded (candidate grids) or what the WASM renderer draws from a built face (results).
+- What the viewer shows is what the conversion reads: every parameter of a reading reaches the carve commands
+  (section 8.2), and a test compares converted pixels with independently built glyphs.
 - Local mode only: files are read where they are, never uploaded or copied into the data directory; derived files live
   in the job's `.svf-maker-<id>/` inside the output folder and go when the job ends.
 - The input is untrusted and is never executed, unpacked by an external program or parsed beyond bounded byte reads.
 - A run is reproducible by hand: `BUILD.md` lists the `rawcarve.py` / `jamoset.py` / `bdfface.py` commands, and the
-  recipe JSON is written beside it.
+  recipe JSON and every parameter file a command names are written beside it.
 - A recipe library (built-in and the user's) recognises known files by size and hash at detection; the known ROMs of
-  card t_97acecf9 are expressible as built-in recipes.
+  card t_97acecf9 are built-in recipes.
 - The proofs run on synthetic fixtures; checks on real files are environment-gated.
 
 ## 3. Non-goals
 
-- Disassembly, emulation or any execution of the file; unpacking LZEXE / PKLITE / ARJ / RAR / 7z (the finder names them
-  and says "unpack first"). Reading a driver's code stays with a person or an assistant; section 10 says how the app
-  hands that over.
+- Disassembly, emulation or any execution of the file; unpacking LZEXE / PKLITE / ARJ / RAR / 7z / LHA (the finder
+  names them and says "unpack first"). Reading a driver's code stays with a person or an assistant; section 10 says
+  how the app hands that over.
 - An automatic answer. The finder ranks and draws; the user decides. Where the bytes cannot decide (tied `sets`
   offsets, a KS order with gaps), it says so.
 - A JavaScript or WASM port of `binscan.py` / `rawcarve.py` (owner, 2026-11-05: the Python tools stay).
-- New glyph layouts in the tools beyond what `mame-roms` has. Small tool changes this design needs are listed in 7.5.
+- New glyph layouts in the tools beyond what `mame-roms` has. Not read, and said so by the viewer's help: rows stored
+  bottom-up, rotated or transposed glyphs, rows packed without byte padding (a 12-bit row in 1.5 bytes), 16-bit word
+  swap of a single file in phase 1 (`region --swap` does it from phase 2).
+- Character sets other than ASCII 0x20..0x7E and KS X 1001: JIS X 0208, Big5, GB 2312, CP437 above 0x7E. A 94 x 94
+  table of 8,836 glyphs has one size whatever its set; the signature line says "94 x 94 table (KS X 1001 or another
+  set: look)". A KS font in an order of its own (quizdaisk) is not resolved either. Faces of the KS symbols and Hanja
+  (`ks-nonhanja`, `ks-all`) are left out of version 1 (section 8.3).
+- Compressed font formats. The repository's own (`os2dbcs.py`, the Mac JM archive) keep their routes; the finder does
+  not decompress, and a file it sees as packed is told so.
 - Upload mode. The finder is offered only when `/api/caps` says `local`.
 - A network feature of any kind: no recipe download, no call to an assistant's API.
 
 ## 4. Constraints and facts
 
-1. **The tools.** `binscan.py`: `info` (kind from the first 0x60 bytes: MZ with LZEXE / PKLITE marks, ARJ, ZIP, option
-   ROM, `.COM`; entropy per block; size signatures), `runs`, `sets`, `ascii`, `render` (text or PNG through its own
-   zlib PNG writer, no Pillow). `rawcarve.py`: `cut`, `eng`, `bdf` (`--dense` / `--grid L0,T0,PITCH`), `compose`; on
-   `mame-roms` also `region` (interleave `--unit 1|2|4`, `--swap`), `ink`, `--gfx` layouts (presets and MAME
-   `gfx_layout` lists, parsed with bounds: 1,024 offsets a list, nesting 32, numbers of 12 characters), `--bg` / `--fg`,
-   `--invert`, the built-in spec `spc1500`, and `jamoset.py --layout spec` (an exact jamo set from a compose spec).
-   Caps in the tools: `binscan.MAX_SCAN` 16 MiB a scan, `rawcarve.MAX_FILE` and `MAX_REGION` 64 MiB. Both print text.
-2. **`mame-roms` is not on main** (card t_c1eca08f; it diverges from main, which has `svf2ttf.py` since). The finder's
-   phases 2 and 3 need it merged; phase 1 needs only what main has.
+1. **The tools on main.** `binscan.py`: `info` (kind from the first 0x60 bytes: MZ with LZEXE / PKLITE marks, ARJ,
+   ZIP, option ROM, `.COM`; nothing for RAR, 7z, gzip, xz or LHA; entropy per block; size signatures), `runs`, `sets`,
+   `ascii`, `render` (text, or a PNG with a 1-pixel gap between cells, written by its own zlib level 9 writer; no
+   Pillow). `rawcarve.py`: `cut` (bytes as they are), `eng` (`--offset`, `--height`, `--top` only), `bdf` (`--glyph`,
+   `--stride`, `--order`, `--lsb`, `--first`, `--count`, `--dense` / `--grid`; `--chars ascii` keeps codes 0x20..0x7E),
+   `compose`. No `--invert` anywhere. All print text; all open files with a plain `open()`; `nkpspec.py` reads the
+   whole file without a cap.
+2. **The tools on `mame-roms`** (card t_c1eca08f; not on main, and main has `svf2ttf.py` since the fork): `--invert` on
+   `binscan.py` and on `rawcarve.py eng / bdf / ink / compose`; `rawcarve.py ink` (any 1 bpp reading, or tiles by a pen
+   rule, rewritten as plain row-major MSB-first 1 bpp glyphs; takes `--glyph`, `--stride`, `--order`, `--lsb`,
+   `--invert`, `--gfx`, `--bg` / `--fg`, `--offset`, `--count`); `eng --first / --count / --width 16 / --invert`;
+   `region` (`--unit 1|2|4`, `--swap`); `--gfx` layouts parsed with bounds; the built-in spec `spc1500`; `jamoset.py
+   --layout spec` and a 16x16 `--eng` file of 8,192 bytes (main's `read_eng` refuses that size; `johab844.py` reads
+   8x16 only). Caps: `binscan.MAX_SCAN` 16 MiB a scan, `rawcarve.MAX_FILE` and `MAX_REGION` 64 MiB.
+   **The finder is built on `mame-roms` merged into main**: without `--invert`, `ink` and the `eng` options the viewer
+   could show readings no command can carve.
 3. **Scan cost (measured here, pure Python, one core).** On a 524,288-byte synthetic file: `info` 0.03 s, `ascii`
    0.06 s, `sets` 0.11 s, `runs --glyph 16x16` with its default of one phase a row 9.65 s, `runs --order strips --step
    32` (one phase) 0.63 s; `render` of 256 glyphs to a PNG 0.06 s including the interpreter start. `runs` is the cost:
-   about 19 s a MiB at all 16 phases, about 1.2 s a MiB a phase. An 8 MiB sprite region cannot be scanned at every
-   phase inside a budget a person waits for.
-4. **The maker.** One page (`maker/static/index.html`, `maker.js`), English only, no string table. Local mode: a job
-   has an output folder; `PUT /api/jobs/<id>/sources` checks each path (`maker/sources.py`: absolute, not a link, not
-   the data folder, no overlap, optional `SVF_MAKER_ROOTS`; a file over 256 MiB is skipped). `detect.py` turns files
-   into font entries with a `kind`, optional `prep` ops (source steps such as `pcf-bdf`, listed in `BUILD.md`) and
-   routes (`routes.py`). A file it cannot read is an entry of kind `other` labelled `unknown`. A DOS raw font is
-   recognised by exact size only (`DOS_SIZES`), an English companion by size (`ENG_SIZES`). Source previews of baked
-   kinds are drawn by the page from a baked SVF through the WASM renderer (`svfview.js`).
-5. **Tools run as bounded subprocesses** (`toolrun`, `toolreg`, `preview.run_bounded` with a 60 s timeout), but
-   `detect.py` already imports tool modules and reads untrusted files in-process with caps. `binscan` and `rawcarve`
-   are already in the frozen sidecar's module graph (`maker/sidecar.py` `GRAPH_MODULES`), not in its `TOOLS` table.
-6. **The shell bridge** is four functions (`pickFiles`, `pickFolder`, `pickOutputDir`, `openOutputFolder`); there is
-   no save dialog. The page's CSP allows its own origin only.
-7. **The sidecar bundles** Pillow and fontTools, no numpy (`desktop/build/requirements-sidecar.txt`).
-8. **The examples' facts the UI must cover**: tied `sets` offsets a row apart (Dokkaebi: decided by source or a loose
-   copy); a `.COM` loads at 0x100; a wrong compose spec draws a wrong face without an error (NKP); a KS table at a
-   sprite index inside a larger tile ROM (Date Quiz Go Go: sprite 13347); an outline pen (Quiz KOF: `--fg 1`); a
-   background pen that is not 0 (X Se Dae: `--bg 15`); a font whose order is not KS (quizdaisk: not resolved).
+   about 1.2 s a MiB a phase at 16x16 (the fixture is all glyphs: a worst case), and 8x8 decodes four times as many
+   glyphs a MiB. Every geometry at every phase of a 16 MiB window is several minutes; the analysis therefore runs in
+   a priority order inside a budget and says what it did not scan (section 6).
+4. **Detection.** `detect.py` `sniff` returns `fon` for any file that starts with `MZ` (a DOS `.EXE` driver becomes an
+   entry of kind `other` labelled "Windows FON; no openable face"), `archive` for zip / tar / xz, `hwp-pft` for a
+   `.PFT` no tool reads, and decides `dos-raw`, `eng` and `ks-raw` by byte size alone (`DOS_SIZES`, the sizes 2,048 /
+   4,096 / 12,288 / 30,720 / 49,152, the KS dump sizes): a ROM of 4,096 bytes is "a Latin companion". Only what is
+   left is `unknown`. A `POST detect` replaces `job["fonts"]` wholesale and keeps settings by the key `(root path,
+   path, face_index)` (`_kept_settings`).
+5. **Planning and companions.** A font entry has one `(root, path)`; `routes.source_commands` chains its `prep` ops
+   from that one file. `settings.plan_steps` gives a companion a source step of its own only for `mac-fbit3`
+   (`companion_file`); every other companion is passed by its original path (`settings.py` line 1563, `server.py`
+   `_companion_abs`). `detect.py` pairs an `eng` entry only with `dos-raw`, `hwp1` and `ks-raw` fonts of the same
+   folder, and a `bdf-ksc5601` font only with BDF / HBF entries; `bdfface` refuses to run without a Latin companion.
+   `_bdfface_fit_commands` does not pass `--mask-font none`, and `jamoset.py` then takes `$JAMOSET_MASK_FONT` or a
+   sibling NotoSansKR when one exists. Detection runs `srcprep.prepared_bytes` in-process on entries with `prep`.
+   Every command line of a note is at most `naming.MAX_FIELD_BYTES` = 512 bytes (`_check_notes` refuses the run
+   otherwise).
+6. **Files directory.** `.svf-maker-<id>/` is swept when a `detected` local job is idle for 30 minutes
+   (`_sweep_idle`, which holds the fonts' preview locks only), unconditionally when a run finishes (`_finish_local`),
+   at job delete and at start and stop. `Worker.stop()` kills the children of `preview.run_bounded` (`kill_all`).
+   `PUT settings` and `POST run` need the job in state `detected`.
+7. **The page and the shell.** One page, English only, no string table. `test_page_js_tables_match_python` holds
+   `maker.js`'s tables (`ROUTES`, `OPTION_VISIBLE`, `PREVIEW_KINDS`, `SOURCE_WORDS`, ...) equal to Python's. The shell's
+   session is `session.fromPartition('maker')` without `persist:` (its `localStorage` does not survive a quit) and
+   denies every permission (`navigator.clipboard` included). The bridge is four functions; there is no save dialog.
+   Byte-serving GETs are host-checked (`_HOST_CHECKED`) and a local job's are `Cache-Control: no-store`.
+8. **Packaging.** `sidecar.spec` bundles `maker/static` only; `build-sidecar.sh` stages `svf/`, three `web/` files,
+   `tools/*.py` and `maker/*.py`. `binscan` and `rawcarve` are in the sidecar's module graph, not in its `TOOLS`
+   table; `test_frozen.py` holds `GRAPH_MODULES` / `TOOLS` / `SMOKE` in step. The sidecar has Pillow and fontTools, no
+   numpy.
+9. **`maker/archive.py` extracts** (guarded: member and total size, ratio, count, names, nested archives) into a
+   destination; it has no reader of a member in place, and `binscan.py` / `rawcarve.py` take file paths.
+10. **The examples' facts the UI must cover**: tied `sets` offsets a row apart (Dokkaebi: decided by source or a loose
+    copy); a `.COM` loads at 0x100; a wrong compose spec draws a wrong face without an error (NKP); a KS table at a
+    sprite index inside a larger tile ROM (Date Quiz Go Go: sprite 13347); an outline pen (Quiz KOF: `--fg 1`); a
+    background pen that is not 0 (X Se Dae: `--bg 15`); 가 at slot 0x1821 = 6177 of the VGA ROMs' 128 x 128 grid.
 
 ## 5. The user flow
 
-1. **Enter.** In local mode, after `detect`, every entry of kind `other` with format `unknown` gets a button "look
-   inside" (KO "안쪽 살펴보기"); several unknown entries can be ticked and opened together as one ROM set. The sources
-   panel also gets "find a font in a file..." which picks files and opens the finder at once. The job and its output
-   folder exist first, as for any local job (the scratch lives there).
+1. **Enter.** The finder opens on entries of a detected local job, so its files are already checked sources of the job
+   (the sources panel's "find a font in a file..." is "choose files" + "detect" + open the finder on what was picked).
+   Two ways in from the fonts table:
+   - **look inside** (KO "안쪽 살펴보기") on every entry of kind `other` that is a readable single file: `unknown`, an
+     `MZ` file with no openable face, an FNT with no openable size, `hwp-pft`, a lone `eng`; from phase 2 a zip
+     archive. Not on licence texts, list files and unreadable files. Several such entries can be ticked and opened
+     together.
+   - **open in the finder** in the row menu of every other single-file entry whose kind was decided by size alone
+     (`dos-raw`, `eng`, `ks-raw`): a ROM that happens to be 4,096 bytes long is not lost to its misreading.
 2. **Known file.** If the library holds a recipe whose files match (section 9), detection already shows the entry as
    `known: <recipe title>` with the recipe's faces as routes; the finder is not needed, and opens prefilled when the
    user wants to look.
-3. **Analyse.** The finder opens and starts the analysis (section 6): facts at once (size, kind, signatures, entropy
-   map), scans as they finish, each within its budget. A packed file (entropy near 8 everywhere, an LZEXE / PKLITE /
-   ARJ mark) is said to be packed and offered nothing else but the manual viewer.
+3. **Analyse.** The finder starts the analysis (section 6): facts at once (size, kind, signatures, entropy map), scans
+   as they finish, in priority order within the budget. A packed file (entropy near 8 everywhere, or an LZEXE / PKLITE
+   / ARJ / RAR / 7z / gzip / xz / LHA mark) is said to be packed and offered the manual viewer only.
 4. **Candidates.** A ranked list; each row has a thumbnail (the first 32 glyphs), the facts that made it a candidate
    and a proposed meaning ("8x4x4 set, 16 px", "8x16 English", "2,350 glyphs: KS dense?"). Tied offsets are one row
    with every tie drawn side by side.
 5. **Look and adjust.** Picking a candidate (or any place on the overview strip) loads the viewer. Every parameter
-   redraws at once: offset, glyph WxH, stride, order (rows / strips / cols / bytecols), lsb, invert; for tiles the gfx
-   layout, the pen view and the pen rule; for a ROM set the region (which files, interleave unit, swap).
-6. **Mark.** The user selects a span of glyphs and says what it is (section 5.3). An **anchor** makes the mapping
-   without arithmetic: click a glyph, type its character ("가", "A"), and the finder solves the first code, the dense
-   start or the grid origin.
-7. **Trial.** "Try" builds the faces of the marks into the scratch with the real tools and shows the sample line
-   through the WASM renderer, with the numbers of `docs/recipes.md` "Checking a face": glyph count, `--check` result,
-   `svfline.py measure`, ink of the sample line, and the fit IoU for a jamo-set fit.
+   redraws at once: offset, glyph WxH, stride, order (rows / strips / cols / bytecols), lsb, invert; from phase 2 the
+   gfx layout, the pen view and the pen rule, and the region (which files, interleave unit, swap).
+6. **Mark.** The user selects a span of glyphs and says what it is (section 5.3). An **anchor** (section 5.4) makes the
+   mapping without arithmetic: click a glyph, type its character ("가", "A").
+7. **Trial.** "Try" plans the marks exactly as a run would (section 8) and builds their faces in the scratch; the page
+   polls, can cancel, and shows the sample line through the WASM renderer with the numbers of `docs/recipes.md`
+   "Checking a face": glyph count, `--check` result, `svfline.py measure`, the ink (section 8.5), the fit IoU.
 8. **Apply.** The marks become font entries of the job (section 8). From here it is the usual maker: settings, run,
    steps table, faces in `svf/<dest>/`, `BUILD.md`.
 9. **Save the recipe.** Written into `build-<id>/` on every run; "save to my recipes" adds it to the user library.
+
+A session may hold several files; each is a region of its own. Phase 1 has no assembled region (one mark reads one
+file as it is), so the 86Box pair (the font ROM for Hangul, the VGA BIOS for English) is two files in one phase-1
+session.
 
 ### 5.1 The finder view (wireframe)
 
@@ -124,7 +170,7 @@ The finder replaces the main layout while it is open (the top bar stays; "back t
     +-- SVF maker ------------------------------------------ [finder: NKP.COM]  [back to the job] ---+
     | FILES / REGION     | VIEWER                                             | READING             |
     | (a) NKP.COM        | overview: [entropy+ink strip of the region, a    ] | offset  [0x39a0 ] +- |
-    |   38,184 B  .COM   |           [marker at the offset, marks coloured  ] | address 0x3aa0 (.COM)|
+    |   38,184 B  .COM   |           [marker at the offset, marks numbered  ] | address 0x3aa0 (.COM)|
     |   sha256 3f1c...   |                                                    | glyph   [ 8]x[16]    |
     | region: [file a v] | +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+  | stride  [16] B       |
     | [edit region...]   | | 0| 1| 2| 3| 4| 5| 6| 7| 8| 9| a| b| c| d| e| f|  | order   (rows v)     |
@@ -144,11 +190,14 @@ The finder replaces the main layout while it is open (the top bar stays; "back t
 
 - **Overview strip**: one column a block of the region (entropy as lightness, glyph-like blocks tinted, marks and the
   current window outlined); a click seeks. It is the entropy map of `binscan.py info` as a picture.
-- **Grid**: the server's 1-pixel-a-pixel PNG scaled by the page with `image-rendering: pixelated`; the page draws the
-  cell lines, index labels, hover and selection itself (it knows the geometry). "Copy as text" gives `binscan.py
-  render`'s `#` / `.` form of the selection.
-- **Long-strip mode** (the recipe's "draw long strips when nothing lines up"): one toggle sets the glyph to W x 512 so
-  the stored height and the start of a font can be seen; clicking two rows sets the glyph height from their distance.
+- **Grid**: the server's PNG is **gapless, one pixel a glyph pixel, glyphs `cols` a row** (a new helper, 7.5: the gap
+  and the scale of `binscan.py render --png` are not used); the page scales it with `image-rendering: pixelated` and
+  draws the cell lines, index labels, hover and selection itself (it knows the geometry). "Show as text" puts
+  `binscan.py render`'s `#` / `.` form of the selection into a read-only text box with its content selected; the user
+  copies it with the system's own copy (the shell denies `navigator.clipboard`; no permission is added).
+- **Long-strip mode** (the recipe's "draw long strips when nothing lines up"): one toggle sets the glyph to W x 512,
+  16 columns, at most 16 glyphs (a 16 x 512 strip set is 256 x 512 pixels; the count is clamped so that no side
+  passes `preview.MAX_CANVAS`); clicking two rows sets the glyph height from their distance.
 - **Offset steps**: byte, stored row (ceil(W/8) bytes; for strips one byte), glyph (stride), page; the address line
   shows the load address for a `.COM` (+0x100) and the header size for an MZ file.
 - **Tiles panel** (phase 2): preset (`16x16x4_packed_lsb`, ...) or a pasted `gfx_layout` (the `planes=..;x=..;y=..;inc=N`
@@ -172,45 +221,76 @@ sentence of `binscan.py`: the bytes cannot tell; decide from the driver's code o
 
 ### 5.3 What a region can be marked as
 
-| Mark | Parameters | Carve (prep ops, section 8) | Entry it becomes | Routes |
-|---|---|---|---|---|
-| raw jamo set | layout by length (`DOS_SIZES`: 8x4x4 at 16 / 24 / 40 / 48 px, 10x4x4, 6x2x1, ...) | `[region] [ink] cut` | `dos-raw` (existing) | `dos raw`, `johab844` (existing) |
-| English 8xH | H 8..16, top, first code, count | `[region] [ink] eng` (+ `rawbdf --chars ascii` when a route needs a BDF) | `eng` companion (existing) | paired by the page as today |
-| English 16x16 (phase 2) | first, count | `eng --width 16` | `eng`, cell `16x16` | as above |
-| KS dense | chars `ks-hangul`; start glyph | `[region] rawbdf --dense` | `carved-bdf` (new) | `bdfface`, `bdfface + from-svf fit`; `mkfont` when chars is `ks-nonhanja` / `ks-all` |
-| KS grid | `L0,T0,PITCH` (presets: 94 x 94 `0xA1,0xA1,94`; VGA ROM `0x80,0x80,128`), chars | `[region] rawbdf --grid` | `carved-bdf` | as above |
-| compose spec (phase 3) | a spec (inline, built-in `spc1500`, or derived by `nkpspec`), syllables `ks` / `all` | `compose` | `carved-spec` (new) | `spec` (jamo, native, exact: `jamoset.py --layout spec`), `compose bdf + bdfface` (precomposed), `+ from-svf fit` |
+| Mark | Parameters | Entry it becomes | Routes |
+|---|---|---|---|
+| raw jamo set | layout by length (`DOS_SIZES`: 8x4x4 at 16 / 24 / 40 / 48 px, 10x4x4, 6x2x1, ...) | `dos-raw` (existing kind) | `dos raw`, `johab844` (existing) |
+| English 8xH | H 8..16, top, first code, count | `eng` companion (existing kind), in two forms (8.3) | the companion of other marks |
+| English 16x16 (phase 2) | first, count | `eng`, cell `16x16` | companion of `dos raw` (`jamoset.py`) and `bdfface`; not of `johab844` |
+| KS dense | 2,350 syllables in KS order from a start glyph | `carved-bdf` (new) | `bdfface`, `bdfface + from-svf fit` |
+| KS grid | `L0,T0,PITCH` (presets: 94 x 94 `0xA1,0xA1,94`; VGA ROM `0x80,0x80,128`) | `carved-bdf` | as above |
+| compose spec (phase 3) | a spec (inline, built-in `spc1500`, or derived by `nkpspec`), syllables `ks` / `all` | `carved-spec` (new) | `spec` (jamo, native, exact: `jamoset.py --layout spec`), `compose bdf + bdfface` (precomposed), `+ from-svf fit` |
 
-Every mark carries the reading it was made with (geometry, invert, gfx and pen rule) and an ascent (default the
-tools': 7/8 of the height; the recipes' `--ascent 12` for VGA ROMs is a field of the mark).
+Every mark carries the reading it was made with and an ascent (default the tools': 7/8 of the height, rounded up; the
+recipes' `--ascent 12` for VGA ROMs is a field of the mark).
+
+### 5.4 Anchors
+
+`POST .../anchor` takes the reading, the mark kind and one or more `(glyph index, character)` pairs, and answers the
+solved parameters or 422 with a `code`:
+
+- **English**: `first` = code - glyph index; 422 `anchor.range` when that is not 0..255. More anchors must agree.
+- **KS dense**: the start glyph = glyph index - (the character's place in KS order); 422 when negative or when the
+  2,350 glyphs then pass the region's end.
+- **KS grid**: the mapping is `index = (lead - L0) x PITCH + (trail - T0)`, so one anchor fixes it only when `PITCH` is
+  known. The request must give `pitch` (a preset or a typed number), **or** two anchors on different lead bytes, from
+  which `PITCH = (index2 - index1 - (trail2 - trail1)) / (lead2 - lead1)` must be a whole number of at least 94 (422
+  `anchor.pitch` otherwise). With `PITCH`, `K = lead x PITCH + trail - index` and the answer is the one `(L0, T0)` with
+  `L0 x PITCH + T0 = K` whose `T0` puts every trail byte 0xA1..0xFE inside `T0 .. T0 + PITCH - 1` (what `rawcarve.py bdf
+  --grid` demands); 422 `anchor.no_grid` when there is none. Every further anchor is checked against the answer (422
+  `anchor.conflict`, naming the pair). Example: reading 16x16 strips at offset 0, `pitch` 128, glyph 6177 = "가"
+  (B0A1) gives `K` = 0xB0 x 128 + 0xA1 - 6177 = 16,512 and the grid `[0x80, 0x80, 128]`.
+- The page says after one anchor of a grid "one more character on another row confirms it", and draws the characters
+  the solved mapping expects under the next 16 glyphs so a wrong mapping is seen at once.
 
 ## 6. Automatic analysis
 
-The analysis is a job of the finder session with a total budget (default 60 s, the user may run it again with 300 s or
-on a window) and a budget a scan (20 s); every scan is a `binscan.py` subprocess registered in `toolreg`, killed on
-cancel, on timeout and when the session closes. Results arrive as they finish; an exceeded budget is shown as "not
-scanned: <what>", never as "nothing found".
+The analysis is a job of the finder session with a total budget (default 60 s; "analyse again" offers 300 s, a window,
+or one named scan) and a budget a scan (20 s); every scan is a `binscan.py` subprocess through the bounded runner of
+7.2, killed on cancel, on timeout and when the session closes. Results arrive as they finish. Scans run in the
+priority order below until the budget is spent; what was not reached, or timed out, is listed as "not scanned: <what>"
+with a button to run it alone, never as "nothing found".
 
 - **Stage 0, at once (in-process, bounded reads).** Size, `kind_of`, size signatures, the entropy map (streamed, a
-  block at a time), the library match (section 9). Windows are derived from the map: blocks at 7.5 bits or more, and
-  blocks of one byte value, are left out of every scan.
-- **Stage 1, cheap scans on the windows.** `ascii` at heights 16, 14 and 8, plain and inverted; `sets` for 8,4,4 at
-  16x16 and 24x24, plain and inverted (and the other set counts the tools know).
-- **Stage 2, `runs`, coarse then fine.** For 16x16 rows, 16x16 strips, 24x24 rows, 8x16 and 8x8: first two phases
-  only (byte 0 and byte 1: a read shifted by whole rows still looks like glyphs, a read shifted by one byte does
-  not); then all phases, but only around the runs the coarse pass found. Target from the measurement of 4.3: about
-  2.5 s a MiB a geometry (not verified; the fine pass is a tool change, 7.5).
+  block at a time), the library match (section 9).
+- **Stage 1, cheap scans over the whole region.** `ascii` at heights 16, 14 and 8, plain and inverted; `sets` for
+  8,4,4 at 16x16 and 24x24, plain and inverted (and the other set counts the tools know). No block is left out: these
+  scans cost about 0.2 s a MiB (4.3), and a set's blank fill slots, or the blank rows of a sparse grid, lie in blocks
+  of one byte value.
+- **Stage 2, `runs`, coarse then fine**, in this order: 16x16 rows, 16x16 strips, 8x16, 24x24 rows, 8x8.
+  - **Windows.** Only blocks at 7.5 bits or more are left out, and only of `runs`; blocks of one byte value stay (a
+    run counts blank glyphs, and a 128 x 128 KS grid is mostly blank between its rows). A window is widened by one
+    glyph on each side, and windows less than 64 KiB apart are joined. Results of overlapping windows are deduplicated
+    by offset and reading.
+  - **Coarse phases**: one a byte of a stored row, `range(ceil(W / 8))`: 0 for 8-wide glyphs, 0 and 1 for 16, 0 to 2
+    for 24 (a read shifted by whole rows still looks like glyphs; a read shifted inside a row does not). For `strips`,
+    `cols` and `bytecols` the right coarse set is not known: the builder measures it on the fixtures, and until then
+    those orders run every phase on windows of at most 1 MiB.
+  - **Fine**: all phases, only around the runs the coarse pass found.
+  - **Cost** from 4.3: a coarse pass is about 1.2 s a MiB a phase at 16x16 on the worst case, so 16x16 rows on 8 MiB
+    is about 20 s: one scan's budget. The default 60 s therefore reaches the first geometries on a large region and
+    all of them on a file of a few hundred KiB; that is the stated behaviour, not a failure (not verified beyond 4.3).
 - **Stage 3, tiles (phase 2).** When a region is larger than 256 KiB and stage 2 found no long 1 bpp run, `runs` with
   the packed presets (`16x16x4` lsb / msb, `8x8x4`) at one phase.
 - **Stage 4, meaning.** A run of 2,350 or more 16x16 or 24x24 glyphs gets a **KS-order score** (phase 2, experimental):
   in KS X 1001 order the initial consonant changes at known glyph indices (가 .. 깊 share ㄱ, then ㄲ, ...); the score
   is how well the breaks in top-left-quadrant similarity between consecutive glyphs line up with those indices, tried
   at every start within the run. A good score proposes "KS dense, 가 at glyph N". It is a hint, shown as a hint; the
-  anchor of 5 step 6 is the user's answer.
+  anchor is the user's answer.
 
 **Ranking** (highest first): a library recipe match; a file whose size is a signature; a single `sets` hit; an `ascii`
 hit with a low edge count; runs by inked glyph count (KS-order score first when present); tied `sets` offsets; near
-matches. Every row says why it is there, in the tools' own numbers (seam, edge, inked count).
+matches. Every row says why it is there, in the tools' own numbers (seam, edge, inked count): numbers and fixed words
+only, never bytes of the file.
 
 ## 7. Where computation runs, and the API
 
@@ -218,53 +298,80 @@ matches. Every row says why it is there, in the tools' own numbers (seam, edge, 
 
 | Work | Where | Why |
 |---|---|---|
-| Live grid render | sidecar, **in-process** (`binscan.decode` on a bounded window, PNG by `binscan.png_bytes`) | no port of the decoder (non-goal); a process start a redraw is too slow for a slider. The decode is arithmetic on a byte window, the same class of in-process reading `detect.py` already does |
+| Live grid render | sidecar, **in-process** (`binscan.decode` on a bounded window, a gapless PNG) | no port of the decoder (non-goal); a process start a redraw is too slow for a slider. The decode is arithmetic on a byte window, the same class of in-process reading `detect.py` already does |
 | Scans, region assembly, ink maps, carving, trial and final builds | sidecar, **subprocess** tools with a time budget | long, killable, the same argv `BUILD.md` prints |
 | Result preview (trial and built faces) | page, the WASM renderer (`svfview.js`) | as every other preview of the maker |
 | Grid overlay, selection, anchors, recipe form | page | no pixel rule involved |
 
 Redraw target: under 100 ms for a 256-glyph 1 bpp grid, under 300 ms for 256 tiles of a gfx layout (not verified;
-the page debounces 30 ms, numbers its requests and drops answers that are not the latest). If the gfx target is
-missed, the tile view is drawn from the session's ink map (`rawcarve.py ink`, written once a pen rule) instead.
+the page debounces 30 ms, numbers its requests and drops answers that are not the latest; the server renders at most
+two requests at a time and answers 429 to more). If the gfx target is missed, the tile view is drawn from the
+session's ink map (`rawcarve.py ink`, written once a pen rule) instead.
 
-### 7.2 Session and files
+### 7.2 Session, files and scratch
 
-A finder session belongs to a local job: `job.json` gets `finders: {n1: {...}}` (file ids, sizes, hashes, regions,
-candidates, marks; no bytes, and paths only where a local job already keeps them). Scratch is
-`.svf-maker-<id>/finder/<n>/` in the output folder (assembled regions, ink maps, carved files, trial faces), removed
-with the job's files directory as today.
+**Session.** A finder session belongs to a local job in state `detected` and is made from entries of that job
+(`{"fonts": ["f3", "f4"]}`), so every file is already one of the job's checked sources and resolves through
+`Sources.abs_of`; the endpoint takes no path. `job.json` gets `finders: {n1: {...}}`: file ids (entry ids), sizes,
+hashes, regions, candidates (numbers only: no thumbnail, no bytes), marks, and which marks are applied.
 
-A file is opened by the path rules of `sources.py`, must be a regular file, and is identified by `(st_dev, st_ino,
-size, mtime_ns)` taken at open; every later read re-checks it and answers 409 "the file changed: open it again"
-otherwise. SHA-256 is computed once in the background (streamed) and is part of the session state when ready.
+**Opening a file.** Every in-process read opens with `os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK`, requires
+`S_ISREG` of `os.fstat(fd)` and compares `(st_dev, st_ino, st_size, st_mtime_ns)` of that descriptor with the values
+taken when the session opened the file (the pattern of `bdfface.open_regular`); a difference answers 409 "the file
+changed: open it again". Bytes are read with `os.pread` of a bounded length: **a user's file is never `mmap`ed** (a
+truncation under a mapping is a SIGBUS that would take the sidecar down). A gfx layout whose planes span the whole
+region is rendered from a bounded whole read (at most 64 MiB, one region held at a time for a session) or from the
+ink map. SHA-256 is computed once in the background through the same descriptor rule.
 
-### 7.3 Endpoints (all under the token, local jobs only, JSON errors with a stable `code`)
+**Scratch** is `.svf-maker-<id>/finder/<n>/` in the output folder: assembled regions, extracted zip members, ink
+maps, trial work. It is **disposable**: everything in it can be written again from `job.json` and the sources, and
+each use goes through one `ensure(...)` step under the session's lock. That is what makes the sweeps of 4.6 safe:
 
-    POST   /api/jobs/<id>/finder                  {"paths": [...]} or {"fonts": ["f3", "f4"]}   -> {"finder": "n1"}
-    GET    /api/jobs/<id>/finder/<n>              files, regions, analysis progress, candidates, marks, recipe match
-    DELETE /api/jobs/<id>/finder/<n>              stops its tools, removes its scratch
+- every finder request touches `server.touched[job]`; a job with a running finder tool is skipped by `_sweep_idle`,
+  and `_sweep_locks` takes the job's finder session locks with the preview locks;
+- a sweep of an idle job, and the sweep after a run (`_finish_local`), remove the scratch; the session stays in
+  `job.json`, and its next request rebuilds what it needs (the page shows "preparing" meanwhile);
+- `POST run` and `PUT settings` answer 409 `finder.busy` while a finder tool of the job runs (cancel it or wait);
+  a finder request answers 409 while a run is queued or running;
+- finder tools run through one bounded runner that registers each child in `preview`'s live table and in `toolreg`, so
+  `preview.kill_all()` at `Worker.stop()`, job delete and session delete stop them, and the next start reaps any
+  that outlived a killed sidecar.
+
+### 7.3 Endpoints
+
+All need the token and a local job; errors are JSON with the English `error` and a stable `code`. The GETs that serve
+bytes (`map`, `render`, `trial/<face>.svf`) are in `_HOST_CHECKED` and answer `Cache-Control: no-store`.
+
+    POST   /api/jobs/<id>/finder                  {"fonts": ["f3", "f4"]}                       -> {"finder": "n1"}
+    GET    /api/jobs/<id>/finder/<n>              files, regions, analysis and trial progress, candidates, marks, match
+    DELETE /api/jobs/<id>/finder/<n>              stops its tools, removes its scratch, un-applies its marks
     PUT    /api/jobs/<id>/finder/<n>/regions      [{"id": "r1", "groups": [["a","b"],["c","d"]], "unit": 1, "swap": false}]
-    POST   /api/jobs/<id>/finder/<n>/analyse      {"region": "r1", "budget_s": 60, "start": 0, "length": null}
-    POST   /api/jobs/<id>/finder/<n>/cancel
+    POST   /api/jobs/<id>/finder/<n>/analyse      {"region": "r1", "budget_s": 60, "start": 0, "length": null, "scan": null}
+    POST   /api/jobs/<id>/finder/<n>/cancel       the running analysis or trial
     GET    /api/jobs/<id>/finder/<n>/map?region=  the overview strip (PNG, one column a block)
     GET    /api/jobs/<id>/finder/<n>/render?region=&offset=&glyph=16x16&stride=&order=&lsb=&invert=&gfx=&bg=&fg=
                                                    &count=&cols=&view=ink|pens|text      -> image/png (or text/plain)
-    POST   /api/jobs/<id>/finder/<n>/anchor       {"reading": {...}, "glyph": 4129, "char": "가", "as": "ks-grid"}
-                                                   -> the solved parameters ({"grid": [128,128,128]} ...) or 422
-    PUT    /api/jobs/<id>/finder/<n>/marks        the whole list of marks (section 9.1 `items`)
-    POST   /api/jobs/<id>/finder/<n>/trial        builds the marks' faces in the scratch -> {"faces": [...], "numbers": {...}}
+    POST   /api/jobs/<id>/finder/<n>/anchor       {"reading": {...}, "offset": 0, "as": "ks-grid", "pitch": 128,
+                                                   "anchors": [{"glyph": 6177, "char": "가"}]}
+                                                   -> {"grid": [128, 128, 128]} (section 5.4) or 422
+    PUT    /api/jobs/<id>/finder/<n>/marks        the whole list of marks (section 9.4 `items`) and face pairings
+    POST   /api/jobs/<id>/finder/<n>/trial        starts the trial build (202); its state and numbers are in the GET above
     GET    /api/jobs/<id>/finder/<n>/trial/<face>.svf
     POST   /api/jobs/<id>/finder/<n>/apply        the marks become font entries of the job (section 8) -> the job
     GET    /api/jobs/<id>/finder/<n>/recipe       the recipe of the current marks
     PUT    /api/jobs/<id>/finder/<n>/recipe       load a recipe or a compose spec (validated; prefills regions and marks)
     POST   /api/jobs/<id>/finder/<n>/export       {"what": "recipe" | "prompt", "renders": false} -> a path in the output folder
     GET    /api/recipes                           the library: built-in and the user's (id, title, files' names and sizes)
-    POST   /api/recipes                           save a recipe to the user library
+    PUT    /api/recipes/<rid>                     save a recipe to the user library
     DELETE /api/recipes/<rid>                     a user recipe only
+    GET    /api/prefs   PUT /api/prefs            {"lang": "en" | "ko"} in <data root>/prefs.json (section 11)
 
 `render` answers with the PNG and the headers `X-Finder-Count` (glyphs really drawn before the region ends) and
 `X-Finder-Pens` (the pens present, for the legend). A candidate is `{id, region, kind, offset, reading, count, score,
-why, ties, suggest}`; `reading` is the same object a mark and the `render` query carry.
+why, ties, suggest}`; `reading` is the same object a mark and the `render` query carry. `<rid>` must match the id
+rule of 9.4 and equal the recipe's `id`; the file is `<data root>/recipes/<rid>.json`, written through a temporary file
+in that folder and `os.replace`, never through a path taken from the request; a built-in id is refused; the user
+library holds at most 500 recipes.
 
 ### 7.4 Limits and untrusted input
 
@@ -272,64 +379,156 @@ why, ties, suggest}`; `reading` is the same object a mark and the `render` query
 |---|---|---|
 | files a session | 16 | (design call; `MAX_SOURCE_PATHS` is 64) |
 | a file | 64 MiB | `rawcarve.MAX_FILE` (the maker's 256 MiB local cap is higher; the finder refuses earlier, with the reason) |
-| an assembled region | 64 MiB, and free space in the output folder checked first | `rawcarve.MAX_REGION`, `LOCAL_FREE_MIN` |
+| an assembled region | 64 MiB counted from the bound files' sizes before anything is written, and free space in the output folder checked first | `rawcarve.MAX_REGION`, `LOCAL_FREE_MIN` |
 | a scan window | 16 MiB | `binscan.MAX_SCAN` |
-| a render | 4,096 glyphs, glyph sides 1..1024, 64 columns, canvas within `preview.MAX_CANVAS` / `MAX_PIXELS` | `binscan.py render`, `preview.py` |
+| a render | 4,096 glyphs, glyph sides 1..1024, 64 columns, canvas within `preview.MAX_CANVAS` / `MAX_PIXELS`, two at a time | `binscan.py render`, `preview.py` |
 | analysis | 60 s total, 20 s a scan by default; 300 s at most | (design call) |
-| trial build | 60 s a tool | `preview.TIMEOUT_S` |
+| trial build | 60 s a tool, 300 s in all, cancellable | `preview.TIMEOUT_S` |
 | sessions a job, candidates a session, marks | 8, 200, 64 | (design call) |
-| a recipe or spec loaded | 256 KiB of JSON, 16 files, 64 items, 16 faces | (design call) |
+| a recipe or spec loaded | 256 KiB of JSON, 16 files, 64 items, 16 faces, 64 piece sets a compose spec | (design call) |
+| user recipes | 500 | (design call) |
 
-- **Never executed**: no code path starts the file, an emulator, a disassembler or an unpacker. Archives are named,
-  not opened (phase 2 reads the members of a zip in place through `maker/archive.py`'s guards, because MAME sets come
-  as zips; other archives stay "unpack first, into a folder of its own").
-- **Bounded reads**: the in-process render reads `count x stride` bytes plus one glyph footprint by seek; a gfx layout
-  whose planes span the region reads through a read-only `mmap`. Every number of a request is range-checked before any
-  allocation; a gfx string goes through `binscan.parse_gfx` only.
+- **Never executed**: no code path starts the file, an emulator, a disassembler or an unpacker.
+- **Archives**: named, not opened, except a zip from phase 2 (section 7.6).
+- **Bounded reads**: the in-process render reads `count x stride` bytes plus one glyph footprint by `pread`. Every
+  number of a request is range-checked before any allocation; a gfx string goes through `binscan.parse_gfx` only.
+- **The tools** get the same opening rule (7.5), because a subprocess is handed a path: a FIFO or a link swapped in
+  after the server's check must fail in the tool, not hang it until the timeout.
 - **A recipe is untrusted too**: it carries parameters, never a command, a path or a tool name outside the fixed set;
   the server builds every argv itself. File names in a recipe are labels: files are bound by the user's pick and
-  matched by size and hash. Face names go through `maker/naming.py`.
-- **Privacy**: no byte of a source file in `job.json`, the logs, a recipe or an error text; renders are served to the
-  page of the same launch only and are never written outside the scratch (the prompt bundle of section 10 is the one
-  opt-in exception, into the output folder).
+  matched by size and hash. Face names and `dest` go through `maker/naming.py`.
+- **Writing**: everything the finder writes into the output folder (scratch, `build-<id>/`, an export) goes through
+  `zipout._OutputTree` (descriptors under the verified folder, `O_NOFOLLOW`, the folder re-proved before each landing).
+- **Privacy**: no byte of a source file in `job.json`, the logs, a recipe or an error text (`binscan.py --json` gives
+  numbers and fixed words; a test greps for the fixture's bytes); renders are served to the page of the same launch
+  only, `no-store`, and are never written outside the scratch (the prompt bundle of section 10 is the one opt-in
+  exception, into the output folder).
 - **Local only**: nothing new listens or connects; the existing no-network tests are extended to the new modules.
 
-### 7.5 Tool changes the finder needs (small, each with its own tests)
+### 7.5 Tool and packaging changes the finder needs (each with its own tests)
 
-- `binscan.py`: `--json` on `info`, `runs`, `sets`, `ascii` (the same facts as the text, one object); `runs
-  --phases a,b` and `--around OFFSET,LENGTH` for the coarse and fine passes; library entry points for `decode` of a
-  window and the PNG (they exist; the server calls them instead of the CLI).
-- `rawcarve.py`: nothing for phase 1; phase 3 adds `compose --check-spec` (validate a spec against a file's size and
-  report every set's extent) so a wrong spec is refused before it draws a wrong face.
-- `maker/sidecar.py`: `binscan`, `rawcarve`, `nkpspec` in `TOOLS` (card t_97acecf9 adds some of them first).
+Before phase 0: `mame-roms` merged into main (4.2). Then:
 
-## 8. From marks to faces: the existing pipeline
+| Where | Change | Phase |
+|---|---|---|
+| `binscan.py` | `--json` on `info`, `runs`, `sets`, `ascii` (numbers and fixed words, one object) | 0 |
+| | `runs --phases a,b,...` and `--around OFFSET,LENGTH` (the coarse and fine passes of section 6) | 0 |
+| | `grid_png(glyphs, w, h, cols)`: gapless, one pixel a glyph pixel, zlib level 1; `pens` variant (phase 2) | 0 |
+| | `kind_of`: RAR (`Rar!`), 7z, gzip, xz, LHA (`-lh?-` at 2) named as archives or packed data | 0 |
+| | the 94 x 94 signature line worded for any 94 x 94 set (section 3) | 0 |
+| `binscan.py`, `rawcarve.py`, `nkpspec.py` | every input opened as `bdfface.open_regular` does (no link followed, regular files only, non-blocking), and `nkpspec.py` refuses a file over `rawcarve.MAX_FILE` | 0 |
+| `rawcarve.py` | `--gfx @FILE` and `region --files @FILE` (a parameter file in place of a long argument: a note line is at most 512 bytes, 4.5), also `binscan.py --gfx @FILE` | 2 |
+| | `compose --check-spec`: a spec validated against a file's size, every set's extent reported, before it draws a wrong face | 3 |
+| `maker/srcprep.py` | `zip-member ZIP NAME OUT` (section 7.6) | 2 |
+| `maker/sidecar.py`, `sidecar.spec`, `build-sidecar.sh` | `binscan`, `rawcarve`, `nkpspec` in `TOOLS` and `SMOKE`; a `recipe` command; `maker/recipes/*.json` bundled as data and staged into the packaged repo tree; `test_frozen.py` parity (t_97acecf9 does part of this first) | 0 |
+| `maker/static/maker.js` | the new kinds and routes in `ROUTES`, `PREVIEW_KINDS`, `SOURCE_WORDS` ...; `test_page_js_tables_match_python` covers them | 1 |
 
-`apply` writes nothing but entries: each mark becomes a font entry whose `prep` is the list of carve ops, so the worker
-prepares it like a `pcf-bdf` source and `BUILD.md` prints the commands.
+### 7.6 Zip sets (phase 2)
 
-| Prep op | Command |
-|---|---|
-| `region` | `rawcarve.py region A,B C,D [--unit N] [--swap] -o region.bin` |
-| `ink` | `rawcarve.py ink region.bin --gfx LAYOUT [--bg P \| --fg P,...] [--invert] -o ink.bin` (or `--glyph WxH --order O` for 1 bpp orders the next tool does not read) |
-| `cut` | `rawcarve.py cut SRC --offset O --length N -o font.fnt` |
-| `eng` | `rawcarve.py eng SRC --offset O [--height H] [--top T] [--first C] [--count N] [--width 16] [--invert] -o eng.raw` |
-| `rawbdf` | `rawcarve.py bdf SRC --offset O --glyph WxH [--order O] --chars SET (--dense \| --grid L0,T0,P) [--ascent A] -o carved.bdf` |
-| `compose` | `rawcarve.py compose SRC --spec SPEC.json [--syllables all] [--eng ...] [--ascent A] -o composed.bdf` |
+MAME sets are zips, and the tools read file paths (4.9). A zip entry opened in the finder lists its members from the
+central directory (count checked against the cap before any member is read; encrypted members, names
+`check_rel_path` refuses and nested archives are refused; at most 64 MiB a member). The members the user ticks, or a
+library recipe matches by size, are **extracted into the scratch** (`finder/<n>/zip/<k>.bin`, names of the finder's
+own making) under `archive.py`'s size and ratio guards, hashed, and from then on are files like any other.
 
-- A `cut` result is a `dos-raw` entry with its layout given by the mark (not guessed from the size again), an `eng`
-  result an `eng` entry; both use today's routes unchanged.
-- `carved-bdf` is a new kind for the Unicode BDFs `rawcarve.py` writes: the `bdfface` route takes it as `--hangul` with
-  the paired English mark's BDF as `--ascii`, `--cell` from the mark and `--chars-from` the KS list, exactly the
-  command lines of the 86Box recipe; `bdfface + from-svf fit` follows as for `bdf-ksc5601`.
-- `carved-spec` (phase 3) gets the route `spec` (`jamoset.py --layout spec --spec SPEC SRC [--eng E] --check`, native
-  and exact) and the precomposed route through `compose`.
-- A recipe's `faces` only preselect routes, layouts and names; the user can change them in the fonts table as for any
-  entry.
-- The run writes `build-<id>/RECIPE-<name>.json` beside `BUILD.md`.
+- Addressing: a session file is `{"font": "f7"}` or `{"font": "f7", "member": "ss151fnt.bin"}`.
+- A recipe does not change: its `files` are matched by size and SHA-256 whether a file is loose or a zip member, and
+  `recipe run` accepts zips among its FILE arguments and looks inside them the same way.
+- `BUILD.md` lists the extraction as a source step (`srcprep.py zip-member ZIP NAME OUT`), so the run can be repeated
+  by hand; the extracted bytes go with the scratch.
 
-**Headless.** The same planner (recipe + bound files -> entries with prep ops -> argv list) is reachable without the
-page:
+## 8. From marks to faces: the existing pipeline, and what changes in it
+
+The first draft said "marks become entries with `prep` ops and today's routes run unchanged". The reviews showed that
+is not what the maker does today (4.4, 4.5). The integration is therefore specified change by change.
+
+### 8.1 Finder entries
+
+- **Where they come from.** Applied marks are kept in `job["finders"][n]`. `finder.entries(job)` builds their font
+  entries; the result of `detect.scan` gets them appended on **every** `POST detect` and on `apply` (which, like
+  detect, clears steps and results). A mark whose file has left the sources is dropped with a notice. They are not
+  made by `detect_file`, and `srcprep.prepared_bytes` is not run on them: their facts (cell, sizes, coverage) come
+  from the mark.
+- **Identity.** An entry carries `"finder": {"session": "n1", "item": "hangul"}`; `_kept_settings` keys it by `(root
+  path, path, face_index, session, item)`, so two marks of one file keep their own settings and a re-detect does not
+  move them.
+- **Inputs.** `root` / `path` name the mark's file (the first file of an assembled region). An entry of a region lists
+  the others in `inputs: [{root, path, member?}, ...]`; `_check_local_inputs` and `_check_steps` check every one of
+  them through `Sources.abs_of`, as they check `path` today.
+- **State.** The finder exists only on a `detected` job (7.2), so `apply`, `PUT settings` and `POST run` meet the
+  state they expect.
+
+### 8.2 Carve ops: how a reading reaches the commands
+
+`routes.source_commands` learns the ops below. A reading is **plain** when it is row-major, MSB-first, not inverted,
+stride = the glyph's bytes and no gfx: the form `cut`, `eng` and `jamoset.py` read. Any other reading is first
+rewritten as plain glyphs by `ink`, so no parameter of the viewer is dropped on the way.
+
+| Op | Command | When |
+|---|---|---|
+| `zip-member` | `srcprep.py zip-member ZIP NAME member.bin` | a file inside a zip (phase 2) |
+| `region` | `rawcarve.py region A,B C,D [--unit N] [--swap] -o region.bin` (or `--files @LIST`) | an assembled region (phase 2) |
+| `ink` | `rawcarve.py ink SRC --offset O --count N --glyph WxH [--stride B] [--order R] [--lsb] [--invert] [--gfx L [--bg P \| --fg P,..]] -o ink.bin` | the reading is not plain and the next op is `cut` or `eng` |
+| `cut` | `rawcarve.py cut SRC --offset O --length N -o font.fnt` | raw set. After `ink`: offset 0, length = glyphs x plain glyph bytes |
+| `eng` | `rawcarve.py eng SRC --offset O --height H --top T --first C --count N [--width 16] [--invert] -o eng.raw` | English, raw form. Plain or only inverted: straight from the file. Otherwise after `ink`, offset 0, no `--invert` |
+| `rawbdf` | `rawcarve.py bdf SRC --offset O --glyph WxH [--stride B] [--order R] [--lsb] [--invert] [--gfx ..] --chars ks-hangul (--dense \| --grid L0,T0,P) --ascent A -o hangul.bdf` | KS dense / grid: `bdf` takes the whole reading itself |
+| `rawbdf` (ASCII) | `rawcarve.py bdf SRC --offset O --glyph WxH [reading flags] --chars ascii --first C --count N --ascent A -o ascii.bdf` | English, BDF form |
+| `compose` | `rawcarve.py compose SRC --spec SPEC.json [--syllables all] --ascent A -o composed.bdf` | compose spec (phase 3) |
+
+- Each step writes into its own step directory (`work/<step id>/`), so two marks never write the same file.
+- A parameter file a command names (`SPEC.json`, a gfx `@FILE`, a region `@LIST`) is written to
+  `build-<id>/finder/<item>.<what>` by the run and the command line names that copy: it stays when the scratch goes.
+- **Proof** (section 13): for every order, bit order, inversion and stride, the glyphs of the built face equal glyphs
+  the test built itself, not glyphs read back through the tools.
+
+### 8.3 Kinds, routes and companions
+
+- A `cut` result is a `dos-raw` entry whose layout is the mark's (not guessed from the size again); its routes are
+  today's.
+- `carved-bdf` is a new kind for the Unicode BDFs `rawcarve.py bdf` writes. Routes: `bdfface` (`bdfface.py --hangul
+  hangul.bdf --ascii ascii.bdf --cell WxH --chars-from KS -o OUT`, `WxH` the mark's glyph: the command lines of the
+  86Box recipe) and `bdfface + from-svf fit`, which passes `--mask-font none` as the recipes do, so the fit does not
+  depend on a font that happens to be on the host. (The existing `bdf-ksc5601` fit does not pass it: a note for that
+  route's owner, not changed by this design.)
+- No `mkfont` route for `carved-bdf` in version 1, and `chars` is `ks-hangul` only: `mkfont.py --unicode
+  ksx1001-nohanja` stops in Pillow on U+00AD (`docs/recipes.md`, OS/2 fonts), and FreeType takes a BDF's first glyph
+  as `.notdef` (`hwpfont.py` adds a blank U+0020 for that; `rawcarve.py bdf` does not). Symbols and Hanja wait for a
+  card that settles both.
+- `carved-spec` (phase 3): `spec` (`jamoset.py --layout spec --spec SPEC SRC [--eng E] --check`, native and exact) and
+  the precomposed route through `compose`.
+- **An English mark is one `eng` entry with two forms**: `raw` (the `eng` op: `--eng` of `jamoset.py` and
+  `johab844.py`) and `bdf` (the ASCII `rawbdf` op: `--ascii` of `bdfface.py`). The route says which form it needs.
+- **Pairing.** A finder entry's `companions` are the English marks of its session (and, for `carved-bdf`, the job's
+  BDF / HBF Latin entries as for `bdf-ksc5601`); the folder rule of `detect.py` does not apply to them. A recipe's
+  `faces[].english` preselects the pair.
+- **Preparing a companion.** `settings.plan_steps`'s `companion_file`, today used for `mac-fbit3` only, is used for
+  every companion that has `prep`: the companion gets its own source step, once, in the form the route asks for, the
+  face steps `need` it, and a failed companion step fails them with its message ("master failed" as for a failed
+  prepare). `server._companion_abs` (the baked source preview) resolves the prepared file the same way. Without this
+  a Dokkaebi run would pass the whole `.COM` as `--eng`.
+- **One planner.** The trial, the run and `recipe run` all call the same `plan_steps` and run its argv lists; the
+  trial only writes into the scratch instead of `svf/`. A trial that passes and a run that draws something else is
+  thereby a planner bug a test can see (section 13, equivalence).
+- A recipe's `faces` only preselect routes, layouts, names and `dest`; the user can change them in the fonts table as
+  for any entry.
+
+### 8.4 What a run writes
+
+`svf/<dest>/<NAME>.SVF` and its note as today, and in `build-<id>/`: `BUILD.md` (with the carve steps),
+`RECIPE-<id>.json`, and `finder/` with the parameter files of 8.2. An export (section 10) writes
+`finder-export-<job>-<k>/` at the top of the output folder, `k` the first number not taken (nothing is replaced).
+`docs/desktop-app.md` section 6 lists both.
+
+### 8.5 The numbers
+
+The trial, `recipe run` and `expect` use the sample line of `docs/recipes.md` "Checking a face", fixed here so the
+numbers agree everywhere: the text `안녕하세요 ABC 123`; `svfline.py measure` for width, ascent and descent; the ink =
+the non-zero bytes of `svfline.py line W H 0 B`, with `W` x `H` = 200 x 24 and baseline `B` = 16 for a 16 px cell and
+400 x (C + 8) with `B` = C for any other cell height C, and `W` raised to the measured width rounded up to a multiple
+of 20 when the line is wider (the recipes' 220 for the 208-wide lines). The page's own sample text
+(`detect.SAMPLE_TEXT`) stays what it is for previews; it is not the text of the numbers.
+
+### 8.6 Headless
 
     svf-maker-sidecar recipe check RECIPE.json FILE...            which files match (size, sha256), what is missing
     svf-maker-sidecar recipe run   RECIPE.json FILE... --out DIR  the recipe's faces, BUILD.md and RECIPE json in DIR
@@ -340,20 +539,17 @@ faces are byte-identical to the app's run of the same recipe (a test).
 
 ## 9. Recipes
 
-### 9.1 Schema (version 1)
+### 9.1 Example
 
     {
       "recipe": 1,
-      "id": "86box-tgkorvga",                        // [a-z0-9-]{1,48}; unique in a library
+      "id": "86box-tgkorvga",
       "title": {"en": "Trigem Korean VGA font ROM (ET4000)", "ko": "삼보 한글 VGA 글꼴 ROM (ET4000)"},
       "notes": "128 x 128 KS grid, two 8-pixel strips (86Box vid_svga_render.c).",
       "refs": ["86Box/roms 1ac40f2 video/et4000/tg_ksc5601.rom", "docs/recipes.md#korean-vga-font-roms-86box"],
       "files": [
         {"id": "font", "name": "tg_ksc5601.rom", "size": 524288, "sha256": "<64 hex>", "sha1": "<40 hex, optional>"},
-        {"id": "bios", "name": "tgkorvga.bin", "size": 32768, "sha256": "<64 hex>", "optional": true}
-      ],
-      "regions": [                                    // optional; a file id is itself a region
-        {"id": "spr", "groups": [["c1", "c2"], ["c3", "c4"]], "unit": 1, "swap": false}
+        {"id": "bios", "name": "tgkorvga.bin", "size": 32768, "sha256": "<64 hex>"}
       ],
       "items": [
         {"id": "hangul", "kind": "ks-grid", "region": "font", "offset": 0,
@@ -367,20 +563,15 @@ faces are byte-identical to the app's run of the same recipe (a test).
         {"name": "TGVGA16J", "kind": "jamo", "route": "bdfface + from-svf fit", "layout": "844", "from": "TGVGA16"}
       ],
       "expect": {
-        "items": {"hangul": {"glyphs": 2350, "sha256": "<of the carved file>"}},
+        "items": {"hangul": {"glyphs": 2350, "sha256": "<of hangul.bdf>"}},
         "faces": {"TGVGA16": {"bytes": 122392, "glyphs": 2447, "ink": 476}}
       }
     }
 
-- `items[].kind`: `raw-set` (`layout`, `length`), `english` (`width` 8 | 16, `height`, `top`, `first`, `count`),
-  `ks-dense` (`chars`), `ks-grid` (`chars`, `grid`), `compose` (`spec`: an inline compose spec object, `{"builtin":
-  "spc1500"}` or `{"derive": "nkpspec"}`; `syllables`). `reading` may also hold `gfx`, `bg`, `fg`. An item may carry
-  `"decided"` (5.2).
-- `expect` is optional and is what makes a re-run self-checking: counts, the hash of each carved file and the numbers
-  of each face. A mismatch is reported, not hidden; the faces are still written.
-- A recipe holds **no font byte and no path**: names, sizes, hashes, offsets, rules, numbers. A compose spec is offsets
-  and rules (as `nkpspec.py` says of its output). A hash of a carved file identifies it without revealing it.
-- Unknown keys are refused (a typo must not be silently ignored); `recipe` other than 1 is refused with the version.
+Both files are required here: `bdfface` cannot build a face without its ASCII (4.5), and the jamo face reads the
+precomposed one. (The first draft marked `bios` optional while every face needed it.) A recipe holds **no font byte
+and no path**: names, sizes, hashes, offsets, rules, numbers. A compose spec is offsets and rules (as `nkpspec.py`
+says of its output). A hash of a carved file identifies it without revealing it.
 
 ### 9.2 The library and detection
 
@@ -388,14 +579,19 @@ faces are byte-identical to the app's run of the same recipe (a test).
   repository can carry them). **User**: `<data root>/recipes/*.json` (`~/.config/svf-maker/maker/recipes/` in the
   desktop app); a user recipe never shadows a built-in id.
 - **Matching at detect**: the library is indexed by file size. A file whose size matches no recipe file is not hashed
-  (ordinary fonts cost nothing). A size match is hashed; the states are
-  - **known**: every non-optional file of a recipe is among the job's sources with its hash: the entry is labelled
-    `known: <title>`, lists a missing optional file as a hint ("for English also pick tgkorvga.bin") and offers the
-    recipe's faces;
-  - **part of a set**: some files match, others are missing: "part of <title>: also needs <names>; pick the folder";
+  (ordinary fonts cost nothing). A size match is hashed, whatever kind `sniff` gave the file (4.4). The states are
+  - **known**: every required file of a recipe is among the job's sources with its hash. The entry of the recipe's
+    first file is labelled `known: <title>`, takes the others as its inputs and companions, and offers the recipe's
+    faces. A face is offered only when every file its items read (through `hangul`, `english` and `from`) is present;
+    a face left out names the missing optional file ("TGVGA16: also pick tgkorvga.bin");
+  - **part of a set**: some required files match, others are missing: "part of <title>: also needs <names>; pick the
+    folder". No face is offered; "look inside" still works, and the Hangul mark can be paired with any other English
+    companion of the job;
   - **similar**: name and size match, hash differs: "looks like <title>, another revision: opens in the finder with
     the recipe's parameters, unverified" (`expect` is not applied).
-- A known entry needs no finder session: the recipe's planner makes its prep ops directly.
+- A known entry needs no finder session: the recipe's planner makes its entries and prep ops directly (8.1).
+- `optional: true` is for a file that only some faces read (an English ROM beside a compose-spec set whose jamo face
+  does not need it). A recipe in which every face needs an optional file is refused at load: the file is required.
 
 ### 9.3 Card t_97acecf9's known ROMs
 
@@ -406,14 +602,18 @@ subset of 9.4 that they need: `files`, `items` of kind `ks-grid` and `english`, 
 (recipe + bound files -> entries with prep ops -> argv) is the piece both cards share: t_97acecf9 writes it for its
 subset, the finder's phase 0 extends it and does not replace it. A key or an item kind the implementation does not read
 yet is refused by name ("not supported yet: regions"), never ignored, so a recipe of a later phase cannot half-run.
-Every worked example of the recipes that was resolved (NKP, NKP3, DKBB, DKBII; the three VGA ROMs; SPC-1500; dquizgo,
-xsedae, quizkofk) becomes a built-in recipe as its phase lands; the unresolved ones (livequiz, quizdaisk) do not.
+The parts of section 8 that subset needs are 8.1 (entries from a recipe, their identity and inputs), 8.2 (`rawbdf`,
+both forms), 8.3 (`carved-bdf`, the `bdfface` routes, companion preparation) and 8.5; they land with whichever card
+comes first. Every worked example of the recipes that was resolved (NKP, NKP3, DKBB, DKBII; the three VGA ROMs;
+SPC-1500; dquizgo, xsedae, quizkofk) becomes a built-in recipe as its phase lands; the unresolved ones (livequiz,
+quizdaisk) do not.
 
 ### 9.4 Schema version 1: field reference
 
-A recipe is one JSON object in UTF-8 (the `//` comments of 9.1 are the document's, not the format's), at most 256 KiB.
-Integers are JSON numbers without a fraction; an offset or a size is 0 .. 2^26 (64 MiB). "id" below means
-`[a-z0-9][a-z0-9-]{0,47}`. Keys not listed are refused. R = required, O = optional (default in brackets).
+A recipe is one JSON object in UTF-8, at most 256 KiB. Integers are JSON numbers without a fraction; an offset or a
+size is 0 .. 2^26 (64 MiB). "id" below means `[a-z0-9][a-z0-9-]{0,47}`. Keys not listed are refused (a typo must not
+be silently ignored); `recipe` other than 1 is refused with the version. R = required, O = optional (default in
+brackets).
 
 | Object | Key | | Type and rule |
 |---|---|---|---|
@@ -423,18 +623,18 @@ Integers are JSON numbers without a fraction; an offset or a size is 0 .. 2^26 (
 | | `notes` | O | text, at most 2,000 characters [""] |
 | | `refs` | O | list of at most 16 texts of at most 200 characters (where the layout was read from; never opened) |
 | | `files` | R | list of 1..16 file objects, ids distinct |
-| | `regions` | O | list of at most 16 region objects [none] |
+| | `regions` | O | list of at most 16 region objects [none]; phase 2 |
 | | `items` | R | list of 1..64 item objects, ids distinct |
 | | `faces` | R | list of 1..16 face objects, names distinct |
 | | `expect` | O | `{"items": {item id: {...}}, "faces": {face name: {...}}}` |
 | file | `id` | R | id, distinct from every region id |
-| | `name` | R | the usual base name: a label and the tie-breaker of "similar"; no `/`, `\` or control character, 1..255 bytes |
+| | `name` | R | the usual base name: a label and the tie-breaker of "similar"; no `/`, `\\` or control character, 1..255 bytes |
 | | `size` | R | integer, 1 .. 2^26 |
 | | `sha256` | R | 64 lower-case hex characters of the whole file |
-| | `sha1` | O | 40 lower-case hex characters (the MAME `ROM_LOAD` hash; informational, checked when present) |
-| | `optional` | O | boolean [false]; a face whose item reads a missing optional file is not offered |
+| | `sha1` | O | 40 lower-case hex characters (the MAME `ROM_LOAD` hash; checked when present) |
+| | `optional` | O | boolean [false]; see 9.2 |
 | region | `id` | R | id |
-| | `groups` | R | list of 1..16 lists of 1..8 file ids: the files of a group interleaved, the groups one after another |
+| | `groups` | R | list of 1..16 lists of 1..8 file ids: the files of a group interleaved, the groups one after another. A file id appears once in a region; the files of a group have one size; the sum of all sizes is at most 2^26 (checked on the recipe's own `size` fields at load) |
 | | `unit` | O | 1, 2 or 4 [1] |
 | | `swap` | O | boolean [false] |
 | item | `id` | R | id |
@@ -446,47 +646,56 @@ Integers are JSON numbers without a fraction; an offset or a size is 0 .. 2^26 (
 | | `decided` | O | `by eye`, `loose copy` or `driver code` |
 | reading | `glyph` | R | `[W, H]`, each 1..1024 |
 | | `order` | O | `rows`, `strips`, `cols` or `bytecols` [`rows`] |
-| | `stride` | O | integer bytes from one glyph to the next [the glyph's bytes in that order] |
+| | `stride` | O | integer bytes from one glyph to the next, 1 .. 2^20 [the glyph's bytes in that order] |
 | | `lsb`, `invert` | O | booleans [false] |
-| | `gfx`, `bg`, `fg` | O | a `binscan.py --gfx` layout text (at most 2,000 characters), a pen, a list of pens; phase 2 |
+| | `gfx`, `bg`, `fg` | O | a `binscan.py --gfx` layout text (at most 2,000 characters), a pen 0..255, a list of at most 256 pens; phase 2 |
 
 Keys of each item kind, beside the common ones:
 
 | Kind | Key | | Type and rule |
 |---|---|---|---|
-| `ks-grid` | `chars` | R | `ks-hangul`, `ks-nonhanja` or `ks-all` |
-| | `grid` | R | `[L0, T0, PITCH]`: glyph index = (lead - L0) x PITCH + (trail - T0); each 0..255, PITCH 1..256 |
-| `ks-dense` | `chars` | R | as above: glyph i is the i-th code of the set in KS order |
+| `ks-grid` | `chars` | R | `ks-hangul` (the only value of version 1, section 8.3) |
+| | `grid` | R | `[L0, T0, PITCH]`: glyph index = (lead - L0) x PITCH + (trail - T0); each 0..255, PITCH 94..256, and every code of `chars` inside the grid (L0 <= 0xB0, T0 <= 0xA1, 0xFE < T0 + PITCH) |
+| `ks-dense` | `chars` | R | `ks-hangul`: glyph i is the i-th of the 2,350 syllables in KS order |
 | `english` | `first` | O | the code of glyph 0, 0..255 [0] |
 | | `count` | O | glyphs, 1..256, `first` + `count` <= 256 [256 - `first`] |
-| | `top` | O | blank rows above an 8xH glyph in the 16-row cell, 0..15 [0] |
+| | `top` | O | blank rows above an 8xH glyph in the 16-row cell, 0..15, `top` + H <= 16 [0] |
 | | (`reading.glyph`) | | `[8, H]` with H 8..16, or `[16, 16]` (phase 2) |
-| `raw-set` | `layout` | R | a `jamoset.py` raw layout name (`844`, `1044-san`, `621`, ...) |
-| | `length` | R | integer bytes cut from `offset` |
-| `compose` | `spec` | R | a compose spec object, `{"builtin": "spc1500"}` or `{"derive": "nkpspec"}`; phase 3 |
+| `raw-set` | `layout` | R | one of `jamoset.py`'s raw layouts as `detect.DOS_SIZES` names them (`844`, `844-ihnm`, `844-hbios24`, `1044-san`, `621`, `kyra-lok`, `dkb-printer-7x2x2`, `dkb-printer-12x4x4`) |
+| | `length` | R | integer bytes cut from `offset`: a size `DOS_SIZES` lists for that layout |
+| `compose` | `spec` | R | `{"builtin": "spc1500"}`, `{"derive": "nkpspec"}`, or an inline compose spec object; phase 3 |
 | | `syllables` | O | `ks` or `all` [`ks`] |
+
+An inline compose spec is the object `rawcarve.py compose` documents, bounded here: `cell` `[W, H]` each 8..64; at most
+64 `sets`, each with `offset` 0 .. 2^26, `stride` 1..4,096, `x` / `y` >= 0, `width` / `height` >= 1 with `x + width <=
+W` and `y + height <= H`, the reading keys above; `vowel_order` 21 distinct integers 0..20; every vowel table exactly
+21 entries naming existing sets; a medial entry `[set, k]` with k 0..255; unknown keys refused.
 
 | Object | Key | | Type and rule |
 |---|---|---|---|
-| face | `name` | R | the face's file stem, as `maker/naming.py` accepts it (`[A-Z0-9]{1,8}`, `naming.NAME_RE` without `.SVF`) |
+| face | `name` | R | the face's file stem: `[A-Z0-9]{1,8}` (`naming.NAME_RE` without `.SVF`) |
 | | `kind` | R | `precomposed` or `jamo` |
-| | `route` | R | a route label of `routes.py` that the item's entry kind offers (`bdfface`, `bdfface + from-svf fit`, `dos raw`, `johab844`, `spec`, ...) |
+| | `route` | R | `bdfface`, `bdfface + from-svf fit`, `dos raw`, `johab844` (phase 1); `spec`, `compose bdf + bdfface`, `compose bdf + from-svf fit` (phase 3). A closed list: another value is refused |
 | | `hangul` | R unless `from` | item id of the Hangul source |
-| | `english` | O | item id of kind `english` (the `--ascii` BDF or the `--eng` companion) |
-| | `from` | O | the name of an earlier face of this recipe that a fit reads (`--from-svf`) |
-| | `layout` | O | for a jamo fit: `844` or `adaptive` [`844`] |
-| expect item | `glyphs`, `sha256` | O | inked glyphs carved; the SHA-256 of the carved file the prep op wrote |
-| expect face | `bytes`, `glyphs`, `ink` | O | the SVF's size, its glyph count, the ink of "안녕하세요 ABC 123" (`docs/recipes.md`, Checking a face) |
+| | `english` | O | item id of kind `english`. Required by `bdfface` and `compose bdf + bdfface` |
+| | `from` | O | the name of an earlier face of this recipe that a fit reads (`--from-svf`); required by the `... from-svf fit` routes, which take no `hangul` |
+| | `layout` | O | for a fit: `844` or `adaptive` [`844`] |
+| | `dest` | O | the output subfolder, `naming.DEST_RE` (`dos`, `jamo-extra`, `games/<name>`, `new/<name>`) [`new/<recipe id>`]; the app's batch setting replaces the default |
+| expect item | `glyphs`, `sha256` | O | inked glyphs carved; the SHA-256 of the file the item's last carve op wrote |
+| expect face | `bytes`, `glyphs`, `ink` | O | the SVF's size, its glyph count, the ink of 8.5 |
 
-Rules that hold across objects: every id an item, a region or a face names exists; an item's reading must fit its
-region (`offset` + the bytes its glyphs span <= the region's size, checked when the files are bound, not at load); the
-bytes a `ks-grid` item reads are those of the highest code of its `chars`; a face's `hangul` item is of a kind its
-`route` takes (`bdfface`: `ks-dense`, `ks-grid` or `compose`; `dos raw` / `johab844`: `raw-set`; `spec`: `compose`).
-The 86Box example of 9.1 is a complete, valid recipe of the t_97acecf9 subset once its two hashes are filled in; its
-commands are the ones of `docs/recipes.md` "Korean VGA font ROMs (86Box)": `rawcarve.py bdf FONT --glyph 16x16 --order
-strips --chars ks-hangul --grid 0x80,0x80,128 --ascent 12`, `rawcarve.py bdf BIOS --offset 0x4a2d --glyph 8x16 --chars
-ascii --ascent 12`, `bdfface.py --hangul H --ascii A --cell 16x16 --chars-from KS`, then `jamoset.py --layout 844
---from-svf FACE --mask-font none --check`.
+Rules across objects: every id an item, a region or a face names exists; `from` names an earlier face (no cycle); an
+item's reading must fit its region (`offset` + the bytes its glyphs span <= the region's size, checked when the files
+are bound: the bytes a `ks-grid` item spans are those up to the last syllable, 힝); a face's `hangul` item is of a
+kind its `route` takes (`bdfface`: `ks-dense`, `ks-grid`; `dos raw` / `johab844`: `raw-set`; `spec` and the `compose`
+routes: `compose`); `johab844` only for a 16 px 8x4x4 set of 11,520 bytes. `expect` is what makes a re-run
+self-checking; a mismatch is reported, not hidden, and the faces are still written.
+
+The 86Box example of 9.1 is a complete, valid recipe of the t_97acecf9 subset once its hashes are filled in; its
+commands are those of `docs/recipes.md` "Korean VGA font ROMs (86Box)": `rawcarve.py bdf FONT --glyph 16x16 --stride 32
+--order strips --chars ks-hangul --grid 0x80,0x80,128 --ascent 12`, `rawcarve.py bdf BIOS --offset 0x4a2d --glyph 8x16
+--chars ascii --first 0 --count 256 --ascent 12`, `bdfface.py --hangul H --ascii A --cell 16x16 --chars-from KS`, then
+`jamoset.py --layout 844 --from-svf FACE --mask-font none --check`.
 
 ## 10. Compose rules, and help from an assistant
 
@@ -495,31 +704,32 @@ be found by looking at glyph grids: the rule is in code. The design keeps the ap
 
 - **In the app (phase 3)**: "load a compose spec" (a file or pasted JSON, or the built-in `spc1500`, or "derive with
   nkpspec" which runs `nkpspec.py find` / `spec` on the file and shows the table addresses it found). The spec is
-  validated (`rawcarve.py compose --check-spec`: every set inside the file, strides and crops consistent, 21-entry
-  tables) and then **inspected**, not edited: each piece set drawn as a strip at its place in the cell; a matrix of
-  19 initials x 21 vowels without and with a final; the sample line; the jamo set's `--check` ("all 11,172 syllables
-  identical to rawcarve.py compose"). The NKP lesson (a wrong crop draws a wrong face without an error) is why the
-  set strips are shown with the cell outline.
-- **Not in the app**: a table editor for compose rules (sets by vowel and final as an editable grid). It is a large UI
-  for a handful of files, and whoever can fill it can write the JSON. Phase 4, only if asked for.
-- **Export for an assistant**: writes `finder-<name>/` into the output folder: `PROMPT.md` (the prompt of
-  `docs/recipes.md` filled in: the file's name, kind, size and hash, what the analysis found and what the user tried
-  and marked, what is unresolved, and the exact form of the answer wanted: a compose spec or a recipe of schema 1);
-  `session.json` (candidates and marks); `recipe-draft.json`; with "include renders" ticked, the PNGs of the
-  candidates (derived bitmaps of the source: said so in the dialog, written nowhere else). The source file is named
-  by path, not copied. The app contacts no one: the user takes the folder to Claude Code (or any assistant that can
-  run the tools), and loads the returned spec or recipe with "load recipe or spec". The same export is the bug-report
-  form for a file the finder does not resolve.
+  validated (9.4's bounds, then `rawcarve.py compose --check-spec`: every set inside the file, strides and crops
+  consistent) and then **inspected**, not edited: each piece set drawn as a strip at its place in the cell; a matrix
+  of 19 initials x 21 vowels without and with a final; the sample line; the jamo set's `--check` ("all 11,172
+  syllables identical to rawcarve.py compose"). The NKP lesson (a wrong crop draws a wrong face without an error) is
+  why the set strips are shown with the cell outline.
+- **Not in the app**: a table editor for compose rules. It is a large UI for a handful of files, and whoever can fill
+  it can write the JSON. Phase 4, only if asked.
+- **Export for an assistant**: writes `finder-export-<job>-<k>/` (8.4) into the output folder: `PROMPT.md` (the
+  prompt of `docs/recipes.md` filled in: the file's name, kind, size and hash, what the analysis found and what the
+  user tried and marked, what is unresolved, and the exact form of the answer wanted: a compose spec or a recipe of
+  schema 1); `session.json` (candidates and marks); `recipe-draft.json`; with "include renders" ticked (off by
+  default), the PNGs of the candidates (derived bitmaps of the source: said so in the dialog, written nowhere else).
+  The source file is named by path, not copied. The app contacts no one: the user takes the folder to Claude Code (or
+  any assistant that can run the tools), and loads the returned spec or recipe with "load recipe or spec". The same
+  export is the bug-report form for a file the finder does not resolve.
 
 ## 11. Internationalisation
 
 The page is English only today. The finder brings a string table: `maker/static/strings.js` (`{en: {...}, ko:
-{...}}`, `t(key, values)`), the language from `navigator.language` (`ko*` -> Korean) with a switch in the top bar kept
-in `localStorage`. All finder strings go through it from the first commit; finder endpoints answer errors with a
-stable `code` beside the English `error` text so the page can show its own sentence. Tool output (the `why` facts,
-`--check` lines) stays as the tools print it. Moving the rest of the page onto the table is not part of this design
-(section 15, 6). Docs: `docs/desktop-app.md` gets a chapter "Finding a font inside a file" and `docs/recipes.md` a
-paragraph pointing from the prompt section to the app, each with its `.ko.md`.
+{...}}`, `t(key, values)`). The language is `navigator.language` (`ko*` -> Korean) until the user switches it in the
+top bar; the choice is kept by the server in `<data root>/prefs.json` (`GET` / `PUT /api/prefs`), because the shell's
+session keeps no `localStorage` across a quit (4.7). All finder strings go through the table from the first commit;
+finder endpoints answer errors with a stable `code` beside the English `error` text so the page can show its own
+sentence. Tool output (the `why` facts, `--check` lines) stays as the tools print it. Moving the rest of the page onto
+the table is not part of this design (section 15, 6). Docs: `docs/desktop-app.md` gets a chapter "Finding a font
+inside a file" and `docs/recipes.md` a paragraph pointing from the prompt section to the app, each with its `.ko.md`.
 
 ## 12. Accessibility
 
@@ -529,59 +739,77 @@ paragraph pointing from the prompt section to the app, each with its `.ko.md`.
   shortcut is also a labelled button, and the list is shown by `?`.
 - The grid is a picture, so it has a text side: an `aria-label` that states the reading ("64 glyphs of 8x16 from
   0x39a0, rows"), a live `role="status"` line for the hovered or focused glyph (index, offset, and for a mapped mark
-  its character), and "copy as text".
+  its character), and "show as text" (5.1).
 - No meaning by colour alone: marks carry their number in the overview strip and the grid; ink is drawn at full
   contrast in both themes; the scale control goes to 8 for low vision; focus is always visible and returns to the
   finder button when the view closes.
-- Long work is announced: analysis progress and "not scanned" results through the same `role="status"` line pattern
-  the page already uses for notices.
+- Long work is announced: analysis and trial progress, "preparing" after a sweep and "not scanned" results through the
+  same `role="status"` line pattern the page already uses for notices.
 
 ## 13. Tests
 
 - **Synthetic fixtures** (`maker/test/finderfx.py`, bytes built in the test from the OFL faces of `svf/` and seeded
   noise, nothing proprietary): (1) a `.COM`-like file: noise, an 8x16 ASCII font, zero padding, an 8x4x4 set (the tie
-  case); (2) a 2,350-glyph KS dense table inside a larger file, plain and inverted; (3) a 128-grid font in strips;
-  (4) a four-file inverted piece-set region with a compose spec (SPC-1500-like; `tools/test_tiles.py` on `mame-roms`
-  already builds such regions); (5) a `ROM_LOAD16_BYTE` pair of 4 bpp tiles with an outline pen and a non-zero
-  background; (6) a packed file (zlib of the above); (7) hostile cases: over the caps, a symlink, a FIFO, a file
-  truncated or rewritten during the session, zero length, a recipe with unknown keys, absurd numbers, a 10 MB gfx
-  string.
-- **Units**: candidate ranking; anchor solving (ASCII first code, dense start, grid origin; refusals when the anchor
-  contradicts the reading); the recipe schema; the planner's argv against the command lines of `docs/recipes.md`.
-- **Server**: every endpoint with and without the token; bounds before allocation; the analysis budget kills its
-  tools (no process left in `tools.pids`); the 409 on a changed file; scratch removed on job end, delete and server
-  stop; no source byte pattern of the fixture in `job.json`, the logs, the recipe or any error; nothing written
-  outside the output folder; the no-network scan covers the new modules.
-- **Equivalence**: app run == `recipe run` == the hand-run commands of `BUILD.md`, byte for byte, for each fixture;
-  a saved recipe recognises the same fixture in a new job (`known`), a one-byte change makes it `similar`, a missing
-  file `part of a set`.
+  case); (1b) an 8x4x4 set starting at 0xFE0 of a file whose first 4 KiB block is otherwise zero (the blank slot 0 in
+  a block of one byte value); (1c) an `MZ` file, a 4,096-byte ROM and a `.PFT`-named file holding a font (the ways in
+  of 5 step 1); (2) a 2,350-glyph KS dense table inside a larger file, plain and inverted; (3) a 128-grid font in
+  strips with its blank rows; (3b) a 24x24 font at an offset of 2 modulo 3; (4) a four-file inverted piece-set region
+  with a compose spec (SPC-1500-like; `tools/test_tiles.py` on `mame-roms` builds such regions); (5) a
+  `ROM_LOAD16_BYTE` pair of 4 bpp tiles with an outline pen and a non-zero background; (6) a packed file (zlib of the
+  above) and files with RAR / 7z / gzip magic; (7) hostile cases: over the caps, a symlink, a FIFO, a file truncated
+  or rewritten during the session (the sidecar must answer 409 and stay up), zero length, a recipe with unknown keys,
+  absurd numbers, a 10 MB gfx string; (8) phase 2 zips: a zip bomb, a member name with `..`, an encrypted member, a
+  nested archive, a central directory over the count.
+- **Readings** (8.2): one font written in every order x lsb x invert x a padded stride, carved as a raw set, as
+  English (first code 0x20) and as a KS grid, and the built faces' glyphs compared with the glyphs the fixture was
+  built from.
+- **Units**: candidate ranking; anchors (English first code; dense start; a grid with a pitch; two grids that agree on
+  one anchor and differ on the next, so one anchor without a pitch is refused and the second anchor decides;
+  conflicts); the recipe schema including every bound of 9.4; the planner's argv against the command lines of
+  `docs/recipes.md`; `test_page_js_tables_match_python` with the new kinds and routes.
+- **Planner**: a companion with `prep` gets its source step in the right form and the face steps need it; a failed
+  companion step fails them; two marks of one file keep separate settings across `POST detect`; applied marks survive
+  a re-detect; a recipe with a missing optional file offers only the faces that do not need it, in the app, the trial
+  and `recipe run`; a `part of a set` entry offers none.
+- **Server**: every endpoint with and without the token and with a foreign `Host`; `no-store` on the byte GETs; bounds
+  before allocation; the analysis and trial budgets kill their tools (no process left in `tools.pids`); cancel of a
+  trial; `PUT /api/recipes/<rid>` with `..`, a built-in id, a mismatched id, the 501st recipe; an export into a
+  folder where `finder-export-*` exists, and where it is a symlink; no source byte pattern of the fixture in
+  `job.json`, the logs, the recipe or any error; nothing written outside the output folder; the no-network scan
+  covers the new modules.
+- **Lifecycle**: an idle sweep while a scan runs (skipped) and after it (scratch gone, the next render rebuilds it);
+  a run finishing with a session open; `POST run` during a scan (409); server stop during a scan (the tool is gone).
+- **Equivalence**: app run == trial == `recipe run` == the hand-run commands of `BUILD.md`, byte for byte, for each
+  fixture, also with `JAMOSET_MASK_FONT` set in the environment; a saved recipe recognises the same fixture in a new
+  job (`known`), a one-byte change makes it `similar`, a missing file `part of a set`.
 - **Page** (`pagedrive.mjs`, Chrome): open fixture (1), the two expected candidates appear, pick, mark both, try (the
   sample line is drawn and equals the byte oracle), apply, run; fixture (5) through the region editor, pen view and
   pen rule; keyboard-only run of the same; every string key exists in `en` and `ko`, and `finder.js` holds no
-  user-visible literal (a scan).
-- **Desktop**: one step in `desktop/test/e2e.js` (open a fixture, apply a built-in test recipe, faces written); the
-  frozen sidecar's smoke check runs `binscan`, `rawcarve`, `nkpspec` and `recipe list`.
+  user-visible literal (a scan); the language survives a restart of the server.
+- **Desktop**: one step in `desktop/test/e2e.js` (open a fixture, apply a built-in test recipe, faces written, "show
+  as text" filled without a permission request); the frozen sidecar's smoke check runs `binscan`, `rawcarve`,
+  `nkpspec` and `recipe list` and finds the bundled recipes.
 - **Real files** (environment-gated, hashes checked, skipped here): `MAME_ROMS` as in `tools/test_tiles.py`, the 86Box
   ROMs, `SVF_MAKER_REAL_NKP`, `_DKB`: each built-in recipe reproduces the numbers `docs/recipes.md` records.
 - **Performance** (recorded, not gated at first): the redraw and scan targets of 6 and 7.1 on fixture sizes 38 KiB,
-  512 KiB and 8 MiB.
+  512 KiB and 8 MiB, and the coarse phase sets of `strips`, `cols` and `bytecols`.
 
 ## 14. Phases
 
 | Phase | Content | Needs |
 |---|---|---|
-| 0 | Tool changes of 7.5 for phase 1 (`--json`, coarse / fine `runs`); the recipe schema, validator and planner; `recipe check / run / list`; `sidecar` `TOOLS` | main only |
-| 1 (MVP) | The finder view for **one file, 1 bpp**: analysis stages 0-2, candidates, viewer with every 1 bpp parameter, long-strip mode, anchors, marks `raw-set` / `english` 8xH / `ks-dense` / `ks-grid`, trial, apply, `carved-bdf` kind and routes, recipe save / load, the user library and detection states, string table EN + KO, keyboard and status lines, docs | phase 0 |
-| 2 | ROM sets: region editor and suggestions, tiles panel (presets and pasted `gfx_layout`), pen view and rule, `ink`, English 16x16, zip members in place, compare with a loose file, KS-order score, the built-in recipes (with or instead of t_97acecf9's table) | `mame-roms` merged (t_c1eca08f) |
+| 0 | The phase-0 rows of 7.5; the recipe schema, validator and planner (extending t_97acecf9's); the pipeline changes of 8.1-8.3 that t_97acecf9 has not made; `recipe check / run / list` | `mame-roms` merged into main (t_c1eca08f); t_97acecf9's recipe subset |
+| 1 (MVP) | The finder view for **1 bpp, each mark reading one file as it is** (several independent files a session; no assembled region, no tiles): analysis stages 0-2, candidates, viewer with every 1 bpp parameter, long-strip mode, anchors, marks `raw-set` / `english` 8xH / `ks-dense` / `ks-grid`, trial, apply, recipe save / load, the user library and detection states, string table EN + KO and `prefs`, keyboard and status lines, docs | phase 0 |
+| 2 | ROM sets: region editor and suggestions, tiles panel (presets and pasted `gfx_layout`), pen view and rule, English 16x16, zip members (7.6), compare with a loose file, KS-order score, the built-in recipes of the MAME sets | phase 1 |
 | 3 | Compose specs: load / built-in / `nkpspec` derive, `--check-spec`, the inspector, `carved-spec` kind and routes, export for an assistant | phase 2 |
-| 4 (only if asked) | Compose table editor; pasted `ROM_LOAD` lines to a region; recogniser-assisted labelling of an unknown order (`SVF_RECOG_DIR`); executable unpackers | - |
+| 4 (only if asked) | Compose table editor; pasted `ROM_LOAD` lines to a region; recogniser-assisted labelling of an unknown order (`SVF_RECOG_DIR`); executable unpackers; KS symbols and Hanja | - |
 
-Phase 1 alone covers the Dokkaebi drivers and the 86Box VGA ROMs end to end, and NKP's English font; phase 2 the MAME
-quiz sets and X Se Dae; phase 3 NKP and the SPC-1500.
+Phase 1 covers the Dokkaebi drivers (one file: the set and the English font) and the 86Box VGA ROMs (two files, one
+mark each) end to end, and NKP's English font; phase 2 the MAME quiz sets and X Se Dae; phase 3 NKP and the SPC-1500.
 
 ## 15. Decisions (user, 2026-11-23)
 
-The ten questions this design left to the owner were all answered "as recommended" on 2026-11-23. None is open.
+The ten questions the first draft left to the owner were all answered "as recommended" on 2026-11-23.
 
 | # | Question | Decision |
 |---|---|---|
@@ -601,15 +829,96 @@ decoder and gfx parser); choosing the output folder only at "apply" (needs in-me
 rule); converting t_97acecf9's table in finder phase 2 (two planners for a while); a compose table editor (phase 4,
 only if asked).
 
+### 15.1 Where the review touches a decision (the owner's nod wanted)
+
+All ten decisions stand. Two are now worded more exactly than they were answered, and two facts under them changed:
+
+1. **Decision 9, "in place".** `archive.py` cannot read a member in place and the tools need file paths (4.9). The
+   revision keeps what the decision is for (the user picks the zip, unpacks nothing by hand, and nothing leaves the
+   output folder) but the ticked members are **extracted into the job's scratch** under `archive.py`'s guards (7.6),
+   and go with the scratch. Proposed: accept this reading. The alternative, a member reader every tool understands,
+   is a larger change to `binscan.py` / `rawcarve.py` for no gain the user would see.
+2. **Decision 8, "one file".** Read as: each mark reads one file as it is (no interleaved region, no tiles). A phase-1
+   session may still hold several independent files, because the 86Box case the phase claims is a pair (font ROM and
+   BIOS). Proposed: accept this reading. The alternative, strictly one file a session, makes phase 1 Hangul-only for
+   the VGA ROMs.
+3. **Under decision 3**: the example recipe changed (the BIOS is required, not optional; `chars` is `ks-hangul` only
+   in version 1; a face may give `dest`; `route` is a closed list). t_97acecf9 is implementing the subset now: these
+   are the points it must pick up.
+4. **Under decision 8**: the finder now needs `mame-roms` on main before phase 0, not only from phase 2 (4.2): main's
+   tools have no `--invert`, no `ink` and no `eng --first`, so a phase 1 on main alone would show readings it cannot
+   convert.
+
 ## 16. Not verified, and risks
 
 - The redraw targets (7.1) and the coarse / fine `runs` cost (6) are estimates from the one measurement of 4.3; the
-  fine pass does not exist yet. If pure Python misses the tile target, the fallback is the ink map of 7.1, not a new
-  dependency.
+  fine pass and the gapless PNG helper do not exist yet. If pure Python misses the tile target, the fallback is the
+  ink map of 7.1, not a new dependency.
+- The coarse phase sets for `strips`, `cols` and `bytecols` are unknown (6); until measured those orders scan every
+  phase on small windows.
 - The KS-order score (6, stage 4) is an idea, not a measured method; it ships as a hint or not at all.
-- The coarse `runs` pass assumes a row-aligned misread still looks glyph-like; true for `rows`, to be checked for
-  `strips`, `cols` and `bytecols`, where the fine pass may need more phases.
-- `mame-roms` and main have diverged (4.2); phases 2 and 3 are written against `mame-roms` at `55c0be1` and must be
+- "Show as text" relies on the system copy of selected text working in the shell without a permission (4.7): expected,
+  not run.
+- Whether a `rawcarve.py region` line with the absolute paths of a ROM set stays under 512 bytes in a note
+  (`zipout.note_commands` may shorten paths) was not checked; `--files @LIST` (7.5) is there if it does not.
+- The pipeline changes of section 8 were read against the code, not prototyped; `plan_steps` (about 250 lines around
+  `companion_file`) is the place most likely to hold a surprise.
+- `mame-roms` and main have diverged (4.2); everything here is written against `mame-roms` at `55c0be1` and must be
   re-read after its merge.
 - Nothing here was run in the app: this is a design. The wireframe is a layout proposal, not a tested one; the
   narrowest supported window of the desktop app has to fit it (the right column folds under the viewer below that).
+
+## 17. Review disposition (2026-11-23)
+
+Two reviews of commits `fd36958` .. `2900c32`: SOL (approve with changes: 2 High, 4 Medium) and agy Neon (reject: 15
+numbered findings in 9 groups). Each finding was checked against the code on main and, where it concerns them, the
+tools on `mame-roms`. **fixed** = the spec was wrong or silent and now says the right thing; **changed** = the design
+itself changed; **rejected** = not taken, with the reason.
+
+| Finding | Checked | Disposition |
+|---|---|---|
+| SOL 1 (High): phase 1 cannot carry a reading through conversion; `eng --first / --count / --invert` do not exist | True on main: `cut` copies bytes, `eng` takes offset / height / top only, no `--invert` anywhere. On `mame-roms` `eng` has them and `ink` rewrites any reading | **changed**: the finder is built on `mame-roms` merged (4.2, 14, 15.1); 8.2 says how every reading parameter reaches each command (`ink` before `cut` / `eng` when the reading is not plain; `bdf` takes the reading itself, with `--stride` and `--lsb` written out); a readings test compares pixels with independently built glyphs (13) |
+| SOL 2 (High): prepared English companions are bypassed by the planner | True: `settings.py` prepares a companion only for `mac-fbit3`; others go by `path` | **changed**: 8.3: `companion_file` for every companion with `prep`, two forms of an English mark (`raw`, `bdf`), `needs` and failure propagation, `_companion_abs`, one planner for trial, run and headless; tests in 13 |
+| SOL 3 (Medium): zip "in place" has no interface | True: `archive.py` only extracts; the tools take paths | **changed**: 7.6: bounded extraction of ticked members into the scratch, addressing, hash binding, `zip-member` source step in `BUILD.md`. Touches decision 9: 15.1 |
+| SOL 4 (Medium): entropy windows can cut off the start of a font | True for blocks of one byte value | **fixed**: 6: `ascii` and `sets` scan the whole region; `runs` skips only blocks at 7.5 bits or more, keeps blank blocks, widens and joins windows, deduplicates; fixture (1b) |
+| SOL 5 (Medium): the optional BIOS is needed by every face | True; `bdfface` refuses without a Latin companion | **fixed**: the BIOS is required in the example (9.1); 9.2 defines `optional` (a face is offered only when the files it reads are present; a recipe whose every face needs an optional file is refused); tests in 13 |
+| SOL 6 (Medium): one anchor does not determine a KS grid | True | **fixed**: 5.4: a pitch or two anchors on different lead bytes, the unique `(L0, T0)` or 422, further anchors checked; test with two grids that agree on one anchor |
+| Neon 1: the way in (`other` + `unknown`) locks out `.EXE`, zip, `.PFT`, size collisions | True: `MZ` is `fon`, a zip `archive`, and `dos-raw` / `eng` / `ks-raw` go by size | **fixed**: 5 step 1: "look inside" on every readable single-file `other` entry, "open in the finder" on size-decided kinds; the library hashes on a size match whatever the kind (9.2); fixture (1c) |
+| Neon 2.1: companions never run `prep`; `eng` does not pair with a BDF route | True | **changed**: as SOL 2; pairing by session, not by folder (8.3) |
+| Neon 2.2: phase 1 cites flags that are not on main | True for `eng` and `--invert`. Not true of `bdf`: main's `bdf` has `--first`, `--count`, `--lsb`, `--stride`, `--order` (`rawcarve.py` lines 308-320) | **changed**: as SOL 1; 4.1 and 4.2 now list what each branch has |
+| Neon 2.3: single-source pipeline, settings key, re-detect wiping marks, in-process `prepared_bytes`, the 512-byte field cap | True, each of them | **changed**: 8.1 (entries rebuilt from applied marks on every detect, keyed with session and item, `inputs` checked like `path`, no `prepared_bytes`); 8.2 and 7.5 (`@FILE` parameter files persisted in `build-<id>/finder/`). Whether a region line passes 512 bytes is not verified (16) |
+| Neon 2.4: 16x16 English raw files are refused downstream | True on main; `mame-roms` `jamoset.py` reads the 8,192-byte form, `johab844.py` does not | **fixed**: 5.3: phase 2, a companion of `dos raw` and `bdfface` (as a BDF), not of `johab844` |
+| Neon 2.5: `carved-bdf` + `mkfont` meets two known problems | True (U+00AD in `ksx1001-nohanja`; the first BDF glyph as `.notdef`) | **changed**: no `mkfont` route and `chars` = `ks-hangul` only in version 1 (3, 8.3, 9.4) |
+| Neon 3.1: `mmap` and truncation = SIGBUS | True in principle | **changed**: 7.2: never `mmap` a user's file; `pread` of bounded lengths; two renders at a time |
+| Neon 3.2: FIFO hang, symlink TOCTOU | True for a plain `open()`; the tools use one | **fixed**: 7.2 (the opening rule on the descriptor), 7.5 (the same rule in the three tools) |
+| Neon 3.3: no in-place zip reader | True | **changed**: as SOL 3 |
+| Neon 4.1-4.2: idle sweep and run completion remove the scratch | True | **changed**: 7.2: the scratch is disposable and rebuilt, finder requests touch the job, running tools block the sweep, session locks join `_sweep_locks`; lifecycle tests |
+| Neon 4.3: shutdown leaks finder tools | True as designed (my text named `toolreg` only) | **fixed**: 7.2: one bounded runner in `preview`'s live table and `toolreg` |
+| Neon 4.4: `paths` outside the job's roots; job state | True | **changed**: the endpoint takes entries of a detected job only (7.2, 7.3); "find a font in a file" is choose + detect + open (5) |
+| Neon 5: "one file" against the 86Box pair; the optional BIOS | True | **fixed**: phase 1 = one file a mark, several files a session (5, 14, 15.1); the BIOS as SOL 5 |
+| Neon 6: 4129 is wrong (6177); the grid solver is underdetermined | True: (0xB0 - 0x80) x 128 + 0x21 = 6177 | **fixed**: 4.10, 5.4, 7.3 |
+| Neon 7.1: coarse phases miss 24x24 at offset 2 mod 3 | True | **fixed**: 6: one phase a byte of a stored row; other orders unmeasured, said so; fixture (3b) |
+| Neon 7.2: the scan budget | True that all geometries do not fit 60 s on a large region | **fixed** by saying what happens: a priority order, "not scanned" with a button, the arithmetic in 6. **rejected**: a smaller default window; the order and the report do the same without hiding part of the file |
+| Neon 7.3: dropping blank blocks splits sparse grids | True | **fixed**: as SOL 4; fixture (3) with blank rows |
+| Neon 7.4: `render --png` has gaps and zlib level 9 | True | **fixed**: a gapless level-1 helper (5.1, 7.5) |
+| Neon 8.1: `localStorage` does not survive a quit | True (`fromPartition('maker')`) | **changed**: `prefs.json` through `/api/prefs` (11) |
+| Neon 8.2: the clipboard is denied | True | **changed**: "show as text" in a selectable box, no permission added (5.1); not run (16) |
+| Neon 8.3: `maker/recipes` is not packaged, no `recipe` command | True | **fixed**: 7.5 |
+| Neon 8.4: drift tests | True | **fixed**: 7.5, 13 |
+| Neon 9.1: `nkpspec.py` reads without a cap | True | **fixed**: 7.5 |
+| Neon 9.2: export confinement and overwrite | True as written | **fixed**: `_OutputTree`, a name of the finder's own making, nothing replaced, listed in the desktop doc (7.4, 8.4) |
+| Neon 9.3: recipe endpoints, inline compose bounds, region size, `route` enum | True | **fixed**: 7.3 (`PUT /api/recipes/<rid>`, containment, 500), 9.4 (compose bounds, region rules, closed `route` and `layout` lists) |
+| Neon 9.4: host checks, `no-store`, nothing derived in `job.json` | True | **fixed**: 7.2, 7.3, 7.4, 6 |
+| Neon 10.1: compressed OS/2 fonts shown as "packed" | True that the finder would say so | **rejected** as a feature (non-goal, section 3: the finder does not decompress and `os2dbcs.py` keeps its own recipe); the "packed" message is the honest one |
+| Neon 10.2: `kind_of` does not know RAR / 7z / gzip / xz / LHA | True | **fixed**: 7.5 |
+| Neon 10.3: word swap, bottom-up, rotated, bit-packed rows | True that they were unnamed | **fixed** as non-goals (3) |
+| Neon 10.4: JIS / Big5 / CP437 | True that they were unnamed | **fixed** as non-goals, and the 94 x 94 signature reworded (3, 7.5) |
+| Neon 11.1: `--mask-font none` drift | True: `_bdfface_fit_commands` omits it | **fixed** for the finder's fit route (8.3) and tested with the variable set (13). **rejected**: changing the existing `bdf-ksc5601` route here; it is noted for that route's owner |
+| Neon 11.2: sample text and canvas | True: the page's sample differs from the recipes' | **fixed**: 8.5 |
+| Neon 11.3: a synchronous trial | True | **changed**: the trial is started, polled and cancellable (5, 7.3, 7.4) |
+| Neon 11.4: `SPEC.json` only in the scratch; colliding file names | True | **fixed**: 8.2, 8.4 |
+| Neon 12: the line reference | True (`_ROUTES` is at 639) | **fixed**: named by symbol |
+| Neon 13: no `dest` in a face | True | **fixed**: 9.4 |
+| Neon 14: long strips against `MAX_CANVAS` | True for one column | **fixed**: 5.1 |
+| Neon 15: test gaps | True | **fixed**: 13 |
+| SOL note: the `mame-roms` APIs were not in the reviewed checkout | - | The branch is `mame-roms` at `55c0be1` of the same repository (`git show mame-roms:tools/rawcarve.py`); 4.2 lists what was read there |
