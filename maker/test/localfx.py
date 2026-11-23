@@ -75,6 +75,7 @@ def mac_tree(root):
         # HangulTalk 1.0 (the 45-set fbit with its fdef): raw fork, AppleDouble, MacBinary, and the bare resource
         "v1/Munjo16.rsrc": macfx.fbit1_fork(), "v1/ad/._Munjo16": macfx.appledouble(macfx.fbit1_fork()),
         "v1/mb/Munjo16.bin": macfx.macbinary(macfx.fbit1_fork()), "v1/raw/Munjo16.fbit": macfx.fbit1_raw(),
+        "v1g0/Munjo16.rsrc": macfx.fbit1_fork(0),       # the same font with generation 0 at 0x0c
     }
     for rel, data in files.items():
         path = os.path.join(root, rel)

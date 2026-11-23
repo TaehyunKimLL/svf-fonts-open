@@ -309,6 +309,9 @@ def bitmap_strikes(path, hint=None, data=None):
     return out
 
 
+NO_UNICODE_MAP = "no Unicode character map, mkfont cannot read it"   # a Windows FNT/FON has none by construction
+
+
 def hbios_eng_like(data):
     """True for an HBIOS 12x24 English font: 256 glyphs of 60 bytes (16x30, two bytes a row) whose top three and bottom
     three rows are blank and whose second byte of every row has its low nibble clear (a 12 px cell), with ink in `A`.
@@ -606,6 +609,8 @@ def _detect_file(abs_path, rel, local=False):
         return [_entry(rel, 0, "bdf", label, kind, family, style, bdf=bdf, sizes=sizes, sizes_fixed=True, gz=zipped)]
 
     if fmt == "hbf":
+        if gz:                        # its bitmaps resolve beside the compressed path and the tools read a plain .hbf only
+            return [_entry(rel, 0, "hbf", "HBF: gzipped HBF not supported", "other", _stem(rel), "", gz=zipped)]
         text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
         box = _hbf_box(text)
         missing = _hbf_missing(text)
@@ -628,8 +633,9 @@ def _detect_file(abs_path, rel, local=False):
         data = _read_bytes(abs_path, True) if gz else None
         sizes = bitmap_strikes(abs_path, data=data)
         family, style = _pillow_name(abs_path, sizes[0], data=data) if sizes else ("", "")
-        label = "Windows FNT" + ("" if sizes else "; no openable size")
-        return [_entry(rel, 0, "fnt", label, "bitmap", family or _stem(rel), style, sizes=sizes, sizes_fixed=True,
+        # a FNT FreeType opens has no Unicode charmap by construction (mkfont's cmap_has reads sfnt only): no mkfont route
+        label = "Windows FNT; " + (NO_UNICODE_MAP if sizes else "no openable size")
+        return [_entry(rel, 0, "fnt", label, "other" if sizes else "bitmap", family or _stem(rel), style, sizes=sizes, sizes_fixed=True,
                        gz=zipped)]
 
     if fmt == "fon":
@@ -642,8 +648,8 @@ def _detect_file(abs_path, rel, local=False):
             if i == 0:
                 sizes = bitmap_strikes(abs_path, data=data)
                 family, style = _pillow_name(abs_path, sizes[0], data=data) if sizes else ("", "")
-                label = "Windows FON face 0" + ("" if sizes else "; no openable size")
-                out.append(_entry(rel, i, "fon", label, "bitmap", family or _stem(rel), style, sizes=sizes,
+                label = "Windows FON face 0; " + (NO_UNICODE_MAP if sizes else "no openable size")
+                out.append(_entry(rel, i, "fon", label, "other" if sizes else "bitmap", family or _stem(rel), style, sizes=sizes,
                                   sizes_fixed=True, gz=zipped))
             else:
                 out.append(_entry(rel, i, "fon", "face index %d: not convertible in v1" % i, "other",
@@ -790,6 +796,26 @@ def _fond_strikes(body):
         return []
 
 
+def _is_fbit1(body, types):
+    """True for a HangulTalk 1.0 `fbit`: the 45-set descriptor table at 0x54 validates in full (count 45, every set has a
+    width and height, a glyph size as jamoset.MacFbit computes it, and its first glyph inside the body), or the fork
+    holds the `fdef` 3 resource and the body reaches the first descriptor.
+
+    A type-3 (7.1) fbit has pixel bytes at 0x54, so a count of 45 alone proves nothing."""
+    if len(body) < 0x5E or struct.unpack(">H", body[0x54:0x56])[0] != 45 * 12:
+        return False
+    if len(dict(types.get(b"fdef", ())).get(3, b"")) >= FDEF_MIN:
+        return True
+    data = 0x56 + 45 * 12
+    if len(body) < data:
+        return False
+    for i in range(45):
+        w4, hi, lo, h = struct.unpack_from(">4H", body, 0x56 + 12 * i)
+        if not w4 or not h or w4 > 16 or h > 64 or data + ((hi << 16) | lo) + (w4 * 4 * h) // 8 > len(body):
+            return False
+    return True
+
+
 def _mac_kind_entries(rel, res, container, family, zipped, raw):
     """The local-mode rows of the spec 9.2 table for the resources @p res of a container with no `sfnt`, or []."""
     wrapped = container in ("AppleDouble", "MacBinary")
@@ -802,6 +828,13 @@ def _mac_kind_entries(rel, res, container, family, zipped, raw):
         if len(body) < 0x56 or body[2:6] != b"fbit":
             continue
         generation = struct.unpack(">H", body[0x0c:0x0e])[0]
+        if _is_fbit1(body, types):
+            # decided by the structure, not the generation word: real HangulTalk 1.0 fonts carry 3 there too
+            one = _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw)
+            if one is not None:
+                out.append(one)
+                n += 1
+            continue
         if generation == 3:
             try:
                 fb = macfbit3.Fbit3(body)
@@ -811,11 +844,6 @@ def _mac_kind_entries(rel, res, container, family, zipped, raw):
             label = "HangulTalk 7.1 type-3 fbit, %d px, %d planes (needs HTBL 1)" % (fb.h, fb.n)
             out.append(_entry(rel, n, "mac-rsrc", label, "mac-fbit3", family=family, sizes=[fb.h], sizes_fixed=True,
                               prep=prep, gz=zipped, mac={"generation": 3, "id": rid}))
-            n += 1
-            continue
-        one = _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw)
-        if one is not None:
-            out.append(one)
             n += 1
     for rid, body in types.get(b"HTBL", []):
         if rid != 1:
@@ -843,7 +871,7 @@ def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw=None
 
     A 1.0 font is an `fbit` with 45 glyph sets plus the `fdef` 3 resource of the same fork (the composition tables);
     a raw `fbit` resource has no `fdef`, so it cannot be read and the entry says which piece to choose instead."""
-    if len(body) < 0x56 or struct.unpack(">H", body[0x54:0x56])[0] // 12 != 45:
+    if len(body) < 0x5E or struct.unpack(">H", body[0x54:0x56])[0] // 12 != 45:
         return None
     fdef = dict(types.get(b"fdef", ())).get(3, b"")
     if raw == "mac-jm":
@@ -1027,46 +1055,91 @@ def _hbf_family(text):
 
 
 # The bitmap file each HBF_CODE_RANGE line names (bdfface.py's own pattern, without the trailing offset).
-_HBF_RANGE = re.compile(r"HBF_CODE_RANGE\s+0x[0-9A-Fa-f]+-0x[0-9A-Fa-f]+\s+(\S+)\s+\d+")
+_HBF_RANGE = re.compile(r"HBF_CODE_RANGE\s+0x[0-9A-Fa-f]+-0x([0-9A-Fa-f]+)\s+(\S+)\s+\d+")
 
 
 def _plain_name(name):
     """True for a bare file name: no separator, not `..`, not absolute."""
-    return bool(name) and name not in (".", "..") and "/" not in name and not os.path.isabs(name)
+    return bool(name) and name not in (".", "..") and "/" not in name and "\\" not in name and not os.path.isabs(name)
 
 
-def hbf_refusal(path):
-    """The reason `bdfface.read_hbf` must not read @p path's bitmaps, or "" when it is safe to call it.
-
-    `read_hbf` joins each `HBF_CODE_RANGE` name onto the HBF's own folder and reads it whole, with no cap (and it
-    decompresses a `.gz` bin with no cap either), so an uploaded HBF could name `../../etc/shadow` or `/dev/zero` and
-    make the server read it. Every name must be plain, resolve to a regular, non-symlink file in the HBF's folder,
-    and be at most MAX_DECOMPRESSED; a `.gz` bin gets its own reason ("`.gz bitmap not supported`") because its
-    decompressed size is not known without reading it. An HBF that names nothing at all is safe (it yields no
-    glyphs). The reason is the text after "HBF: " in the entry's label.
-    """
+def hbf_bitmaps(path):
+    """The bitmap files an HBF reads, as absolute paths (a `name.gz` where only that exists), in first-use order.
+    Names that are not plain are left out: `hbf_refusal` refuses such an HBF."""
     try:
         with open(path, "rb") as f:
             text = f.read(MAX_DECOMPRESSED + 1).decode("latin-1")
     except OSError:
-        return "unsafe bitmap reference"
-    if len(text) > MAX_DECOMPRESSED:
-        return "unsafe bitmap reference"
+        return []
     folder = os.path.dirname(os.path.abspath(path))
+    out = []
     for m in _HBF_RANGE.finditer(text):
-        name = m.group(1)
+        name = m.group(2)
         if not _plain_name(name):
-            return "unsafe bitmap reference"
+            continue
+        p = os.path.join(folder, name)
+        if not os.path.lexists(p) and os.path.lexists(p + ".gz"):
+            p += ".gz"
+        if p not in out:
+            out.append(p)
+    return out
+
+
+def hbf_refusal(path, inside=None, deadline=None):
+    """The reason `bdfface.read_hbf` must not read @p path's bitmaps, or "" when it is safe to call it.
+
+    Each distinct bitmap name is checked once (N ranges naming one file cost one check). A name must be plain and
+    resolve, without following a link, to a regular file in the HBF's folder (or, when the plain name is absent,
+    to `name.gz` beside it, which `read_hbf` reads); the files' decompressed lengths together stay within
+    MAX_DECOMPRESSED. A corrupt or empty gzip, a code range above 0xFF (read_hbf refuses it) and a name that itself
+    ends in `.gz` each get a reason. @p inside (`Sources.inside`) refuses a bitmap that lies outside the picked
+    roots (a single-file root has no siblings); @p deadline (a `time.monotonic` value) turns the rest of the work
+    into "bitmap check skipped (time budget)". An HBF that names nothing is safe (it yields no glyphs). The reason
+    is the text after "HBF: " in the entry's label.
+    """
+    unsafe = "unsafe bitmap reference"
+    try:
+        with open(path, "rb") as f:
+            text = f.read(MAX_DECOMPRESSED + 1).decode("latin-1")
+    except OSError:
+        return unsafe
+    if len(text) > MAX_DECOMPRESSED:
+        return unsafe
+    folder = os.path.dirname(os.path.abspath(path))
+    seen, total = set(), 0
+
+    def tick():
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError
+
+    for m in _HBF_RANGE.finditer(text):
+        if int(m.group(1), 16) > 0xFF:
+            return "two-byte code range not supported"
+        name = m.group(2)
+        if name in seen:
+            continue
+        seen.add(name)
+        if not _plain_name(name):
+            return unsafe
         if name.lower().endswith(".gz"):
             return ".gz bitmap not supported"
         p = os.path.join(folder, name)
-        if os.path.islink(p) or not os.path.isfile(p):
-            return "unsafe bitmap reference"
+        gz = not os.path.lexists(p) and os.path.lexists(p + ".gz")
+        if gz:
+            p += ".gz"
+        elif not os.path.lexists(p):
+            return "bitmap file missing"
+        if inside is not None and not inside(p):
+            return unsafe
         try:
-            if os.path.getsize(p) > MAX_DECOMPRESSED:
-                return "unsafe bitmap reference"
-        except OSError:
-            return "unsafe bitmap reference"
+            tick()
+            total += bdfface.read_capped(p, gz, MAX_DECOMPRESSED - total, keep=False, tick=tick)
+        except TimeoutError:
+            return "bitmap check skipped (time budget)"
+        except bdfface.DamagedBitmapError:
+            return "damaged bitmap file"
+        except bdfface.FaceError:
+            return unsafe
     return ""
 
 
@@ -1505,7 +1578,7 @@ def _coverage_of_entry(path, entry, data=None, face_index=None, tmp_dir=None):
         if kind == "bdf-johab":
             return dict(JOHAB_COVERAGE)          # johab-1 glyph indices, not KS X 1001 codes: composed from jamo
         if kind == "hbf":
-            if entry.get("gzip") or not hbf_refs_safe(path):
+            if entry["source_kind"] != "hbf":      # a refused HBF was demoted by the scan
                 return None
             return coverage_bdf(bdfface.read_hbf(path)[1])
         if kind in ("svf-jamo", "svf-precomposed"):
@@ -1628,9 +1701,9 @@ def scan(sources, local=False):
                 data = None
         for entry in group:
             if entry["source_kind"] == "hbf":
-                reason = hbf_refusal(path)
-                if reason:
-                    entry["label"] = "HBF: " + reason
+                reason = hbf_refusal(path, sources.inside, deadline)
+                if reason:                # not a usable companion: demoted so no Latin candidate list offers it
+                    entry["label"], entry["source_kind"] = "HBF: " + reason, "other"
             batch_dos = local and dos_folders and eng_cell_h((entry.get("eng") or {}).get("cell"))
             if entry["format"] == "eng" and folder_of(path) not in dos_folders and not batch_dos:
                 entry["format"] = "unknown"       # a Latin companion needs a DOS Johab font beside it
