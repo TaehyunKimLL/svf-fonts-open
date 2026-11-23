@@ -286,7 +286,8 @@ async function pass(name, opts) {
           const root = j.fonts.find((f) => f.id === fid).root;
           if (ui.htbl) cmp('htbl_companion', fidOf(root, ui.htbl), per.htbl_companion);
           if (ui.latin) cmp('latin_companion', fidOf(root, ui.latin), per.latin_companion);
-          if (ui.export) cmp('options.export', ui.export, (per.options || {}).export);
+          const sorted = (o) => Object.fromEntries(Object.entries(o || {}).sort());   // the server stores keys sorted
+          if (ui.export) cmp('options.export', sorted(ui.export), sorted((per.options || {}).export));
         }
         return bad;
       };
