@@ -77,12 +77,15 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   and SHA-256, never by content: a file whose size a recipe names is hashed, and a complete set becomes one `recipe` entry
   ("known: <title>", its files pinned together) whose routes run the recipe's commands (`rawcarve.py bdf` of each item,
   `bdfface.py`, and the `jamoset.py --from-svf` fit). Today: the three 86Box Korean VGA ROM pairs (recipes.md "Korean VGA
-  font ROMs (86Box)"). A set with a file missing is "part of <title>: also needs <names>; pick the folder"; a file of a
+  font ROMs (86Box)") and four MAME sets, SPC-1500 (an exact jamo set, route `spec`), Date Quiz Go Go, X Se Dae Quiz (route
+  `dos raw`) and Quiz King of Fighters (Korea) (recipes.md "Korean font ROMs in MAME sets"; their regions, tile layouts and
+  pens are recipe data too, and one extension of schema 9.4: a face's `english` may list several items, OR-ed by
+  `srcprep.py or-files`). A set with a file missing is "part of <title>: also needs <names>; pick the folder"; a file of a
   recipe's name and size with another hash "looks like <title>, another revision". An upload job only labels them. A licence file next to a font picked as a single file is used only
   when it is picked too (or the folder is chosen).
 - **No proprietary font is distributed**: no proprietary font, bitmap or table is in this repository or in the maker.
   The tests build synthetic inputs; checks on real files run only where an environment variable names your own copy
-  (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, `SVF_MAKER_REAL_86BOX`, ...). A built-in recipe carries the names,
+  (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, `SVF_MAKER_REAL_86BOX`, `SVF_MAKER_REAL_MAME`, ...). A built-in recipe carries the names,
   sizes, hashes and offsets of proprietary files, no byte of them.
 - the maker has no code that makes an outbound connection and sends nothing anywhere (no telemetry, no crash upload, no update check). The tests check that the maker's own modules import no network library and that an in-process socket guard sees no connection to anything but 127.0.0.1; they do not see its tool subprocesses. The one optional
   external piece is the identity check: `SVF_RECOG_DIR` names your own `recog.py`, and the no-network tests do not

@@ -1,0 +1,170 @@
+{
+ "recipe": 1,
+ "id": "mame-quizkofk",
+ "title": {
+  "en": "Quiz King of Fighters (Korea) sprite font (MAME quizkofk)",
+  "ko": "퀴즈 킹 오브 파이터즈 (한국) 스프라이트 글꼴 (MAME quizkofk)"
+ },
+ "notes": "Neo Geo sprite ROMs c1..c4 loaded ROM_LOAD16_BYTE in pairs (16x16, 4 bpp, 128 bytes a tile); a dense KS X 1001 table of 2,350 syllables at sprite 512, each glyph pen 1 with an outline of pen 3 (fg 1: the body); the English digits and letters are full-width JIS glyphs in three runs, OR-ed into one table.",
+ "refs": [
+  "MAME 0.289 src/mame/snk/neogeo.cpp, neogeo_spr.cpp",
+  "archive.org mame-roms-non-merged quizkofk.zip",
+  "docs/recipes.md#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen"
+ ],
+ "files": [
+  {
+   "id": "c1",
+   "name": "vic-080-c1.c1",
+   "size": 2097152,
+   "sha256": "c38131bf4d9bc09da651a7ce4c1f47429acb080aa57db430c64f7913dc5555d4",
+   "sha1": "4ab63dadc6ee0d32b8784c327681376f5fef0df9"
+  },
+  {
+   "id": "c2",
+   "name": "vic-080-c2.c2",
+   "size": 2097152,
+   "sha256": "9f58dae1013e8a2de27a4156810ee49781e4f55b46a63ee81f5a30ef9755817b",
+   "sha1": "0dd845726c640d70804b5fd5854921771e8dbf19"
+  },
+  {
+   "id": "c3",
+   "name": "vic-080-c3.c3",
+   "size": 2097152,
+   "sha256": "e363b76a2cbe6f041884ba52028b9679e89342e1bbf7b34b78a4af485a2e5a83",
+   "sha1": "f588908a693dbbb8362ffbfe5035dd5f867d9697"
+  },
+  {
+   "id": "c4",
+   "name": "vic-080-c4.c4",
+   "size": 2097152,
+   "sha256": "6511d356d9cc13e40f9806e8ed8d8ca0287863bcb54b62c3a1162d0401ec4602",
+   "sha1": "99955ff947e2e586e60c1146c978c70705787917"
+  }
+ ],
+ "regions": [
+  {
+   "id": "spr",
+   "groups": [
+    [
+     "c1",
+     "c2"
+    ],
+    [
+     "c3",
+     "c4"
+    ]
+   ],
+   "unit": 1
+  }
+ ],
+ "items": [
+  {
+   "id": "hangul",
+   "kind": "ks-dense",
+   "region": "spr",
+   "offset": 65536,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "planes=24,8,16,0;x=STEP8(0x40*8+7,-1),STEP8(7,-1);y=STEP16(0,32);inc=1024",
+    "fg": [
+     1
+    ]
+   },
+   "chars": "ks-hangul",
+   "ascent": 14
+  },
+  {
+   "id": "digits",
+   "kind": "english",
+   "region": "spr",
+   "offset": 13824,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "planes=24,8,16,0;x=STEP8(0x40*8+7,-1),STEP8(7,-1);y=STEP16(0,32);inc=1024",
+    "fg": [
+     1
+    ]
+   },
+   "first": 48,
+   "count": 10,
+   "ascent": 14
+  },
+  {
+   "id": "upper",
+   "kind": "english",
+   "region": "spr",
+   "offset": 15104,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "planes=24,8,16,0;x=STEP8(0x40*8+7,-1),STEP8(7,-1);y=STEP16(0,32);inc=1024",
+    "fg": [
+     1
+    ]
+   },
+   "first": 65,
+   "count": 26,
+   "ascent": 14
+  },
+  {
+   "id": "lower",
+   "kind": "english",
+   "region": "spr",
+   "offset": 18432,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "planes=24,8,16,0;x=STEP8(0x40*8+7,-1),STEP8(7,-1);y=STEP16(0,32);inc=1024",
+    "fg": [
+     1
+    ]
+   },
+   "first": 97,
+   "count": 26,
+   "ascent": 14
+  }
+ ],
+ "faces": [
+  {
+   "name": "QUIZKOFK",
+   "kind": "precomposed",
+   "route": "bdfface",
+   "hangul": "hangul",
+   "english": [
+    "digits",
+    "upper",
+    "lower"
+   ]
+  },
+  {
+   "name": "QUIZKOFJ",
+   "kind": "jamo",
+   "route": "bdfface + from-svf fit",
+   "from": "QUIZKOFK",
+   "layout": "844"
+  }
+ ],
+ "expect": {
+  "faces": {
+   "QUIZKOFK": {
+    "bytes": 123640,
+    "glyphs": 2447,
+    "ink": 477
+   },
+   "QUIZKOFJ": {
+    "bytes": 19620,
+    "ink": 494
+   }
+  }
+ }
+}

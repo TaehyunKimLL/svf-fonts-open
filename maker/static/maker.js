@@ -68,7 +68,9 @@ const ROUTES = {
              {"kind": "jamo", "label": "hwp3 844", "native": true, "bpps": [1]},
              {"kind": "jamo", "label": "hwp bdf + from-svf fit", "native": false, "bpps": [1]}],
   "recipe": [{"kind": "precomposed", "label": "bdfface", "native": true, "bpps": [1]},
-             {"kind": "jamo", "label": "bdfface + from-svf fit", "native": false, "bpps": [1]}],
+             {"kind": "jamo", "label": "bdfface + from-svf fit", "native": false, "bpps": [1]},
+             {"kind": "jamo", "label": "spec", "native": true, "bpps": [1]},
+             {"kind": "jamo", "label": "dos raw", "native": true, "bpps": [1]}],
   "mac-fbit3": [{"kind": "jamo", "label": "mac fbit 7.1 direct", "native": true, "bpps": [1]},
                 {"kind": "jamo", "label": "mac fbit 7.1 derived", "native": false, "bpps": [1]},
                 {"kind": "precomposed", "label": "mac fbit 7.1 bdf + mkfont", "native": true, "bpps": [1]}]
@@ -140,7 +142,8 @@ const OPTION_VISIBLE = {
   "hwp1": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
   "hwp3 844": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
   "hwp bdf + mkfont": {"1": ["cell", "ascent", "width", "space_advance"]},
-  "hwp bdf + from-svf fit": {"1": ["jset_version"]}
+  "hwp bdf + from-svf fit": {"1": ["jset_version"]},
+  "spec": {"1": []}
 };
 
 // Mirrors server._make_source_preview: how the page gets a source preview, per source kind. "draw": the server draws
@@ -612,6 +615,7 @@ function offeredRoutes(font) {
     if (entry.label === "mask fit" && !(font.gsub_jamo && font.mask_ok)) continue;   // GSUB jamo and the libraries
     if (entry.label === "johab844" && !(font.dos_bytes === 11520 && ((font.dos || {}).candidates || []).includes("844"))) continue;
     if (entry.label === "hwp3 844" && !(font.hwp || {}).jamo844) continue;   // only an HWP 3.0 HAN16 has its own 8x4x4 set
+    if (kind === "recipe" && !((font.recipe || {}).routes || []).includes(entry.label)) continue;   // the set's own faces
     const bpps = (kind === "svf-precomposed" || kind === "svf-jamo") ? [svfBpp] : entry.bpps.slice();
     if (bpps.some((bpp) => bpp !== 1 && bpp !== 2)) continue;
     out.push({kind: entry.kind, label: entry.label, native: entry.native, bpps});

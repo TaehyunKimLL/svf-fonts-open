@@ -263,7 +263,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 | 클래식 Mac HangulTalk 1.0 폰트 | `fdef`가 있는 포크. `fdef` 없는 raw 1.0 `fbit`는 무엇이 빠졌는지와 함께 목록에 표시된다. |
 | Hanterm Johab 폰트 | 배치 `hanterm-johab`(Johab BDF). |
 | SVF 파일(`.svf`) | 복사되거나(경로가 허용할 때) jamo fit의 소스로 쓰인다. 업로드한 SVF는 자신의 JSET 블록을 유지한다. `svf2ttf` 경로는 SVF를 TTF와/또는 BDF로만 바꾼다("also write TTF" 또는 "BDF"를 체크한다). |
-| 알려진 ROM 세트(로컬 모드) | `maker/recipes/`의 내장 레시피에서 크기와 SHA-256으로 알아보는 글꼴 ROM: 86Box의 한글 VGA 카드 셋, 각각 512 KB KS C 5601 글꼴 ROM과 32 KB VGA BIOS(Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). 두 파일이 든 폴더를 고른다. 글꼴 ROM이 "known: <카드>" 한 행이 되고 BIOS는 그것과 함께 읽힌다고 표시된다. 한 파일만 있으면 행은 "part of <카드>: also needs <파일>; pick the folder"라고 하며 아무것도 제시하지 않는다. 이름과 크기는 맞지만 해시가 다른 파일은 "looks like <카드>, another revision"이며 변환하지 않는다. 페이스는 16 px 완성형 페이스(한글은 ROM에서, 영문은 BIOS의 8x16 글꼴에서)와 experimental인 8x4x4 자모 fit이다([recipes.ko.md](recipes.ko.md)의 "한글 VGA 글꼴 ROM (86Box)"). 업로드 작업은 표시만 한다. |
+| 알려진 ROM 세트(로컬 모드) | `maker/recipes/`의 내장 레시피에서 크기와 SHA-256으로 알아보는 글꼴 ROM: 86Box의 한글 VGA 카드 셋, 각각 512 KB KS C 5601 글꼴 ROM과 32 KB VGA BIOS(Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). 두 파일이 든 폴더를 고른다. 글꼴 ROM이 "known: <카드>" 한 행이 되고 BIOS는 그것과 함께 읽힌다고 표시된다. 한 파일만 있으면 행은 "part of <카드>: also needs <파일>; pick the folder"라고 하며 아무것도 제시하지 않는다. 이름과 크기는 맞지만 해시가 다른 파일은 "looks like <카드>, another revision"이며 변환하지 않는다. 페이스는 16 px 완성형 페이스(한글은 ROM에서, 영문은 BIOS의 8x16 글꼴에서)와 experimental인 8x4x4 자모 fit이다([recipes.ko.md](recipes.ko.md)의 "한글 VGA 글꼴 ROM (86Box)"). MAME 세트 넷도 같은 방식이다(풀어 둔 세트의 폴더를 고른다. zip은 읽지 않는다): 삼성 SPC-1500(`ss150fnt.bin` .. `ss153fnt.bin`: 완성형 페이스와 정확한 자모 세트, 경로 `spec`), Date Quiz Go Go(`uor1` .. `uor4`), X Se Dae Quiz(`obj-1.u0811`, `obj-2.u082`: 자모 세트, 경로 `dos raw`), Quiz King of Fighters(한국판)(`vic-080-c1.c1` .. `c4.c4`)([recipes.ko.md](recipes.ko.md)의 "MAME 세트의 한글 폰트 ROM"). 업로드 작업은 표시만 한다. |
 
 독점 폰트, 비트맵, 표는 앱과 함께 배포되지 않는다. 테스트는 합성 입력을 쓴다.
 
@@ -278,7 +278,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 | 종류 | 경로 |
 |---|---|
 | precomposed | `mkfont`(아웃라인 또는 ISO 10646 비트맵에서 SVF로); `johab844`(DOS raw, 16 px); `bdfface`(KS C 5601 BDF와 Latin 짝, 또는 알려진 ROM 세트에서 잘라 낸 한글과 영문); `mac fbit 7.1 bdf + mkfont`; `copy`(SVF를 그대로); `svf2ttf`(SVF를 TTF / BDF로만) |
-| jamo | `composite`(합성 글리프 아웃라인 폰트); `experimental fit`(아웃라인 폰트, 1 또는 2 bpp, 느림, 품질 제약, experimental); `mask fit`(1 bpp, experimental, `freetype-py`, `uharfbuzz`, OpenType 자모 치환이 있는 마스크 폰트 필요, 9절 참조); `vector fit`(experimental, 폰트당 수 분 소요); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct`(native)와 `derived`(experimental); `bdfface + from-svf fit`과 `from-svf fit`(experimental); `copy`(이미 자모 조각이 있는 SVF); `svf2ttf`(자모 SVF를 TTF / BDF로만) |
+| jamo | `spec`(알려진 세트의 정확한 자모 세트: SPC-1500); `composite`(합성 글리프 아웃라인 폰트); `experimental fit`(아웃라인 폰트, 1 또는 2 bpp, 느림, 품질 제약, experimental); `mask fit`(1 bpp, experimental, `freetype-py`, `uharfbuzz`, OpenType 자모 치환이 있는 마스크 폰트 필요, 9절 참조); `vector fit`(experimental, 폰트당 수 분 소요); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct`(native)와 `derived`(experimental); `bdfface + from-svf fit`과 `from-svf fit`(experimental); `copy`(이미 자모 조각이 있는 SVF); `svf2ttf`(자모 SVF를 TTF / BDF로만) |
 
 프리셋은 이름 붙은 출발점이다. 고급 패널이 프리셋을 덮어쓴다.
 
@@ -475,7 +475,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 - TTF / BDF 내보내기: 각 파일을 다시 읽어(TTF는 fontTools로) 페이스의 문자를 정확히 담았는지 확인한다. 왕복 검사(TTF를
   `mkfont.py`로 다시 구워 비교하는 것, recipes.md)는 실행에 포함되지 않는다. 자모 세트에서는 수 분이 걸린다. 프로그램이 TTF의 2 bpp
   strike를 단계로 그리는지는 그 렌더러에 달렸다(Windows와 macOS는 테스트하지 않음).
-- 알려진 ROM 세트: 실제 86Box 파일과의 대조는 `SVF_MAKER_REAL_86BOX`가 사용자 자신의 사본을 가리킬 때만 한다(모든 페이스가
+- 알려진 ROM 세트: 실제 파일과의 대조는 `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME`이 사용자 자신의 사본을 가리킬 때만 한다(모든 페이스가
   recipes.md에 기록된 크기). 테스트는 OFL 페이스로 그린 합성 ROM을 쓴다.
 - `mask fit` 경로는 작성자의 호스트에서 작업을 한 번도 실행한 적이 없다(그곳에는 라이브러리가 설치되어 있지 않다).
   정체성 검사는 스텁으로만 테스트했다. `vector fit`은 폰트당 수 분이 걸린다.

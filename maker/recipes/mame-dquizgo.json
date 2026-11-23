@@ -1,0 +1,124 @@
+{
+ "recipe": 1,
+ "id": "mame-dquizgo",
+ "title": {
+  "en": "Date Quiz Go Go sprite font (MAME dquizgo)",
+  "ko": "데이트 퀴즈 고고 스프라이트 글꼴 (MAME dquizgo)"
+ },
+ "notes": "Sprite ROMs uor1..uor4 loaded ROM_LOAD16_BYTE in pairs, drawn with tlayout of dataeast/tumbleb.cpp (16x16, 4 planes; ink = pen != 0): a dense KS X 1001 table of 2,350 syllables at sprite 13347, the English font (16 wide) from sprite 0 = the space.",
+ "refs": [
+  "MAME 0.289 src/mame/dataeast/tumbleb.cpp",
+  "archive.org mame-roms-non-merged dquizgo.zip",
+  "docs/recipes.md#date-quiz-go-go-a-2350-syllable-sprite-font"
+ ],
+ "files": [
+  {
+   "id": "uor1",
+   "name": "uor1",
+   "size": 524288,
+   "sha256": "04c99940fc24e7d939ce9664e43aa9e7ad58a4560eeff40a4dd2aa0f5a855a12",
+   "sha1": "ef827adba58470a201f3c1ecc3286d728a753eff"
+  },
+  {
+   "id": "uor2",
+   "name": "uor2",
+   "size": 524288,
+   "sha256": "791e02a8fb9479069b083254d194a4098a0b3c41334983dbb96982450aa3f514",
+   "sha1": "b993df91511ac17d5bf8e688333f2953b87d5be4"
+  },
+  {
+   "id": "uor3",
+   "name": "uor3",
+   "size": 524288,
+   "sha256": "ae51ec0b8018d604db6e6fb5f6043e9e77b86e7164a1e32e8a0e0ac1b11c0aee",
+   "sha1": "6b313462fd8985fae60bc59cd9c99c97ab70fdcc"
+  },
+  {
+   "id": "uor4",
+   "name": "uor4",
+   "size": 524288,
+   "sha256": "93d19e8a143b43224d6707d20efacdc715c4504e057092a168eb07bb4324f0ba",
+   "sha1": "7fc891810591458fd62f3d4b9b4c966662e90403"
+  }
+ ],
+ "regions": [
+  {
+   "id": "spr",
+   "groups": [
+    [
+     "uor1",
+     "uor2"
+    ],
+    [
+     "uor3",
+     "uor4"
+    ]
+   ],
+   "unit": 1
+  }
+ ],
+ "items": [
+  {
+   "id": "hangul",
+   "kind": "ks-dense",
+   "region": "spr",
+   "offset": 854208,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "planes=RGN_FRAC(1,2)+8,RGN_FRAC(1,2)+0,8,0;x=STEP8(16*8*2,1),STEP8(0,1);y=STEP16(0,8*2);inc=64*8"
+   },
+   "chars": "ks-hangul",
+   "ascent": 14
+  },
+  {
+   "id": "ascii",
+   "kind": "english",
+   "region": "spr",
+   "offset": 0,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "planes=RGN_FRAC(1,2)+8,RGN_FRAC(1,2)+0,8,0;x=STEP8(16*8*2,1),STEP8(0,1);y=STEP16(0,8*2);inc=64*8"
+   },
+   "first": 32,
+   "count": 95,
+   "ascent": 14
+  }
+ ],
+ "faces": [
+  {
+   "name": "DQUIZGO",
+   "kind": "precomposed",
+   "route": "bdfface",
+   "hangul": "hangul",
+   "english": "ascii"
+  },
+  {
+   "name": "DQUIZGOJ",
+   "kind": "jamo",
+   "route": "bdfface + from-svf fit",
+   "from": "DQUIZGO",
+   "english": "ascii",
+   "layout": "844"
+  }
+ ],
+ "expect": {
+  "faces": {
+   "DQUIZGO": {
+    "bytes": 115916,
+    "glyphs": 2447,
+    "ink": 573
+   },
+   "DQUIZGOJ": {
+    "bytes": 16864,
+    "glyphs": 441,
+    "ink": 573
+   }
+  }
+ }
+}

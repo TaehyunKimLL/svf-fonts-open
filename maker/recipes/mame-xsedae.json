@@ -1,0 +1,93 @@
+{
+ "recipe": 1,
+ "id": "mame-xsedae",
+ "title": {
+  "en": "X Se Dae Quiz sprite font (MAME xsedae)",
+  "ko": "X세대 퀴즈 스프라이트 글꼴 (MAME xsedae)"
+ },
+ "notes": "obj-1 and obj-2 loaded ROM_LOAD32_WORD, gfx_16x16x4_packed_lsb (seibu/raiden2.cpp), ink = pen != 15: the first 360 sprites are a raw 8x4x4 font (Taebaek GOTHIC16.FNT byte for byte), the 16-wide English font follows from '!'.",
+ "refs": [
+  "MAME 0.289 src/mame/seibu/raiden2.cpp",
+  "archive.org mame-roms-non-merged xsedae.zip",
+  "docs/recipes.md#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check"
+ ],
+ "files": [
+  {
+   "id": "obj1",
+   "name": "obj-1.u0811",
+   "size": 2097152,
+   "sha256": "776d4673d3c0af377d6f6c2a4a98758aff4885ecde6942257fa232f12ed9bd25",
+   "sha1": "d9713c79eacb4b3ce5e82dd3ce39003e3a433d8f"
+  },
+  {
+   "id": "obj2",
+   "name": "obj-2.u082",
+   "size": 2097152,
+   "sha256": "579a14990db69dce30973b40de4b75d7e2061ef64ec7da61e59c607a62325808",
+   "sha1": "899a76a1b3f933c6f5cb6b5dcdf5b58e1b7e49c6"
+  }
+ ],
+ "regions": [
+  {
+   "id": "obj",
+   "groups": [
+    [
+     "obj1",
+     "obj2"
+    ]
+   ],
+   "unit": 2
+  }
+ ],
+ "items": [
+  {
+   "id": "raw",
+   "kind": "raw-set",
+   "region": "obj",
+   "offset": 0,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "16x16x4_packed_lsb",
+    "bg": 15
+   },
+   "layout": "844",
+   "length": 11520
+  },
+  {
+   "id": "ascii",
+   "kind": "english",
+   "region": "obj",
+   "offset": 46080,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "gfx": "16x16x4_packed_lsb",
+    "bg": 15
+   },
+   "first": 33
+  }
+ ],
+ "faces": [
+  {
+   "name": "XSEDA16J",
+   "kind": "jamo",
+   "route": "dos raw",
+   "hangul": "raw",
+   "english": "ascii"
+  }
+ ],
+ "expect": {
+  "faces": {
+   "XSEDA16J": {
+    "bytes": 15780,
+    "glyphs": 439,
+    "ink": 617
+   }
+  }
+ }
+}

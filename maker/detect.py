@@ -1928,7 +1928,9 @@ def _recipe_entries(entries, keys, abs_of, refusal, local, with_root):
             h = recipe.item_height(rec)
             relabel(host, "known: %s" % title, source_kind="recipe", family=title, sizes=[h], sizes_fixed=True)
             first[host]["recipe"] = {"id": rec["id"],
-                                     "files": {fid_: [key[0], key[1]] for fid_, key in found["bound"].items()}}
+                                     "files": {fid_: [key[0], key[1]] for fid_, key in found["bound"].items()},
+                                     # the route labels its faces use (the page's offeredRoutes filters by them)
+                                     "routes": [face["route"] for face in recipe.offered_faces(rec)]}
         elif found["state"] == "part":
             for fid_, key in found["bound"].items():
                 relabel(key, "part of %s: also needs %s; pick the folder" % (title, ", ".join(found["missing"])))

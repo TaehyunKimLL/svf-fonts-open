@@ -74,13 +74,16 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   `ks-grid` / `english` 항목, `bdfface` 페이스, `expect`만. 그 밖의 것은 이름을 들어 거부한다)는 파일을 내용이 아니라 크기와
   SHA-256으로 지정한다. 레시피가 이름 붙인 크기의 파일만 해시를 구하며, 완전한 세트는 `recipe` 항목 하나("known: <제목>", 파일들이
   함께 고정됨)가 되고 그 경로는 레시피의 명령(각 항목의 `rawcarve.py bdf`, `bdfface.py`, `jamoset.py --from-svf` fit)을 실행한다.
-  현재: 86Box 한글 VGA ROM 쌍 셋(recipes.ko.md "한글 VGA 글꼴 ROM (86Box)"). 파일이 빠진 세트는 "part of <제목>: also needs
+  현재: 86Box 한글 VGA ROM 쌍 셋(recipes.ko.md "한글 VGA 글꼴 ROM (86Box)")과 MAME 세트 넷, SPC-1500(정확한 자모 세트, 경로 `spec`),
+  Date Quiz Go Go, X Se Dae Quiz(경로 `dos raw`), Quiz King of Fighters(한국판)(recipes.ko.md "MAME 세트의 한글 폰트 ROM". 영역, 타일
+  배치, 펜도 레시피 데이터이며, 스키마 9.4를 넘는 확장 하나: 페이스의 `english`는 여러 항목을 나열할 수 있고 `srcprep.py or-files`로
+  OR한다). 파일이 빠진 세트는 "part of <제목>: also needs
   <이름>; pick the folder", 레시피의 이름과 크기이지만 해시가 다른 파일은 "looks like <제목>, another revision"이다. 업로드
   작업은 표시만 한다. 단일 파일로 고른 폰트 옆의 라이선스 파일은
   그것도 함께 골랐을 때(또는 폴더를 골랐을 때)만 사용한다.
 - **독점 폰트는 배포하지 않는다**: 독점 폰트, 비트맵, 테이블은 이 저장소와 maker 어디에도 없다.
   테스트는 합성 입력을 만들며, 실제 파일에 대한 검사는 환경 변수가 사용자 본인의 사본을 가리킬 때만 실행된다
-  (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, `SVF_MAKER_REAL_86BOX`, ...). 내장 레시피는 독점 파일의 이름, 크기,
+  (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, `SVF_MAKER_REAL_86BOX`, `SVF_MAKER_REAL_MAME`, ...). 내장 레시피는 독점 파일의 이름, 크기,
   해시, 오프셋을 담을 뿐 그 바이트는 담지 않는다.
 - maker에는 외부로 연결하는 코드가 없고 어디로도 아무것도 보내지 않는다(텔레메트리, 충돌 업로드, 업데이트 확인 없음). 테스트는 maker 자신의 모듈이 네트워크 라이브러리를 임포트하지 않는지, 그리고 프로세스 내 소켓 감시자가 127.0.0.1 외의 어떤 연결도 보지 못하는지를 검사하지만, 그 도구 하위 프로세스는 보지 못한다. 유일한 선택적
   외부 구성 요소는 정체성 검사이다. `SVF_RECOG_DIR`이 사용자 본인의 `recog.py`를 가리키며, 네트워크 없음 테스트는

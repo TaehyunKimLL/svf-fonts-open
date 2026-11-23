@@ -396,41 +396,35 @@ def _from_svf_commands(font, size, bpp, layout, range_spec, paths, extra):
 
 
 def _recipe_commands(rec, face_name):
-    """The commands of a known set's face (`recipe.face_commands`): its items carved with `rawcarve.py bdf`, then
-    `bdfface.py`, and for a jamo face the fit `jamoset.py --from-svf` at the step's layout. The panel's flags land on the
-    last commands as for the `bdfface` routes."""
+    """The commands of a known set's face (`recipe.face_commands`): its regions and items carved with `rawcarve.py`, then
+    its route (`bdfface.py`, a `jamoset.py --from-svf` fit at the step's layout, `jamoset.py --layout spec` or a raw
+    layout). The panel's flags land on the last commands as for the routes of the same labels."""
     def commands(font, size, bpp, layout, range_spec, paths, extra):
         files = paths.get("recipe_files") or {}
         chars = range_spec[1] if range_spec[0] == "file" else paths.get("range_file")
         if not chars:
             raise ValueError("bdfface needs a range file")
-        rec_now = rec
         face = next(f for f in rec["faces"] if f["name"] == face_name)
-        if face["kind"] == "jamo" and layout:                   # the page's layout replaces the recipe's default
-            rec_now = dict(rec, faces=[dict(f, layout=layout) if f is face else f for f in rec["faces"]])
-        argvs = recipe.face_commands(rec_now, face_name, files, paths, chars, paths["tools"])
+        fit_layout = layout if face["route"] == "bdfface + from-svf fit" and layout else None
+        argvs = recipe.face_commands(rec, face_name, files, paths, chars, paths["tools"], layout=fit_layout)
         return _with_extra(argvs, extra)
     return commands
 
 
 def recipe_routes(font):
-    """The routes of a `recipe` entry (a known set): one per face of its recipe, the first face of each kind. A
-    precomposed face is native; a jamo face is a fit (experimental), scored against the precomposed face it reads."""
+    """The routes of a `recipe` entry (a known set): one per offered face of its recipe (the first of each kind), each
+    labelled with the face's route. A fit (`bdfface + from-svf fit`) is experimental and scored against the face it
+    reads; `bdfface`, `spec` and `dos raw` are native (`spec` and `dos raw` take the set's own layout)."""
     rec = recipe.get((font.get("recipe") or {}).get("id"))
     if rec is None:
         return []
     h = recipe.item_height(rec)
-    out, seen = [], set()
-    for face in rec["faces"]:
-        if face["kind"] in seen:
-            continue
-        seen.add(face["kind"])
-        if face["kind"] == "precomposed":
-            out.append(Route("precomposed", face["route"], True, [], [1], [h], None, None,
-                             _recipe_commands(rec, face["name"])))
-        else:
-            out.append(Route("jamo", face["route"], False, list(recipe.FIT_LAYOUTS), [1], [h], REFERENCE_STEP_SVF,
-                             None, _recipe_commands(rec, face["name"])))
+    out = []
+    for face in recipe.offered_faces(rec):
+        fit = face["route"] == "bdfface + from-svf fit"
+        out.append(Route(face["kind"], face["route"], recipe.NATIVE[face["route"]],
+                         list(recipe.FIT_LAYOUTS) if fit else [], [1], [h], REFERENCE_STEP_SVF if fit else None,
+                         None, _recipe_commands(rec, face["name"])))
     return out
 
 

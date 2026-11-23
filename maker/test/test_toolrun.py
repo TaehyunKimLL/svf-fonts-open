@@ -23,6 +23,7 @@ from unittest import mock
 
 import jobs
 import preview
+import recipe
 import routes
 import settings
 import toolrun
@@ -30,7 +31,8 @@ import toolrun
 PATHS = {"tools": "/T", "src": "/u/in.ttf", "out": "/w/OUT.SVF", "work": "/w", "eng": None, "latin": None,
          "master": "/w/master.json", "range_file": "/w/range-2350.txt", "base": "/R/svf/dos/NEODG16.SVF",
          "htbl": "/w/htbl.htbl1", "pylib": None,
-         "recipe_files": {"font": "/u/font.rom", "bios": "/u/bios.bin"}}   # a known set (86Box)
+         "recipe_files": {f["id"]: "/u/%s" % f["name"] for rec in recipe.library().values()
+                          for f in rec["files"]}}   # every file of the built-in known sets
 PATHS_ALT = dict(PATHS, eng="/u/eng.fnt", latin="/u/latin.bdf", pylib="/lib")
 
 

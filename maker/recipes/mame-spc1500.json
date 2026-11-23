@@ -1,0 +1,125 @@
+{
+ "recipe": 1,
+ "id": "mame-spc1500",
+ "title": {
+  "en": "Samsung SPC-1500 Hangul font ROMs (MAME spc1500)",
+  "ko": "삼성 SPC-1500 한글 글꼴 ROM (MAME spc1500)"
+ },
+ "notes": "Four 8 KB ROMs loaded one after another as the 32 KB region font1: English 8x16 at 0x1000, then the initial, medial and final piece sets, ink the 0 bits; MAME's crtc_update_row ANDs three pieces (rawcarve.py's built-in spec spc1500), so the jamo set is exact.",
+ "refs": [
+  "MAME 0.289 src/mame/samsung/spc1500.cpp",
+  "archive.org mame-roms-non-merged spc1500.zip",
+  "docs/recipes.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact"
+ ],
+ "files": [
+  {
+   "id": "fnt0",
+   "name": "ss150fnt.bin",
+   "size": 8192,
+   "sha256": "ff02f30759e9d659f6401bf33b30cef60999b5f0ec494a9d00704c86ebc755ba",
+   "sha1": "2a93582fcccf9e40b99ae238ce585d189afe9a5a"
+  },
+  {
+   "id": "fnt1",
+   "name": "ss151fnt.bin",
+   "size": 8192,
+   "sha256": "61da3df619a733a085d6e4935fd78934b06e0efc1674433ef9c4feae88665888",
+   "sha1": "2adf7816206dc74b9f0d32cb3b56cbab31fa6044"
+  },
+  {
+   "id": "fnt2",
+   "name": "ss152fnt.bin",
+   "size": 8192,
+   "sha256": "a4382b11315f7a5b43ac1cb234bcf19a79a5126d44534fc7dc3b069d6e709f15",
+   "sha1": "c9a02756107083bf602ae7c90cfe29b8b964e0df"
+  },
+  {
+   "id": "fnt3",
+   "name": "ss153fnt.bin",
+   "size": 8192,
+   "sha256": "04eb63e4f6eff0ac0447b3bcda77c6d1e7e2b2fa1d199d43e3636aae9213ef5d",
+   "sha1": "34bfacc855c3846744cd586c150c72e5cbe948b0"
+  }
+ ],
+ "regions": [
+  {
+   "id": "font1",
+   "groups": [
+    [
+     "fnt0"
+    ],
+    [
+     "fnt1"
+    ],
+    [
+     "fnt2"
+    ],
+    [
+     "fnt3"
+    ]
+   ]
+  }
+ ],
+ "items": [
+  {
+   "id": "hangul",
+   "kind": "compose",
+   "region": "font1",
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ]
+   },
+   "spec": {
+    "builtin": "spc1500"
+   },
+   "ascent": 14,
+   "decided": "driver code"
+  },
+  {
+   "id": "ascii",
+   "kind": "english",
+   "region": "font1",
+   "offset": 4096,
+   "reading": {
+    "glyph": [
+     8,
+     16
+    ],
+    "invert": true
+   },
+   "ascent": 14
+  }
+ ],
+ "faces": [
+  {
+   "name": "SPC1500",
+   "kind": "precomposed",
+   "route": "bdfface",
+   "hangul": "hangul",
+   "english": "ascii"
+  },
+  {
+   "name": "SPC1500J",
+   "kind": "jamo",
+   "route": "spec",
+   "hangul": "hangul",
+   "english": "ascii"
+  }
+ ],
+ "expect": {
+  "faces": {
+   "SPC1500": {
+    "bytes": 122636,
+    "glyphs": 2447,
+    "ink": 470
+   },
+   "SPC1500J": {
+    "bytes": 10652,
+    "glyphs": 305,
+    "ink": 470
+   }
+  }
+ }
+}

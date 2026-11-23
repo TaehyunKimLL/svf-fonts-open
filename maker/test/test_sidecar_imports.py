@@ -35,6 +35,7 @@ FILE_USES = {   # every __file__ use in a reachable module, with why it is right
     ("jamoset", "_jamofit"): "sys.path entry before a local import; frozen the module is bundled",
     ("jamoset", "check"): "sys.path entry before `import johab844`; frozen the module is bundled",
     ("jamoset", "_hwpfont"): "sys.path entry before a local import; frozen the module is bundled",
+    ("jamoset", "_rawcarve"): "sys.path entry before a local import (--layout spec); frozen the module is bundled",
     ("hwpfont", "HERE"): "SP",
     ("rawcarve", "HERE"): "SP",
     ("svf2ttf", "HERE"): "SP",

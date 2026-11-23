@@ -279,7 +279,7 @@ tests assert, not something the app checks.)
 | Classic Mac HangulTalk 1.0 fonts | The fork with its `fdef`; a raw 1.0 `fbit` without `fdef` is listed with what is missing. |
 | Hanterm Johab fonts | Layout `hanterm-johab` (a Johab BDF). |
 | SVF files (`.svf`) | Copied (when allowed by the route) or used as the source for a jamo fit; an SVF upload keeps its own JSET block. The `svf2ttf` route turns the SVF into a TTF and / or a BDF only (tick "also write TTF" or "BDF"). |
-| Known ROM sets (local mode) | Font ROMs recognised by their size and SHA-256 from the built-in recipes of `maker/recipes/`: the three 86Box Korean VGA cards, each a 512 KB KS C 5601 font ROM with its 32 KB VGA BIOS (Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). Pick the folder that holds both files: the font ROM is one row, "known: <card>", and the BIOS is labelled as read with it. With one file only the row says "part of <card>: also needs <file>; pick the folder" and offers nothing; a file with the right name and size but another hash is "looks like <card>, another revision" and is not converted. The faces are a 16 px precomposed face (Hangul from the ROM, English from the BIOS's 8x16 font) and, experimental, its 8x4x4 jamo fit ([recipes.md](recipes.md#korean-vga-font-roms-86box)). An upload job only labels them. |
+| Known ROM sets (local mode) | Font ROMs recognised by their size and SHA-256 from the built-in recipes of `maker/recipes/`: the three 86Box Korean VGA cards, each a 512 KB KS C 5601 font ROM with its 32 KB VGA BIOS (Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). Pick the folder that holds both files: the font ROM is one row, "known: <card>", and the BIOS is labelled as read with it. With one file only the row says "part of <card>: also needs <file>; pick the folder" and offers nothing; a file with the right name and size but another hash is "looks like <card>, another revision" and is not converted. The faces are a 16 px precomposed face (Hangul from the ROM, English from the BIOS's 8x16 font) and, experimental, its 8x4x4 jamo fit ([recipes.md](recipes.md#korean-vga-font-roms-86box)). Four MAME sets the same way (pick the unpacked set's folder; a zip is not read): Samsung SPC-1500 (`ss150fnt.bin` .. `ss153fnt.bin`: a precomposed face and an exact jamo set, route `spec`), Date Quiz Go Go (`uor1` .. `uor4`), X Se Dae Quiz (`obj-1.u0811`, `obj-2.u082`: a jamo set, route `dos raw`) and Quiz King of Fighters (Korea) (`vic-080-c1.c1` .. `c4.c4`) ([recipes.md](recipes.md#korean-font-roms-in-mame-sets)). An upload job only labels them. |
 
 No proprietary font, bitmap or table is distributed with the app. The tests use synthetic inputs.
 
@@ -294,7 +294,7 @@ routes marked (experimental) are usable only when the font's **experimental** bo
 | Kind | Routes |
 |---|---|
 | precomposed | `mkfont` (outline or ISO 10646 bitmap to SVF); `johab844` (DOS raw, 16 px); `bdfface` (KS C 5601 BDF plus a Latin companion, or a known ROM set's carved Hangul and English); `mac fbit 7.1 bdf + mkfont`; `copy` (an SVF as is); `svf2ttf` (an SVF written as its TTF / BDF only) |
-| jamo | `composite` (a composite-glyph outline font); `experimental fit` (outline fonts; 1 or 2 bpp, slow, quality-bound; experimental); `mask fit` (1 bpp, experimental; needs `freetype-py`, `uharfbuzz` and a mask font with OpenType jamo substitution, see section 9); `vector fit` (experimental; takes minutes per font); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct` (native) and `derived` (experimental); `bdfface + from-svf fit` and `from-svf fit` (experimental); `copy` (an SVF that already has jamo pieces); `svf2ttf` (a jamo SVF written as its TTF / BDF only) |
+| jamo | `spec` (a known set's exact jamo set: SPC-1500); `composite` (a composite-glyph outline font); `experimental fit` (outline fonts; 1 or 2 bpp, slow, quality-bound; experimental); `mask fit` (1 bpp, experimental; needs `freetype-py`, `uharfbuzz` and a mask font with OpenType jamo substitution, see section 9); `vector fit` (experimental; takes minutes per font); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct` (native) and `derived` (experimental); `bdfface + from-svf fit` and `from-svf fit` (experimental); `copy` (an SVF that already has jamo pieces); `svf2ttf` (a jamo SVF written as its TTF / BDF only) |
 
 Presets are named starting points. The advanced panel overrides them.
 
@@ -498,8 +498,8 @@ The faces already written in your output folders are yours and stay.
 - TTF / BDF export: each file is read back (fontTools for a TTF) and must hold exactly the face's characters; the
   round trip (baking the TTF back with `mkfont.py` and comparing, recipes.md) is not part of a run, it takes minutes for a
   jamo set. Whether a program draws a TTF's 2 bpp strike as levels is up to its renderer (Windows and macOS not tested).
-- Known ROM sets: checked against the real 86Box files only where `SVF_MAKER_REAL_86BOX` names your own copy (every face
-  the size recipes.md records); the tests use synthetic ROMs drawn from an OFL face.
+- Known ROM sets: checked against the real files only where `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME` names your own
+  copy (every face the size recipes.md records); the tests use synthetic ROMs drawn from an OFL face.
 - The `mask fit` route has never run a job on the author's host (the libraries are not installed there); the identity
   check has only been tested with a stub; `vector fit` takes minutes per font.
 - Not verified, pending manual checks on a real desktop: native dialogs with a display, the file manager integration,

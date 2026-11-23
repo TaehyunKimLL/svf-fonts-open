@@ -3,7 +3,8 @@
 untrusted input), detection by size then SHA-256 (known / part of a set / similar), the planner's commands, and a local
 job that converts a synthetic 86Box Korean VGA ROM pair. No ROM byte is in the repository: the synthetic ROMs are
 built from the OFL face svf/dos/NEODG16.SVF at the documented layout, and the real files are read only when
-SVF_MAKER_REAL_86BOX names a folder holding them (hashes compared, nothing copied).
+SVF_MAKER_REAL_86BOX (the 86Box ROMs) or SVF_MAKER_REAL_MAME (MAME sets unpacked as <set>/<file>) names a folder
+holding them (hashes compared, nothing copied).
 
   python3 -m unittest discover -s maker/test -p 'test_recipe.py'
 """
@@ -88,13 +89,24 @@ def library_for(rom, bios):
 class LibraryTest(unittest.TestCase):
     def test_builtin_recipes(self):
         lib = recipe.library()
-        self.assertEqual(sorted(lib), ["86box-atikorvga", "86box-kasan16", "86box-tgkorvga"])
+        self.assertEqual(sorted(lib), ["86box-atikorvga", "86box-kasan16", "86box-tgkorvga", "mame-dquizgo",
+                                       "mame-quizkofk", "mame-spc1500", "mame-xsedae"])
         for rec in lib.values():
             recipe.check_fit(rec)
+            self.assertTrue(all("sha256" in f for f in rec["files"]))
+            self.assertEqual(sorted(rec["expect"]["faces"]), sorted(f["name"] for f in rec["faces"]))
+        self.assertEqual([(r["id"], [(f["name"], f["route"]) for f in recipe.offered_faces(r)]) for r in lib.values()
+                          if r["id"].startswith("mame-")],
+                         [("mame-dquizgo", [("DQUIZGO", "bdfface"), ("DQUIZGOJ", "bdfface + from-svf fit")]),
+                          ("mame-quizkofk", [("QUIZKOFK", "bdfface"), ("QUIZKOFJ", "bdfface + from-svf fit")]),
+                          ("mame-spc1500", [("SPC1500", "bdfface"), ("SPC1500J", "spec")]),
+                          ("mame-xsedae", [("XSEDA16J", "dos raw")])])
+        self.assertEqual(recipe.host_file(lib["mame-spc1500"]), "fnt0")
+        for rec in (lib[k] for k in lib if k.startswith("86box-")):
             self.assertEqual([(f["size"], f.get("optional", False)) for f in rec["files"]], [(524288, False), (32768, False)])
             self.assertEqual(recipe.host_file(rec), "font")
             self.assertEqual(recipe.item_height(rec), 16)
-        self.assertEqual(recipe.sizes(), {524288, 32768})
+        self.assertEqual(recipe.sizes(), {524288, 32768, 8192, 2097152})
         self.assertEqual([(i["offset"]) for i in lib[TG]["items"]], [0, 0x4a2d])
         self.assertEqual(lib["86box-kasan16"]["items"][1]["offset"], 0x499a)
         self.assertEqual(lib["86box-atikorvga"]["items"][1]["offset"], 0x4d59)
@@ -110,13 +122,55 @@ class LibraryTest(unittest.TestCase):
             ["bdf", "/u/tg_ksc5601.rom", "--glyph", "16x16", "--order", "strips", "--chars", "ks-hangul",
              "--grid", "0x80,0x80,128", "--ascent", "12", "-o", "/w/recipe-hangul.bdf"],
             ["bdf", "/u/tgkorvga.bin", "--offset", "0x4a2d", "--glyph", "8x16", "--chars", "ascii", "--ascent", "12",
-             "-o", "/w/recipe-english.bdf"],
-            ["--hangul", "/w/recipe-hangul.bdf", "--ascii", "/w/recipe-english.bdf", "--cell", "16x16",
+             "-o", "/w/recipe-ascii.bdf"],
+            ["--hangul", "/w/recipe-hangul.bdf", "--ascii", "/w/recipe-ascii.bdf", "--cell", "16x16",
              "--chars-from", "/w/ks.txt", "-o", "/w/TGVGA16.SVF"]])
         jamo = recipe.face_commands(rec, "TGVGA16J", files, dict(paths, out="/w/TGVGA16J.SVF"), "/w/ks.txt", "/T")
         self.assertEqual(jamo[2][-1], "/w/precomposed.svf")
         self.assertEqual(toolrun.split_prefix(jamo[3])[1], ["--layout", "844", "--from-svf", "/w/precomposed.svf",
                                                             "--mask-font", "none", "--check", "-o", "/w/TGVGA16J.SVF"])
+
+    def test_planner_gives_the_mame_recipe_commands(self):
+        """docs/recipes.md "Korean font ROMs in MAME sets", token for token (paths and hex spellings aside)."""
+        lib = recipe.library()
+        rest = lambda argvs: [toolrun.split_prefix(a)[1] for a in argvs]
+        spc = {f["id"]: "/u/" + f["name"] for f in lib["mame-spc1500"]["files"]}
+        p = {"work": "/w", "out": "/w/SPC1500J.SVF"}
+        self.assertEqual(rest(recipe.face_commands(lib["mame-spc1500"], "SPC1500J", spc, p, "/w/ks.txt", "/T")), [
+            ["region", "/u/ss150fnt.bin", "/u/ss151fnt.bin", "/u/ss152fnt.bin", "/u/ss153fnt.bin",
+             "-o", "/w/recipe-region-font1.bin"],
+            ["eng", "/w/recipe-region-font1.bin", "--offset", "0x1000", "--invert", "-o", "/w/recipe-ascii-eng.bin"],
+            ["--layout", "spec", "--spec", "spc1500", "/w/recipe-region-font1.bin", "--eng", "/w/recipe-ascii-eng.bin",
+             "--check", "-o", "/w/SPC1500J.SVF"]])
+        self.assertEqual(rest(recipe.face_commands(lib["mame-spc1500"], "SPC1500", spc, dict(p, out="/w/S.SVF"),
+                                                   "/w/ks.txt", "/T"))[1:3], [
+            ["compose", "/w/recipe-region-font1.bin", "--spec", "spc1500", "--ascent", "14", "-o", "/w/recipe-hangul.bdf"],
+            ["bdf", "/w/recipe-region-font1.bin", "--offset", "0x1000", "--glyph", "8x16", "--invert", "--chars", "ascii",
+             "--ascent", "14", "-o", "/w/recipe-ascii.bdf"]])
+        xs = {f["id"]: "/u/" + f["name"] for f in lib["mame-xsedae"]["files"]}
+        self.assertEqual(rest(recipe.face_commands(lib["mame-xsedae"], "XSEDA16J", xs, dict(p, out="/w/X.SVF"),
+                                                   "/w/ks.txt", "/T")), [
+            ["region", "/u/obj-1.u0811,/u/obj-2.u082", "--unit", "2", "-o", "/w/recipe-region-obj.bin"],
+            ["ink", "/w/recipe-region-obj.bin", "--count", "360", "--gfx", "16x16x4_packed_lsb", "--bg", "15",
+             "-o", "/w/recipe-raw-ink.bin"],
+            ["cut", "/w/recipe-raw-ink.bin", "--offset", "0x0", "--length", "11520", "-o", "/w/recipe-raw.fnt"],
+            ["ink", "/w/recipe-region-obj.bin", "--offset", "0xb400", "--count", "223", "--gfx", "16x16x4_packed_lsb",
+             "--bg", "15", "-o", "/w/recipe-ascii-ink.bin"],
+            ["eng", "/w/recipe-ascii-ink.bin", "--offset", "0x0", "--width", "16", "--first", "0x21",
+             "-o", "/w/recipe-ascii-eng.bin"],
+            ["--layout", "844", "/w/recipe-raw.fnt", "--eng", "/w/recipe-ascii-eng.bin", "--check", "-o", "/w/X.SVF"]])
+        qk = {f["id"]: "/u/" + f["name"] for f in lib["mame-quizkofk"]["files"]}
+        cmds = rest(recipe.face_commands(lib["mame-quizkofk"], "QUIZKOFK", qk, dict(p, out="/w/Q.SVF"), "/w/ks.txt", "/T"))
+        self.assertEqual(cmds[-3:], [
+            ["or-files", "/w/recipe-english-merged.bin", "/w/recipe-digits-eng.bin", "/w/recipe-upper-eng.bin",
+             "/w/recipe-lower-eng.bin"],
+            ["bdf", "/w/recipe-english-merged.bin", "--glyph", "16x16", "--chars", "ascii", "--ascent", "14",
+             "-o", "/w/recipe-english.bdf"],
+            ["--hangul", "/w/recipe-hangul.bdf", "--ascii", "/w/recipe-english.bdf", "--cell", "16x16",
+             "--chars-from", "/w/ks.txt", "-o", "/w/Q.SVF"]])
+        self.assertEqual(toolrun.prefix_name(toolrun.split_prefix(
+            recipe.face_commands(lib["mame-quizkofk"], "QUIZKOFK", qk, dict(p, out="/w/Q.SVF"), "/w/ks.txt", "/T")[-3])[0]),
+            "srcprep")
 
     def test_routes_and_names_of_a_known_entry(self):
         font = {"id": "f01", "path": "tg_ksc5601.rom", "source_kind": "recipe", "sizes": [16], "sizes_fixed": True,
@@ -141,11 +195,23 @@ class ValidateTest(unittest.TestCase):
         r = self.base(); r["recipe"] = 2; self.refused(r, "version 2 is not 1")
         r = self.base(); r["recipe"] = True; self.refused(r, "is not 1")
         r = self.base(); r["colour"] = 1; self.refused(r, "unknown key colour")
-        r = self.base(); r["regions"] = []; self.refused(r, "not supported yet: regions")
-        r = self.base(); r["items"][0]["kind"] = "raw-set"; self.refused(r, "not supported yet: kind raw-set")
-        r = self.base(); r["items"][0]["reading"]["gfx"] = "x"; self.refused(r, "not supported yet: gfx")
-        r = self.base(); r["items"][0]["reading"]["invert"] = True; self.refused(r, "not supported yet: invert")
+        r = self.base(); r["regions"] = [{"id": "font", "groups": [["bios"]]}]; self.refused(r, "also a file or region id")
+        r = self.base(); r["regions"] = [{"id": "r", "groups": [["font", "bios"]]}]; self.refused(r, "of one size")
+        r = self.base(); r["regions"] = [{"id": "r", "groups": [["nope"]]}]; self.refused(r, "1..8 file ids")
+        r = self.base(); r["regions"] = [{"id": "r", "groups": [["bios"]], "unit": 3}]; self.refused(r, "1, 2 or 4")
+        r = self.base(); r["items"][0]["kind"] = "raw-set"; self.refused(r, "unknown key chars")
+        r = self.base(); r["items"][0]["reading"]["gfx"] = "x"; self.refused(r, "order and gfx")
+        r = self.base(); del r["items"][0]["reading"]["order"]; r["items"][0]["reading"]["gfx"] = "planes=0"
+        self.refused(r, "item hangul.reading.gfx:")
+        r = self.base(); del r["items"][0]["reading"]["order"]; r["items"][0]["reading"]["gfx"] = "8x8x1_packed_lsb"
+        self.refused(r, "is not the gfx tile's 8x8")
+        r = self.base(); r["items"][0]["reading"]["bg"] = 1; self.refused(r, "bg / fg only with gfx")
         r = self.base(); r["items"][1]["top"] = 2; self.refused(r, "not supported yet: top")
+        r = self.base(); r["items"][0] = {"id": "hangul", "kind": "compose", "region": "font", "reading": {"glyph": [16, 16]},
+                                          "spec": {"sets": {}}}
+        self.refused(r, "not supported yet: spec other than")
+        r = self.base(); r["faces"][1]["english"] = ["hangul"]; self.refused(r, "an item of kind english")
+        r = self.base(); r["faces"][0]["route"] = "spec"; self.refused(r, "route spec makes")
         r = self.base(); r["files"][0]["sha256"] = "AB" * 32; self.refused(r, "64 lower-case hex")
         r = self.base(); r["files"][0]["sha1"] = "0" * 39; self.refused(r, "40 lower-case hex")
         r = self.base(); r["files"][0]["name"] = "a/b.rom"; self.refused(r, "a base name")
@@ -153,8 +219,10 @@ class ValidateTest(unittest.TestCase):
         r = self.base(); r["id"] = "Bad"; self.refused(r, "an id")
         r = self.base(); r["faces"][0]["name"] = "TGVGA16.SVF"; self.refused(r, "[A-Z0-9]{1,8}")
         r = self.base(); r["faces"][1]["from"] = "NOPE"; self.refused(r, "an earlier precomposed face")
-        r = self.base(); r["faces"][0]["route"] = "dos raw"; self.refused(r, "not supported yet: route dos raw")
-        r = self.base(); r["items"][0]["region"] = "rom"; self.refused(r, "not a file of the recipe")
+        r = self.base(); r["faces"][0]["route"] = "mkfont"; self.refused(r, "not supported yet: route mkfont")
+        r = self.base(); r["faces"][1]["route"] = "dos raw"; r["faces"][1].pop("from"); r["faces"][1].pop("layout")
+        r["faces"][1]["hangul"] = "hangul"; self.refused(r, "an item of kind raw-set")
+        r = self.base(); r["items"][0]["region"] = "rom"; self.refused(r, "not a file or region of the recipe")
         r = self.base(); r["items"][0]["grid"] = [128, 128, 0]; self.refused(r, "1..256")
         r = self.base(); r["items"][1]["count"] = 300; self.refused(r, "count")
         r = self.base(); r["expect"]["faces"]["NOPE"] = {}; self.refused(r, "NOPE is not one")
@@ -239,7 +307,8 @@ class RecipeLocalJobTest(LocalBase):
             other = next(f for f in job["fonts"] if f["path"] == "tgkorvga.bin")
             self.assertEqual((host["source_kind"], host["label"], host["recipe"]),
                              ("recipe", "known: Trigem Korean VGA font ROM (ET4000)",
-                              {"id": TG, "files": {"font": [0, "tg_ksc5601.rom"], "bios": [0, "tgkorvga.bin"]}}))
+                              {"id": TG, "files": {"font": [0, "tg_ksc5601.rom"], "bios": [0, "tgkorvga.bin"]},
+                               "routes": ["bdfface", "bdfface + from-svf fit"]}))
             self.assertEqual(other["label"], "known: Trigem Korean VGA font ROM (ET4000): tgkorvga.bin, read with tg_ksc5601.rom")
             self.assertNotIn(other["id"], job["settings"]["fonts"])
             st = job["settings"]
@@ -265,32 +334,46 @@ class RecipeLocalJobTest(LocalBase):
         self.assertEqual(sorted(walk_rel(self.out, skip_prefix=".svf-maker-")), files)
 
 
+def _real_faces(test, roots, want_ids):
+    paths = []
+    for root in roots:
+        for folder, _dirs, names in os.walk(root):
+            paths += [os.path.join(folder, n) for n in names]
+    found = [m for m in recipe.match([((0, p), p, os.path.getsize(p)) for p in paths]) if m["recipe"]["id"] in want_ids]
+    test.assertEqual(sorted((m["recipe"]["id"], m["state"]) for m in found), [(i, "known") for i in sorted(want_ids)])
+    tmp = tempfile.mkdtemp(prefix="svf-real-roms-", dir=os.environ.get("TMPDIR"))
+    test.addCleanup(shutil.rmtree, tmp, True)
+    settings.write_range_files(tmp)
+    for m in found:
+        rec = m["recipe"]
+        files = {fid: key[1] for fid, key in m["bound"].items()}
+        for face in rec["faces"]:
+            work = os.path.join(tmp, rec["id"], face["name"])
+            os.makedirs(work)
+            out = os.path.join(work, face["name"] + ".SVF")
+            for argv in recipe.face_commands(rec, face["name"], files, {"work": work, "out": out},
+                                             os.path.join(tmp, "range-2350.txt"), os.path.join(REPO_DIR, "tools")):
+                subprocess.run(argv, check=True, capture_output=True, timeout=600)
+            test.assertEqual(os.path.getsize(out), rec["expect"]["faces"][face["name"]]["bytes"], face["name"])
+
+
 @unittest.skipUnless(os.environ.get("SVF_MAKER_REAL_86BOX"), "SVF_MAKER_REAL_86BOX names a folder with the 86Box ROMs")
 class RealRomTest(unittest.TestCase):
     """The real 86Box files (your own copy; nothing is copied or kept): every pair is `known`, and each recipe's
     precomposed and jamo faces have the sizes `expect` records (docs/recipes.md's table)."""
 
     def test_real_pairs(self):
-        root = os.environ["SVF_MAKER_REAL_86BOX"]
-        paths = []
-        for folder, _dirs, names in os.walk(root):
-            paths += [os.path.join(folder, n) for n in names]
-        found = recipe.match([((0, p), p, os.path.getsize(p)) for p in paths])
-        self.assertEqual(sorted((m["recipe"]["id"], m["state"]) for m in found),
-                         [("86box-atikorvga", "known"), ("86box-kasan16", "known"), ("86box-tgkorvga", "known")])
-        tmp = tempfile.mkdtemp(prefix="svf-real-86box-", dir=os.environ.get("TMPDIR"))
-        self.addCleanup(shutil.rmtree, tmp, True)
-        settings.write_range_files(tmp)
-        for m in found:
-            rec = m["recipe"]
-            files = {fid: key[1] for fid, key in m["bound"].items()}
-            for face in rec["faces"]:
-                out = os.path.join(tmp, face["name"] + ".SVF")
-                for argv in recipe.face_commands(rec, face["name"], files, {"work": tmp, "out": out},
-                                                 os.path.join(tmp, "range-2350.txt"), os.path.join(REPO_DIR, "tools")):
-                    subprocess.run(argv, check=True, capture_output=True, timeout=600)
-                want = rec["expect"]["faces"][face["name"]]
-                self.assertEqual(os.path.getsize(out), want["bytes"], face["name"])
+        _real_faces(self, [os.environ["SVF_MAKER_REAL_86BOX"]], {"86box-atikorvga", "86box-kasan16", "86box-tgkorvga"})
+
+
+@unittest.skipUnless(os.environ.get("SVF_MAKER_REAL_MAME"), "SVF_MAKER_REAL_MAME names a folder of unpacked MAME sets")
+class RealMameTest(unittest.TestCase):
+    """The real MAME sets (spc1500, dquizgo, xsedae, quizkofk unpacked as <set>/<file>): every set `known`, every face
+    the size docs/recipes.md "Korean font ROMs in MAME sets" records."""
+
+    def test_real_sets(self):
+        _real_faces(self, [os.environ["SVF_MAKER_REAL_MAME"]],
+                    {"mame-spc1500", "mame-dquizgo", "mame-xsedae", "mame-quizkofk"})
 
 
 if __name__ == "__main__":
