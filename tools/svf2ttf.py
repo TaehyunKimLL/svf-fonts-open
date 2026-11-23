@@ -32,11 +32,12 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
     head (fontRevision = --version), maxp, gasp, and a .notdef box.
   - name: family (--family, default "<FACE STEM> SVF": never the source font's name, which an OFL Reserved Font Name
     may forbid), style (--style, default Regular; Bold / Italic / Bold Italic also set the OS/2 and head style bits),
-    version, a description naming FACE.SVF, its cell, bit depth and kind, and the licence: the licence note beside the
-    face (--licence FILE, else the *.TXT beside the face whose title line names the face's file or a pattern matching it,
-    else the licence column of a FACES.TSV beside it) and the licence files it names (OFL*.TXT) go into the licence
-    description (name 13), the copyright lines of the licence file into name 0, the OFL URL into name 14 when the text
-    is the SIL Open Font License. --licence none writes no licence text.
+    version, a description naming FACE.SVF, its cell, bit depth and kind, and the licence (find_licence): --licence FILE
+    (and the licence files it names); else for a face inside a repository's svf/ tree the files its row of
+    web/LICENCES.tsv names (no row: an error); else the *.TXT beside the face whose title line names the face's file or
+    a pattern matching it (and the licence files it names), else the licence column of a FACES.TSV beside it. The texts
+    go into the licence description (name 13), the copyright paragraph above the OFL header into name 0 (copyright_of),
+    the OFL URL into name 14 when an OFL text is embedded. --licence none writes no licence text.
   - head created / modified: $SOURCE_DATE_EPOCH when set, else now.
 
 bdf: BDF 2.1 (1 bpp) or 2.3 (2 and 8 bpp: SIZE's fourth field is the bit depth; --bpp1 writes 1 bpp by --threshold),
@@ -184,24 +185,54 @@ def _title_patterns(line):
     return out
 
 
+def repo_licences(face_path):
+    """The licence files web/LICENCES.tsv gives a face inside a repository's svf/ tree: (True, [paths]) for a face under
+    such a tree ([] when no row matches it), (False, []) for a face outside one. The first row whose glob matches the
+    face's path relative to svf/ wins (fnmatch, case-sensitive, as web/mkindex.py reads it)."""
+    path = os.path.abspath(face_path)
+    d = os.path.dirname(path)
+    while True:
+        parent = os.path.dirname(d)
+        if os.path.basename(d) == "svf" and os.path.isfile(os.path.join(parent, "web", "LICENCES.tsv")):
+            rel = os.path.relpath(path, d).replace(os.sep, "/")
+            with open(os.path.join(parent, "web", "LICENCES.tsv"), encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith("#") or not line.strip():
+                        continue
+                    glob_, _, files = line.rstrip("\n").partition("\t")
+                    if fnmatch.fnmatchcase(rel, glob_):
+                        return True, [os.path.join(d, f) for f in files.split(",") if f]
+            return True, []
+        if parent == d:
+            return False, []
+        d = parent
+
+
 def find_licence(face_path):
-    """The licence note of the face at @p face_path: (note path or None, [licence files it names])."""
+    """The licence files of the face at @p face_path: web/LICENCES.tsv for a face inside a repository's svf/ tree (see
+    repo_licences); else the *.TXT beside the face whose title line names it (and the licence files that note names),
+    else the licence column of a FACES.TSV beside it. Returns (inside the repository, [paths])."""
+    inside, files = repo_licences(face_path)
+    if inside:
+        return True, files
     d, base = os.path.dirname(os.path.abspath(face_path)), os.path.basename(face_path).upper()
-    note = None
-    for txt in sorted(glob.glob(os.path.join(d, "*.TXT")) + sorted(glob.glob(os.path.join(d, "*.txt")))):
+    seen = set()
+    for txt in sorted(glob.glob(os.path.join(d, "*.TXT")) + glob.glob(os.path.join(d, "*.txt"))):
+        if os.path.normcase(txt) in seen:
+            continue
+        seen.add(os.path.normcase(txt))
         try:
             with open(txt, encoding="utf-8") as fh:
                 first = fh.readline()
         except (OSError, UnicodeDecodeError):
             continue
         if any(fnmatch.fnmatchcase(base, p.upper()) for p in _title_patterns(first)):
-            note = txt
-            break
-    if note is None:
-        tsv = os.path.join(d, "FACES.TSV")
-        if os.path.exists(tsv):
-            head = None
-            for line in open(tsv, encoding="utf-8"):
+            return False, [txt] + licence_files_named(txt)
+    tsv = os.path.join(d, "FACES.TSV")
+    if os.path.exists(tsv):
+        head = None
+        with open(tsv, encoding="utf-8") as fh:
+            for line in fh:
                 if line.startswith("#") or not line.strip():
                     continue
                 cols = line.rstrip("\n").split("\t")
@@ -211,16 +242,15 @@ def find_licence(face_path):
                 row = dict(zip(head, cols))
                 if row.get("file", "").upper() == base and row.get("licence"):
                     lic = os.path.join(d, row["licence"])
-                    return (None, [lic]) if os.path.exists(lic) else (None, [])
-    if note is None:
-        return None, []
-    return note, licence_files_named(note)
+                    return False, [lic] if os.path.exists(lic) else []
+    return False, []
 
 
 def licence_files_named(note):
     """The files beside @p note that its text names (OFL.TXT, OFLNANUM.TXT, ...), in the order named."""
     d = os.path.dirname(os.path.abspath(note))
-    text = open(note, encoding="utf-8").read()
+    with open(note, encoding="utf-8") as fh:
+        text = fh.read()
     out = []
     for name in re.findall(r"\b([A-Z0-9_-]+\.TXT)\b", text):
         path = os.path.join(d, name)
@@ -229,34 +259,64 @@ def licence_files_named(note):
     return out
 
 
+_OFL_HEADER = re.compile(r"^(-{5,}|SIL OPEN FONT LICENSE\b)", re.M)
+
+
+def is_licence_text(text):
+    """Whether @p text holds the SIL Open Font License itself (its header line)."""
+    return re.search(r"^SIL OPEN FONT LICENSE\b", text, re.M) is not None
+
+
+def copyright_of(texts):
+    """The copyright line of the licence @p texts (note and licence files): from each text that holds the OFL (else from
+    every text), the paragraphs above the OFL header that say "Copyright" or "(c)"; when none does, the first such
+    paragraph of the licence file (an attribution, as Neo Dunggeunmo Pro's public-domain origin). Whitespace is collapsed;
+    several distinct paragraphs are joined with "; "."""
+    lic = [t for t in texts if is_licence_text(t)] or list(texts)
+    heads = []
+    for t in lic:
+        m = _OFL_HEADER.search(t)
+        heads.append(t[:m.start()] if m else t)
+    found, first = [], []
+    for h in heads:
+        paras = [" ".join(p.split()) for p in re.split(r"\n\s*\n", h) if p.strip()]
+        if paras and not first:
+            first = [paras[0]]
+        for p in paras:
+            if re.search(r"copyright|\(c\)|\u00a9", p, re.I) and p not in found:
+                found.append(p)
+                break
+    return "; ".join(found or first)
+
+
 def licence_text(face_path, licence):
     """(licence description, copyright, licence URL or '') for the name table; @p licence: a path, 'none' or None
-    (look beside the face)."""
+    (find_licence). A face inside a repository's svf/ tree that web/LICENCES.tsv does not cover is an error (ValueError)
+    unless @p licence is given; a face outside gets a line saying its source font's licence applies, and a warning."""
     if licence == "none":
         return "", "", ""
     if licence:
         files = [licence] + licence_files_named(licence)
     else:
-        note, named = find_licence(face_path)
-        files = ([note] if note else []) + named
+        inside, files = find_licence(face_path)
+        if not files and inside:
+            raise ValueError("%s is inside the repository's svf/ tree but web/LICENCES.tsv gives it no licence: add a "
+                             "row there, or pass --licence FILE" % face_path)
     if not files:
         print("svf2ttf: no licence note found beside %s; the licence of its source font applies (--licence FILE)"
               % face_path, file=sys.stderr)
         return ("No licence note was found beside %s; the licence of the font it was made from applies."
                 % os.path.basename(face_path)), "", ""
-    texts = [open(f, encoding="utf-8").read().strip() for f in files]
+    texts = []
+    for f in files:
+        with open(f, encoding="utf-8") as fh:
+            texts.append(fh.read().strip())
+    if sum(is_licence_text(t) for t in texts) > 1:
+        print("svf2ttf: %s: %d licence files found; all are embedded (pass --licence FILE to choose)"
+              % (face_path, sum(is_licence_text(t) for t in texts)), file=sys.stderr)
     desc = "\n\n".join(texts)
-    copyright_lines = []
-    for t in texts[::-1]:          # the licence file (last) first: its first paragraph holds the copyright
-        para = t.split("\n\n")[0].strip()
-        if re.match(r"(copyright|\(c\))", para, re.I):
-            copyright_lines = [para.replace("\n", " ")]
-            break
-    if not copyright_lines:
-        copyright_lines = [ln.strip() for t in texts for ln in t.splitlines()
-                           if re.search(r"copyright|\(c\)", ln, re.I)][:1]
-    url = OFL_URL if "Open Font License" in desc or "OFL" in desc else ""
-    return desc, " ".join(copyright_lines), url
+    url = OFL_URL if any(is_licence_text(t) for t in texts) else ""
+    return desc, copyright_of(texts), url
 
 
 # ---- glyph table --------------------------------------------------------------------------------------------------

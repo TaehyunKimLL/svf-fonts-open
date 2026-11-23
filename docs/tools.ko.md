@@ -514,8 +514,10 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
   잘리고 bearing과 advance를 가진다(`--no-strike`는 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). `cmap`(4, U+FFFF를 넘으면 12),
   `hmtx`(페이스의 advance. 결합 부호는 `svfline.py`가 놓는 대로 원점에 advance 0), `hhea` / OS/2 typo 메트릭 = ascent와 셀 높이 -
   ascent, dy가 옮긴 잉크까지 덮는 OS/2 win 메트릭, `post` 형식 3, `head`, `maxp`, `gasp`, `name`(패밀리, 스타일, 버전, 페이스를
-  밝히는 설명, 그리고 라이선스: 페이스 옆에서 제목 줄이 그 파일 이름이나 그에 맞는 패턴을 적은 `*.TXT`, 없으면 옆 `FACES.TSV`의
-  licence 열, 여기에 노트가 이름을 든 라이선스 파일을 더해 name 13으로. 라이선스의 저작권 문단은 name 0, OFL URL은 name 14).
+  밝히는 설명, 그리고 라이선스: 저장소 `svf/`의 페이스는 `web/LICENCES.tsv`의 해당 행이 지명하는 파일(`svf/` 아래에서 행이 없는
+  페이스는 `--licence`가 없으면 오류), 그 밖에는 페이스 옆에서 제목 줄이 그 파일 이름이나 그에 맞는 패턴을 적은 `*.TXT`와 그것이
+  이름을 든 라이선스 파일, 없으면 옆 `FACES.TSV`의 licence 열. 이를 name 13으로. OFL 파일 머리 위의 저작권 문단은 name 0, OFL
+  URL은 OFL 텍스트가 들어갈 때만 name 14).
   GSUB, GPOS, 첫가끝 자모 셰이핑은 없다: 출력은 완성형이다. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값.
 - `bdf`: BDF 2.1(1 bpp) 또는 2.3(2 / 8 bpp: 비트 깊이를 `SIZE`의 네 번째 필드에. `--bpp1`은 1 bpp로 자른다), ISO10646-1,
   글리프마다 잉크 상자(BBX)와 advance(DWIDTH), `FONT_ASCENT` / `FONT_DESCENT`는 페이스의 값, 라이선스 노트는 `COMMENT` 줄.
@@ -545,8 +547,9 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 | `--apple` (ttf) | off | 스트라이크를 `bloc`/`bdat`으로도 쓴다 |
 | `--bpp1` (bdf) | off | 2 또는 8 bpp 페이스를 1 bpp BDF로 |
 
-종료 상태: 0. 1은 읽을 수 없는 페이스나 범위를 벗어난 값(`compare`: 불일치가 있으면 1). 2는 사용법 오류. 옆에 라이선스 노트가 없는
-페이스는 경고를 찍고, 원본 폰트의 라이선스가 적용된다는 한 줄을 받는다.
+종료 상태: 0. 1은 읽을 수 없는 페이스나 범위를 벗어난 값(`compare`: 불일치가 있으면 1). 2는 사용법 오류. 저장소 `svf/` 아래에서
+`web/LICENCES.tsv`가 다루지 않는 페이스는 `--licence`가 없으면 1로 끝난다. 그 밖에서 옆에 라이선스 노트가 없는 페이스는 경고를
+찍고, 원본 폰트의 라이선스가 적용된다는 한 줄을 받는다.
 
 왕복 점검과 여섯 페이스(완성형과 자모 세트, 1과 2 bpp, 16과 24 px, HWP 1.x 페이스)의 결과:
 [recipes.ko.md, SVF 페이스를 다시 TTF 비트맵 폰트로](recipes.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로).

@@ -3,7 +3,10 @@
 
   python3 -m unittest tools.test_svf2ttf
 """
+import glob
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -219,6 +222,123 @@ class Cps(unittest.TestCase):
         self.assertEqual(svf2ttf.cp_ranges([0x20, 0x21, 0x22, 0x41, 0xAC00, 0xAC01]), "20-22,41,ac00-ac01")
         out = run(os.path.join(HERE, "svf2ttf.py"), "cps", NEODG16A).strip()
         self.assertIn("ac00-d7a3", out)
+
+
+class Licence(unittest.TestCase):
+    """Licence discovery: web/LICENCES.tsv inside the repository, notes and FACES.TSV outside it."""
+
+    @staticmethod
+    def licences_tsv():
+        rows = []
+        with open(os.path.join(ROOT, "web", "LICENCES.tsv"), encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("#") or not line.strip():
+                    continue
+                g, f = line.rstrip("\n").split("\t")
+                rows.append((g, [os.path.join(ROOT, "svf", x) for x in f.split(",")]))
+        return rows
+
+    @staticmethod
+    def notice_holders():
+        """[(face patterns relative to svf/, copyright cell)] of NOTICE.md's face table."""
+        out = []
+        with open(os.path.join(ROOT, "NOTICE.md"), encoding="utf-8") as fh:
+            for line in fh:
+                if not line.startswith("| `svf/"):
+                    continue
+                cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                pats, d = [], None
+                for p in re.findall(r"`([^`]+)`", cells[0]):
+                    if p.startswith("svf/"):
+                        d, p = p[4:].split("/", 1)
+                    pats.append("%s/%s" % (d, p))
+                out.append((pats, cells[2]))
+        return out
+
+    def test_every_shipped_face(self):
+        import fnmatch
+        rows = self.licences_tsv()
+        holders = self.notice_holders()
+        faces = sorted(glob.glob(os.path.join(ROOT, "svf", "*", "*.SVF")))
+        self.assertGreater(len(faces), 100)
+        for path in faces:
+            rel = os.path.relpath(path, os.path.join(ROOT, "svf")).replace(os.sep, "/")
+            want = next(f for g, f in rows if fnmatch.fnmatchcase(rel, g))
+            self.assertEqual(svf2ttf.find_licence(path), (True, want), rel)
+            desc, copyright_, url = svf2ttf.licence_text(path, None)
+            self.assertEqual(url, svf2ttf.OFL_URL, rel)
+            self.assertIn("SIL OPEN FONT LICENSE", desc, rel)
+            holder = next(h for pats, h in holders if any(fnmatch.fnmatchcase(rel, p + ("" if "." in p else "*"))
+                                                          for p in pats))
+            for word in re.findall(r"[A-Za-z0-9]{5,}", holder):
+                self.assertIn(word.lower(), copyright_.lower(), "%s: %r not in %r" % (rel, word, copyright_))
+            self.assertNotIn("Font Software", copyright_, rel)
+            self.assertNotIn("  ", copyright_, rel)
+
+    def test_paperlogy_and_maruburi(self):
+        _, pap, _ = svf2ttf.licence_text(os.path.join(DOS, "PAPER16A.SVF"), None)
+        _, maru, _ = svf2ttf.licence_text(os.path.join(DOS, "MARUS24.SVF"), None)
+        self.assertIn("PT&", pap)
+        self.assertNotIn("NAVER", pap)
+        self.assertIn("NAVER", maru)
+        self.assertNotIn("PT&", maru)
+
+    def test_public_domain_attribution(self):
+        _, c, _ = svf2ttf.licence_text(os.path.join(ROOT, "svf", "jamo-extra", "NDGPR16.SVF"), None)
+        self.assertTrue(c.startswith("Original font was released under the public domain by Jungtae Kim"), c)
+
+    def test_note_route_outside_the_repository(self):
+        with tempfile.TemporaryDirectory() as d:
+            for n in ("NEODG16J.SVF", "NEODGM.TXT", "OFL.TXT"):
+                shutil.copy(os.path.join(DOS, n), d)
+            inside, files = svf2ttf.find_licence(os.path.join(d, "NEODG16J.SVF"))
+            self.assertEqual((inside, [os.path.basename(f) for f in files]), (False, ["NEODGM.TXT", "OFL.TXT"]))
+            desc, c, url = svf2ttf.licence_text(os.path.join(d, "NEODG16J.SVF"), None)
+            self.assertTrue(c.startswith("Copyright (c) 2017-2021, Eunbin Jeong"), c)
+            self.assertIn("Neo Dunggeunmo faces", desc)
+
+    def test_faces_tsv_route(self):
+        with tempfile.TemporaryDirectory() as d:
+            for n in ("GOTHA16.SVF", "FACES.TSV", "OFLGOTHA.TXT"):
+                shutil.copy(os.path.join(ROOT, "svf", "jamo-extra", n), d)
+            inside, files = svf2ttf.find_licence(os.path.join(d, "GOTHA16.SVF"))
+            self.assertEqual((inside, [os.path.basename(f) for f in files]), (False, ["OFLGOTHA.TXT"]))
+            self.assertIn("HanYang", svf2ttf.licence_text(os.path.join(d, "GOTHA16.SVF"), None)[1])
+
+    def test_two_licences_in_one_note_are_both_credited(self):
+        with tempfile.TemporaryDirectory() as d:
+            for n in ("PAPER16A.SVF", "PAPMARU.TXT", "OFLPAPLG.TXT", "OFLMARU.TXT"):
+                shutil.copy(os.path.join(DOS, n), d)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "svf2ttf.py"), "ttf", os.path.join(d, "PAPER16A.SVF"),
+                                os.path.join(d, "p.ttf")], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("2 licence files", r.stderr)
+            c = TTFont(os.path.join(d, "p.ttf"))["name"].getDebugName(0)
+            self.assertIn("PT&", c)
+            self.assertIn("NAVER", c)
+
+    def test_no_licence(self):
+        with tempfile.TemporaryDirectory() as d:
+            # outside the repository: a warning and a line saying the source font's licence applies
+            shutil.copy(NEODG16J, d)
+            desc, c, url = svf2ttf.licence_text(os.path.join(d, "NEODG16J.SVF"), None)
+            self.assertIn("No licence note", desc)
+            self.assertEqual((c, url), ("", ""))
+            # inside a repository's svf/ tree that LICENCES.tsv does not cover: an error unless --licence is given
+            os.makedirs(os.path.join(d, "repo", "svf", "x"))
+            os.makedirs(os.path.join(d, "repo", "web"))
+            with open(os.path.join(d, "repo", "web", "LICENCES.tsv"), "w") as fh:
+                fh.write("# none\nx/OTHER.SVF\tx/OFL.TXT\n")
+            face = os.path.join(d, "repo", "svf", "x", "F.SVF")
+            shutil.copy(NEODG16J, face)
+            with self.assertRaises(ValueError):
+                svf2ttf.licence_text(face, None)
+            r = subprocess.run([sys.executable, os.path.join(HERE, "svf2ttf.py"), "ttf", face, os.path.join(d, "f.ttf")],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("LICENCES.tsv", r.stderr)
+            self.assertIn("Neo Dunggeunmo", svf2ttf.licence_text(face, os.path.join(DOS, "NEODGM.TXT"))[0])
+            self.assertEqual(svf2ttf.licence_text(face, "none"), ("", "", ""))
 
 
 class Compare(unittest.TestCase):

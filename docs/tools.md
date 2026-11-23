@@ -538,9 +538,11 @@ face (see Outputs) unless `--licence` names one.
   adds it as `bloc`/`bdat` too). `cmap` (4, and 12 past U+FFFF), `hmtx` (the face's advances; a combining mark advance 0
   at its origin, as `svfline.py` places it), `hhea` / OS/2 typo metrics = ascent and cell height - ascent, OS/2 win
   metrics covering ink moved by a dy, `post` format 3, `head`, `maxp`, `gasp`, `name` (family, style, version, a
-  description naming the face, and the licence: the `*.TXT` beside the face whose title line names its file or a
-  pattern matching it, else the licence column of a `FACES.TSV` beside it, plus the licence files the note names, as
-  name 13; the licence's copyright paragraph as name 0; the OFL URL as name 14). No GSUB, GPOS or conjoining-jamo
+  description naming the face, and the licence: for a face of the repository's `svf/` the files its row of
+  `web/LICENCES.tsv` names (a face under `svf/` with no row is an error unless `--licence` is given); elsewhere the
+  `*.TXT` beside the face whose title line names its file or a pattern matching it plus the licence files it names,
+  else the licence column of a `FACES.TSV` beside it; as name 13; the OFL file's copyright paragraph above its header
+  as name 0; the OFL URL as name 14 when an OFL text is embedded). No GSUB, GPOS or conjoining-jamo
   shaping: the output is precomposed. Timestamps from `$SOURCE_DATE_EPOCH` when set.
 - `bdf`: BDF 2.1 (1 bpp) or 2.3 (2 / 8 bpp: the bit depth as the fourth field of `SIZE`; `--bpp1` cuts it to 1 bpp),
   ISO10646-1, each glyph its ink box (BBX) and advance (DWIDTH), `FONT_ASCENT` / `FONT_DESCENT` the face's, the licence
@@ -572,7 +574,8 @@ face (see Outputs) unless `--licence` names one.
 | `--bpp1` (bdf) | off | a 2 or 8 bpp face as a 1 bpp BDF |
 
 Exit status: 0; 1 an unreadable face or a value out of range (`compare`: 1 when mismatches > 0); 2 a usage error. A face
-with no licence note beside it prints a warning and gets a line saying its source font's licence applies.
+under the repository's `svf/` that `web/LICENCES.tsv` does not cover exits 1 unless `--licence` is given; a face
+elsewhere with no licence note beside it prints a warning and gets a line saying its source font's licence applies.
 
 The round trip and its results on six faces (precomposed and jamo sets, 1 and 2 bpp, 16 and 24 px, an HWP 1.x face):
 [recipes.md, An SVF face back to a TTF bitmap font](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font).
