@@ -303,8 +303,8 @@ def loads(data, name="recipe"):
 
 def builtin_dir():
     """The built-in recipes: `maker/recipes/`, or `recipes/` of the frozen bundle."""
-    if getattr(sys, "frozen", False):
-        return os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)), "recipes")
+    if getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", None):
+        return os.path.join(sys._MEIPASS, "recipes")              # PyInstaller's <_internal>
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "recipes")
 
 

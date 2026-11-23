@@ -29,7 +29,8 @@ import toolrun
 
 PATHS = {"tools": "/T", "src": "/u/in.ttf", "out": "/w/OUT.SVF", "work": "/w", "eng": None, "latin": None,
          "master": "/w/master.json", "range_file": "/w/range-2350.txt", "base": "/R/svf/dos/NEODG16.SVF",
-         "htbl": "/w/htbl.htbl1", "pylib": None}
+         "htbl": "/w/htbl.htbl1", "pylib": None,
+         "recipe_files": {"font": "/u/font.rom", "bios": "/u/bios.bin"}}   # a known set (86Box)
 PATHS_ALT = dict(PATHS, eng="/u/eng.fnt", latin="/u/latin.bdf", pylib="/lib")
 
 
