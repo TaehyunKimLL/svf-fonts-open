@@ -8,8 +8,9 @@ run on this host; what was not run says "not verified" or "target". Where a choi
 builder, marked "(design call)". The owner answered the ten questions of the first draft on 2026-11-23, every one as
 recommended (section 15). Revised the same day after two rounds of two independent reviews; section 17 lists every
 finding and what was done with it, and section 15.1 the points where a finding touches a decision. Card t_97acecf9
-implemented the recipe subset meanwhile (`maker/recipe.py`, `maker/recipes/` on branch `desktop-export`, read at `9be5fc7` and again at `a103f56`);
-sections 8 and 9 describe that code where it exists and say what the finder adds (9.5).
+implemented the recipe subset meanwhile (`maker/recipe.py`, `maker/recipes/` on branch `desktop-export`, read at
+`9be5fc7` and again at `a103f56`); sections 8 and 9 describe that code where it exists and say what the finder adds
+(9.5).
 
 Read with this document: `docs/recipes.md` "Finding a font inside a program or data file, with Claude" (the prompt, the
 byte-size signatures, the NKP / Dokkaebi / 86Box examples) and, on `mame-roms`, "Korean font ROMs in MAME sets";
@@ -591,9 +592,9 @@ validator has this rule since `a103f56`.)
 ### 8.4 What a run writes
 
 `svf/<dest>/<NAME>.SVF` and its note as today, and in `build-<id>/`: `BUILD.md` (with the carving commands),
-`RECIPE-<recipe id>.json` for each recipe run, and `finder/<recipe id>/` with the parameter files of 8.2. An export (section 10) writes
-`finder-export-<job>-<k>/` at the top of the output folder, `k` the first number not taken (nothing is replaced).
-`docs/desktop-app.md` section 6 lists both.
+`RECIPE-<recipe id>.json` for each recipe run, and `finder/<recipe id>/` with the parameter files of 8.2. An export
+(section 10) writes `finder-export-<job>-<k>/` at the top of the output folder, `k` the first number not taken
+(nothing is replaced). `docs/desktop-app.md` section 6 lists both.
 
 ### 8.5 The numbers
 
