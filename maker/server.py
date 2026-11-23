@@ -1740,6 +1740,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if [dev, ino, size] != [bst.st_dev, bst.st_ino, bst.st_size] or not stat.S_ISREG(bst.st_mode):
                 raise _HttpError(409, message)
             total += bst.st_size
+            # a pinned `X.gz` is the fallback for an HBF that names `X`; read_hbf prefers a plain `X` that appears later
+            if name.endswith(".gz") and os.path.lexists(os.path.join(folder, name[:-3])):
+                raise _HttpError(409, message)
         return total
 
     def _check_steps(self, files_dir, sources, fonts, steps):

@@ -407,7 +407,14 @@ class LocalKindsTest(DirCase):
         os.replace(os.path.join(d, "x.bin.gz.new"), os.path.join(d, "x.bin.gz"))
         with self.assertRaises(server._HttpError) as cm:
             server.Handler._check_unchanged(entry, sources)
-        self.assertEqual(cm.exception.status if hasattr(cm.exception, "status") else cm.exception.args[0], 409)
+        self.assertEqual(cm.exception.status, 409)
+        entry["bitmap_ids"] = server.Handler._bitmap_ids(os.path.join(d, "x.hbf"))      # re-pinned: fine again
+        server.Handler._check_unchanged(entry, sources)
+        with open(os.path.join(d, "x.bin"), "wb") as f:                              # a plain bitmap appears: read_hbf prefers it
+            f.write(b"\x00" * (0x5A * 16))
+        with self.assertRaises(server._HttpError) as cm:
+            server.Handler._check_unchanged(entry, sources)
+        self.assertEqual(cm.exception.status, 409)
 
     def test_mac10_raw_resource_is_other(self):
         by = {f["path"]: f for f in detect.scan(Sources("local", [self.mac]), local=True)}

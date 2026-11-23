@@ -87,7 +87,7 @@ def read_capped(path, gz=False, cap=HBF_MAX, keep=True, tick=None):
         except TimeoutError:          # a `tick` deadline is not damage (TimeoutError is an OSError)
             raise
         except (OSError, EOFError, zlib.error) as e:
-            raise DamagedBitmapError(f"{path}: damaged gzip ({e})")
+            raise DamagedBitmapError(f"{path}: damaged {'gzip' if gz else 'bitmap'} ({e})")
     if gz and n == 0:
         raise DamagedBitmapError(f"{path}: empty gzip")
     return b"".join(parts) if keep else n
