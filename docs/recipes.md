@@ -75,7 +75,7 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | Mac HangulTalk 1.0 `fbit` (45 sets + `fdef`) | no | `jamoset.py --layout mac-fbit-45sets` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | Mac HangulTalk 7.1 type-3 `fbit` + HTBL 1 | `macfbit3.py bdf` + `mkfont.py` | `macfbit_svf.py build` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | An SVF face | `svfdy.py`, `svf2to3.py` | `jamoset.py --from-svf` (1 bpp source) | [An existing SVF](#an-existing-svf) |
-| An SVF face, wanted back as a TTF (or BDF) bitmap font | `svf2ttf.py ttf` (or `bdf`) | the same: every syllable composed, a precomposed font | [An SVF face back to a TTF bitmap font](#an-svf-face-back-to-a-ttf-bitmap-font) |
+| An SVF face, wanted back as a TTF (or BDF) bitmap font | `svf2ttf.py ttf` (or `bdf`) | the same: every syllable composed, a precomposed font (`--composite`: the pieces shared, syllables composite glyphs) | [An SVF face back to a TTF bitmap font](#an-svf-face-back-to-a-ttf-bitmap-font) |
 
 How many sets a jamo set should have: [Choosing the number of sets](#choosing-the-number-of-sets). Anti-aliased faces:
 [2 bpp anti-aliased faces](#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font).
@@ -1520,13 +1520,78 @@ names of the same tables, `bloc`/`bdat`, untested on a Mac).
 
 **Limits.** The strike holds the face's size only; at other sizes the outlines draw blocky pixels (exact at whole
 multiples), anti-aliased by the renderer at the rest. A 2 bpp face's levels exist only in its strike. The output is
-precomposed: a jamo set's small size does not survive the conversion. The strike's metrics are bytes: the advance
+precomposed: a jamo set's small size does not survive the conversion (`--composite`, below, keeps its pieces shared:
+a quarter to under half of the plain TTF). The strike's metrics are bytes: the advance
 0..255 (every SVF advance fits) and the ascent, descent, each glyph's bearing x and ink top and the strike's extremes (least left and right side
 bearing, highest and lowest ink; a glyph's own right side bearing is not stored, so a 200-wide cell with wide and
-narrow glyphs fits) signed, -128..127, so a face whose
+narrow glyphs fits, and a least right side bearing past 127, such as a 200-wide cell whose only glyph is a '.', is stored
+as 127, still a lower bound: the only extreme that can pass 127 when every glyph's bearing x and ink top fit) signed, -128..127, so a face whose
 ascent or ink reaches more than 127 rows from the baseline (a cell over about 127 rows) stops with an error naming the
 field; `--no-strike` converts it to outlines only, and its BDF is not limited. The licence of the face's source font applies to the TTF; an
 OFL font's Reserved Font Names must not be the new family name (the default name avoids them).
+
+### Composite glyphs (`--composite`)
+
+`ttf --composite` keeps a jamo set's structure in the TTF: each jamo piece is written once as a glyph (its outline and
+its strike bitmap, placed as a composed syllable places it), every composed syllable is a composite of its pieces, and
+each compatibility jamo maps (cmap) to its piece glyph itself. The other glyphs (ASCII and the rest) stay plain. A
+precomposed face has nothing to share: `--composite` then writes the plain TTF and prints a note.
+
+    python3 tools/svf2ttf.py ttf svf/dos/NEODG16A.SVF $OUT/NEODG16A-c.ttf --composite
+
+- **Outlines** (`glyf`): a composite glyph of the syllable's non-blank pieces, each at offset (0, 0) (a piece is a whole
+  cell and carries no dy), with the syllable's own advance in `hmtx`. TrueType draws the union of the components, and
+  the union of the pieces' outlines is the outline of the composed syllable's pixels at `--threshold` (taking the
+  maximum of levels and then cutting at a threshold is the same as cutting each piece and joining them), so the
+  outlines are exact for 1, 2 and 8 bpp. The first component has `OVERLAP_COMPOUND` (FreeType then rasterises the
+  composite oversampled, so an edge pixel two pieces share is not covered twice at sizes between the multiples). The
+  no-op `prep` every TTF carries (above) matters more here: without it FreeType's autohinter moves the overlapping
+  contours of a composite by up to half a pixel, at 2 x ppem too (6,463 of NEODG16A's syllables at 32 px). `maxp`'s
+  component fields are recalculated (`maxComponentElements` 3, `maxComponentDepth` 1).
+- **Strike** (`EBDT`): a syllable is a compound bitmap, image format 8 (small metrics, a pad byte, then each piece's
+  glyph id with its x / y offset from the compound's top-left), in its own index subtable after the format 1 glyphs.
+  Format 9 (big metrics) would add 3 bytes a syllable for vertical metrics the font does not have. FreeType reads
+  compound bitmaps (`ttsbit.c`): it ORs each component's rows into the compound's bitmap. For 1 bpp that is the SVF
+  rule. For 2 and 8 bpp two things differ: FreeType shifts a component by its x offset in bits, not pixels, so every
+  piece bitmap of a 2 or 8 bpp face starts at the pen (its x offset is then 0), and the OR of two levels is not their
+  maximum (2 bpp: 1 | 2 = 3 where the face draws 2). A syllable whose pieces overlap at a pixel with levels a and b where
+  a | b != max(a, b) keeps an expanded format 1 bitmap (its outline stays a composite); the summary line counts them
+  (`strike: 6091 compound, 5081 expanded bitmaps` for GOTHA16A). Built with no expanded bitmaps, GOTHA16A draws
+  exactly those 5,081 syllables wrong in FreeType (9,487 pixels at level 3 instead of 2), and NSQRB36A its 5,831.
+  A component offset is a signed byte, so in a cell over 128 px a syllable whose pieces lie more than 127 pixels apart
+  also keeps an expanded bitmap, and a piece whose ink starts past x 127 has its own bitmap start at the pen (its
+  bearing x would not fit a byte): `--composite` converts every face the plain strike does.
+
+Verified (2026-11-23), each face through `ttf` and `ttf --composite`, the composite TTF baked back by `mkfont.py` and
+compared as above; every glyph rendered by Pillow at ppem and 2 x ppem and by freetype-py at ppem (the strike, and the
+outline with `FT_LOAD_NO_BITMAP`) equal to the same glyph of the plain TTF; fontTools reads, decompiles every table and
+recompiles; `fc-query` / `fc-scan` read it (scalable, outline); OTS (`ots-sanitize` 9.2.0) passes. OTS drops
+`EBLC`/`EBDT` from what it passes (as for the plain TTF), so a browser that sanitises web fonts with OTS draws the outlines
+only; the strike is checked by FreeType above. The HWP 1.x face has no licence note, so both its TTFs carry the line
+saying its source font's licence applies, as in the table above:
+
+| Face | Pieces | Plain TTF | Composite TTF | Strike: compound / expanded | Round trip | Renders, OTS |
+|---|---|---|---|---|---|---|
+| `svf/dos/NEODG16A.SVF` (1 bpp 16x16, 8/4/4 sets) | 344 | `2,038,968` | `694,384` (34 %) | 11,172 / 0 | 0 mismatches of 11,318 (1 blank: U+3161) | identical, pass |
+| `svf/jamo-extra/GOTHA16A.SVF` (2 bpp 16x16, 24/16/16) | 1,224 | `2,418,300` | `1,037,104` (43 %) | 6,091 / 5,081 | 0 of 11,319 | identical levels, pass |
+| `svf/jamo-extra/GOTHB24.SVF` (1 bpp 24x24, 24/16/16) | 1,224 | `2,796,288` | `844,780` (30 %) | 11,172 / 0 | 0 of 11,319 | identical, pass |
+| `svf/dos/MARUS24.SVF` (1 bpp 24x24, 24/16/16) | 1,178 | `3,415,744` | `854,684` (25 %) | 11,172 / 0 | 0 of 11,335 | identical, pass |
+| `svf/dos/NSQRB36A.SVF` (2 bpp 36x36, 24/16/16) | 1,070 | `5,901,072` | `2,432,800` (41 %) | 5,341 / 5,831 | 0 of 11,319 | identical levels, pass |
+| HWP 1.x `HANGUL1.PFT` face 1 + `ASCII.PFT` (1 bpp 24x24, 7/2/2) | 229 | `2,849,128` | `684,916` (24 %) | 11,172 / 0 | 0 of 11,318 | identical, pass |
+
+The floor is the per-syllable records: a composite of 3 pieces is about 30 bytes of `glyf`, 4 of `loca`, 4 of `hmtx`,
+20 of `EBDT` and 4 of `EBLC` (NEODG16A: `glyf` 334,881, `EBDT` 227,283 bytes), so a composite TTF of 11,172 syllables
+stays near 0.7 MB however small its pieces; expanded 2 bpp bitmaps and large cells add to it. `--composite` builds
+in 0.5-1.2 s at 16-24 px (4.0 s for NSQRB36A; the plain TTF 2.4-4.4 s and 8.7 s), faster than the plain TTF, as it traces each piece once.
+
+**Limits of `--composite`.** Only FreeType (Pillow, fontconfig, freetype-py) was checked; whether Windows (GDI,
+DirectWrite) or a Mac (`--apple`: `bdat` with the format 8 compounds) draws the compound bitmaps is not tested, and a
+renderer that ignores them draws the outlines at ppem. Between the whole multiples of ppem, FreeType's oversampling of
+an `OVERLAP_COMPOUND` glyph is not the exact area coverage the plain TTF gets: at 20 and 24 px every sampled syllable
+(every 7th) of NEODG16A and GOTHA16A draws as in the plain TTF; at 17 px 303 of 1,596 (19 %, NEODG16A) and 454 of
+1,596 (28 %, GOTHA16A) differ in edge pixels, by up to 32 and 42 of 255. 2 and 8 bpp
+syllables with overlapping levels keep expanded bitmaps (above). The pieces carry no Unicode (no shaping of conjoining
+jamo, as before).
 
 ## Choosing the number of sets (벌 수)
 

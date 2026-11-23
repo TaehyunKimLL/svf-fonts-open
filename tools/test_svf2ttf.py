@@ -7,6 +7,7 @@ import glob
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -20,6 +21,9 @@ import svfline  # noqa: E402
 import jamoset  # noqa: E402
 
 from fontTools.ttLib import TTFont  # noqa: E402
+from fontTools.ttLib.tables.E_B_D_T_ import ComponentBitmapGlyph  # noqa: E402
+from fontTools.ttLib.tables._g_l_y_f import (ARGS_ARE_XY_VALUES, MORE_COMPONENTS, OVERLAP_COMPOUND,  # noqa: E402
+                                              ROUND_XY_TO_GRID)
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 DOS = os.path.join(ROOT, "svf", "dos")
@@ -27,6 +31,7 @@ NEODG16 = os.path.join(DOS, "NEODG16.SVF")        # precomposed 1 bpp 16x16
 NEODG16A = os.path.join(DOS, "NEODG16A.SVF")      # jamo set 1 bpp 16x16
 NEODG16J = os.path.join(DOS, "NEODG16J.SVF")      # precomposed 1 bpp 18x18, 779 glyphs
 NGOTB15C = os.path.join(DOS, "NGOTB15C.SVF")      # precomposed 2 bpp 16x16, 781 glyphs
+GOTHA16A = os.path.join(ROOT, "svf", "jamo-extra", "GOTHA16A.SVF")   # jamo set 2 bpp 16x16, 24/16/16 sets
 
 
 def run(*argv):
@@ -220,6 +225,283 @@ class Ttf(unittest.TestCase):
         self.assertIn("mismatches 0", run(os.path.join(HERE, "svf2ttf.py"), "compare", NEODG16J, back))
 
 
+def resolved_strike_pixels(font, name, depth):
+    """strike_pixels of @p name with a compound (format 8 / 9) glyph resolved as FreeType does (ttsbit.c): each
+    component's rows ORed into the compound's bitmap at its offset (for 2 / 8 bpp, an x offset only at 0: FreeType
+    shifts by the offset in bits)."""
+    g = font["EBDT"].strikeData[0][name]
+    if not isinstance(g, ComponentBitmapGlyph):
+        return strike_pixels(font, name, depth)
+    m = g.metrics
+    out = {}
+    for c in g.componentArray:
+        sub = font["EBDT"].strikeData[0][c.name]
+        if depth > 1:
+            assert c.xOffset == 0, (name, c.name, c.xOffset)
+        sm = sub.metrics
+        px, _ = resolved_strike_pixels(font, c.name, depth)
+        for (x, y), v in px.items():
+            # the component's own bearings are ignored: it lands at the offset from the compound's top-left
+            k = (m.BearingX + c.xOffset + x - sm.BearingX, -m.BearingY + c.yOffset + y + sm.BearingY)
+            out[k] = out.get(k, 0) | v
+    return out, m.Advance
+
+
+def composite_flags(data):
+    """The component flags of the raw composite glyf entry @p data, in order."""
+    out, p = [], 10
+    while True:
+        flags = struct.unpack(">H", data[p:p + 2])[0]
+        out.append(flags)
+        p += 4 + (4 if flags & 0x0001 else 2)                  # glyph index, then ARG_1_AND_2_ARE_WORDS args
+        p += 2 if flags & 0x0008 else 4 if flags & 0x0040 else 8 if flags & 0x0080 else 0
+        if not flags & MORE_COMPONENTS:
+            return out
+
+
+class Composite(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.d = cls.tmp.name
+        cls.ttf1 = os.path.join(cls.d, "neodg16a-c.ttf")
+        cls.out1 = run(os.path.join(HERE, "svf2ttf.py"), "ttf", NEODG16A, cls.ttf1, "--composite")
+        cls.exp1 = os.path.join(cls.d, "neodg16a.ttf")
+        run(os.path.join(HERE, "svf2ttf.py"), "ttf", NEODG16A, cls.exp1)
+        cls.ttf2 = os.path.join(cls.d, "gotha16a-c.ttf")
+        cls.out2 = run(os.path.join(HERE, "svf2ttf.py"), "ttf", GOTHA16A, cls.ttf2, "--composite")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_structure(self):
+        f = TTFont(self.ttf1)
+        face = svfline.Face.load(NEODG16A)
+        cmap = f.getBestCmap()
+        glyf = f["glyf"]
+        for cp, n in ((0xAC00, 2), (0xAC01, 3), (0xD55C, 3)):
+            g = glyf[cmap[cp]]
+            self.assertTrue(g.isComposite(), hex(cp))
+            self.assertEqual(len(g.components), n, hex(cp))
+            self.assertEqual({(c.x, c.y) for c in g.components}, {(0, 0)})
+            for c in g.components:
+                self.assertFalse(glyf[c.glyphName].isComposite())
+            self.assertEqual(f["hmtx"][cmap[cp]][0], face.metrics(cp)[0] * 64)
+            eb = f["EBDT"].strikeData[0][cmap[cp]]
+            self.assertIsInstance(eb, ComponentBitmapGlyph, hex(cp))
+            self.assertEqual(len(eb.componentArray), n)
+        self.assertFalse(glyf[cmap[0x41]].isComposite())
+        self.assertNotIsInstance(f["EBDT"].strikeData[0][cmap[0x41]], ComponentBitmapGlyph)
+        # compatibility jamo map to the piece glyph itself
+        self.assertFalse(glyf[cmap[0x3131]].isComposite())
+        self.assertEqual(f["maxp"].maxComponentElements, 3)
+        self.assertEqual(f["maxp"].maxComponentDepth, 1)
+        pieces = {c.glyphName for cp in range(0xAC00, 0xD7A4) for c in glyf[cmap[cp]].components}
+        used = {n for cp in range(0xAC00, 0xD7A4) for n in svfline.jamoset.pieces_of(face.tables, cp)
+                if n != svfline.jamoset.BLANK}
+        self.assertLessEqual(len(pieces), len(used))
+        self.assertLess(len(f.getGlyphOrder()), 11319 + len(used) + 1)
+        self.assertIn("composite", self.out1)
+        self.assertLess(os.path.getsize(self.ttf1), os.path.getsize(self.exp1) * 2 // 5)
+        self.assertIn("prep", f)        # keeps FreeType's autohinter off (see build_ttf)
+
+    def test_component_flags_lsb_and_index_subtables(self):
+        f = TTFont(self.ttf1)
+        glyf, order = f["glyf"], f.getGlyphOrder()
+        cmap = f.getBestCmap()
+        multi = 0
+        for cp in range(0xAC00, 0xD7A4):
+            name = cmap[cp]
+            flags = composite_flags(glyf.glyphs[name].data)       # as stored (fontTools masks some on decompile)
+            n = len(flags)
+            multi += n > 1
+            for i, fl in enumerate(flags):
+                self.assertEqual(fl & (ARGS_ARE_XY_VALUES | ROUND_XY_TO_GRID), ARGS_ARE_XY_VALUES | ROUND_XY_TO_GRID,
+                                 hex(cp))
+                self.assertEqual(bool(fl & MORE_COMPONENTS), i < n - 1, hex(cp))
+                self.assertEqual(bool(fl & OVERLAP_COMPOUND), i == 0 and n > 1, hex(cp))
+            g = glyf[name]
+            self.assertEqual(len(g.components), n)
+            g.recalcBounds(glyf)
+            self.assertEqual(f["hmtx"][name][1], g.xMin, hex(cp))
+        self.assertGreater(multi, 11000)
+        # two index subtables: image format 1 from glyph 1, then format 8 up to the last glyph, contiguous
+        subs = f["EBLC"].strikes[0].indexSubTables
+        self.assertEqual([(t.indexFormat, t.imageFormat) for t in subs], [(1, 1), (1, 8)])
+        ids = [(order.index(t.names[0]), order.index(t.names[-1])) for t in subs]
+        self.assertEqual(ids[0][0], 1)
+        self.assertEqual(ids[1][0], ids[0][1] + 1)
+        self.assertEqual(ids[1][1], len(order) - 1)
+
+    def test_strike_is_the_face(self):
+        for path, ttf, depth in ((NEODG16A, self.ttf1, 1), (GOTHA16A, self.ttf2, 2)):
+            f = TTFont(ttf)
+            face = svfline.Face.load(path)
+            cmap = f.getBestCmap()
+            bad = []
+            for cp in svf2ttf.face_cps(face):
+                adv, want = svf2ttf.glyph_pixels(face, cp)
+                got, gadv = resolved_strike_pixels(f, cmap[cp], depth)
+                if got != want or gadv != adv:
+                    bad.append(cp)
+            self.assertEqual(bad, [], path)
+
+    def test_two_bit_fallback(self):
+        """A 2 bpp syllable whose pieces overlap with levels 1 and 2 (FreeType's OR gives 3, the SVF rule max 2) keeps
+        an expanded bitmap; the others are compound bitmaps; the outlines are composites for all."""
+        f = TTFont(self.ttf2)
+        face = svfline.Face.load(GOTHA16A)
+        cmap = f.getBestCmap()
+        # derived here from the pieces, independently of svf2ttf.bitmap_conflicts: a pixel two pieces share where
+        # FreeType's OR of the levels differs from the face's max
+        t = face.tables
+        piece = {}
+        want = set()
+        for cp in range(0xAC00, 0xD7A4):
+            acc = {}
+            for n in jamoset.pieces_of(t, cp):
+                if n == jamoset.BLANK:
+                    continue
+                if n not in piece:
+                    rows = face.coverage(jamoset.PIECE_BASE + n)
+                    piece[n] = {(x, y): v // 85 for y, r in enumerate(rows) for x, v in enumerate(r) if v}
+                for k, v in piece[n].items():
+                    if k in acc and acc[k] | v != max(acc[k], v):
+                        want.add(cp)
+                    acc[k] = max(acc.get(k, 0), v)
+        self.assertEqual(len(want), 5081)
+        self.assertEqual(want, svf2ttf.bitmap_conflicts(face))
+        strike = f["EBDT"].strikeData[0]
+        expanded = {cp for cp in range(0xAC00, 0xD7A4) if not isinstance(strike[cmap[cp]], ComponentBitmapGlyph)}
+        self.assertEqual(expanded, want)
+        self.assertTrue(all(f["glyf"][cmap[cp]].isComposite() for cp in range(0xAC00, 0xD7A4)))
+        self.assertIn("%d expanded" % len(want), self.out2)
+
+    def test_freetype_draws_the_face(self):
+        """Pillow (FreeType) draws the compound strike at ppem (2 bpp: the levels) and the composite outlines at 2 x."""
+        for path, ttf, ppem in ((NEODG16A, self.ttf1, 16), (GOTHA16A, self.ttf2, 16)):
+            face = svfline.Face.load(path)
+            text = "가각간한글 ABC 123 " + "".join(chr(cp) for cp in range(0xAC00, 0xD7A4, 397))
+            w, h = 20 * len(text), face.cell_h
+            want = svfline.layout([path], text, 0, face.ascent, w, h)
+            for k in (1, 2):
+                font = ImageFont.truetype(ttf, ppem * k)
+                img = Image.new("L", (w * k, h * k), 0)
+                ImageDraw.Draw(img).text((0, face.ascent * k), text, font=font, fill=255, anchor="ls")
+                if k == 1:
+                    self.assertEqual(img.tobytes(), bytes(want), path)
+                else:
+                    got = img.point(lambda v: 255 if v >= 128 else 0).tobytes()
+                    exp = bytes(255 if want[(y // k) * w + x // k] >= 128 else 0
+                                for y in range(h * k) for x in range(w * k))
+                    self.assertEqual(got, exp, path)
+
+    def test_roundtrip_through_mkfont(self):
+        back = os.path.join(self.d, "back.svf")
+        run(os.path.join(HERE, "mkfont.py"), self.ttf2, back, "--size", 16, "--bpp", 2, "--probe", "--width", 16,
+            "--only-listed", "--unicode", run(os.path.join(HERE, "svf2ttf.py"), "cps", GOTHA16A).strip())
+        out = run(os.path.join(HERE, "svf2ttf.py"), "compare", GOTHA16A, back)
+        self.assertIn("mismatches 0", out, out)
+
+    def test_reopen_and_recompile(self):
+        f = TTFont(self.ttf2)
+        out = os.path.join(self.d, "re.ttf")
+        f.save(out)
+        g = TTFont(out)
+        self.assertEqual(len(g.getGlyphOrder()), len(f.getGlyphOrder()))
+        cmap = g.getBestCmap()
+        self.assertTrue(g["glyf"][cmap[0xAC00]].isComposite())
+        self.assertEqual(resolved_strike_pixels(g, cmap[0xAC01], 2), resolved_strike_pixels(f, cmap[0xAC01], 2))
+
+    def test_precomposed_face_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "a.ttf"), os.path.join(d, "b.ttf")
+            env = dict(os.environ, SOURCE_DATE_EPOCH="1700000000")
+            r = subprocess.run([sys.executable, os.path.join(HERE, "svf2ttf.py"), "ttf", NGOTB15C, a, "--composite"],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("no jamo set", r.stderr)
+            subprocess.run([sys.executable, os.path.join(HERE, "svf2ttf.py"), "ttf", NGOTB15C, b], check=True,
+                           capture_output=True, env=env)
+            with open(a, "rb") as fa, open(b, "rb") as fb:
+                self.assertEqual(fa.read(), fb.read())
+
+
+def tall_jamo_face(path, cell_w=8, cell_h=140, ascent=127, place=None):
+    """A jamo set (1x1 classes, one set each) whose initial pieces ink the cell's top row, medials row 60 and finals its
+    bottom row, plus an 'A': a syllable with a final spans the whole cell, so a compound bitmap's offset of its final
+    (cell_h - 1 rows) is past an int8 for cell_h > 128."""
+    t = jamoset.Tables(1, 1, 1, 1, 1)
+    t.init_piece = list(range(19))
+    t.med_piece = list(range(19, 40))
+    t.fin_piece = list(range(40, 67))
+    pitch = (cell_w + 7) // 8
+
+    def cell(row, x):
+        b = bytearray(pitch * cell_h)
+        b[row * pitch + (x >> 3)] |= 0x80 >> (x & 7)
+        return bytes(b)
+    packed = jamoset.pack_jset(t, 1)
+    glyphs = [(0x41, cell(ascent - 1, 1), cell_w, 1, 1)]
+    for n in range(67):
+        row, x = (0, n % cell_w) if n < 19 else (60, (n - 19) % cell_w) if n < 40 else (cell_h - 1, (n - 40) % cell_w)
+        if place:
+            row, x = place(n)
+        glyphs.append((jamoset.PIECE_BASE + packed.piece_map[n], cell(row, x), cell_w, min(x, 127), 1))
+    with open(path, "wb") as fh:
+        fh.write(jamoset.write_svfn(cell_w, cell_h, ascent, glyphs, packed.block, extra_flags=jamoset.FLAG_JAMO))
+    return path
+
+
+class CompositeTall(unittest.TestCase):
+    def test_offsets_past_int8_keep_an_expanded_bitmap(self):
+        with tempfile.TemporaryDirectory() as d:
+            face_path = tall_jamo_face(os.path.join(d, "tall.svf"))
+            face = svf2ttf.load_face(face_path)
+            self.assertEqual(len([cp for cp in range(0xAC00, 0xD7A4) if face.composed(cp)]), 11172)
+            out = os.path.join(d, "tall.ttf")
+            line = run(os.path.join(HERE, "svf2ttf.py"), "ttf", face_path, out, "--composite", "--licence", "none")
+            self.assertIn("(strike: 399 compound, 10773 expanded bitmaps)", line)
+            f = TTFont(out)
+            cmap = f.getBestCmap()
+            strike = f["EBDT"].strikeData[0]
+            for cp in (0xAC00, 0xAC01, 0xD7A3):
+                adv, want = svf2ttf.glyph_pixels(face, cp)
+                self.assertEqual(resolved_strike_pixels(f, cmap[cp], 1), (want, adv), hex(cp))
+                self.assertTrue(f["glyf"][cmap[cp]].isComposite())
+            self.assertIsInstance(strike[cmap[0xAC00]], ComponentBitmapGlyph)
+            self.assertNotIsInstance(strike[cmap[0xAC01]], ComponentBitmapGlyph)
+
+    def test_piece_ink_past_x_127_starts_at_the_pen(self):
+        """A 200-wide 1 bpp jamo set: initials ink x 0, finals x 199. The plain strike holds every syllable (bearing x
+        0); the final pieces' own bitmaps start at the pen (bearing x 0, not 199), so --composite converts it too."""
+        with tempfile.TemporaryDirectory() as d:
+            face_path = tall_jamo_face(os.path.join(d, "wide.svf"), cell_w=200, cell_h=16, ascent=12,
+                                       place=lambda n: (1, 0) if n < 19 else (6, 1) if n < 40 else (14, 199))
+            face = svf2ttf.load_face(face_path)
+            plain = os.path.join(d, "plain.ttf")
+            run(os.path.join(HERE, "svf2ttf.py"), "ttf", face_path, plain, "--licence", "none")
+            out = os.path.join(d, "wide.ttf")
+            line = run(os.path.join(HERE, "svf2ttf.py"), "ttf", face_path, out, "--composite", "--licence", "none")
+            self.assertIn("(strike: 11172 compound, 0 expanded bitmaps)", line)
+            f = TTFont(out)
+            cmap = f.getBestCmap()
+            for cp in (0xAC00, 0xAC01, 0xD7A3):
+                adv, want = svf2ttf.glyph_pixels(face, cp)
+                self.assertEqual(resolved_strike_pixels(f, cmap[cp], 1), (want, adv), hex(cp))
+            final = f["glyf"][cmap[0xAC01]].components[-1].glyphName
+            self.assertEqual(f["EBDT"].strikeData[0][final].metrics.BearingX, 0)
+            # a strike error about a piece names the piece, not its private-use code point
+            plan = svf2ttf.CompositePlan(face)
+            piece = next(g for g in plan.pieces.values() if g.box()[0] == 0 and g.left0)
+            piece.left0 = False
+            with self.assertRaises(ValueError) as e:
+                svf2ttf.strike_tables([piece], 16, 1, 12, 4)
+            self.assertIn("jamo piece %d: the bearing x 199" % (piece.cp - jamoset.PIECE_BASE), str(e.exception))
+            self.assertNotIn("U+F", str(e.exception))
+
+
 class Dy(unittest.TestCase):
     def test_dy_and_marks_keep_their_place(self):
         with tempfile.TemporaryDirectory() as d:
@@ -280,6 +562,8 @@ class Bdf(unittest.TestCase):
 class Cps(unittest.TestCase):
     def test_ranges(self):
         self.assertEqual(svf2ttf.cp_ranges([0x20, 0x21, 0x22, 0x41, 0xAC00, 0xAC01]), "20-22,41,ac00-ac01")
+        # a one-code-point gap is not bridged: 41 and 43 stay apart, 44 joins 43
+        self.assertEqual(svf2ttf.cp_ranges([0x41, 0x43, 0x44]), "41,43-44")
         out = run(os.path.join(HERE, "svf2ttf.py"), "cps", NEODG16A).strip()
         self.assertIn("ac00-d7a3", out)
 
@@ -493,6 +777,19 @@ class Synthetic(unittest.TestCase):
         err = self.fails("ttf", synth(self.path("over.svf"), 200, 16, 12, g), self.path("o.ttf"), "--licence", "none")
         self.assertIn("least right side bearing -140", err)
 
+    def test_strike_wide_least_values_past_127_are_clamped(self):
+        """A 200-wide cell whose only glyph is a '.' of advance 200: the least right side bearing (199) is stored as
+        127, a valid lower bound, not refused; a per-glyph bearing x past 127 is still an error naming the glyph."""
+        face = synth(self.path("dot.svf"), 200, 16, 12, {0x2E: (200, 0, box_rows(200, 16, 0, 10, 1, 12))})
+        f = self.ttf(face)
+        hori = f["EBLC"].strikes[0].bitmapSizeTable.hori
+        self.assertEqual((hori.minOriginSB, hori.minAdvanceSB, hori.widthMax), (0, 127, 200))
+        self.assertEqual(strike_pixels(f, f.getBestCmap()[0x2E], 1),
+                         svf2ttf.glyph_pixels(svf2ttf.load_face(face), 0x2E)[::-1])
+        far = synth(self.path("far.svf"), 200, 16, 12, {0x2E: (200, 0, box_rows(200, 16, 150, 10, 151, 12))})
+        err = self.fails("ttf", far, self.path("far.ttf"), "--licence", "none")
+        self.assertIn("U+002E: the bearing x 150", err)
+
     def test_ppem_and_errors(self):
         for ppem in ("0", "256", "-5"):
             self.assertIn("ppem", self.fails("ttf", NEODG16J, self.path("x.ttf"), "--ppem", ppem))
@@ -547,6 +844,78 @@ class Synthetic(unittest.TestCase):
                    if _inside(glyph, f["glyf"], c * 64 + 32, (3 - r - 1) * 64 + 32)}
             self.assertEqual(got, want, threshold)
             self.assertEqual(f["EBLC"].strikes[0].bitmapSizeTable.bitDepth, 2)
+
+    def test_default_threshold_is_128(self):
+        face = synth(self.path("t.svf"), 4, 4, 3, {0x41: (4, 0, ["1230", "0000", "3000", "0000"])}, bpp=2)
+        plain, explicit = self.ttf(face), self.ttf(face, "--threshold", "128")
+        name = plain.getBestCmap()[0x41]
+        self.assertEqual(plain["glyf"][name].getCoordinates(plain["glyf"])[0],
+                         explicit["glyf"][name].getCoordinates(explicit["glyf"])[0])
+        got = {(c, r) for c in range(4) for r in range(4)
+               if _inside(plain["glyf"][name], plain["glyf"], c * 64 + 32, (3 - r - 1) * 64 + 32)}
+        self.assertEqual(got, {(1, 0), (2, 0), (0, 2)})          # levels 2 and 3
+
+    def bdf_text(self, face, *opts):
+        out = self.path("b.bdf")
+        run(os.path.join(HERE, "svf2ttf.py"), "bdf", face, out, *opts)
+        with open(out, "rb") as fh:
+            return fh.read().decode("utf-8")
+
+    def test_bdf_bpp1_threshold(self):
+        face = synth(self.path("t.svf"), 4, 4, 3, {0x41: (4, 0, ["1230", "0000", "3000", "0000"])}, bpp=2)
+        for opts, rows in (((), ["60", "00", "80"]), (("--threshold", "80"), ["E0", "00", "80"]),
+                           (("--threshold", "200"), ["20", "00", "80"])):
+            text = self.bdf_text(face, "--licence", "none", "--bpp1", *opts)
+            self.assertIn("SIZE 4 72 72\n", text, opts)                  # BDF 2.1, no bit depth field
+            bitmap = text.split("STARTCHAR uni0041")[1].split("BITMAP\n")[1].split("\nENDCHAR")[0].split("\n")
+            self.assertEqual(bitmap, rows, opts)
+
+    def test_bdf_utf8_and_average_width(self):
+        note = self.path("NOTE.TXT")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("테스트 글꼴 (T.SVF)\nCopyright (c) 2026 누군가\n")
+        face = synth(self.path("t.svf"), 8, 8, 6, {0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7)),
+                                                    0x2E: (3, 0, box_rows(8, 8, 0, 5, 1, 6)),
+                                                    0x20: (4, 0, box_rows(8, 8, 0, 0, 0, 0))})
+        text = self.bdf_text(face, "--licence", note)
+        self.assertIn("COMMENT 테스트 글꼴 (T.SVF)", text)
+        self.assertIn("누군가", text)
+        self.assertIn("AVERAGE_WIDTH 50\n", text)                         # (8 + 3 + 4) / 3 * 10
+        self.assertIn("-P-50-ISO10646-1", text)
+
+    def test_name_14_only_with_an_ofl_text(self):
+        note = self.path("PLAIN.TXT")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("A test face. Public domain.\n")
+        face = synth(self.path("t.svf"), 8, 8, 6, {0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7))})
+        f = self.ttf(face, "--licence", note)                     # self.ttf passes --licence none first; last wins
+        self.assertIn("Public domain", f["name"].getDebugName(13))
+        self.assertIsNone(f["name"].getDebugName(14))
+        out = self.path("ofl.ttf")
+        run(os.path.join(HERE, "svf2ttf.py"), "ttf", NEODG16J, out)
+        self.assertEqual(TTFont(out)["name"].getDebugName(14), svf2ttf.OFL_URL)
+
+    def test_glyph_limit(self):
+        n = 65535
+        big = self.path("big.svf")
+        with open(big, "wb") as fh:
+            fh.write(jamoset.pack_svfn(1, 1, 1, 1, jamoset.FLAG_MARKS_AT_ORIGIN, [b"\x80"] * n,
+                                       [(0x10000 + i, i) for i in range(n)], [(1, 0, 1, 0)] * n, None, (0, 0)))
+        err = self.fails("ttf", big, self.path("big.ttf"), "--licence", "none")
+        self.assertIn("has 65535 glyphs; a TrueType font holds 65534 besides .notdef", err)
+
+    def test_strike_line_metrics_and_win_ascent(self):
+        """Ink a dy moves above the cell: the strike's highest ink, OS/2 winAscent and the lowest ink follow it."""
+        g = {0x41: (8, 0, box_rows(8, 8, 1, 0, 6, 6)), 0x67: (8, 0, box_rows(8, 8, 2, 3, 5, 8))}
+        face = synth(self.path("up.svf"), 8, 8, 6, g, dy={0x41: -2})
+        f = self.ttf(face)
+        hori = f["EBLC"].strikes[0].bitmapSizeTable.hori
+        # A: rows 0..5 of the cell, its top 6 + 2 = 8 rows above the baseline; g: rows 3..7, down to 2 rows below
+        self.assertEqual((hori.ascender, hori.descender), (6, -2))
+        self.assertEqual((hori.maxBeforeBL, hori.minAfterBL), (8, -2))
+        self.assertEqual((hori.minOriginSB, hori.minAdvanceSB, hori.widthMax), (1, 2, 8))
+        self.assertEqual((f["OS/2"].usWinAscent, f["OS/2"].usWinDescent), (8 * 64, 2 * 64))
+        self.assertEqual(f["OS/2"].sTypoAscender, 6 * 64)
 
     def test_win_metrics_with_dy_below_the_cell(self):
         face = synth(self.path("dy.svf"), 8, 8, 6, {0x67: (8, 0, box_rows(8, 8, 1, 4, 6, 8))}, dy={0x67: 3})

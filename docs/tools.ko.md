@@ -522,14 +522,17 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
   `prep`이 FreeType의 자동 힌팅을 막아 다른 크기에서는 정확한 면적 커버리지로 그려진다).
   `EBLC`/`EBDT`: 페이스의 비트 깊이(1, 2, 8)로 ppem의 스트라이크 하나(이미지 형식 1, 인덱스 형식 1). 각 글리프는 잉크 상자로
   잘리고 bearing과 advance를 가진다(부호 있는 바이트: -128..127을 넘는 ascent, descent, 글리프의 bearing x나 잉크 위끝, 스트라이크 전체의 최소 side bearing이나 잉크 극값은 그 필드를 밝히고 `--no-strike`를
-  권하는 오류. `--no-strike`는 스트라이크를 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). 글리프는 65,534개까지. `cmap`(4, U+FFFF를 넘으면 12),
+  권하는 오류. 단 127을 넘는 최소 오른쪽 side bearing은 127로 저장한다. `--no-strike`는 스트라이크를 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). 글리프는 65,534개까지. `cmap`(4, U+FFFF를 넘으면 12),
   `hmtx`(페이스의 advance. 결합 부호는 `svfline.py`가 놓는 대로 원점에 advance 0), `hhea` / OS/2 typo 메트릭 = ascent와 셀 높이 -
   ascent, dy가 옮긴 잉크까지 덮는 OS/2 win 메트릭, `post` 형식 3, `head`, `maxp`, `gasp`, `name`(패밀리, 스타일, 버전, 페이스를
   밝히는 설명, 그리고 라이선스: 저장소 `svf/`의 페이스는 `web/LICENCES.tsv`의 해당 행이 지명하는 파일(`svf/` 아래에서 행이 없는
   페이스는 `--licence`가 없으면 오류), 그 밖에는 페이스 옆에서 제목 줄이 그 파일 이름이나 그에 맞는 패턴을 적은 `*.TXT`와 그것이
   이름을 든 라이선스 파일, 없으면 옆 `FACES.TSV`의 licence 열. 이를 name 13으로. OFL 파일 머리 위의 저작권 문단은 name 0, OFL
   URL은 OFL 텍스트가 들어갈 때만 name 14).
-  GSUB, GPOS, 첫가끝 자모 셰이핑은 없다: 출력은 완성형이다. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값.
+  GSUB, GPOS, 첫가끝 자모 셰이핑은 없다: 출력은 완성형이다. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값. `--composite`(자모
+  세트): 자모 조각마다 글리프 하나, 음절마다 그 조각들의 `glyf` 합성 글리프(`OVERLAP_COMPOUND`)와 `EBDT` 복합 비트맵(이미지 형식 8, 별도 인덱스
+  하위 테이블). 호환 자모는 조각 글리프를 가리킨다. 2와 8 bpp: 조각 비트맵은 펜에서 시작하고, 조각들이 OR가 최댓값이 아닌 단계로 겹치는 음절은 펼친 비트맵을 유지한다(FreeType은 복합 구성요소를 OR한다).
+  구성요소 오프셋이 부호 있는 바이트를 넘을 음절(128 px를 넘는 셀)도 그렇다. 요약 줄이 그 수를 센다.
 - `bdf`: BDF 2.1(1 bpp) 또는 2.3(2 / 8 bpp: 비트 깊이를 `SIZE`의 네 번째 필드에. `--bpp1`은 1 bpp로 자른다), ISO10646-1,
   글리프마다 잉크 상자(BBX)와 advance(DWIDTH), `FONT_ASCENT` / `FONT_DESCENT`는 페이스의 값, 72 dpi(`SIZE ppem 72 72`,
   `POINT_SIZE`는 ppem x 10, `SWIDTH`는 advance x 1000 / ppem), `AVERAGE_WIDTH`, 라이선스 노트는 `COMMENT` 줄, 저작권은 `COPYRIGHT`, UTF-8로.
@@ -541,7 +544,7 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 **개요(Synopsis).**
 
     python3 tools/svf2ttf.py ttf FACE.SVF OUT.ttf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
-                                                  [--licence FILE|none] [--no-strike] [--apple]
+                                                  [--licence FILE|none] [--no-strike] [--apple] [--composite]
     python3 tools/svf2ttf.py bdf FACE.SVF OUT.bdf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
                                                   [--licence FILE|none] [--bpp1]
     python3 tools/svf2ttf.py compare A.SVF B.SVF
@@ -557,6 +560,7 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 | `--licence FILE\|none` | 페이스 옆의 노트 | 넣을 라이선스 노트. `none`은 넣지 않는다 |
 | `--no-strike` (ttf) | off | 아웃라인만 |
 | `--apple` (ttf) | off | 스트라이크를 `bloc`/`bdat`으로도 쓴다 |
+| `--composite` (ttf) | off | 자모 세트: 조각은 한 번, 음절은 합성 글리프(glyf 합성, EBDT 형식 8). 완성형 페이스에는 안내만 찍고 그대로 |
 | `--bpp1` (bdf) | off | 2 또는 8 bpp 페이스를 1 bpp BDF로 |
 
 종료 상태: 0. 1은 읽을 수 없는 페이스(모든 하위 명령), 범위를 벗어난 값(1..255 밖의 `--ppem`, 스트라이크 필드), 내보낼 것이 없는 페이스(`compare`: 불일치가 있으면 1). 2는 사용법 오류. 저장소 `svf/` 아래에서
@@ -564,11 +568,13 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 찍고, 원본 폰트의 라이선스가 적용된다는 한 줄을 받는다.
 
 왕복 점검과 여섯 페이스(완성형과 자모 세트, 1과 2 bpp, 16과 24 px, HWP 1.x 페이스)의 결과:
-[recipes.ko.md, SVF 페이스를 다시 TTF 비트맵 폰트로](recipes.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로).
+[recipes.ko.md, SVF 페이스를 다시 TTF 비트맵 폰트로](recipes.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로). 자모 세트 여섯의
+`--composite`(크기, 펼친 비트맵, 한계): [합성 글리프](recipes.ko.md#합성-글리프--composite).
 
 **import하는 저장소 모듈.** `jamoset.py`, `svfline.py`. **서드파티.** fontTools(`ttf`). **테스트.** `tools/test_svf2ttf.py`(`svf/`의
 페이스로: 글리프 집합과 합성 수, 메트릭과 이름, 페이스와 대조한 스트라이크, 2비트 스트라이크, 1 x, 1.5 x(힌팅 없음), 2 x의 FreeType 렌더, 스트라이크가
-있을 때와 없을 때의 `mkfont.py` 왕복, dy, BDF).
+있을 때와 없을 때의 `mkfont.py` 왕복, dy, BDF. `--composite`: 구성요소 수와 오프셋, `maxp`, FreeType처럼 풀어 본 복합 스트라이크, 2 bpp의
+펼친 비트맵 집합, 렌더, 2 bpp 왕복, fontTools 재컴파일, 완성형에서의 no-op).
 
 ### `tools/svf_synth.py`
 
