@@ -510,7 +510,8 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 **출력.**
 
 - `ttf`: `unitsPerEm` = ppem x 64인 TrueType 폰트(ppem의 기본은 셀 높이). `glyf`: 각 글리프에서 커버리지가 `--threshold`(기본
-  128: 1 bpp는 모든 픽셀, 2 bpp는 단계 2와 3) 이상인 픽셀을 윤곽선으로 추적한 것. ppem과 그 정수배에서 정확하며 힌팅은 없다.
+  128: 1 bpp는 모든 픽셀, 2 bpp는 단계 2와 3) 이상인 픽셀을 윤곽선으로 추적한 것. ppem과 그 정수배에서 정확하며 힌팅은 없다(no-op 하나의
+  `prep`이 FreeType의 자동 힌팅을 막아 다른 크기에서는 정확한 면적 커버리지로 그려진다).
   `EBLC`/`EBDT`: 페이스의 비트 깊이(1, 2, 8)로 ppem의 스트라이크 하나(이미지 형식 1, 인덱스 형식 1). 각 글리프는 잉크 상자로
   잘리고 bearing과 advance를 가진다(부호 있는 바이트: -128..127을 넘는 ascent, descent, bearing은 그 필드를 밝히고 `--no-strike`를
   권하는 오류. `--no-strike`는 스트라이크를 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). 글리프는 65,534개까지. `cmap`(4, U+FFFF를 넘으면 12),
@@ -558,7 +559,7 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
 [recipes.ko.md, SVF 페이스를 다시 TTF 비트맵 폰트로](recipes.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로).
 
 **import하는 저장소 모듈.** `jamoset.py`, `svfline.py`. **서드파티.** fontTools(`ttf`). **테스트.** `tools/test_svf2ttf.py`(`svf/`의
-페이스로: 글리프 집합과 합성 수, 메트릭과 이름, 페이스와 대조한 스트라이크, 2비트 스트라이크, 1 x와 2 x의 FreeType 렌더, 스트라이크가
+페이스로: 글리프 집합과 합성 수, 메트릭과 이름, 페이스와 대조한 스트라이크, 2비트 스트라이크, 1 x, 1.5 x(힌팅 없음), 2 x의 FreeType 렌더, 스트라이크가
 있을 때와 없을 때의 `mkfont.py` 왕복, dy, BDF).
 
 ### `tools/svf_synth.py`

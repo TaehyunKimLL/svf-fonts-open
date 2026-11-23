@@ -24,7 +24,9 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
   - glyf: the pixels with coverage >= --threshold (default 128: every 1 bpp pixel, 2 bpp levels 2 and 3, 8 bpp bytes
     >= 128, the C library's mono-target rule) traced into contours along the pixel edges (outer contours clockwise,
     holes counter-clockwise, collinear points dropped, diagonal neighbours kept apart), so the outline covers exactly
-    those pixels at ppem and at whole multiples of it. No hinting instructions.
+    those pixels at ppem and at whole multiples of it. No hinting: the only bytecode is a prep of one no-op
+    (PUSHB 0, POP), which keeps FreeType from autohinting a font with no bytecode, so at any other size the outline
+    renders as its exact area coverage.
   - EBLC/EBDT: one strike at ppem x ppem with the face's own bit depth (1, 2 or 8), every glyph's pixels cut to its ink
     box (image format 1: small metrics, byte-aligned rows; index format 1), its advance and bearings in the metrics.
     A renderer that uses embedded bitmaps (FreeType, Windows GDI/DirectWrite) draws the face's own pixels and levels at
@@ -76,6 +78,7 @@ import svfline  # noqa: E402
 UNITS = 64                     # font units per pixel
 DEFAULT_THRESHOLD = 128        # svfline Target mono threshold
 OFL_URL = "https://openfontlicense.org"
+PREP_NOOP = bytes([0xB0, 0x00, 0x21])   # PUSHB[0] 0, POP: keeps FreeType off its autohinter (see build_ttf)
 SPACES = {0x20, 0xA0, 0x3000}  # blank glyphs mkfont.py keeps (BLANK_OK): one face missing them is a mismatch
 
 
@@ -495,6 +498,7 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.ttGlyphPen import TTGlyphPen
     from fontTools.ttLib import newTable
+    from fontTools.ttLib.tables import ttProgram
     from fontTools.ttLib.tables.DefaultTable import DefaultTable
 
     face = load_face(face_path)
@@ -583,6 +587,13 @@ def build_ttf(face_path, out, family=None, style="Regular", version="1.000", ppe
     font["OS/2"].recalcUnicodeRanges(font)
     font["gasp"] = newTable("gasp")
     font["gasp"].gaspRange = {0xFFFF: 0x000F}
+    # FreeType hands a TrueType font with no bytecode at all (no fpgm, no prep, no glyph instructions) to its autohinter,
+    # which moves the pixel outlines at sizes other than whole multiples of ppem; a prep of one no-op (PUSHB 0, POP)
+    # keeps the native, unhinted path, so the outline renders as its exact area coverage at every size.
+    font["prep"] = newTable("prep")
+    font["prep"].program = ttProgram.Program()
+    font["prep"].program.fromBytecode(PREP_NOOP)
+    font["maxp"].maxStackElements = max(font["maxp"].maxStackElements, 1)
     if strike:
         eblc, ebdt = strike_tables(glyphs, ppem, face.bpp, ascent, descent)
         pairs = [("EBLC", eblc), ("EBDT", ebdt)]

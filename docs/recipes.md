@@ -1235,7 +1235,10 @@ a combining mark at its origin with advance 0, the advance the face's own.
 **What the TTF holds.**
 
 - **Outlines** (`glyf`): the pixels of each glyph traced along their edges into contours (holes kept, diagonal neighbours
-  kept apart, no hinting), with `unitsPerEm` = ppem x 64, so one pixel is 64 units and the outline covers exactly the
+  kept apart, no hinting; the only bytecode is a `prep` of one no-op, `PUSHB 0, POP`: FreeType hands a TrueType with no
+  bytecode at all to its autohinter, which moved NEODG16's outlines by up to a full pixel at 1.5 x (591 pixels of the
+  sample line at 24 px), and with the prep it draws the exact area coverage, within 1 level of `svfline.py`'s 3/2
+  scale), with `unitsPerEm` = ppem x 64, so one pixel is 64 units and the outline covers exactly the
   face's pixels at ppem and at whole multiples of it; the font is scalable and installable. ppem defaults to the cell
   height (`--ppem N` for another, e.g. 17 for a face baked at 17 px in a 24-row cell); the line is the cell (ascent +
   descent = the cell height).
@@ -1294,25 +1297,25 @@ unreadable face exits 1.
 
 Verified (2026-11-23), every face through `ttf` and `bdf`, each output baked back by `mkfont.py` as above (`--bpp 2`
 for the 2 bpp faces) and compared; rendered by Pillow (FreeType) at ppem and at 2 x ppem, the line `가각간한글 ABC 123`
-compared with `svfline.py` (at 2 x, with the 2 bpp line cut at 128, in 2 x 2 blocks); `fc-scan` reads every TTF
-(scalable, outline, its family and style):
+compared with `svfline.py` (at 2 x, with the 2 bpp line cut at 128, in 2 x 2 blocks); OTS 9.2.0 (`ots-sanitize`)
+passes every TTF; `fc-scan` reads every TTF (scalable, outline, its family and style):
 
 | Face | Kind | Glyphs | SVF | TTF | BDF | TTF / BDF round trip | Render 1 x / 2 x |
 |---|---|---|---|---|---|---|---|
-| `svf/dos/NEODG16.SVF` | precomposed 1 bpp 16x16 | 2,905 | `133,720` | `481,924` | `440,784` | 0 / 0 mismatches of 2,905 | identical / identical |
-| `svf/dos/NEODG16A.SVF` | jamo set 1 bpp 16x16 | 11,319 | `16,408` | `2,039,092` | `1,745,251` | 0 / 0 of 11,318 (1 blank: U+3161) | identical / identical |
-| `svf/jamo-extra/GOTHA16A.SVF` | jamo set 2 bpp 16x16 | 11,319 | `73,752` | `2,418,280` | `2,519,838` | 0 / 0 of 11,319 | identical levels / identical |
-| `svf/dos/NGOTB16.SVF` | precomposed 2 bpp 16x16 | 2,880 | `219,480` | `563,884` | `621,405` | 0 / 0 of 2,880 | identical levels / identical |
-| `svf/jamo-extra/GOTHB24.SVF` | jamo set 1 bpp 24x24 | 11,319 | `96,180` | `2,796,268` | `2,757,239` | 0 / 0 of 11,319 | identical / identical |
-| HWP 1.x `HANGUL1.PFT` face 1 + `ASCII.PFT` (`jamoset.py --layout hwp1`, [HWP 1.x](#hwp-1x-and-2x-fonts)) | jamo set 1 bpp 24x24 | 11,318 | `16,712` | `2,849,108` | `2,726,273` | 0 / 0 of 11,318 | identical / identical |
+| `svf/dos/NEODG16.SVF` | precomposed 1 bpp 16x16 | 2,905 | `133,720` | `481,800` | `440,766` | 0 / 0 mismatches of 2,905 | identical / identical |
+| `svf/dos/NEODG16A.SVF` | jamo set 1 bpp 16x16 | 11,319 | `16,408` | `2,038,968` | `1,745,233` | 0 / 0 of 11,318 (1 blank: U+3161) | identical / identical |
+| `svf/jamo-extra/GOTHA16A.SVF` | jamo set 2 bpp 16x16 | 11,319 | `73,752` | `2,418,300` | `2,519,856` | 0 / 0 of 11,319 | identical levels / identical |
+| `svf/dos/NGOTB16.SVF` | precomposed 2 bpp 16x16 | 2,880 | `219,480` | `563,900` | `621,422` | 0 / 0 of 2,880 | identical levels / identical |
+| `svf/jamo-extra/GOTHB24.SVF` | jamo set 1 bpp 24x24 | 11,319 | `96,180` | `2,796,288` | `2,757,257` | 0 / 0 of 11,319 | identical / identical |
+| HWP 1.x `HANGUL1.PFT` face 1 + `ASCII.PFT` (`jamoset.py --layout hwp1`, [HWP 1.x](#hwp-1x-and-2x-fonts)) | jamo set 1 bpp 24x24 | 11,318 | `16,712` | `2,849,128` | `2,726,291` | 0 / 0 of 11,318 | identical / identical |
 
 An 8 bpp face (`mkfont.py --bpp 8` of `ttf/nanumgothic/NanumGothic-Bold.ttf` at 16 px, `ascii,ksx1001-hangul`, 2,446
-glyphs, `579,152 bytes`) gets an 8-bit strike: TTF `876,420`, BDF `1,307,842 bytes`, both round trips (`--bpp 8`) 0
+glyphs, `579,152 bytes`) gets an 8-bit strike: TTF `876,820`, BDF `1,307,960 bytes`, both round trips (`--bpp 8`) 0
 mismatches. The HWP 1.x face (HWP 1.20, proprietary) has no licence note beside it, so its TTF says the source font's
 licence applies and stays in `$OUT`, as the face does.
 
-`ttf` takes 2.4-4.6 s for a jamo set of 11,172 syllables and under 1 s for a precomposed face of 2,905 glyphs. Most of
-a TTF is the outlines (`glyf`: 1,561,590 of NEODG16A's 2,039,092 bytes; the strike 348,244 + 45,352), so a TTF is 2.5-3.6
+`ttf` takes 2.5-4.8 s for a jamo set of 11,172 syllables and under 1 s for a precomposed face of 2,905 glyphs. Most of
+a TTF is the outlines (`glyf`: 1,561,590 of NEODG16A's 2,038,968 bytes; the strike 348,244 + 45,352), so a TTF is 2.5-3.6
 times the precomposed face and 29-170 times a jamo set. NEODG16A draws U+3161 (ㅡ) blank (its compatibility piece is empty), so `mkfont.py`
 drops it and `compare` counts it as the one blank glyph.
 

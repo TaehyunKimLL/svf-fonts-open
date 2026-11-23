@@ -534,7 +534,8 @@ face (see Outputs) unless `--licence` names one.
 
 - `ttf`: a TrueType font with `unitsPerEm` = ppem x 64 (ppem defaults to the cell height). `glyf`: each glyph's pixels
   of coverage >= `--threshold` (default 128: every 1 bpp pixel, 2 bpp levels 2 and 3) traced into contours, exact at ppem
-  and its multiples, no hinting. `EBLC`/`EBDT`: one strike at ppem in the face's bit depth (1, 2 or 8; image format 1,
+  and its multiples, no hinting (a `prep` of one no-op keeps FreeType from autohinting it, so other sizes render the
+  exact area coverage). `EBLC`/`EBDT`: one strike at ppem in the face's bit depth (1, 2 or 8; image format 1,
   index format 1), each glyph cut to its ink box with its bearings and advance (signed bytes: an ascent, descent or
   bearing past -128..127 is an error that names the field and suggests `--no-strike`, which leaves the strike out;
   `--apple` adds it as `bloc`/`bdat` too). At most 65,534 glyphs. `cmap` (4, and 12 past U+FFFF), `hmtx` (the face's advances; a combining mark advance 0
@@ -587,7 +588,7 @@ The round trip and its results on six faces (precomposed and jamo sets, 1 and 2 
 
 **Repository modules imported.** `jamoset.py`, `svfline.py`. **Third-party.** fontTools (`ttf`). **Test.**
 `tools/test_svf2ttf.py` (on faces of `svf/`: glyph set and composition count, metrics and names, the strike against the
-face, 2-bit strike, FreeType renders at 1 x and 2 x, the `mkfont.py` round trip with and without the strike, dy, BDF).
+face, 2-bit strike, FreeType renders at 1 x, 1.5 x (unhinted) and 2 x, the `mkfont.py` round trip with and without the strike, dy, BDF).
 
 ### `tools/svf_synth.py`
 

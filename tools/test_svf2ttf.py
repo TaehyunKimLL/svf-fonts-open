@@ -182,6 +182,24 @@ class Ttf(unittest.TestCase):
             exp = bytes(want[(y // k) * w + x // k] for y in range(h * k) for x in range(w * k))
             self.assertEqual(got, exp, "size %d" % size)
 
+    def test_unhinted_at_other_sizes(self):
+        """At 1.5 x ppem FreeType draws the outline's exact area coverage (the no-op prep keeps the autohinter off):
+        svfline's 3/2 scale of the line, within 1 level. NEODG16: ascent 12 and even advances, so the 3/2 grid is
+        whole pixels."""
+        ttf = os.path.join(self.d, "neodg16.ttf")
+        run(os.path.join(HERE, "svf2ttf.py"), "ttf", NEODG16, ttf)
+        f = TTFont(ttf)
+        self.assertEqual(f["prep"].program.getBytecode(), svf2ttf.PREP_NOOP)
+        self.assertEqual(f["maxp"].maxStackElements, 1)
+        text = "가각간한글 ABC 123"
+        w, h = 260, 24
+        want = svfline.layout([NEODG16], text, 0, 18, w, h, scale=(3, 2))
+        font = ImageFont.truetype(ttf, 24)
+        img = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(img).text((0, 18), text, font=font, fill=255, anchor="ls")
+        self.assertLessEqual(max(abs(a - b) for a, b in zip(img.tobytes(), want)), 1)
+        self.assertGreater(sum(1 for v in want if 0 < v < 255), 100)      # partial coverage is really compared
+
     def test_roundtrip_through_mkfont(self):
         for src, ttf, size, bpp in ((NEODG16J, self.ttf16, 18, 1), (NGOTB15C, self.ttf2, 15, 2)):
             back = os.path.join(self.d, "back%d.svf" % bpp)
