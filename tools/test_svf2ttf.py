@@ -492,6 +492,14 @@ class CompositeTall(unittest.TestCase):
                 self.assertEqual(resolved_strike_pixels(f, cmap[cp], 1), (want, adv), hex(cp))
             final = f["glyf"][cmap[0xAC01]].components[-1].glyphName
             self.assertEqual(f["EBDT"].strikeData[0][final].metrics.BearingX, 0)
+            # a strike error about a piece names the piece, not its private-use code point
+            plan = svf2ttf.CompositePlan(face)
+            piece = next(g for g in plan.pieces.values() if g.box()[0] == 0 and g.left0)
+            piece.left0 = False
+            with self.assertRaises(ValueError) as e:
+                svf2ttf.strike_tables([piece], 16, 1, 12, 4)
+            self.assertIn("jamo piece %d: the bearing x 199" % (piece.cp - jamoset.PIECE_BASE), str(e.exception))
+            self.assertNotIn("U+F", str(e.exception))
 
 
 class Dy(unittest.TestCase):

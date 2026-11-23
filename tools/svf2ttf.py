@@ -527,11 +527,15 @@ def strike_tables(glyphs, ppem, depth, ascent, descent, compounds=()):
     inked = []          # (x0, y0, x1, y1, advance) of every inked bitmap, compounds included
     wmax = 0
 
-    def metrics(cp, box, adv):
+    def label(g):
+        """A glyph as a message names it: its code point, or a jamo set's piece by number (never its U+F0000 plane)."""
+        return "jamo piece %s" % g.name[4:].lstrip("0").rjust(1, "0") if g.name.startswith("jamo") else "U+%04X" % g.cp
+
+    def metrics(g, box, adv):
         if not 0 <= adv <= 255:
-            raise ValueError("U+%04X: advance %d is outside 0..255" % (cp, adv))
-        i8(box[0], "U+%04X: the bearing x" % cp)
-        i8(-box[1], "U+%04X: the bearing y (ink top above the baseline)" % cp)
+            raise ValueError("%s: advance %d is outside 0..255" % (label(g), adv))
+        i8(box[0], "%s: the bearing x" % label(g))
+        i8(-box[1], "%s: the bearing y (ink top above the baseline)" % label(g))
         inked.append(box + (adv,))
         x0, y0, x1, y1 = box
         return struct.pack(">BBbbB", y1 - y0, x1 - x0, x0, -y0, adv)
@@ -541,10 +545,10 @@ def strike_tables(glyphs, ppem, depth, ascent, descent, compounds=()):
         box = g.box()
         if box is None:
             if not 0 <= g.adv <= 255:
-                raise ValueError("U+%04X: advance %d is outside 0..255" % (g.cp, g.adv))
+                raise ValueError("%s: advance %d is outside 0..255" % (label(g), g.adv))
             data += struct.pack(">BBbbB", 0, 0, 0, 0, g.adv)
         else:
-            data += metrics(g.cp, box, g.adv)
+            data += metrics(g, box, g.adv)
             data += _pack_rows(g, depth)
         wmax = max(wmax, g.adv)
     offs.append(len(data))
@@ -553,7 +557,7 @@ def strike_tables(glyphs, ppem, depth, ascent, descent, compounds=()):
         boxes = [(gid, c.box()) for gid, c in comps if c.box() is not None]
         box = (min(b[0] for _, b in boxes), min(b[1] for _, b in boxes),
                max(b[2] for _, b in boxes), max(b[3] for _, b in boxes))
-        data += metrics(g.cp, box, g.adv)[:5] + struct.pack(">xH", len(boxes))
+        data += metrics(g, box, g.adv)[:5] + struct.pack(">xH", len(boxes))
         for gid, b in boxes:
             data += struct.pack(">Hbb", gid, b[0] - box[0], b[1] - box[1])
         wmax = max(wmax, g.adv)
