@@ -5,7 +5,8 @@ Card t_235403fe: "desktop app: font finder for unknown programs/ROMs (binscan/ra
 repository. This is a design only: no code is changed by this card, and no implementation card is created before the
 owner has approved it. Facts below were read from the tree (main, and branch `mame-roms` at `55c0be1` where said) or
 run on this host; what was not run says "not verified" or "target". Where a choice is the owner's I decided for the
-builder, marked "(design call)", and collected it again under "Decisions needed" (section 15).
+builder, marked "(design call)", and collected it again in section 15; the owner answered all ten on 2026-11-23, every
+one as recommended, and section 15 now records the answers.
 
 Read with this document: `docs/recipes.md` "Finding a font inside a program or data file, with Claude" (the prompt, the
 byte-size signatures, the NKP / Dokkaebi / 86Box examples) and, on `mame-roms`, "Korean font ROMs in MAME sets";
@@ -399,13 +400,93 @@ faces are byte-identical to the app's run of the same recipe (a test).
 ### 9.3 Card t_97acecf9's known ROMs
 
 That card detects the 86Box Trigem / Kasan / ATI ROMs, the SPC-1500 set and the Date Quiz Go Go, Quiz KOF and X Se
-Dae sets "by size+hash" and converts them through hard-coded routes; it is in progress before this design is
-approved. Proposal (design call): those routes **are** recipes. Either t_97acecf9 stores its table in this schema from
-the start (only `files`, `regions`, `items`, `faces`; the planner is the piece both cards share), or it ships its table
-as it is and finder phase 1 converts it into `maker/recipes/*.json` with a test that both give byte-identical faces
-before the hard-coded table is removed. The first is less work in total and is my recommendation if t_97acecf9 has not
-fixed its table yet. Every worked example of the recipes that was resolved (NKP, NKP3, DKBB, DKBII; the three VGA
-ROMs; SPC-1500; dquizgo, xsedae, quizkofk) becomes a built-in recipe; the unresolved ones (livequiz, quizdaisk) do not.
+Dae sets by size and hash. Decided (section 15, 3): those routes **are** recipes. t_97acecf9 stores its table as
+`maker/recipes/*.json` in schema version 1 from the start, beginning with the three 86Box ROMs, and implements the
+subset of 9.4 that they need: `files`, `items` of kind `ks-grid` and `english`, `faces`, optional `expect`. The planner
+(recipe + bound files -> entries with prep ops -> argv) is the piece both cards share: t_97acecf9 writes it for its
+subset, the finder's phase 0 extends it and does not replace it. A key or an item kind the implementation does not read
+yet is refused by name ("not supported yet: regions"), never ignored, so a recipe of a later phase cannot half-run.
+Every worked example of the recipes that was resolved (NKP, NKP3, DKBB, DKBII; the three VGA ROMs; SPC-1500; dquizgo,
+xsedae, quizkofk) becomes a built-in recipe as its phase lands; the unresolved ones (livequiz, quizdaisk) do not.
+
+### 9.4 Schema version 1: field reference
+
+A recipe is one JSON object in UTF-8 (the `//` comments of 9.1 are the document's, not the format's), at most 256 KiB.
+Integers are JSON numbers without a fraction; an offset or a size is 0 .. 2^26 (64 MiB). "id" below means
+`[a-z0-9][a-z0-9-]{0,47}`. Keys not listed are refused. R = required, O = optional (default in brackets).
+
+| Object | Key | | Type and rule |
+|---|---|---|---|
+| recipe | `recipe` | R | the integer 1 |
+| | `id` | R | id; the file is `<id>.json`; unique in a library |
+| | `title` | R | `{"en": text, "ko": text}`, `en` required, each 1..120 characters |
+| | `notes` | O | text, at most 2,000 characters [""] |
+| | `refs` | O | list of at most 16 texts of at most 200 characters (where the layout was read from; never opened) |
+| | `files` | R | list of 1..16 file objects, ids distinct |
+| | `regions` | O | list of at most 16 region objects [none] |
+| | `items` | R | list of 1..64 item objects, ids distinct |
+| | `faces` | R | list of 1..16 face objects, names distinct |
+| | `expect` | O | `{"items": {item id: {...}}, "faces": {face name: {...}}}` |
+| file | `id` | R | id, distinct from every region id |
+| | `name` | R | the usual base name: a label and the tie-breaker of "similar"; no `/`, `\` or control character, 1..255 bytes |
+| | `size` | R | integer, 1 .. 2^26 |
+| | `sha256` | R | 64 lower-case hex characters of the whole file |
+| | `sha1` | O | 40 lower-case hex characters (the MAME `ROM_LOAD` hash; informational, checked when present) |
+| | `optional` | O | boolean [false]; a face whose item reads a missing optional file is not offered |
+| region | `id` | R | id |
+| | `groups` | R | list of 1..16 lists of 1..8 file ids: the files of a group interleaved, the groups one after another |
+| | `unit` | O | 1, 2 or 4 [1] |
+| | `swap` | O | boolean [false] |
+| item | `id` | R | id |
+| | `kind` | R | `raw-set`, `english`, `ks-dense`, `ks-grid` or `compose` |
+| | `region` | R | a file id or a region id |
+| | `offset` | O | integer byte offset of glyph 0 in the region [0] |
+| | `reading` | R | reading object |
+| | `ascent` | O | integer 1..height [the tool's default: 7/8 of the height, rounded up] |
+| | `decided` | O | `by eye`, `loose copy` or `driver code` |
+| reading | `glyph` | R | `[W, H]`, each 1..1024 |
+| | `order` | O | `rows`, `strips`, `cols` or `bytecols` [`rows`] |
+| | `stride` | O | integer bytes from one glyph to the next [the glyph's bytes in that order] |
+| | `lsb`, `invert` | O | booleans [false] |
+| | `gfx`, `bg`, `fg` | O | a `binscan.py --gfx` layout text (at most 2,000 characters), a pen, a list of pens; phase 2 |
+
+Keys of each item kind, beside the common ones:
+
+| Kind | Key | | Type and rule |
+|---|---|---|---|
+| `ks-grid` | `chars` | R | `ks-hangul`, `ks-nonhanja` or `ks-all` |
+| | `grid` | R | `[L0, T0, PITCH]`: glyph index = (lead - L0) x PITCH + (trail - T0); each 0..255, PITCH 1..256 |
+| `ks-dense` | `chars` | R | as above: glyph i is the i-th code of the set in KS order |
+| `english` | `first` | O | the code of glyph 0, 0..255 [0] |
+| | `count` | O | glyphs, 1..256, `first` + `count` <= 256 [256 - `first`] |
+| | `top` | O | blank rows above an 8xH glyph in the 16-row cell, 0..15 [0] |
+| | (`reading.glyph`) | | `[8, H]` with H 8..16, or `[16, 16]` (phase 2) |
+| `raw-set` | `layout` | R | a `jamoset.py` raw layout name (`844`, `1044-san`, `621`, ...) |
+| | `length` | R | integer bytes cut from `offset` |
+| `compose` | `spec` | R | a compose spec object, `{"builtin": "spc1500"}` or `{"derive": "nkpspec"}`; phase 3 |
+| | `syllables` | O | `ks` or `all` [`ks`] |
+
+| Object | Key | | Type and rule |
+|---|---|---|---|
+| face | `name` | R | the face's file stem, as `maker/naming.py` accepts it (`[A-Z0-9_]{1,8}` for `svf/` names) |
+| | `kind` | R | `precomposed` or `jamo` |
+| | `route` | R | a route label of `routes.py` that the item's entry kind offers (`bdfface`, `bdfface + from-svf fit`, `dos raw`, `johab844`, `spec`, ...) |
+| | `hangul` | R unless `from` | item id of the Hangul source |
+| | `english` | O | item id of kind `english` (the `--ascii` BDF or the `--eng` companion) |
+| | `from` | O | the name of an earlier face of this recipe that a fit reads (`--from-svf`) |
+| | `layout` | O | for a jamo fit: `844` or `adaptive` [`844`] |
+| expect item | `glyphs`, `sha256` | O | inked glyphs carved; the SHA-256 of the carved file the prep op wrote |
+| expect face | `bytes`, `glyphs`, `ink` | O | the SVF's size, its glyph count, the ink of "안녕하세요 ABC 123" (`docs/recipes.md`, Checking a face) |
+
+Rules that hold across objects: every id an item, a region or a face names exists; an item's reading must fit its
+region (`offset` + the bytes its glyphs span <= the region's size, checked when the files are bound, not at load); the
+bytes a `ks-grid` item reads are those of the highest code of its `chars`; a face's `hangul` item is of a kind its
+`route` takes (`bdfface`: `ks-dense`, `ks-grid` or `compose`; `dos raw` / `johab844`: `raw-set`; `spec`: `compose`).
+The 86Box example of 9.1 is a complete, valid recipe of the t_97acecf9 subset once its two hashes are filled in; its
+commands are the ones of `docs/recipes.md` "Korean VGA font ROMs (86Box)": `rawcarve.py bdf FONT --glyph 16x16 --order
+strips --chars ks-hangul --grid 0x80,0x80,128 --ascent 12`, `rawcarve.py bdf BIOS --offset 0x4a2d --glyph 8x16 --chars
+ascii --ascent 12`, `bdfface.py --hangul H --ascii A --cell 16x16 --chars-from KS`, then `jamoset.py --layout 844
+--from-svf FACE --mask-font none --check`.
 
 ## 10. Compose rules, and help from an assistant
 
@@ -437,7 +518,7 @@ The page is English only today. The finder brings a string table: `maker/static/
 in `localStorage`. All finder strings go through it from the first commit; finder endpoints answer errors with a
 stable `code` beside the English `error` text so the page can show its own sentence. Tool output (the `why` facts,
 `--check` lines) stays as the tools print it. Moving the rest of the page onto the table is not part of this design
-(decision 6). Docs: `docs/desktop-app.md` gets a chapter "Finding a font inside a file" and `docs/recipes.md` a
+(section 15, 6). Docs: `docs/desktop-app.md` gets a chapter "Finding a font inside a file" and `docs/recipes.md` a
 paragraph pointing from the prompt section to the app, each with its `.ko.md`.
 
 ## 12. Accessibility
@@ -498,30 +579,27 @@ paragraph pointing from the prompt section to the app, each with its `.ko.md`.
 Phase 1 alone covers the Dokkaebi drivers and the 86Box VGA ROMs end to end, and NKP's English font; phase 2 the MAME
 quiz sets and X Se Dae; phase 3 NKP and the SPC-1500.
 
-## 15. Decisions needed (the owner), with my recommendation
+## 15. Decisions (user, 2026-11-23)
 
-1. **Sidecar renders the live grid in-process** (7.1), no JS decoder. Recommended: yes; it follows "no JS port" and
-   costs one request a redraw. The alternative (ship raw windows to the page and decode in JS) is faster to scrub but
-   duplicates `binscan.decode` and its gfx parser.
-2. **A finder session belongs to a local job with an output folder chosen first** (7.2), so scratch has a place that
-   is not the data directory. Recommended: yes. The alternative (look first, choose the folder at "apply") is a nicer
-   first minute but needs in-memory regions or a second scratch rule.
-3. **t_97acecf9's known ROMs as built-in recipes** (9.3): store that card's table in this schema now, or convert it in
-   finder phase 2? Recommended: now, if its table is not fixed yet.
-4. **Built-in recipes in the open repository**: file names, sizes, SHA-256 / SHA-1 and offsets of proprietary ROMs and
-   programs, no bytes. `docs/recipes.md` already prints offsets and sizes; hashes are new. Recommended: yes.
-5. **Compose rules: inspect, not edit** (10): spec by file / paste / built-in / `nkpspec`, no table editor until asked.
-   Recommended: yes.
-6. **String table for the finder only**, the rest of the page stays English for now (11). Recommended: yes; migrating
-   the whole page is its own card.
-7. **The export for an assistant may include renders** (derived bitmaps of a proprietary font) in the output folder,
-   opt-in. Recommended: yes, default off.
-8. **MVP cut** (14): is one file at 1 bpp the right first delivery, or should ROM sets (phase 2) come with it?
-   Recommended: the cut as written; phase 2 waits for `mame-roms` on main anyway.
-9. **Zip members read in place** in phase 2 (MAME sets are zips), through `archive.py`'s guards, the only archive kind
-   the finder opens. Recommended: yes.
-10. **Defaults**: analysis budget 60 s (300 s on request), file cap 64 MiB, 16 files a session. Any of these too tight
-    for a file you have in mind?
+The ten questions this design left to the owner were all answered "as recommended" on 2026-11-23. None is open.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Who renders the live grid (7.1) | The sidecar, in-process, as a 1-pixel-a-pixel PNG; the page draws only the overlay. No JS decoder |
+| 2 | When the output folder is chosen (7.2) | First: a finder session belongs to a local job, and its scratch is in that job's folder inside the output folder |
+| 3 | t_97acecf9's known ROMs (9.3) | Built-in recipes now: that card stores its table in schema version 1 (the subset of 9.4) under `maker/recipes/`, starting with the 86Box ROMs |
+| 4 | What a built-in recipe may carry | Names, sizes, SHA-256 / SHA-1 and offsets of proprietary files; never a byte of them |
+| 5 | Compose rules in the app (10) | Inspect only: a spec by file, paste, built-in or `nkpspec`; no table editor |
+| 6 | Korean and English strings (11) | A string table for the finder only; the rest of the page stays English until its own card |
+| 7 | Renders in the export for an assistant (10) | Allowed, opt-in, off by default, written only into the output folder |
+| 8 | The first delivery (14) | Phase 1 as written: one file, 1 bpp |
+| 9 | Archives | Zip members are read in place from phase 2, through `archive.py`'s guards; no other archive kind is opened |
+| 10 | Default limits (7.4) | Kept: analysis 60 s (300 s on request), a file 64 MiB, 16 files a session |
+
+The alternatives that were not taken, for the record: decoding raw windows in the page (faster to scrub, but a second
+decoder and gfx parser); choosing the output folder only at "apply" (needs in-memory regions or a second scratch
+rule); converting t_97acecf9's table in finder phase 2 (two planners for a while); a compose table editor (phase 4,
+only if asked).
 
 ## 16. Not verified, and risks
 
