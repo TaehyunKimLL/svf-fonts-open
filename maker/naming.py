@@ -18,6 +18,8 @@ import stat
 # A face name, a text name and a destination folder (Global Constraints).
 NAME_RE = re.compile(r"^[A-Z0-9]{1,8}\.SVF$")
 TXT_RE = re.compile(r"^[A-Z0-9]{1,8}\.TXT$")
+# A face's TTF / BDF export (`maker/routes.py` export_name): the face's stem and a lower-case extension.
+EXPORT_RE = re.compile(r"^[A-Z0-9]{1,8}\.(ttf|bdf)$")
 DEST_RE = re.compile(r"^(dos|jamo-extra|games/[a-z0-9-]+|new/[a-z0-9-]+)$")
 
 _ABBR_CHARS = re.compile(r"[A-Za-z0-9]")

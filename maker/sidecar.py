@@ -34,6 +34,7 @@ TOOLS = {
     "bdfface": ("tools", "bare"), "johab844": ("tools", "bare"), "hwpfont": ("tools", "bare"),
     "macfbit_svf": ("tools", "exit"), "macfbit3": ("tools", "exit"), "macsfnt": ("tools", "exit"),
     "svf2to3": ("tools", "exit"), "svfdy": ("tools", "exit"), "svfline": ("tools", "exit"),
+    "svf2ttf": ("tools", "exit"), "rawcarve": ("tools", "bare"),
     "srcprep": ("maker", "exit"),
     "instancer": ("module", "args"),
 }
@@ -47,7 +48,7 @@ SMOKE["svfline"] = (["--help"], 1, "stderr", "  svfline.py line W H X Y")
 GRAPH_MODULES = ("archive", "bdfface", "binscan", "caps", "detect", "hwpfont", "jamoaa", "jamoadapt", "jamofit", "jamoset",
                  "jamovec", "jobs", "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets",
                  "preview", "quality", "rawcarve", "routes", "server", "settings", "sidecar", "sources", "srcprep",
-                 "svf2to3", "svfdy", "svfline", "toolreg", "toolrun", "zipout")
+                 "svf2to3", "svf2ttf", "svfdy", "svfline", "toolreg", "toolrun", "zipout")
 
 
 def _entry_jamoset():
@@ -108,6 +109,16 @@ def _entry_svfdy():
 def _entry_svfline():
     import svfline
     return svfline.main
+
+
+def _entry_rawcarve():
+    import rawcarve
+    return rawcarve.main
+
+
+def _entry_svf2ttf():
+    import svf2ttf
+    return svf2ttf.main
 
 
 def _entry_srcprep():

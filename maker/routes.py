@@ -83,6 +83,7 @@ class Route:
     reference: object
     prepare: object
     commands: object
+    export_only: bool = False          # the face is the source itself, read for its TTF/BDF only (route `svf2ttf`)
 
     def prepare_commands(self, font, layout, paths):
         """The commands to run once per font and layout before any size; `[]` for every route but composite."""
@@ -408,6 +409,35 @@ def _copy_commands(font, size, bpp, layout, range_spec, paths, extra):
     return svf_commands(font, paths, _flat(extra))     # [] = the worker copies paths["src"] to paths["out"]
 
 
+# ---- SVF -> TTF / BDF (tools/svf2ttf.py) ---------------------------------------------------------------------------
+
+# The formats a produced face can also be written as, beside its SVF: `<STEM>.ttf` and `<STEM>.bdf`.
+EXPORT_FORMATS = ("ttf", "bdf")
+
+# The svf2ttf.py flags every export of a format gets after the face, the output and the licence. The hook for
+# `--composite` (card t_baf48b58 adds it to svf2ttf.py): when it lands, it is one line here, e.g. "ttf": ["--composite"]
+# (or an option of settings.DEFAULT_OPTIONS["export"] read in `export_commands`).
+EXPORT_FLAGS = {"ttf": [], "bdf": []}
+
+
+def export_name(face_name, fmt):
+    """The name a face's @p fmt export takes: the face's stem and `.ttf` / `.bdf` (`NANUM16.SVF` -> `NANUM16.ttf`)."""
+    if fmt not in EXPORT_FORMATS:
+        raise ValueError("unknown export format %r" % (fmt,))
+    stem = face_name[:-4] if face_name.upper().endswith(".SVF") else face_name
+    return "%s.%s" % (stem, fmt)
+
+
+def export_commands(fmt, face, out, tools_dir, licence=None):
+    """`svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`: the face @p face (the SVF a step wrote) as a TrueType bitmap font
+    or a BDF. @p licence is the licence file the job knows for the face's font; without one svf2ttf.py looks beside
+    the face (nothing there for a face the job made: its name table then says the source font's licence applies)."""
+    argv = toolrun.tool("svf2ttf", tools_dir) + [fmt, face, out]
+    if licence:
+        argv += ["--licence", licence]
+    return [argv + list(EXPORT_FLAGS[fmt])]
+
+
 def fmt_num(value):
     """A number for an argv or a message: an integral value without `.0`, else repr (no six-digit rounding)."""
     return str(int(value)) if float(value).is_integer() else repr(float(value))
@@ -530,25 +560,31 @@ def routes(font):
         bpp = (font.get("svf") or {}).get("bpp") if isinstance(font.get("svf"), dict) else None
         if bpp not in (1, 2) or _svf_version(font) not in (2, 3):   # a malformed SVF entry offers no route
             return []
+        # `svf2ttf`: the face as it is (v3), written only as its TTF / BDF export (settings `options.export`)
         if kind == "svf-jamo":
             out.append(Route("jamo", "copy", True, [], [bpp], sizes, None, None, _copy_commands))
+            out.append(Route("jamo", "svf2ttf", True, [], [bpp], sizes, None, None, _copy_commands, export_only=True))
         else:
             out.append(Route("precomposed", "copy", True, [], [bpp], sizes, None, None, _copy_commands))
             if bpp == 1:
                 out.append(Route("jamo", "from-svf fit", False, ["844", "adaptive"], [1], sizes, "svf", None,
                                  _from_svf_commands))
+            out.append(Route("precomposed", "svf2ttf", True, [], [bpp], sizes, None, None, _copy_commands,
+                             export_only=True))
     return out
 
 
-def route_for(font, kind, experimental, jamo_route=None):
+def route_for(font, kind, experimental, jamo_route=None, precomposed_route=None):
     """The route of @p kind to use: the first native one, else (when @p experimental) the first non-native one.
 
     A @p jamo_route label picks the jamo route of that label instead, when the font offers it and it is native or
-    @p experimental is set (else None); it never changes a precomposed choice."""
+    @p experimental is set (else None); @p precomposed_route does the same for the precomposed kind (an SVF source's
+    `svf2ttf`). Neither changes the other kind's choice."""
     found = [r for r in routes(font) if r.kind == kind]
-    if kind == "jamo" and jamo_route:
+    label = jamo_route if kind == "jamo" else precomposed_route
+    if label:
         for route in found:
-            if route.label == jamo_route and (route.native or experimental):
+            if route.label == label and (route.native or experimental):
                 return route
         return None
     for route in found:

@@ -9,6 +9,8 @@ binarised at 1 bpp, its whole syllables quantised at 2 bpp, or the precomposed s
 The library assumes `maker/` and `tools/` are on sys.path (the entry points set it).
 """
 
+import os
+
 import detect
 import jamoaa
 import jamoset
@@ -16,6 +18,46 @@ import jamofit
 
 # KS X 1001 Hangul (2,350 syllables), the range the maker's default covers; a set, looked up once per comparison.
 KS2350 = frozenset(detect.KS2350)
+
+
+def export_facts(path, fmt, face_path):
+    """The facts of an `export` step's output (Shared data shapes' `facts` of an export): `{"format", "bytes",
+    "glyphs"}`, after proving that the file opens and holds exactly the code points svf2ttf.py exports from the face
+    at @p face_path (`svf2ttf.face_cps`). A TTF is opened with fontTools (its cmap, and maxp's glyph count = those
+    code points + .notdef); a BDF is read as text (`CHARS`, every `STARTCHAR` and `ENCODING`). Raises ValueError when
+    the file does not hold the face's glyphs. No round trip through mkfont.py: that bake is minutes for a jamo set."""
+    import svf2ttf
+    want = set(svf2ttf.face_cps(svf2ttf.load_face(face_path)))
+    size = os.path.getsize(path)
+    if fmt == "ttf":
+        import io
+        from fontTools.ttLib import TTFont
+        with open(path, "rb") as f:
+            data = f.read()
+        with TTFont(io.BytesIO(data), lazy=True) as font:
+            cmap = font.getBestCmap() or {}
+            glyphs = font["maxp"].numGlyphs
+        have = set(cmap)
+        if glyphs != len(have) + 1:
+            raise ValueError("the TTF has %d glyphs for %d characters" % (glyphs, len(have)))
+    elif fmt == "bdf":
+        have, chars, starts = set(), None, 0
+        with open(path, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("CHARS "):
+                    chars = int(line.split()[1])
+                elif line.startswith("STARTCHAR"):
+                    starts += 1
+                elif line.startswith("ENCODING "):
+                    have.add(int(line.split()[1]))
+        if chars is None or chars != starts or starts != len(have):
+            raise ValueError("the BDF's CHARS %s does not match its %d glyphs" % (chars, starts))
+    else:
+        raise ValueError("unknown export format %r" % (fmt,))
+    if have != want:
+        raise ValueError("the %s holds %d characters, the face %d (%d missing, %d extra)"
+                         % (fmt.upper(), len(have), len(want), len(want - have), len(have - want)))
+    return {"format": fmt, "bytes": size, "glyphs": len(have)}
 
 
 def face_facts(data):

@@ -374,9 +374,10 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(routes.routes(dict(FONT_COMPOSITE, face_index=1)), [])
 
     def test_svf_routes(self):
-        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_PRE)], [("precomposed", "copy"), ("jamo", "from-svf fit")])
+        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_PRE)],
+                         [("precomposed", "copy"), ("jamo", "from-svf fit"), ("precomposed", "svf2ttf")])
         self.assertEqual(routes.routes(FONT_SVF_PRE)[0].commands(FONT_SVF_PRE, 16, 1, None, ("2350", None), P, []), [])
-        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_JAMO)], [("jamo", "copy")])
+        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_JAMO)], [("jamo", "copy"), ("jamo", "svf2ttf")])
         self.assertEqual(routes.routes(FONT_HBF), [])
         self.assertEqual(routes.routes(dict(FONT_KSC, source_kind="bdf-iso8859")), [])
         self.assertEqual(routes.routes(dict(FONT_TTF, source_kind="bitmap", sizes=[], sizes_fixed=True)), [])

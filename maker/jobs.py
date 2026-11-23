@@ -1782,8 +1782,9 @@ class Worker(threading.Thread):
                 raise OutputGone("output folder is gone or changed")
             failed_need = next((n for n in step.get("needs") or []
                                 if (steps_by_id.get(n) or {}).get("state") == "failed"), None)
-            if failed_need is not None:                 # a companion's source step failed: this one cannot read it
-                self._fail_step(job, job_dir, step, "companion source failed")
+            if failed_need is not None:                 # a companion's source step (an export's face) failed: nothing to read
+                self._fail_step(job, job_dir, step, "face step failed" if step.get("kind") == "export"
+                                else "companion source failed")
                 continue
             self._run_step(job, job_dir, files_dir, sources, gz_upload, plain, fonts_by_id, step, cancel)
             if step.get("state") == "failed" and step.get("kind") == "source":
@@ -1848,7 +1849,9 @@ class Worker(threading.Thread):
                                                   self._job_env(job))
         if error == "cancelled" and self._stopping:
             error = "interrupted"                   # the server stopped, not the owner
-        if error is None and step.get("kind") not in ("prepare", "source"):
+        if error is None and step.get("kind") == "export":
+            error = self._read_back_export(job, files_dir, step, sources.kind == "local")
+        elif error is None and step.get("kind") not in ("prepare", "source"):
             error = self._read_back(job, files_dir, sources, plain, step, font, cancel, stdout)
         if error is not None:
             step["state"] = "failed"
@@ -1954,6 +1957,21 @@ class Worker(threading.Thread):
             return exc_text(exc, sources.kind == "local")
         if step.get("kind") == "jamo":
             step["identity"] = self._identity(files_dir, step, cancel or threading.Event(), stdout, self._job_env(job))
+        return None
+
+    @staticmethod
+    def _read_back_export(job, files_dir, step, local):
+        """Read an `export` step's TTF / BDF back (`quality.export_facts`): it must open and hold exactly the code
+        points of the face it was made from (fontTools for a TTF). Its facts go to `step["facts"]`; an error or None."""
+        need = (step.get("needs") or [None])[0]
+        face = next((other for other in job.get("steps") or [] if other.get("id") == need), None)
+        if face is None:
+            return "no face step"
+        try:
+            step["facts"] = quality.export_facts(os.path.join(files_dir, step.get("output") or ""), step.get("format"),
+                                                 os.path.join(files_dir, face.get("output") or ""))
+        except Exception as exc:                        # fontTools raises its own types for a damaged table
+            return exc_text(exc, local)
         return None
 
     def _identity(self, files_dir, step, cancel, stdout, env=None):

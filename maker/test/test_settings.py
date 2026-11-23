@@ -81,7 +81,8 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(s[fid("composite/Composite.ttf")]["layout"], "adaptive")
         self.assertEqual((s[fid("dos/HAN.FNT")]["kinds"], s[fid("dos/HAN.FNT")]["dest"], s[fid("dos/HAN.FNT")]["bpp"]), (["jamo"], "jamo-extra", [1]))
         nan = s[fid("nanum/NanumGothic-Bold.ttf")]
-        self.assertEqual(sorted(nan), sorted(k for k in settings.FONT_ONLY_KEYS if k != "htbl_companion"))   # upload: as before
+        self.assertEqual(sorted(nan), sorted(k for k in settings.FONT_ONLY_KEYS
+                                             if k not in ("htbl_companion", "precomposed_route")))   # upload: as before
         self.assertNotIn("htbl_companion", settings.effective(FONTS, S, fid("nanum/NanumGothic-Bold.ttf")))   # nor in BUILD.md
         self.assertEqual(nan["names"], {})
         self.assertEqual(settings.effective(FONTS, S, fid("svf/JAMO6J.SVF"))["names"], {"jamo/16/1": "JAMO6J.SVF"})   # a 16x16 cell; "6J" names the 621 layout
