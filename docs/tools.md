@@ -536,8 +536,8 @@ face (see Outputs) unless `--licence` names one.
   of coverage >= `--threshold` (default 128: every 1 bpp pixel, 2 bpp levels 2 and 3) traced into contours, exact at ppem
   and its multiples, no hinting (a `prep` of one no-op keeps FreeType from autohinting it, so other sizes render the
   exact area coverage). `EBLC`/`EBDT`: one strike at ppem in the face's bit depth (1, 2 or 8; image format 1,
-  index format 1), each glyph cut to its ink box with its bearings and advance (signed bytes: an ascent, descent or
-  bearing past -128..127 is an error that names the field and suggests `--no-strike`, which leaves the strike out;
+  index format 1), each glyph cut to its ink box with its bearings and advance (signed bytes: an ascent, descent, glyph
+  bearing x or ink top, or a strike-wide least side bearing or ink extreme past -128..127 is an error that names the field and suggests `--no-strike`, which leaves the strike out;
   `--apple` adds it as `bloc`/`bdat` too). At most 65,534 glyphs. `cmap` (4, and 12 past U+FFFF), `hmtx` (the face's advances; a combining mark advance 0
   at its origin, as `svfline.py` places it), `hhea` / OS/2 typo metrics = ascent and cell height - ascent, OS/2 win
   metrics covering ink moved by a dy, `post` format 3, `head`, `maxp`, `gasp`, `name` (family, style, version, a

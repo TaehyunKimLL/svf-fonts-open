@@ -513,7 +513,7 @@ BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
   128: 1 bpp는 모든 픽셀, 2 bpp는 단계 2와 3) 이상인 픽셀을 윤곽선으로 추적한 것. ppem과 그 정수배에서 정확하며 힌팅은 없다(no-op 하나의
   `prep`이 FreeType의 자동 힌팅을 막아 다른 크기에서는 정확한 면적 커버리지로 그려진다).
   `EBLC`/`EBDT`: 페이스의 비트 깊이(1, 2, 8)로 ppem의 스트라이크 하나(이미지 형식 1, 인덱스 형식 1). 각 글리프는 잉크 상자로
-  잘리고 bearing과 advance를 가진다(부호 있는 바이트: -128..127을 넘는 ascent, descent, bearing은 그 필드를 밝히고 `--no-strike`를
+  잘리고 bearing과 advance를 가진다(부호 있는 바이트: -128..127을 넘는 ascent, descent, 글리프의 bearing x나 잉크 위끝, 스트라이크 전체의 최소 side bearing이나 잉크 극값은 그 필드를 밝히고 `--no-strike`를
   권하는 오류. `--no-strike`는 스트라이크를 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). 글리프는 65,534개까지. `cmap`(4, U+FFFF를 넘으면 12),
   `hmtx`(페이스의 advance. 결합 부호는 `svfline.py`가 놓는 대로 원점에 advance 0), `hhea` / OS/2 typo 메트릭 = ascent와 셀 높이 -
   ascent, dy가 옮긴 잉크까지 덮는 OS/2 win 메트릭, `post` 형식 3, `head`, `maxp`, `gasp`, `name`(패밀리, 스타일, 버전, 페이스를

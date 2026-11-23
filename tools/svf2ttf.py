@@ -31,8 +31,9 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
     box (image format 1: small metrics, byte-aligned rows; index format 1), its advance and bearings in the metrics.
     A renderer that uses embedded bitmaps (FreeType, Windows GDI/DirectWrite) draws the face's own pixels and levels at
     ppem, and the outlines at other sizes. --no-strike leaves it out; --apple adds the same strike as bloc/bdat. The
-    strike's metrics are signed bytes: an ascent, descent or a glyph's bearing past -128..127 (a face over about 127
-    rows) is an error naming the field; --no-strike converts such a face.
+    strike's metrics are signed bytes: the ascent, descent, each glyph's bearing x and ink top, and the strike's
+    extremes (least bearing x and right side bearing, highest and lowest ink; a glyph's own right side bearing is not
+    stored) past -128..127 (a face over about 127 rows) is an error naming the field; --no-strike converts such a face.
   - cmap (format 4, and 12 when a code point is past U+FFFF), hmtx (advance * 64, lsb = the outline's x minimum),
     hhea / OS/2 typo ascender and descender = the face's ascent and cell height - ascent (USE_TYPO_METRICS), OS/2 win
     ascent / descent = the larger of those and the ink's reach (a dy may take ink past the cell), post format 3,
@@ -406,7 +407,8 @@ def strike_tables(glyphs, ppem, depth, ascent, descent):
     i8(-descent, "the descent")
     data = bytearray(struct.pack(">L", 0x00020000))
     offs = []
-    bx_min, rsb_min, bl_max, bl_min, wmax = 127, 127, -128, 127, 0
+    inked = [g.box() + (g.adv,) for g in glyphs if g.box() is not None]
+    wmax = 0
     for g in glyphs:
         offs.append(len(data))
         box = g.box()
@@ -415,8 +417,6 @@ def strike_tables(glyphs, ppem, depth, ascent, descent):
         if box is not None:
             i8(box[0], "U+%04X: the bearing x" % g.cp)
             i8(-box[1], "U+%04X: the bearing y (ink top above the baseline)" % g.cp)
-            i8(g.adv - box[2], "U+%04X: the right side bearing" % g.cp)
-            i8(-box[3], "U+%04X: the ink bottom" % g.cp)
         if box is None:
             data += struct.pack(">BBbbB", 0, 0, 0, 0, g.adv)
         else:
@@ -424,11 +424,16 @@ def strike_tables(glyphs, ppem, depth, ascent, descent):
             w, h = x1 - x0, y1 - y0
             data += struct.pack(">BBbbB", h, w, x0, -y0, g.adv)
             data += _pack_rows(g, depth)
-            bx_min, rsb_min = min(bx_min, x0), min(rsb_min, g.adv - x1)
-            bl_max, bl_min = max(bl_max, -y0), min(bl_min, -y1)
         wmax = max(wmax, g.adv)
     offs.append(len(data))
-    if bl_max < bl_min:
+    # the strike's line metrics hold only the extremes (EBDT small metrics have no right side bearing or ink bottom):
+    # those are checked, not each glyph's
+    if inked:
+        bx_min = i8(min(b[0] for b in inked), "the strike's least bearing x")
+        rsb_min = i8(min(b[4] - b[2] for b in inked), "the strike's least right side bearing")
+        bl_max = i8(max(-b[1] for b in inked), "the strike's highest ink above the baseline")
+        bl_min = i8(min(-b[3] for b in inked), "the strike's lowest ink below the baseline")
+    else:
         bx_min = rsb_min = bl_max = bl_min = 0
     if not glyphs:
         raise ValueError("no glyphs")

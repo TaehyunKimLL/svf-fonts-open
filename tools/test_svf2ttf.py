@@ -479,6 +479,20 @@ class Synthetic(unittest.TestCase):
         self.assertNotIn("EBDT", self.ttf(high, "--no-strike"))
         run(os.path.join(HERE, "svf2ttf.py"), "bdf", high, self.path("high.bdf"), "--licence", "none")
 
+    def test_wide_and_narrow_glyphs(self):
+        """A 200-wide cell: a full-width A (right side bearing 0) and a narrow '.' (199) fit the strike, which stores
+        only the least right side bearing; a strike-wide least below -128 is refused."""
+        g = {0x41: (200, 0, box_rows(200, 16, 0, 2, 200, 12)), 0x2E: (200, 0, box_rows(200, 16, 0, 10, 1, 12))}
+        f = self.ttf(synth(self.path("wide.svf"), 200, 16, 12, g))
+        hori = f["EBLC"].strikes[0].bitmapSizeTable.hori
+        self.assertEqual((hori.minAdvanceSB, hori.minOriginSB, hori.widthMax), (0, 0, 200))
+        cmap = f.getBestCmap()
+        self.assertEqual(strike_pixels(f, cmap[0x2E], 1), svf2ttf.glyph_pixels(svf2ttf.load_face(
+            self.path("wide.svf")), 0x2E)[::-1])
+        g[0x41] = (60, 0, box_rows(200, 16, 0, 2, 200, 12))           # ink 140 past its advance: least rsb -140
+        err = self.fails("ttf", synth(self.path("over.svf"), 200, 16, 12, g), self.path("o.ttf"), "--licence", "none")
+        self.assertIn("least right side bearing -140", err)
+
     def test_ppem_and_errors(self):
         for ppem in ("0", "256", "-5"):
             self.assertIn("ppem", self.fails("ttf", NEODG16J, self.path("x.ttf"), "--ppem", ppem))
