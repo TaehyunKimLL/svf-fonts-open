@@ -1718,7 +1718,8 @@ companion the page paired with the font.
 
 With "also write TTF / BDF" (`options.export`) every face step is followed by one `export` step a format:
 `svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`, `OUT` the face's name with `.ttf` / `.bdf`, written beside the face;
-`FILE` is the licence the job knows for the font (none: svf2ttf.py says the source font's licence applies).
+`FILE` is the licence the job knows for the font (none: svf2ttf.py says the source font's licence applies); "TTF as
+composites" adds `--composite` to a jamo set's TTF.
 
 Some sources need a conversion first; BUILD.md lists these steps before the route's commands (each reads the file the
 step before it wrote):

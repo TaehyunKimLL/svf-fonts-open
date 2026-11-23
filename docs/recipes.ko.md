@@ -1575,7 +1575,8 @@ maker(`maker/`, [desktop-app.md](desktop-app.ko.md)의 데스크톱 앱, [maker/
 
 "also write TTF / BDF"(`options.export`)가 켜져 있으면 모든 페이스 단계 뒤에 형식마다 `export` 단계가 하나 따른다:
 `svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`. `OUT`은 페이스 이름에 `.ttf` / `.bdf`를 붙인 것으로 페이스 옆에 쓰며, `FILE`은
-작업이 그 폰트에 대해 아는 라이선스이다(없으면 svf2ttf.py가 원본 폰트의 라이선스가 적용된다고 적는다).
+작업이 그 폰트에 대해 아는 라이선스이다(없으면 svf2ttf.py가 원본 폰트의 라이선스가 적용된다고 적는다). "TTF as composites"는
+자모 세트의 TTF에 `--composite`를 더한다.
 
 일부 원본은 먼저 변환이 필요하다. BUILD.md는 이 단계를 경로의 명령 앞에 나열한다(각 단계는 앞 단계가 쓴 파일을 읽는다).
 

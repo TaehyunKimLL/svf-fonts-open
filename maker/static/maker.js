@@ -79,6 +79,8 @@ const ROUTES = {
 const KINDS = ["precomposed", "jamo"];
 // settings.DEFAULT_OPTIONS["export"] / routes.EXPORT_FORMATS: every face also written as <NAME>.ttf / <NAME>.bdf
 const EXPORT_FORMATS = ["ttf", "bdf"];
+// The export's own flags beside the formats: "composite" writes a jamo set's TTF as composites of its pieces.
+const EXPORT_KEYS = EXPORT_FORMATS.concat(["composite"]);
 // The per-kind route choice of a font (settings FONT_ONLY_KEYS): kind -> its key.
 const ROUTE_KEYS = {"jamo": "jamo_route", "precomposed": "precomposed_route"};
 const LAYOUTS = ["844", "adaptive", "hanterm-johab", "mac-htbl1", "mac-fbit-45sets", "hwp1", "844-hwp3"];
@@ -835,7 +837,7 @@ function renderBatchForm() {
   presetEl.title = presetTitle(presetEl.value);          // Q2: the long `reproduces` text lives in the tooltip
   fillOptions($("advanced-fields"), batch.options || {});
   const exported = (batch.options || {}).export || {};
-  for (const fmt of EXPORT_FORMATS) $("export-" + fmt).checked = exported[fmt] === true;
+  for (const key of EXPORT_KEYS) $("export-" + key).checked = exported[key] === true;
 }
 
 // Q3/m1: the batch panel shows an option when any font that inherits the batch's value could use it, at that font's
@@ -909,7 +911,7 @@ function readBatch() {
   }
   batch.options = read.options;
   batch.options.export = {};
-  for (const fmt of EXPORT_FORMATS) batch.options.export[fmt] = $("export-" + fmt).checked;
+  for (const key of EXPORT_KEYS) batch.options.export[key] = $("export-" + key).checked;
   return true;
 }
 
@@ -1543,8 +1545,9 @@ function routeSelect(per, font, refresh, kind) {
 // The font's own "also write TTF / BDF" (`options.export`): "(batch)" inherits the batch's tick, on / off overrides it.
 function perFontExport(per, font) {
   const box = el("span", {class: "export-own"});
-  for (const fmt of EXPORT_FORMATS) {
-    const select = el("select", {"aria-label": "also write " + fmt.toUpperCase() + " for " + fontName(font),
+  for (const fmt of EXPORT_KEYS) {
+    const select = el("select", {"aria-label": (fmt === "composite" ? "TTF as composites" : "also write " +
+                                                fmt.toUpperCase()) + " for " + fontName(font),
                                  dataset: {export: fmt}});
     const batch = ((settings.batch.options || {}).export || {})[fmt] === true;
     const own = ((per.options || {}).export || {})[fmt];
@@ -1561,7 +1564,7 @@ function perFontExport(per, font) {
       else delete per.options;
       markDirty();
     };
-    box.append(el("span", {text: " " + fmt.toUpperCase() + " "}), select);
+    box.append(el("span", {text: " " + (fmt === "composite" ? "composites" : fmt.toUpperCase()) + " "}), select);
   }
   return box;
 }

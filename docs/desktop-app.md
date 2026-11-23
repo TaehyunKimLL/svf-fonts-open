@@ -239,7 +239,7 @@ One set of settings applies to the whole batch; a row can opt out.
 | bpp | 1 bit or 2 bits per pixel; tick one or both. |
 | range | The set of characters to include. |
 | preset | A named recipe (section 5). "plain" uses the tools' defaults. |
-| also write TTF / BDF | Every face the run makes is also written beside its SVF as `<NAME>.ttf` (a TrueType font with the face's pixels as outlines and an embedded bitmap strike) and / or `<NAME>.bdf`, by `tools/svf2ttf.py` ([recipes.md](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font)). Off by default; a font's override can turn it on or off for that font alone. |
+| also write TTF / BDF | Every face the run makes is also written beside its SVF as `<NAME>.ttf` (a TrueType font with the face's pixels as outlines and an embedded bitmap strike) and / or `<NAME>.bdf`, by `tools/svf2ttf.py` ([recipes.md](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font)). Off by default; a font's override can turn it on or off for that font alone. **TTF as composites** (off by default) writes a jamo set's TTF with `--composite`: its pieces once as glyphs and every syllable a composite of them (smaller, as the recipe describes); a precomposed face's TTF is unchanged. |
 | advanced panel | Fine controls: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize (threshold, ridge, mono), Latin ascent, Hangul ascent. A value here wins over the preset's. Controls that a route cannot use are hidden or disabled. |
 
 ### 3.5 Buttons in the top bar

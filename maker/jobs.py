@@ -1972,7 +1972,8 @@ class Worker(threading.Thread):
             return "no face step"
         try:
             step["facts"] = quality.export_facts(os.path.join(files_dir, step.get("output") or ""), step.get("format"),
-                                                 os.path.join(files_dir, face.get("output") or ""))
+                                                 os.path.join(files_dir, face.get("output") or ""),
+                                                 composite=bool(step.get("composite")))
         except Exception as exc:                        # fontTools raises its own types for a damaged table
             return exc_text(exc, local)
         return None

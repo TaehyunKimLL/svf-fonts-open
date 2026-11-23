@@ -44,6 +44,7 @@ STEPS = sorted([
     ("precomposed", "ksc.bdf", ["bdfface.py"]),
     ("export", "ksc.bdf", ["svf2ttf.py"]),
     ("export", "ksc.bdf", ["svf2ttf.py"]),
+    ("export", "johab.bdf", ["svf2ttf.py"]),
     ("jamo", "Munjo16.rsrc", ["jamoset.py"]),
     ("source", "Synth.dfont", ["macsfnt.py extract", "macsfnt.py unicode"]),
     ("precomposed", "Synth.dfont", ["mkfont.py", "svf2to3.py"]),
@@ -176,7 +177,7 @@ class UiSampleTest(unittest.TestCase):
 
     def test_api_run_writes_exactly_the_expected_tree(self):
         self.maxDiff = None
-        self.assertEqual(len(uisample.EXPECTED), 35)
+        self.assertEqual(len(uisample.EXPECTED), 36)
         self.assertEqual(len(uisample.FACES), 10)
         self.assertEqual(self.job["state"], "done", self.job.get("error"))
         self.assertEqual(self.job["result"]["failed_steps"], [])
@@ -187,7 +188,8 @@ class UiSampleTest(unittest.TestCase):
         path_of = {f["id"]: f["path"] for f in self.job["fonts"]}
         steps = sorted((s["kind"], path_of[s["font"]], t)
                        for s, t in zip(self.job["steps"], inputkinds.step_tools(self.job["steps"])))
-        self.assertEqual(len(steps), 16)
+        self.assertEqual(len(steps), 17)
+        self.assertEqual([s["name"] for s in self.job["steps"] if s.get("composite")], ["JOHA16J.ttf"])
         self.assertEqual(steps, STEPS)
         self.assertTrue(all(s["state"] == "done" for s in self.job["steps"]))
         self.assertEqual(sorted(s["written"] for s in self.job["steps"] if s.get("written")),

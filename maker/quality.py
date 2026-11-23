@@ -20,12 +20,13 @@ import jamofit
 KS2350 = frozenset(detect.KS2350)
 
 
-def export_facts(path, fmt, face_path):
+def export_facts(path, fmt, face_path, composite=False):
     """The facts of an `export` step's output (Shared data shapes' `facts` of an export): `{"format", "bytes",
     "glyphs"}`, after proving that the file opens and holds exactly the code points svf2ttf.py exports from the face
     at @p face_path (`svf2ttf.face_cps`). A TTF is opened with fontTools (its cmap, and maxp's glyph count = those
     code points + .notdef); a BDF is read as text (`CHARS`, every `STARTCHAR` and `ENCODING`). Raises ValueError when
-    the file does not hold the face's glyphs. No round trip through mkfont.py: that bake is minutes for a jamo set."""
+    the file does not hold the face's glyphs. With @p composite (`svf2ttf.py --composite`) a TTF also holds the jamo
+    set's pieces as glyphs of their own. No round trip through mkfont.py: that bake is minutes for a jamo set."""
     import svf2ttf
     want = set(svf2ttf.face_cps(svf2ttf.load_face(face_path)))
     size = os.path.getsize(path)
@@ -38,7 +39,7 @@ def export_facts(path, fmt, face_path):
             cmap = font.getBestCmap() or {}
             glyphs = font["maxp"].numGlyphs
         have = set(cmap)
-        if glyphs != len(have) + 1:
+        if glyphs != len(have) + 1 and not (composite and glyphs > len(have)):   # composite: + the piece glyphs
             raise ValueError("the TTF has %d glyphs for %d characters" % (glyphs, len(have)))
     elif fmt == "bdf":
         have, chars, starts = set(), None, 0

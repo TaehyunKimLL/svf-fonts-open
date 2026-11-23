@@ -448,9 +448,7 @@ def _copy_commands(font, size, bpp, layout, range_spec, paths, extra):
 # The formats a produced face can also be written as, beside its SVF: `<STEM>.ttf` and `<STEM>.bdf`.
 EXPORT_FORMATS = ("ttf", "bdf")
 
-# The svf2ttf.py flags every export of a format gets after the face, the output and the licence. The hook for
-# `--composite` (card t_baf48b58 adds it to svf2ttf.py): when it lands, it is one line here, e.g. "ttf": ["--composite"]
-# (or an option of settings.DEFAULT_OPTIONS["export"] read in `export_commands`).
+# The svf2ttf.py flags every export of a format gets after the face, the output and the licence (none today).
 EXPORT_FLAGS = {"ttf": [], "bdf": []}
 
 
@@ -462,13 +460,17 @@ def export_name(face_name, fmt):
     return "%s.%s" % (stem, fmt)
 
 
-def export_commands(fmt, face, out, tools_dir, licence=None):
-    """`svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`: the face @p face (the SVF a step wrote) as a TrueType bitmap font
-    or a BDF. @p licence is the licence file the job knows for the face's font; without one svf2ttf.py looks beside
-    the face (nothing there for a face the job made: its name table then says the source font's licence applies)."""
+def export_commands(fmt, face, out, tools_dir, licence=None, composite=False):
+    """`svf2ttf.py ttf|bdf FACE OUT [--licence FILE] [--composite]`: the face @p face (the SVF a step wrote) as a
+    TrueType bitmap font or a BDF. @p licence is the licence file the job knows for the face's font; without one
+    svf2ttf.py looks beside the face (nothing there for a face the job made: its name table then says the source font's
+    licence applies). @p composite (a jamo set's TTF, settings `options.export.composite`): its pieces once as glyphs
+    and every syllable a glyf composite of them (card t_baf48b58)."""
     argv = toolrun.tool("svf2ttf", tools_dir) + [fmt, face, out]
     if licence:
         argv += ["--licence", licence]
+    if composite and fmt == "ttf":
+        argv.append("--composite")
     return [argv + list(EXPORT_FLAGS[fmt])]
 
 

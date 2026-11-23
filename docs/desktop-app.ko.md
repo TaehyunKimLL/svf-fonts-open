@@ -226,7 +226,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 | bpp | 픽셀당 1비트 또는 2비트. 하나 또는 둘 다 체크한다. |
 | range | 포함할 문자 집합. |
 | preset | 이름 붙은 레시피(5절). "plain"은 도구의 기본값을 쓴다. |
-| also write TTF / BDF | 실행이 만드는 모든 페이스를 SVF 옆에 `<NAME>.ttf`(페이스의 픽셀을 아웃라인으로, 비트맵 strike를 내장한 TrueType 폰트)와/또는 `<NAME>.bdf`로도 쓴다. `tools/svf2ttf.py`가 만든다([recipes.ko.md](recipes.ko.md)의 "SVF 페이스를 TTF 비트맵 폰트로"). 기본은 꺼짐이며, 폰트의 override에서 그 폰트만 켜거나 끌 수 있다. |
+| also write TTF / BDF | 실행이 만드는 모든 페이스를 SVF 옆에 `<NAME>.ttf`(페이스의 픽셀을 아웃라인으로, 비트맵 strike를 내장한 TrueType 폰트)와/또는 `<NAME>.bdf`로도 쓴다. `tools/svf2ttf.py`가 만든다([recipes.ko.md](recipes.ko.md)의 "SVF 페이스를 TTF 비트맵 폰트로"). 기본은 꺼짐이며, 폰트의 override에서 그 폰트만 켜거나 끌 수 있다. **TTF as composites**(기본 꺼짐)는 자모 세트의 TTF를 `--composite`로 쓴다: 조각을 한 번씩 글리프로 두고 모든 음절을 그 조각의 합성 글리프로 만든다(레시피가 설명하듯 더 작다). 완성형 페이스의 TTF는 그대로이다. |
 | advanced panel | 세부 컨트롤: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize(threshold, ridge, mono), Latin ascent, Hangul ascent. 여기의 값이 프리셋의 값보다 우선한다. 경로가 쓸 수 없는 컨트롤은 숨겨지거나 비활성화된다. |
 
 ### 3.5 상단 바의 버튼

@@ -48,16 +48,11 @@ class ExportRoutesTest(unittest.TestCase):
         self.assertEqual(routes.export_commands("bdf", "/f.SVF", "/o.bdf", "/T", licence="/u/OFL.txt")[0][-2:],
                          ["--licence", "/u/OFL.txt"])
 
-    def test_the_composite_hook_is_one_table(self):
-        """t_baf48b58 adds `--composite` to svf2ttf.py: the maker passes it by adding it to EXPORT_FLAGS."""
-        self.assertEqual(routes.EXPORT_FLAGS, {"ttf": [], "bdf": []})
-        saved = copy.deepcopy(routes.EXPORT_FLAGS)
-        try:
-            routes.EXPORT_FLAGS["ttf"] = ["--composite"]
-            self.assertEqual(routes.export_commands("ttf", "/f.SVF", "/o.ttf", "/T")[0][-1], "--composite")
-        finally:
-            routes.EXPORT_FLAGS.clear()
-            routes.EXPORT_FLAGS.update(saved)
+    def test_composite_is_a_ttf_flag(self):
+        """t_baf48b58's `svf2ttf.py --composite`: a jamo set's TTF only."""
+        self.assertEqual(routes.export_commands("ttf", "/f.SVF", "/o.ttf", "/T", composite=True)[0][-1], "--composite")
+        self.assertNotIn("--composite", routes.export_commands("bdf", "/f.SVF", "/o.bdf", "/T", composite=True)[0])
+        self.assertNotIn("--composite", routes.export_commands("ttf", "/f.SVF", "/o.ttf", "/T")[0])
 
     def test_svf2ttf_route_of_an_svf_source(self):
         pre = [r for r in routes.routes(FONT_SVF_PRE) if r.label == "svf2ttf"]
@@ -95,7 +90,7 @@ class ExportSettingsTest(unittest.TestCase):
 
     def test_default_is_no_export(self):
         s = settings.defaults(self.fonts)
-        self.assertEqual(s["batch"]["options"]["export"], {"ttf": False, "bdf": False})
+        self.assertEqual(s["batch"]["options"]["export"], {"ttf": False, "bdf": False, "composite": False})
         self.assertEqual(settings.validate(self.fonts, s, self.root), [])
 
     def test_export_values_must_be_booleans(self):
@@ -125,6 +120,22 @@ class ExportSettingsTest(unittest.TestCase):
             self.assertNotIn("export_only", face)
             self.assertEqual(len({st["id"] for st in steps}), len(steps))
             self.assertTrue(all(st["font"] == nan for st in steps))
+
+    def test_composite_reaches_a_jamo_sets_ttf_only(self):
+        with tempfile.TemporaryDirectory() as jd:
+            dos = self.fid("dos/HAN.FNT")
+            s = self.only("dos/HAN.FNT", dos_layout="844", options={"export": {"ttf": True, "bdf": True, "composite": True}})
+            self.assertEqual(settings.validate(self.fonts, s, self.root), [])
+            steps = settings.plan_steps({"fonts": self.fonts, "settings": s}, jd, "/T", self.root)
+            got = [(st["kind"], st.get("format"), st.get("composite"), "--composite" in st["argv"][0]) for st in steps]
+            self.assertEqual(got, [("jamo", None, None, False), ("export", "ttf", True, True),
+                                   ("export", "bdf", None, False)])
+            s = self.only("nanum/NanumGothic-Bold.ttf", bpp=[1], options={"export": {"ttf": True, "composite": True}})
+            steps = settings.plan_steps({"fonts": self.fonts, "settings": s}, jd, "/T", self.root)
+            self.assertNotIn("--composite", steps[1]["argv"][0])           # a precomposed face: the plain TTF
+        s = self.only("nanum/NanumGothic-Bold.ttf", options={"export": {"bdf": True, "composite": True}})
+        self.assertIn("%s: composite is a TTF option: tick \"also write TTF\"" % self.fid("nanum/NanumGothic-Bold.ttf"),
+                      settings.validate(self.fonts, s, self.root))
 
     def test_a_typed_licence_is_written_for_svf2ttf(self):
         with tempfile.TemporaryDirectory() as jd:
@@ -204,6 +215,13 @@ class ExportFactsTest(unittest.TestCase):
                 else:
                     self.assertGreater(facts["glyphs"], 11172)     # a jamo set exports every syllable it composes
 
+    def test_a_composite_ttf_holds_the_pieces_too(self):
+        path = os.path.join(self.tmp, "c.ttf")
+        self.svf2ttf("ttf", NEODG16G, path, "--licence", "none", "--composite")
+        with self.assertRaisesRegex(ValueError, "glyphs for"):
+            quality.export_facts(path, "ttf", NEODG16G)                   # more glyphs than characters
+        self.assertGreater(quality.export_facts(path, "ttf", NEODG16G, composite=True)["glyphs"], 11172)
+
     def test_a_file_that_misses_a_glyph_is_refused(self):
         path = os.path.join(self.tmp, "x.bdf")
         self.svf2ttf("bdf", NEODG16, path, "--licence", "none")
@@ -235,7 +253,7 @@ class ExportLocalJobTest(LocalRunBase):
 
     def test_ttf_and_bdf_beside_the_faces(self):
         def edit(st):
-            st["batch"]["options"]["export"] = {"ttf": True, "bdf": True}
+            st["batch"]["options"]["export"] = {"ttf": True, "bdf": True, "composite": True}
         jid, job = self.done_job(edit)
         files = sorted(job["result"]["files"])
         self.assertEqual(files, sorted(walk_rel(self.out, skip_prefix=".svf-maker-")))
@@ -252,8 +270,10 @@ class ExportLocalJobTest(LocalRunBase):
             self.assertEqual(step["facts"]["format"], step["format"])
             self.assertGreater(step["facts"]["glyphs"], 0)
             self.assertTrue(step["written"].endswith(step["name"]))
+        self.assertEqual(sorted(s["kind"] for s in job["steps"] if s.get("composite")), ["export"])   # the jamo set's TTF
         build = self.read_out("build-%s/BUILD.md" % jid).decode("utf-8")
         self.assertIn("python3 -P tools/svf2ttf.py ttf", build)
+        self.assertRegex(build, r"svf2ttf\.py ttf \S+HAN16J\.SVF \S+ --composite\n")
         self.assertRegex(build, r"svf2ttf\.py ttf \S+ \S+ --licence \S+/in/a/OFL\.txt\n")   # the TTF font's own licence
         for f in files:
             if f.endswith((".ttf", ".bdf")):

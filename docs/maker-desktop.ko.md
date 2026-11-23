@@ -78,17 +78,17 @@ Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
 
 `desktop/test/e2e.js`에는 단계가 하나 있다. 패스마다 `sample set`이라는 단계로, 고정된 샘플을 로컬 모드에서 **페이지를 통해**
 변환한다(입력은 제자리에서 읽고 페이스는 고른 출력 폴더에 씀). dev 패스와 패키지 패스에서 모두 한다. 샘플은
-`maker/test/uisample.py`가 정의한다(테스트 시점에 합성 입력을 만들고, 폰트별 설정 표, 기대하는 35개 파일 트리, 점검을 소유한다).
+`maker/test/uisample.py`가 정의한다(테스트 시점에 합성 입력을 만들고, 폰트별 설정 표, 기대하는 36개 파일 트리, 점검을 소유한다).
 `ttf/`의 OFL 폰트 넷을 제자리에서 읽고(neodgm, NanumGothic-Bold, `dos-u-2bpp` preset을 쓰는 GowunBatang-Bold, Bold 인스턴스의
 Caveat-VF), 저장소의 fixture 빌더가 만든 합성 파일을 쓴다: HTBL 표와 suitcase가 있는 Mac 7.1 fbit, HangulTalk 1.0 폰트, Mac
-dfont, `ASCII.PFT`가 있는 HWP DOS 844 폰트(`HANGUL24.PFT`는 읽지 않음으로 표시), KSC / johab BDF. KSC 페이스는 `KSC16.ttf`와 `KSC16.bdf`로도 쓴다(그 override의 "also write" 선택, t_97acecf9). 이 단계는 스텁 대화상자로 루트 9개와
+dfont, `ASCII.PFT`가 있는 HWP DOS 844 폰트(`HANGUL24.PFT`는 읽지 않음으로 표시), KSC / johab BDF. KSC 페이스는 `KSC16.ttf`와 `KSC16.bdf`로도, johab 자모 세트는 `--composite`로 `JOHA16J.ttf`로도 쓴다(각 override의 "also write" 선택, t_97acecf9). 이 단계는 스텁 대화상자로 루트 9개와
 출력 폴더를 고르고, 활성화된 컨트롤만 바꾸고(경로가 없는 행은 비활성에 체크 해제로 남으며 이를 assert한다), 저장하고, 저장된 설정을
 다시 읽고, 실행한 다음 `uisample.py check`가 검증한다: 기대한 파일만 정확히 있고 다른 것은 없음(남은 `.svf-maker-*` 없음), 쓰인
 트리에 대한 `facecheck.py`와 `web/mkindex.py --check`, 모든 페이스가 잉크를 그림, `GOWUN17A.SVF`가 `svf/dos/GBATB17.SVF`와 바이트
 단위로 같음, 각 내보낸 파일이 그 페이스의 문자를 정확히 담음(`quality.export_facts`), 입력이 바뀌지 않음. 그런 다음에야 결과 캔버스 10개를 센다(`data-drawn="1"`, `Number(dataset.ink) > 0`). 패키지
 패스에서는 `--same-as`가 페이스를 dev 패스와 비교한다. 순수 Python 페이스(SEOU12J, HAN224J, JOHA16J, KSC16, MUNJ16J)는 바이트
 동일이 필요하다. 윤곽선 페이스(NEODU16, NANUM17A, GOWUN17A, CAVEA16, SYNTH16)의 차이는 실패가 아니라 `E2E NOTE`로 출력된다(dev
-패스는 호스트의 Pillow/FreeType으로, 패키지 패스는 고정된 wheel로 렌더하기 때문). `KSC16.bdf`는 바이트 동일, `KSC16.ttf`는 `head`의
+패스는 호스트의 Pillow/FreeType으로, 패키지 패스는 고정된 wheel로 렌더하기 때문). `KSC16.bdf`는 바이트 동일, `KSC16.ttf`와 `JOHA16J.ttf`는 `head`의
 타임스탬프를 같게 맞췄을 때 동일해야 한다(svf2ttf.py는 실행 시각을 찍는다). `maker/test/test_uisample.py`는 같은 표를 HTTP
 API로 실행하고 각 점검이 변이에서 실패함을 증명한다.
 

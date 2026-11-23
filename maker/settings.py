@@ -44,7 +44,7 @@ DEFAULT_OPTIONS = {"mkfont": {"cell": None, "ascent": None, "width": None, "mono
                                "fit_baseline": None, "aa_refine": None, "clean": True, "binarize": "threshold"},
                    "bdfface": {"latin_ascent": None, "hangul_ascent": None},
                    # not a tool's flags: every produced face also written as <STEM>.ttf / <STEM>.bdf (tools/svf2ttf.py)
-                   "export": {"ttf": False, "bdf": False}}
+                   "export": {"ttf": False, "bdf": False, "composite": False}}
 # An option whose value is one of these strings (its default is the first).
 OPTION_CHOICES = {"binarize": ("threshold", "ridge", "mono")}
 
@@ -1064,6 +1064,8 @@ def _route_errors(fid, font, eff, fmap=None, local=False):
         errors += _merged_flag_errors(fid, font, eff, route, sizes, bpps)
         if kind == "jamo" and font.get("source_kind") != "dos-raw" and route.layouts and eff.get("layout") not in route.layouts:
             errors.append("%s: layout %s is not offered for %s" % (fid, eff.get("layout"), kind))   # F7: dos_layout covers dos-raw
+        if (eff.get("options") or {}).get("export", {}).get("composite") is True and "ttf" not in export:
+            errors.append("%s: composite is a TTF option: tick \"also write TTF\"" % fid)
         if route.export_only and not export:
             errors.append("%s: svf2ttf writes a TTF or a BDF only: tick \"also write TTF\" or \"also write BDF\"" % fid)
     if font.get("source_kind") == "dos-raw":
@@ -1543,9 +1545,10 @@ def _export_licence(fid, eff, sources, work_root, tools_dir):
     return None
 
 
-def export_steps(counter, fid, face_step, face_out, formats, work_root, tools_dir, licence):
+def export_steps(counter, fid, face_step, face_out, formats, work_root, tools_dir, licence, composite=False):
     """The `export` steps of one face step (one per format in @p formats, ids from @p counter + 1): each runs
-    `svf2ttf.py` on the face the step wrote (@p face_out) and `needs` that step. Returns the steps."""
+    `svf2ttf.py` on the face the step wrote (@p face_out) and `needs` that step. With @p composite a jamo set's TTF is
+    written with `--composite` (its pieces once, every syllable a composite of them). Returns the steps."""
     out = []
     for fmt in formats:
         counter += 1
@@ -1553,10 +1556,14 @@ def export_steps(counter, fid, face_step, face_out, formats, work_root, tools_di
         step_dir = os.path.join(work_root, sid)
         os.makedirs(step_dir, exist_ok=True)
         name = routes.export_name(face_step["name"], fmt)
+        as_composite = composite and fmt == "ttf" and face_step["kind"] == "jamo"
         step = _step(sid, fid, "export", face_step["size"], face_step["bpp"], None, name,
-                     routes.export_commands(fmt, face_out, os.path.join(step_dir, name), tools_dir, licence),
+                     routes.export_commands(fmt, face_out, os.path.join(step_dir, name), tools_dir, licence,
+                                            composite=as_composite),
                      "work/%s/%s" % (sid, name))
         step["format"] = fmt
+        if as_composite:
+            step["composite"] = True
         step["needs"] = [face_step["id"]]
         out.append(step)
     return out
@@ -1728,7 +1735,8 @@ def plan_steps(job, files_dir, tools_dir, sources, pylib=None):
                     if route.export_only:                      # the face is read for its exports, not written
                         step["export_only"] = True
                     steps.append(step)
-                    exports = export_steps(counter, fid, step, out, formats, work_root, tools_dir, licence_file)
+                    exports = export_steps(counter, fid, step, out, formats, work_root, tools_dir, licence_file,
+                                           composite=(eff.get("options") or {}).get("export", {}).get("composite") is True)
                     counter += len(exports)
                     steps += exports
     return steps

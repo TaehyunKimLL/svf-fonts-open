@@ -53,7 +53,8 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   라이선스 파일. 직접 입력한 라이선스는 먼저 `work/<font id>/licence.txt`에 쓴다), 그 확인(`quality.export_facts`)은 파일을
   열어(TTF는 fontTools로) 페이스의 코드 포인트를 정확히 담았는지 요구한다. 내보낸 파일은 `.lines` 행이 없고 페이스의 노트에도
   없으며 `BUILD.md`가 나열한다. SVF 소스의 경로 `svf2ttf`(`precomposed_route` / `jamo_route`)는 페이스를 내보내기용으로만 읽고
-  SVF를 쓰지 않으며, `ttf`나 `bdf`가 필요하다. 이후 svf2ttf.py의 `--composite` 옵션은 `routes.EXPORT_FLAGS`의 항목 하나이다.
+  SVF를 쓰지 않으며, `ttf`나 `bdf`가 필요하다. `"composite": true`는 자모 세트의 TTF에 `--composite`를 더한다(조각은 한 번, 모든 음절은 그 합성. 확인은 문자 외에 조각
+  글리프를 허용한다). `ttf` 없는 `composite`는 거부한다.
   작업이 직접 쓰지 않은 이름은(내보낸 파일의 이름도) 절대 덮어쓰지 않는다. 작업이 살아 있는 동안 변환에 중간에 필요한 파일은
   출력 폴더 안의 `.svf-maker-<id>/`(모드 0700)에 두며, 작업이 끝나거나, 삭제되거나, 서버가
   멈추면 지운다. 동기화되지 않는 폴더를 고른다.

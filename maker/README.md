@@ -54,7 +54,8 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   read-back (`quality.export_facts`) opens the file (fontTools for a TTF) and requires exactly the face's code points. The
   exports have no `.lines` rows and are not in the face's note; `BUILD.md` lists them. An SVF source's route `svf2ttf`
   (`precomposed_route` / `jamo_route`) reads the face for its exports only and writes no SVF; it needs `ttf` or `bdf`.
-  The `--composite` option of a later svf2ttf.py is one entry of `routes.EXPORT_FLAGS`.
+  `"composite": true` adds `--composite` to a jamo set's TTF (its pieces once, every syllable a composite of them; the
+  read-back then allows the piece glyphs beside the characters); `composite` without `ttf` is refused.
   A name the job did not write itself is never replaced (an export's name either). While a job lives, the files the conversion needs on the way
   are kept in `.svf-maker-<id>/` inside the output folder (mode 0700) and removed when the job ends, is deleted or
   the server stops; choose a folder that is not synced.

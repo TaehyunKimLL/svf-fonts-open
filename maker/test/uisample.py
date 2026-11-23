@@ -68,7 +68,8 @@ FONTS = {
     "hwp": (6, "HAN24.FNT", {"kinds": ["jamo"], "dest": "jamo-extra", "dos_layout": "844", "latin": "ASCII.PFT"}),
     "ksc": (7, "ksc.bdf", {"kinds": ["precomposed"], "dest": "dos", "latin": "latin.bdf",
                            "export": {"ttf": True, "bdf": True}}),          # its TTF and BDF too (svf2ttf.py)
-    "johab": (7, "johab.bdf", {"kinds": ["jamo"], "dest": "jamo-extra"}),
+    "johab": (7, "johab.bdf", {"kinds": ["jamo"], "dest": "jamo-extra",
+                               "export": {"ttf": True, "composite": True}}),    # a jamo set's TTF as composites
 }
 UNTICK = (("nanum-regular", 1, "NanumGothic-Regular.ttf"), ("latin", 7, "latin.bdf"))
 NOT_READ = ((6, "HANGUL24.PFT"),)
@@ -79,9 +80,9 @@ FACES = {  # key -> face path, relative to the output folder (the expected resul
     "seoul": "svf/jamo-extra/SEOU12J.SVF", "munjo": "svf/jamo-extra/MUNJ16J.SVF",
     "hwp": "svf/jamo-extra/HAN224J.SVF", "johab": "svf/jamo-extra/JOHA16J.SVF",
 }
-# The 35 expected files (`<id>` of the build folder is the job id); measured from the API run, asserted by the test.
+# The 36 expected files (`<id>` of the build folder is the job id); measured from the API run, asserted by the test.
 EXPECTED = (
-    "svf/dos/KSC16.ttf", "svf/dos/KSC16.bdf",
+    "svf/dos/KSC16.ttf", "svf/dos/KSC16.bdf", "svf/jamo-extra/JOHA16J.ttf",
     "svf/dos/CAVEA16.SVF", "svf/dos/CAVEA.TXT", "svf/dos/OFLCAVEA.TXT",
     "svf/dos/GOWUN17A.SVF", "svf/dos/GOWUN.TXT", "svf/dos/OFLGOWUN.TXT",
     "svf/dos/KSC16.SVF", "svf/dos/KSC.TXT", "svf/dos/OFLKSC.TXT",
@@ -102,7 +103,9 @@ GBATB17 = os.path.join(REPO, "svf", "dos", "GBATB17.SVF")
 HARD_SAME = ("seoul", "hwp", "johab", "ksc", "munjo")
 # The exports (key -> (face path, export path)): read back against their face; across passes the BDF must be identical and
 # the TTF identical but for head.created / head.modified (svf2ttf.py stamps the time of the run).
-EXPORTS = {"ksc-ttf": ("svf/dos/KSC16.SVF", "svf/dos/KSC16.ttf"), "ksc-bdf": ("svf/dos/KSC16.SVF", "svf/dos/KSC16.bdf")}
+EXPORTS = {"ksc-ttf": ("svf/dos/KSC16.SVF", "svf/dos/KSC16.ttf"), "ksc-bdf": ("svf/dos/KSC16.SVF", "svf/dos/KSC16.bdf"),
+           "johab-ttf": ("svf/jamo-extra/JOHA16J.SVF", "svf/jamo-extra/JOHA16J.ttf")}
+COMPOSITE = ("johab-ttf",)                     # written with svf2ttf.py --composite
 NOTE_SAME = ("neodgm", "nanum", "gowun", "caveat", "dfont")
 
 
@@ -317,7 +320,8 @@ def _check_exports(out_dir, fails):
     """Every export holds exactly its face's characters (`quality.export_facts`, the job's own read-back)."""
     for key, (face, export) in sorted(EXPORTS.items()):
         try:
-            quality.export_facts(os.path.join(out_dir, export), export.rsplit(".", 1)[1], os.path.join(out_dir, face))
+            quality.export_facts(os.path.join(out_dir, export), export.rsplit(".", 1)[1], os.path.join(out_dir, face),
+                                 composite=key in COMPOSITE)
         except Exception as exc:
             fails.append("export: %s: %s: %s" % (export, type(exc).__name__, (str(exc).splitlines() or [""])[0]))
 
