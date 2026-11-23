@@ -20,7 +20,7 @@ strips) or the top (cols, bytecols); `--invert` reads the 0 bits as ink (ROMs dr
 SPC-1500's). Multi-bit tiles (arcade sprite and tile ROMs): `--gfx LAYOUT` with a preset `WxHxN_packed_lsb` /
 `WxHxN_packed_msb` (N bits a pixel, row after row; _lsb: the first pixel of a byte in its low bits) or the four lists of
 the driver's MAME gfx_layout, `planes=..;x=..;y=..;inc=N` (bit offsets from the tile's start, bit 0 the MSB of its first
-byte, plane 0 the pen's high bit; `STEP2` .. `STEP2048(start,step)`, their `_INV` forms and `RGN_FRAC(a,b)` = a/b of the file as in the driver,
+byte, plane 0 the pen's high bit; `STEP2` .. `STEP1024(start,step)`, their `_INV` forms and `RGN_FRAC(a,b)` = a/b of the file as in the driver,
 without the braces and C comments; the file is
 the ROM region, which `rawcarve.py region` assembles from the ROM files); a pixel is ink when its pen is not `--bg`
 (default 0), or, with `--fg PEN[,PEN...]`, when its pen is one of those (the body of an outlined glyph without its
@@ -226,7 +226,8 @@ MAX_NUMBER_CHARS = 12
 MAX_OFFSETS = 1024  # offsets in one list (MAME's tiles are at most 1024 wide or high; planes at most 8)
 MAX_DEPTH = 32  # nesting of parentheses and function arguments
 MAX_BIT = 1 << 36  # the largest bit offset or inc (8 GiB): past any region the tools read
-STEPS = {2 ** k for k in range(1, 12)}  # MAME's STEP2 .. STEP2048 (and STEPn_INV, the same offsets reversed)
+STEPS = {2 ** k for k in range(1, 11)}  # STEP2 .. STEP1024 (MAME's STEP2048 would pass the 1,024-offset cap); any
+# STEPn_INV is the same offsets reversed (MAME defines STEP2_INV and STEP4_INV; the larger ones are accepted too)
 
 
 def _gfx_tokens(s):
@@ -346,12 +347,13 @@ def _gfx_list(s, region_bits):
 
     out = []
     while True:
-        m = re.fullmatch(r"STEP(\d+)(_INV)?", toks[pos[0]][1]) if peek() == "name" else None
+        m = re.fullmatch(r"STEP([0-9]+)(_INV)?", toks[pos[0]][1]) if peek() == "name" else None
         if m:
             take()
             n = int(m.group(1)) if len(m.group(1)) <= 4 else 0
             if n not in STEPS:
-                raise GfxError(f"{m.group(0)}: MAME defines STEP2, STEP4 .. STEP2048 (and _INV)")
+                raise GfxError(f"{m.group(0)}: STEP2, STEP4 .. STEP1024 (and their _INV forms); a list holds at most "
+                               f"{MAX_OFFSETS} offsets")
             if len(out) + n > MAX_OFFSETS:
                 raise GfxError(f"more than {MAX_OFFSETS} offsets in one list")
             start, step = args(2)
@@ -557,7 +559,9 @@ def cmd_runs(a):
             data = fh.read()
         lo, hi, base = base, base + len(data[base:base + (a.length or len(data))]), 0
     found = []
-    last = min(hi - gb, len(data) - footprint(w, h, a.order, a.gfx))  # a tile's whole footprint must be in the file
+    foot = footprint(w, h, a.order, a.gfx)
+    # the last start: its whole footprint in the file, and its bytes (up to a stride) in the window
+    last = min(hi - min(gb, foot), len(data) - foot)
     # window() has complemented 1 bpp bytes already: decode inverts only the pens of --gfx tiles
     invert = a.invert and a.gfx is not None
     for phase in range(0, gb, a.step):

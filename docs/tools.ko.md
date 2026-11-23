@@ -955,7 +955,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `cols` / `bytecols`에서는 맨 위), `--invert`(잉크가 0 비트: 삼성 SPC-1500처럼 바탕으로 저장한 ROM). 여러 비트 타일(아케이드
 스프라이트와 타일 ROM): `--gfx LAYOUT`, 프리셋 `WxHxN_packed_lsb` / `WxHxN_packed_msb`(픽셀당 N비트, 행 다음 행. `_lsb`는 바이트의 첫
 픽셀이 낮은 비트: MAME의 `gfx_16x16x4_packed_lsb`) 또는 드라이버의 MAME `gfx_layout`을 `planes=..;x=..;y=..;inc=N`으로(타일 시작에서의
-비트 오프셋, 비트 0은 첫 바이트의 MSB, `planes`는 펜의 높은 비트부터. MAME의 `STEP2` .. `STEP2048(start,step)`과 그 `_INV` 꼴(같은 오프셋을 거꾸로),
+비트 오프셋, 비트 0은 첫 바이트의 MSB, `planes`는 펜의 높은 비트부터. MAME의 `STEP2` .. `STEP1024(start,step)`과 그 `_INV` 꼴(같은 오프셋을 거꾸로. MAME에는 `STEP2_INV`와 `STEP4_INV`가 있고, 더 큰 것도 받는다),
 `RGN_FRAC(a,b)` = 파일의 a/b(비트), `+ - * /`, 앞에 0이 없는 10진수와 0x 16진. 목록은 중괄호와 C 주석을 빼고 옮긴다. 목록당 오프셋 1,024개,
 중첩 32단계, 오프셋 2^36까지). 이때 파일은 ROM 영역이다(`rawcarve.py region`). 펜이 `--bg PEN`(0)이 아니면 잉크이고, `--fg PEN[,PEN...]`이
 있으면 그 펜일 때만 잉크다(외곽선이 있는 글리프의 몸통. `--bg`와 `--fg`는 서로 다른 규칙이라 하나만, 그리고 `--gfx`와 함께만 준다). `--invert`는 잉크와 바탕을 바꾼다. `--glyph`의 기본은 타일 크기,

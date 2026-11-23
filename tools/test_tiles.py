@@ -338,9 +338,9 @@ class Gfx(unittest.TestCase):
         L = binscan._gfx_list
         self.assertEqual(L("STEP4_INV(0,8)", 0), [24, 16, 8, 0])
         self.assertEqual(L("STEP2_INV(4,1),STEP2(0,1)", 0), [5, 4, 0, 1])
-        with self.assertRaises(binscan.GfxError):  # STEP2048 exists, but is longer than one list may be
-            L("STEP2048(0,1)", 0)
-        for bad in ("STEP3(0,1)", "STEP1(0,1)", "STEP4_REV(0,1)"):
+        self.assertEqual(L("STEP1024(0,1)", 0)[-1], 1023)
+        self.assertEqual(L("STEP8_INV(0,1)", 0), list(range(7, -1, -1)))
+        for bad in ("STEP2048(0,1)", "STEP3(0,1)", "STEP1(0,1)", "STEP4_REV(0,1)", "STEP\uff18(0,1)"):
             with self.assertRaises(binscan.GfxError):
                 L(bad, 0)
 
@@ -406,6 +406,17 @@ class Runs(unittest.TestCase):
             self.assertRegex(a, r": 3[0-9][0-9] glyphs")  # the font's run
             self.assertEqual(a.split("\n", 1)[1], b.split("\n", 1)[1])
             self.assertIn("none", run(BS, "runs", q, "--glyph", "16x16"))
+
+
+    def test_runs_keeps_the_last_glyph_with_a_long_stride(self):
+        """--stride 48 with 32-byte glyphs: the file ends 32 bytes after the last start, and that glyph is counted."""
+        font = raw844()
+        data = b"".join(font[i * 32:i * 32 + 32] + bytes(16) for i in range(1, 41))[:-16]
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "F.BIN")
+            wr(p, data)
+            out = run(BS, "runs", p, "--glyph", "16x16", "--stride", 48, "--step", 48, "--min", 8)
+            self.assertIn("offset 0x0 (0): 40 glyphs", out)
 
 
 class Region(unittest.TestCase):

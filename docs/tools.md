@@ -1015,8 +1015,8 @@ in `cols` / `bytecols`), `--invert` (ink is the 0 bits: ROMs stored as paper, su
 Multi-bit tiles (arcade sprite and tile ROMs): `--gfx LAYOUT`, a preset `WxHxN_packed_lsb` / `WxHxN_packed_msb` (N bits a
 pixel row after row; `_lsb` puts a byte's first pixel in its low bits, MAME's `gfx_16x16x4_packed_lsb`) or the driver's
 MAME `gfx_layout` as `planes=..;x=..;y=..;inc=N` (bit offsets from the tile's start, bit 0 the MSB of its first byte,
-`planes` from the pen's high bit; MAME's `STEP2` .. `STEP2048(start,step)` and their `_INV` forms (the same offsets
-reversed), `RGN_FRAC(a,b)` = a/b of the file in bits, `+ - * /`, decimal numbers without a leading 0 and 0x hex; copy
+`planes` from the pen's high bit; MAME's `STEP2` .. `STEP1024(start,step)` and their `_INV` forms (the same offsets
+reversed; MAME defines `STEP2_INV` and `STEP4_INV`, the larger ones are accepted too), `RGN_FRAC(a,b)` = a/b of the file in bits, `+ - * /`, decimal numbers without a leading 0 and 0x hex; copy
 the lists without their braces and without C comments; at most 1,024 offsets a list and 32 levels of nesting, offsets
 up to 2^36); the file is then the ROM region (`rawcarve.py region`). A pixel is ink when its pen is not `--bg PEN` (0), or, with
 `--fg PEN[,PEN...]`, when it is one of those (the body of an outlined glyph; `--bg` and `--fg` are two rules: give one,
