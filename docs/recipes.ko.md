@@ -1123,6 +1123,12 @@ T + set`. 기호는 `base + 992`부터다. 그러니 폰트는 종성 없는 CV 
 - `spc800`(`spc800han.rom`: 한글 BASIC 코드), `spc1000`, `fc100`, `cpc61`, `cpg120`(8x8 / 8x12 문자 ROM, SPC-1000에 한글 그림 셀 몇 개):
   한글 폰트 없음.
 
+데스크톱 앱은 세 쌍을 크기와 SHA-256으로 알아본다(내장 레시피 `maker/recipes/86box-tgkorvga.json`, `86box-kasan16.json`,
+`86box-atikorvga.json`: 이름, 크기, 해시, 오프셋만 있고 ROM의 바이트는 없다). 두 파일이 든 폴더를 고르면 글꼴 ROM이 한 행이 되어
+페이스 `TGVGA16` / `KASAN16` / `ATIVGA16`(경로 `bdfface`)과 자모 세트 `TGVGA16J` / `KASAN16J` / `ATIVG16J`(`bdfface + from-svf fit`,
+experimental)를 위의 명령으로 만든다. `SVF_MAKER_REAL_86BOX`가 내려받은 파일을 가리키게 하고 실행하면(`maker/test/test_recipe.py`)
+표의 모든 페이스가 바이트 단위로 그 크기가 된다.
+
 ## OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기
 
 <a id="os2-한글-폰트완성형"></a>
@@ -1548,10 +1554,16 @@ maker(`maker/`, [desktop-app.md](desktop-app.ko.md)의 데스크톱 앱, [maker/
 | 자모, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형 또는 자모, `copy` | svf-precomposed, svf-jamo | 업로드된 그대로 쓰면 없음. v2 페이스나 요청한 JSET 변경에는 `svf2to3.py SRC OUT --jset-version V --check` | [기존 SVF](#기존-svf) |
+| 완성형 또는 자모, `svf2ttf` | svf-precomposed, svf-jamo | `copy`가 읽는 페이스를 아래의 내보내기로만 쓴다. SVF는 쓰지 않음 | [SVF 페이스를 다시 TTF 비트맵 폰트로](#svf-페이스를-다시-ttf-비트맵-폰트로) |
+| 완성형, `bdfface`; 자모, `bdfface + from-svf fit` | recipe(`maker/recipes/`의 알려진 ROM 세트, 로컬 모드) | 레시피의 한글 항목과 영문 항목을 `rawcarve.py bdf`로, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`. fit은 그 페이스를 `precomposed.svf`로 만든 뒤 `jamoset.py --layout L --from-svf precomposed.svf --mask-font none --check -o OUT` | [한글 VGA 폰트 ROM (86Box)](#한글-vga-폰트-rom-86box) |
 | 자모, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]` 다음 `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | [기존 SVF](#기존-svf) |
 
 `L`은 맞춤에서는 `844` 또는 `adaptive`이고, 그 밖에는 원본 종류가 지명하는 레이아웃이다. `[--eng E]`는 페이지가 폰트와 짝지은 영문
 동반 폰트이다.
+
+"also write TTF / BDF"(`options.export`)가 켜져 있으면 모든 페이스 단계 뒤에 형식마다 `export` 단계가 하나 따른다:
+`svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`. `OUT`은 페이스 이름에 `.ttf` / `.bdf`를 붙인 것으로 페이스 옆에 쓰며, `FILE`은
+작업이 그 폰트에 대해 아는 라이선스이다(없으면 svf2ttf.py가 원본 폰트의 라이선스가 적용된다고 적는다).
 
 일부 원본은 먼저 변환이 필요하다. BUILD.md는 이 단계를 경로의 명령 앞에 나열한다(각 단계는 앞 단계가 쓴 파일을 읽는다).
 

@@ -1217,6 +1217,13 @@ revisions, or a translation step was not found; no face is built until the final
 - `spc800` (`spc800han.rom`: Hangul BASIC code), `spc1000`, `fc100`, `cpc61`, `cpg120` (8x8 / 8x12 character ROMs, a few
   Hangul pictograph cells on the SPC-1000): no Hangul font.
 
+The desktop app knows the three pairs by size and SHA-256 (the built-in recipes `maker/recipes/86box-tgkorvga.json`,
+`86box-kasan16.json`, `86box-atikorvga.json`: names, sizes, hashes and offsets, no byte of the ROMs): pick the folder holding both
+files and the font ROM is one row with the faces `TGVGA16` / `KASAN16` / `ATIVGA16` (route `bdfface`) and the jamo sets
+`TGVGA16J` / `KASAN16J` / `ATIVG16J` (`bdfface + from-svf fit`, experimental), made by the commands above. A run with
+`SVF_MAKER_REAL_86BOX` pointing at the downloaded files (`maker/test/test_recipe.py`) gives every face of the table byte
+for byte its size.
+
 ## OS/2 Korean fonts (완성형) to a precomposed face and a jamo set
 
 OS/2's Korean "System DBCS" fonts (`$korZN16.FNT`, `$korZN24.FNT`) are precomposed (완성형): the whole KS X 1001 table
@@ -1688,10 +1695,16 @@ what the route makes; the others are fits and are marked experimental):
 | jamo, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | precomposed, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | precomposed or jamo, `copy` | svf-precomposed, svf-jamo | none when used as uploaded; `svf2to3.py SRC OUT --jset-version V --check` for a v2 face or a requested JSET change | [An existing SVF](#an-existing-svf) |
+| precomposed or jamo, `svf2ttf` | svf-precomposed, svf-jamo | the face as `copy` reads it, written only as its exports (below): no SVF | [An SVF face back to a TTF bitmap font](#an-svf-face-back-to-a-ttf-bitmap-font) |
+| precomposed, `bdfface`; jamo, `bdfface + from-svf fit` | recipe (a known ROM set of `maker/recipes/`, local mode) | `rawcarve.py bdf` of the recipe's Hangul and English items, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`; the fit makes that face as `precomposed.svf`, then `jamoset.py --layout L --from-svf precomposed.svf --mask-font none --check -o OUT` | [Korean VGA font ROMs (86Box)](#korean-vga-font-roms-86box) |
 | jamo, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]`, then `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | [An existing SVF](#an-existing-svf) |
 
 `L` is `844` or `adaptive` for the fits and the layout the source kind names otherwise; `[--eng E]` is the English
 companion the page paired with the font.
+
+With "also write TTF / BDF" (`options.export`) every face step is followed by one `export` step a format:
+`svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`, `OUT` the face's name with `.ttf` / `.bdf`, written beside the face;
+`FILE` is the licence the job knows for the font (none: svf2ttf.py says the source font's licence applies).
 
 Some sources need a conversion first; BUILD.md lists these steps before the route's commands (each reads the file the
 step before it wrote):
