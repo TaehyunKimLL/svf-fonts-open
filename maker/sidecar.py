@@ -31,7 +31,7 @@ VERSION = "0.1.0"           # the same string as desktop/package.json "version" 
 # exit: `sys.exit(main())`; args: `sys.exit(main(ARGS))`.
 TOOLS = {
     "jamoset": ("tools", "bare"), "jamovec": ("tools", "bare"), "mkfont": ("tools", "bare"),
-    "bdfface": ("tools", "bare"), "johab844": ("tools", "bare"),
+    "bdfface": ("tools", "bare"), "johab844": ("tools", "bare"), "hwpfont": ("tools", "bare"),
     "macfbit_svf": ("tools", "exit"), "macfbit3": ("tools", "exit"), "macsfnt": ("tools", "exit"),
     "svf2to3": ("tools", "exit"), "svfdy": ("tools", "exit"), "svfline": ("tools", "exit"),
     "srcprep": ("maker", "exit"),
@@ -44,10 +44,10 @@ SMOKE["instancer"] = (["--help"], 0, "stdout", "usage: fonttools varLib.instance
 SMOKE["svfline"] = (["--help"], 1, "stderr", "  svfline.py line W H X Y")
 
 # The modules reachable from this file (test_sidecar_imports computes the same set from the sources and pins equality).
-GRAPH_MODULES = ("archive", "bdfface", "caps", "detect", "jamoaa", "jamoadapt", "jamofit", "jamoset", "jamovec", "jobs",
-                 "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets", "preview", "quality",
-                 "routes", "server", "settings", "sidecar", "sources", "srcprep", "svf2to3", "svfdy", "svfline",
-                 "toolreg", "toolrun", "zipout")
+GRAPH_MODULES = ("archive", "bdfface", "binscan", "caps", "detect", "hwpfont", "jamoaa", "jamoadapt", "jamofit", "jamoset",
+                 "jamovec", "jobs", "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets",
+                 "preview", "quality", "rawcarve", "routes", "server", "settings", "sidecar", "sources", "srcprep",
+                 "svf2to3", "svfdy", "svfline", "toolreg", "toolrun", "zipout")
 
 
 def _entry_jamoset():
@@ -73,6 +73,11 @@ def _entry_bdfface():
 def _entry_johab844():
     import johab844
     return johab844.main
+
+
+def _entry_hwpfont():
+    import hwpfont
+    return hwpfont.main
 
 
 def _entry_macfbit_svf():

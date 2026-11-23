@@ -234,6 +234,17 @@ def bake_source_face(font, abs_path, layout, eng_abs, out_svf, tools_dir, extra=
                 return False
             size = (font.get("sizes") or [None])[0]
             commands = route.commands(font, size, 1, "mac-fbit-45sets", ("2350", None), paths, [list(extra)])
+        elif kind in ("hwp1", "ks-raw"):
+            # an HWP 1.x face: its native jamo route; a KS X 1001 file: its precomposed route (hwpfont.py bdf + mkfont),
+            # whose BDF and mkfont copy go into the font's own folder (another font's bake may run at the same time)
+            route = routes.route_for(font, "jamo" if kind == "hwp1" else "precomposed", False)
+            if route is None:
+                return False
+            size = (font.get("sizes") or [None])[0]
+            paths["work"] = os.path.join(work, str(font.get("id") or "font"))
+            os.makedirs(paths["work"], exist_ok=True)
+            commands = route.commands(font, size, 1, "hwp1" if kind == "hwp1" else None, ("2350", None), paths,
+                                      [list(extra)])
         elif kind == "mac-fbit3":
             if not htbl_abs:
                 return False                 # the type-3 fbit composes through its HTBL 1 table

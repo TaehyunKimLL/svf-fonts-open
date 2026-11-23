@@ -239,13 +239,14 @@ def exc_text(exc, local):
     return type(exc).__name__
 
 
-# The one verdict line the tools print (jamoset.check / jamovec): fixed words and numbers only. A line that merely
-# starts with "check" is not kept: its tail could be input text.
+# The verdict lines the tools print (jamoset.check / jamovec, and jamoset's HWP 1.x comparison): fixed words and numbers
+# only. A line that merely starts with "check" is not kept: its tail could be input text.
 _TOOL_VERDICT = re.compile(
-    r"^check: composed \d+ syllables from \d+ glyphs, JSET \d+ bytes"
+    r"^(check: composed \d+ syllables from \d+ glyphs, JSET \d+ bytes"
     r"(; dy -?\d+\.\.-?\d+ on \d+ glyphs)?"
     r"(; tables are the adaptive layout's \(\d+/\d+/\d+ sets, \d+x\d+ classes\))?"
-    r"(; identical to johab844\.py)?$")
+    r"(; identical to johab844\.py)?"
+    r"|hwp1: 11172 syllables identical to the HWP 1\.x rule \(hwpfont\.py\))$")
 
 # Set by make_server in local mode: what reaches stderr is the exception's type and frames, never its message.
 SAFE_DIAGNOSTICS = False

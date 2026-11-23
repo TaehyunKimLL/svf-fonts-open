@@ -1987,7 +1987,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         files_dir = self.server.store.files_dir(current)
         entry = next((item for item in (current.get("fonts") or []) if item.get("id") == font), None)
         if entry is None or entry.get("source_kind") not in ("dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3",
-                                                             "mac-fbit1"):
+                                                             "mac-fbit1", "hwp1", "ks-raw"):
             raise _HttpError(404, "no source face")
         path = os.path.join(files_dir, "work", "preview", "%s.svf" % font)
         if not os.path.isfile(path):
@@ -2068,6 +2068,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                         self._bake_flags(eff, source_kind), env=env):
                 self._render_preview(None, out_svf, out_png)
             return
+        if source_kind in ("hwp1", "ks-raw"):
+            # an HWP 1.x face bakes its jamo route, a KS X 1001 file its precomposed one (no JSET: no panel flag)
+            eng_abs = self._companion_abs(eff, fonts, sources, scope)
+            out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
+            flags = self._bake_flags(eff, source_kind) if source_kind == "hwp1" else []
+            if preview.bake_source_face(font, abs_src, None, eng_abs, out_svf, self.server.tools_dir, flags, env=env):
+                self._render_preview(None, out_svf, out_png)
+            return
         if source_kind == "mac-fbit1":
             out_svf = os.path.join(out_dir, "%s.svf" % font.get("id"))
             if preview.bake_source_face(font, abs_src, None, None, out_svf, self.server.tools_dir,
@@ -2143,7 +2151,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         flags = []
         if jamoset.get("jset_version") is not None:
             flags += ["--jset-version", str(jamoset["jset_version"])]
-        if source_kind in ("dos-raw", "mac-fbit1"):
+        if source_kind in ("dos-raw", "mac-fbit1", "hwp1"):
             if jamoset.get("jamo_ascent") is not None:
                 flags += ["--ascent", str(jamoset["jamo_ascent"])]
             if jamoset.get("embolden"):

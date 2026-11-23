@@ -39,12 +39,12 @@ class SidecarTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
     def test_table_is_the_spec_table(self):
-        self.assertEqual(sorted(sidecar.TOOLS), ["bdfface", "instancer", "jamoset", "jamovec", "johab844", "macfbit3",
-                                                 "macfbit_svf", "macsfnt", "mkfont", "srcprep", "svf2to3", "svfdy",
-                                                 "svfline"])
+        self.assertEqual(sorted(sidecar.TOOLS), ["bdfface", "hwpfont", "instancer", "jamoset", "jamovec", "johab844",
+                                                 "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "srcprep", "svf2to3",
+                                                 "svfdy", "svfline"])
         self.assertEqual(sidecar.TOOLS["instancer"], ("module", "args"))
         self.assertEqual(sidecar.TOOLS["srcprep"], ("maker", "exit"))
-        self.assertEqual({sidecar.TOOLS[n] for n in ("jamoset", "jamovec", "mkfont", "bdfface", "johab844")},
+        self.assertEqual({sidecar.TOOLS[n] for n in ("jamoset", "jamovec", "mkfont", "bdfface", "johab844", "hwpfont")},
                          {("tools", "bare")})
         self.assertEqual({sidecar.TOOLS[n] for n in ("macfbit_svf", "macfbit3", "macsfnt", "svf2to3", "svfdy",
                                                     "svfline")}, {("tools", "exit")})

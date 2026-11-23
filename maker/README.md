@@ -59,8 +59,12 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   (`InputBackSupport` or `<Name>.htbl1`, picked as another source) and an optional Latin suitcase (FOND + NFNT),
   through `macfbit_svf.py` (direct or derived) or `macfbit3.py bdf` + `mkfont.py`; and **HangulTalk 1.0** fonts (the
   fork with its `fdef`) through `jamoset.py --layout mac-fbit-45sets`. A raw 1.0 `fbit` resource without its `fdef` is
-  listed with what is missing. HWP: HANGUL*.PFT is not read; ASCII.PFT is a companion (a 12x24 English font) for a
-  24 px DOS raw face, from any folder of the batch. A licence file next to a font picked as a single file is used only
+  listed with what is missing. HWP 1.x: each `HANGUL.SFT` / `HANGULn.PFT` face (three a file) through `jamoset.py --layout
+  hwp1` (HWP's own composition rule, exact) or `hwpfont.py bdf` + `mkfont.py`, with `ASCII.SFT` / `ASCII.PFT` as its English
+  companion; HWP 3.0: the `HAN*.FNT` Hangul fonts (2,350 syllables; a 16 px one also through its 8x4x4 set, `--layout
+  844-hwp3`) with `ENG*.FNT` companions (`tools/hwpfont.py`, recipes.md "HWP 1.x and 2.x fonts"). A headerless KS X 1001
+  syllable dump (Taebaek `GHAN24.PFT`) is read by its size in both modes. A 12x24 English font (Taebaek `GASCII24.PFT`,
+  HWP 1.x `ASCII.PFT`) is a companion for a 24 px face from any folder of the batch. A licence file next to a font picked as a single file is used only
   when it is picked too (or the folder is chosen).
 - **No proprietary font is distributed**: no proprietary font, bitmap or table is in this repository or in the maker.
   The tests build synthetic inputs; checks on real files run only where an environment variable names your own copy

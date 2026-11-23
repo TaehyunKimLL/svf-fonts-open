@@ -12,7 +12,7 @@ it adds no preset here.
 # Every source_kind (Shared data shapes) in one list, for `plain`'s "the tools' defaults".
 ALL_SOURCES = ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859", "bdf-ksc5601",
                "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo", "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase",
-               "other"]
+               "hwp1", "ks-raw", "other"]
 
 PRESETS = {
     "plain": {"argv": {}, "layout": None, "bpp": None, "sources": list(ALL_SOURCES),
@@ -92,7 +92,7 @@ def panel_argv(options, kind, route_label, bpp):
             if mkfont.get("latin"):
                 out.append("--latin")
             _num(out, "--space-advance", mkfont.get("space_advance"))
-        elif route_label == "mac fbit 7.1 bdf + mkfont":     # a bitmap strike: the mkfont keys that apply to one
+        elif route_label in ("mac fbit 7.1 bdf + mkfont", "hwp bdf + mkfont"):   # a bitmap strike: the mkfont keys that apply to one
             _num(out, "--cell", mkfont.get("cell"))
             _num(out, "--ascent", mkfont.get("ascent"))
             _num(out, "--width", mkfont.get("width"))
@@ -108,16 +108,17 @@ def panel_argv(options, kind, route_label, bpp):
         second = []
         _num(second, "--jset-version", jamoset.get("jset_version"))
         return [first, second]
-    if jamoset.get("embolden") and route_label in ("dos raw", "hanterm", "mac fbit 1.0"):
+    native = ("dos raw", "hanterm", "mac fbit 1.0", "hwp1", "hwp3 844")       # jamoset.py on the source's own pieces
+    if jamoset.get("embolden") and route_label in native:
         out.append("--embolden")
-    if jamoset.get("symbols") and (route_label in ("dos raw", "hanterm", "mac fbit 1.0", "composite", "vector fit")
+    if jamoset.get("symbols") and (route_label in native + ("composite", "vector fit")
                                    or (route_label == "experimental fit" and bpp == 2)):
         out.append("--symbols")
-    if jamoset.get("jset_version") is not None and route_label in ("dos raw", "hanterm", "mac fbit 1.0", "composite",
-                                                                   "experimental fit",
-                                                                   "mask fit", "vector fit", "from-svf fit", "copy", "mac fbit 7.1 derived"):
+    if jamoset.get("jset_version") is not None and route_label in native + ("composite", "experimental fit", "mask fit",
+                                                                            "vector fit", "from-svf fit", "copy",
+                                                                            "mac fbit 7.1 derived", "hwp bdf + from-svf fit"):
         out += ["--jset-version", str(jamoset["jset_version"])]   # unset: a writer's own 1, an SVF upload keeps its block
-    if route_label in ("dos raw", "hanterm", "mac fbit 1.0"):
+    if route_label in native:
         _num(out, "--ascent", jamoset.get("jamo_ascent"))
     if route_label in ("composite", "experimental fit", "mask fit", "vector fit"):
         _num(out, "--baseline", jamoset.get("fit_baseline"))
