@@ -268,7 +268,8 @@ tests assert, not something the app checks.)
 | TrueType, OpenType, collections (`.ttf`, `.otf`, `.ttc`), variable fonts | Outline fonts. A variable font is converted at the instance you choose. |
 | BDF, PCF bitmap fonts | ISO 10646 (a bitmap face, converted by `mkfont`), KS C 5601 and Johab BDF (Hangul faces). |
 | HBF fonts and ISO 8859 BDF | Not converted by themselves: they have no route of their own. They are offered only as **Latin companions** of a KS C 5601 BDF Hangul font (the `bdfface` route). |
-| DOS raw Hangul fonts | Johab 8x4x4 / 6x2x1 style raw fonts (and 24 px HBIOS). An HWP `ASCII.PFT` (12x24 English) is used as a companion for a 24 px face; `HANGUL*.PFT` is not read and is shown as not read. |
+| DOS raw Hangul fonts | Johab 8x4x4 / 6x2x1 style raw fonts (and 24 px HBIOS), and headerless KS X 1001 syllable dumps (Taebaek `GHAN24.PFT`). A 12x24 English font (`GASCII24.PFT`) is used as a companion for a 24 px face. |
+| HWP fonts (local mode) | HWP 1.x `HANGUL.SFT` / `HANGULn.PFT` (three faces a file, a jamo set by HWP's own rule or a precomposed face) with `ASCII.SFT` / `ASCII.PFT`; HWP 3.0 `HAN*.FNT` with `ENG*.FNT`. The `.HFT` outline fonts are not read. |
 | Classic Mac HangulTalk 7.1 type-3 `fbit` | From a resource fork, an AppleDouble `._Name`, a MacBinary `.bin`, a JM archive or a raw `fbit` resource; needs the HTBL 1 table (`InputBackSupport` or `<Name>.htbl1`, picked as another source) and may use a Latin suitcase (FOND + NFNT). |
 | Classic Mac HangulTalk 1.0 fonts | The fork with its `fdef`; a raw 1.0 `fbit` without `fdef` is listed with what is missing. |
 | Hanterm Johab fonts | Layout `hanterm-johab` (a Johab BDF). |

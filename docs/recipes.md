@@ -62,8 +62,9 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | HBF | only as the ASCII half of `bdfface.py` | no | [HBF](#hbf) |
 | Windows `.FNT` / `.FON` | no reader (FreeType gives it no Unicode map; convert it to a BDF with an outside tool first) | no | [Windows FNT and FON](#windows-fnt-and-fon) |
 | DOS raw jamo-piece font (8x4x4 `HANGUL.FNT`, san, Dokkaebi, Kyra...) | `johab844.py` (16 px 8x4x4) | `jamoset.py --layout L` | [DOS-era raw fonts](#dos-era-raw-fonts) |
-| HWP `.PFT` Hangul | no reader | no reader | [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts) |
-| KS X 1001 raw dump (2,350 syllables in code order, or a 94 x 94 table) | `rawcarve.py bdf --dense`, then `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
+| HWP 1.x `HANGUL.SFT` / `HANGUL*.PFT` | `hwpfont.py bdf --face N`, then `mkfont.py` | `jamoset.py --layout hwp1 --face N` (HWP's own rule, exact) | [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts) |
+| HWP 3.0 `HAN*.FNT` (2,350 syllables, + an 8x4x4 set at 16 px) | `hwpfont.py bdf`, then `mkfont.py` | `jamoset.py --layout 844-hwp3` (16 px), else `--from-svf` | [HWP 3.0 FNT fonts](#hwp-30-fnt-fonts) |
+| KS X 1001 raw dump (2,350 syllables in code order, or a 94 x 94 table) | `hwpfont.py bdf` (16-48 px dumps), or `rawcarve.py bdf --dense` / `--grid`; then `mkfont.py` or `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
 | A font inside a program or ROM (DOS driver or TSR, word processor, Korean VGA BIOS + font ROM) | `binscan.py` to find, `rawcarve.py` to cut (raw, BDF, or composed by the driver's rule), then `bdfface.py` | `jamoset.py --layout 844` on a cut raw font, or `--from-svf` | [Finding a font inside a program or data file, with Claude](#finding-a-font-inside-a-program-or-data-file-with-claude) |
 | OS/2 Korean System DBCS font (`$korZN16.FNT`, `$korZN24.FNT`; 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 Korean fonts (완성형)](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set) |
 | TTF with jamo glyphs (conjoining jamo, PUA pieces, GSUB `ljmo`) | as any TTF | composites `jamovec.py --components`; variants `--mask-font`; else a fit | [TrueType fonts that already carry jamo](#truetype-fonts-that-already-carry-jamo) |
@@ -674,58 +675,148 @@ the desktop app pairs a 40 or 48 px face with the English font of its own height
 
 ### HWP 1.x and 2.x fonts
 
-Hangul and Computer's DOS word processor shipped printer and screen fonts (`HANGUL*.PFT`, `ASCII.PFT`, `*.FNT`). What
-this repository reads directly:
+Hangul and Computer's DOS word processor shipped its own bitmap fonts. `tools/hwpfont.py` reads them - HWP 1.x `.SFT`
+(screen) and `.PFT` (printer), and HWP 3.0 `.FNT` ([below](#hwp-30-fnt-fonts)) - and writes Unicode BDFs;
+`jamoset.py --layout hwp1` makes an HWP 1.x Hangul face a jamo set by HWP's own composition rule. The formats come from
+the johab-fonts research notes (HWP.EXE was read as bytes there, never run); `hwpfont.py`'s docstring has them in full:
 
-- the 12x24 English fonts: `jamoset.py ... --eng GASCII24.PFT` or `MASCII24.PFT` (Taebaek 3.5.1; 12,288 bytes, 256 glyphs of
-  48 bytes: used in the table above) and HBIOS 12x24 (15,360 bytes). HWP 1.20's own `ASCII.PFT` is a different file (41,654
-  bytes: a 32-byte "HWP Font Editor v1.0" header and 991 glyphs of 14x24, 42 bytes each, column-major) and is refused:
-  `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), 30720 (PFT 20x40) or 49152
-  (PFT 24x48), not 41654`;
-- HWP 2.x screen fonts that are plain raw 8x4x4: `HMJ.FNT` (11,520 bytes) of the Hangul 2.1 PRO disks (disk 13), read
-  as any `844` font: `python3 tools/jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF` writes `15,700 bytes`
-  and composes all 11,172 syllables, identical to `johab844.py`;
-- any precomposed 1 bpp face you made of the Hangul, refitted to pieces: `jamoset.py --layout 844 --from-svf
-  FACE.SVF --mask-font none --check`;
-- a BDF of the composed syllables: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
+- HWP 1.x (1989-1990): a 32-byte "HWP Font Editor v1.0" header (the `HANGUL3.PFT` of `HPFT3.LZH` has "FE" instead), the
+  glyph count (big-endian 16 bits) at 0x1C, (width - 1, height - 1) at 0x1E, then the glyphs; the file is exactly 32 +
+  count x glyph bytes. Screen fonts (16 rows) are row-major, printer fonts (24 rows, a 24-pin head) column-major, three
+  bytes a column, MSB at the top.
+- `HANGUL.SFT` (16x16, 1,193 glyphs) and `HANGUL1/2/3.PFT` (24x24, 980) hold three faces (HWP's style 0, 1, 2: Myeongjo,
+  Gothic, Saemmul by its menu order, not proven). A face is its initial, vowel and final piece sets (31, 29 and 31 pieces a
+  set): 10/4/4, 7/2/2 and 6/2/2 sets in the SFT, 7/2/3, 7/2/2 and 5/2/2 in a PFT.
+- `ASCII.SFT` (8x16) and `ASCII.PFT` (14x24): 991 glyphs, 109 others and then six faces of the codes 0x20-0xB2
+  (Myeongjo, Gothic, superscript, subscript, italic, script). `HANJA.SFT`: the 4,888 KS X 1001 hanja. The symbol files
+  (`SPECIAL1/2`, `JAPAN`, `USER1/2`, `SYSTEM.PFT`) are recognised (`hwpfont.py info`) and not converted.
 
-Run on HWP 1.20 for DOS (Hangul and Computer, 1989-1990; `HANGUL1.PFT`, 70,592 bytes, three faces of 24x24 in 7/2/3, 7/2/2 and
-5/2/2 sets, 72 bytes a glyph, column-major; proprietary), face 1 (Gothic by menu order): the research tool `hwp1_fnt.py` of
-the johab-fonts notes composes the syllables; a 30-line script wrote its 2,350 KS X 1001 syllables and its `ASCII.PFT` as two BDFs
-(`ENCODING` = the GL code; 24x24 and 14x24), and then
+**A jamo set, not a fit.** HWP.EXE composes a syllable as the OR of three pieces whose sets it picks from the initial's
+class (ㄱ ㅋ or the rest), whether there is a final, and the vowel's shape class. That is a set rule of the JSET kind, and
+with 2 x 2 classes and at most 10/4/4 sets it fits the standard JSET limits as it is: `--layout hwp1` writes HWP.EXE's
+tables of the chosen face (`--face 0..2`), and every syllable composes bit for bit. `--check` composes all 11,172
+syllables from the written face and compares each with `hwpfont.py`'s own composition, which reads the pieces through
+HWP's tables directly. So the jamo set is the native form of these fonts (10-18 KB instead of about 120 KB at 16 px); a
+precomposed face of the same syllables comes from `hwpfont.py bdf` and `mkfont.py` (the maker's `hwp bdf + mkfont`).
+The pieces HWP keeps for old Hangul (initials 20-31, vowels 22-29, finals 28-31) belong to no Unicode syllable and are
+left out.
 
-    python3 tools/bdfface.py --hangul hwp-gothic.bdf --ascii hwp-ascii.bdf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/HWP24.SVF
-    python3 tools/jamoset.py --layout 844 --from-svf $OUT/HWP24.SVF --mask-font none --check -o $OUT/HWP24J.SVF
+    python3 -I tools/hwpfont.py info HANGUL.SFT
+    python3 -I tools/jamoset.py --layout hwp1 --face 1 HANGUL.SFT --eng ASCII.SFT --check -o $OUT/HWPS1J.SVF
+    python3 -I tools/hwpfont.py bdf HANGUL1.PFT --face 1 --ascii ASCII.PFT -o $OUT/hwp24.bdf
+    python3 tools/mkfont.py $OUT/hwp24.bdf $OUT/hwp24.tmp --size 24 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/hwp24.tmp $OUT/HWP24.SVF --profile default
 
-`218,848 bytes`, 2,350 syllables, `width=232 ascent=21 descent=3`, ink 886; the jamo set `24,264 bytes`, 344 pieces, IoU 1.000
-over the 2,350 syllables (all exact), ink 886: the fit is exact for these 24 px faces, as the HWP rule composes every syllable
-from three pieces.
+`--eng` (jamoset.py) and `--ascii` (hwpfont.py) take an HWP English file as it is, face 0 of its six unless `--eng-face N`
+/ `--ascii-face N` says otherwise, besides every English font `--eng` read before; `hwpfont.py bdf --syllables all`
+writes all 11,172 syllables of an HWP 1.x face instead of the 2,350 of KS X 1001. A precomposed BDF takes the English
+face's baseline as its ascent (12 for `ASCII.SFT`, 20 for `ASCII.PFT`; `--ascent` sets another); `jamoset.py` puts an
+8x16 English font in a 16 px cell at 7/8 (ascent 14) as for every DOS font.
 
-What it does **not** read: the HWP `.PFT` Hangul files themselves. `python3 tools/jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF` stops (exit 1) with `size 70592
-is not an 8x4x4 size`. Their glyphs are composed by HWP's own rules, which a separate research tool (`hwp1_fnt.py` and `kfont.py`
-of the johab-fonts research notes) decodes; that reader is not part of this repository, and its output (a BDF or a
-precomposed face) is the input of the routes above. The maker's `detect.scan` gives these files kind `other`, label
-"unknown".
+Run on HWP 1.20 for DOS (Hangul and Computer, 1989-1990; archive.org `hwp-120`; proprietary) on 2026-11-23, the English
+font of the same folder, face 0:
+
+| Source | Command | Result |
+|---|---|---|
+| `HANGUL.SFT` (38,208 bytes), faces 0 / 1 / 2, `--eng ASCII.SFT` | `jamoset.py --layout hwp1 --face N --check` | `16,996` / `11,188` / `10,468 bytes`, 382 / 229 / 210 pieces (10/4/4, 7/2/2, 6/2/2 sets); `width=144 ascent=14 descent=2`, ink 497 / 403 / 363 |
+| `HANGUL1.PFT` (70,592 bytes), faces 0 / 1 / 2, `--eng ASCII.PFT` | the same | `18,224` / `16,712` / `14,252 bytes`, 256 / 229 / 191 pieces; `width=232 ascent=20 descent=4`, ink 886 / 886 / 818 |
+| `HANGUL.SFT` face 1 and `ASCII.SFT` | `hwpfont.py bdf --face 1`, `mkfont.py --size 16`, `svf2to3.py` | `122,440 bytes`, 2,350 syllables; `width=144 ascent=12 descent=4`, ink 403 |
+| `HANGUL1.PFT` face 1 and `ASCII.PFT` | the same at `--size 24` | `218,748 bytes`; `width=232 ascent=20 descent=4`, ink 886 |
+
+Every jamo line printed `hwp1: 11172 syllables identical to the HWP 1.x rule (hwpfont.py)`. The check that does not lean
+on this repository: the research renderer of the notes (`hwp1_fnt.py`, outside it) composes all 11,172 syllables of
+the seven HWP 1.x Hangul files at hand (`HANGUL.SFT`, `HANGUL1/2.PFT`, the three PFTs of `HANGUL.LZH` and the
+`HANGUL3.PFT` of `HPFT3.LZH`, three faces each) exactly as `hwpfont.py` does, the jamo sets above compose exactly as it
+does, and the sample lines drawn from them match its renders (`samples/printer/HANGUL.SFT.png`, `HANGUL1.PFT.png`).
+`tools/test_hwpfont.py` pins hashes of these files' syllables when `JOHAB_FONTS` names the research tree.
+
+HWP 2.x for DOS keeps its fonts as `.HFT` files (below); the one HWP 2.x screen font that is a plain raw 8x4x4 is
+`HMJ.FNT` (11,520 bytes) of the Hangul 2.1 PRO disks (disk 13), read as any `844` font: `python3 tools/jamoset.py
+--layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF` writes `15,700 bytes` and composes all 11,172 syllables,
+identical to `johab844.py`.
+
+**Not read:** the `.HFT` fonts of HWP 2.0 ("HWP 2.0 font file" header), 2.1 and 3.0 ("Han Unified Font File 1.0"; the
+HWP 3.0 CD's `HNC/FONT` has 160 of them). Their headers were looked at: they are scalable outline or stroke fonts (the HWP
+2.0 header names a 1,200-unit square), not bitmaps, and no tool here decodes them. The HWP 1.x symbol files are listed
+and not converted; `HANJA.SFT` (and HWP 3.0's `HAJ16_0.FNT`) becomes a BDF of the 4,888 hanja at their Unicode code
+points (`hwpfont.py bdf`), which no route turns into a face.
+
+**The maker** (local mode only, as for the Mac fonts: an upload job lists each HWP file as "HWP font: not converted here
+(local-only mode)") lists an HWP 1.x Hangul file as three `hwp1` entries, one a face ("HWP 1.x Hangul (printer .PFT,
+24x24), face 1 of 3 (Gothic by HWP's menu order)"), with the routes `hwp1` (jamo, native) and `hwp bdf + mkfont`
+(precomposed), and the English files as Latin companions ("HWP 1.x English (--eng, 14x24; face 0 of 6)"); the other
+files are `other` ("HWP 1.x font: 4888 hanja of 16x16, not a Hangul face"). Checked with `detect.scan(..., local=True)`
+and `routes.routes` on copies of the files above, and every route's commands run on them (2026-11-23): the `hwp1` route
+writes the 16,712-byte face of the table, `hwp bdf + mkfont` the 218,748-byte one.
+
+#### HWP 3.0 FNT fonts
+
+HWP 3.0 for DOS (1995; `HNCAPP/HDR30/FONT` of the CD) keeps its bitmap fonts as `.FNT` files with a 72-byte header:
+"FNT" 01, a type byte (0 English, 1 Hangul, 2 hanja), 01, the width and height (little-endian 16 bits) at 6 and 8, the
+glyph count (32 bits) at 0x10 and the font's name in Johab at 0x14 ("고딕체 16*16"); then row-major glyphs. A Hangul FNT
+holds the 2,350 KS X 1001 syllables in code order, precomposed, from 가; a 16 px one (`HAN16_*.FNT`, 86,792 bytes) adds an
+8x4x4 set of 360 jamo pieces after them for the other syllables, which `jamoset.py --layout 844-hwp3` reads (its fill
+slots checked, `--check` equal to `johab844.py`). `HAN24_*` / `HAN40_0` / `96MT` hold the 2,350 only (HAN24's header
+still counts 2,710). The English FNTs hold the codes from 0x20 (147 glyphs; `ENG40_0` 96).
+
+    python3 -I tools/hwpfont.py bdf HAN16_0.FNT --ascii ENG16_3.FNT -o $OUT/han16.bdf
+    python3 tools/mkfont.py $OUT/han16.bdf $OUT/han16.tmp --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/han16.tmp $OUT/HAN16.SVF --profile default
+    python3 -I tools/jamoset.py --layout 844-hwp3 HAN16_0.FNT --eng ENG16_3.FNT --check -o $OUT/HAN16J.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/HAN24.SVF --mask-font none --check -o $OUT/HAN24J.SVF
+
+Run on the HWP 3.0 DOS CD (Hangul and Computer, 1995; archive.org `hwp-30-dos`; proprietary) on 2026-11-23, the precomposed
+faces with `hwpfont.py bdf`, `mkfont.py` at the cell size and `svf2to3.py --profile default`:
+
+| Source | Command | Result |
+|---|---|---|
+| `HAN16_0.FNT` ("고딕체 16*16"), `--ascii ENG16_3.FNT` ("고딕체 8*16") | precomposed | `115,112 bytes`, 2,350 syllables; `width=144 ascent=12 descent=4`, ink 523 |
+| the same, `--eng ENG16_3.FNT` | `jamoset.py --layout 844-hwp3 --check` | `15,432 bytes`, 344 pieces, identical to `johab844.py`; `width=144 ascent=14 descent=2`, ink 523 |
+| the precomposed `HAN16_0` face | `jamoset.py --layout 844 --from-svf --mask-font none` | `16,308 bytes`, IoU 0.994 (2,166 of 2,350 exact) |
+| `HAN16_1` / `_2` / `_3` / `_4` (명조체, 샘물체, 필기체, 모양체), `--ascii ENG16_0.FNT` | precomposed | `118,020` / `122,100` / `123,468` / `115,272 bytes`; ink 496 / 363 / 521 / 501 |
+| `HAN24_0.FNT` ("고딕체 24*24", 169,272 bytes), `--ascii ENG24_0.FNT` (12x24) | precomposed | `218,472 bytes`; `width=216 ascent=22 descent=2`, ink 972 |
+| `HAN24_1.FNT` ("명조체 24*24"), `--ascii ENG24_0.FNT` | precomposed | `220,044 bytes`, ink 984 |
+| `HAN40_0.FNT` ("명조체 40*40", 470,072 bytes), `--ascii ENG40_0.FNT` (20x40) | precomposed | `492,420 bytes`; `width=360 ascent=34 descent=6`, ink 2,289 |
+| `96MT.FNT` ("문화부 바탕체 96*96", 2,707,272 bytes), no English font | precomposed, `--size 96` | `2,153,212 bytes`; `width=480 ascent=84 descent=12`, ink 6,058 (`line 480 104 0 96`) |
+| the `HAN24_0` / `HAN40_0` faces | `jamoset.py --layout 844 --from-svf --mask-font none` | `28,928` / `64,904 bytes`, IoU 0.819 / 0.687 |
+
+The 16 px FNTs' 2,350 syllables are not all their jamo set's composition: 2,083 (`HAN16_0`), 1,788 (`_1`), 2,221 (`_2`),
+375 (`_3`, the handwriting face) and 1,700 (`_4`) of them equal what the 8x4x4 set composes; the others were drawn whole.
+So the precomposed face is the better 2,350 and the jamo set the way to all 11,172. The maker (local mode) lists a Hangul
+FNT as `ks-raw` ("HWP 3.0 FNT Hangul 16x16: 2,350 KS X 1001 syllables + an 8x4x4 jamo set") with `hwp bdf + mkfont`,
+`hwp3 844` (a 16 px one only) and the experimental `hwp bdf + from-svf fit`, and the English FNTs as Latin companions
+("HWP 3.0 English (--eng, 12x24)"); `HAJ16_0.FNT` is `other`.
 
 ### KS X 1001 raw dumps
 
-A raw dump of the 2,350 precomposed KS X 1001 syllables (one bitmap per syllable in code order, as some DOS and embedded
-systems keep them) has no builder that reads it directly: there is no layout for it in `jamoset.py`, `bdfface.py` or the
-maker, and a file of such a size is not recognised. Run on `GHAN24.PFT` of Taebaek 3.5.1 (Gothic 24 px; 169,200 bytes = 2,350
-x 72, no header, 24x24 row-major with three bytes a row, in KS order from 가): `python3 tools/jamoset.py --layout 844 GHAN24.PFT -o $OUT/rejected.SVF` stops (exit 1) with
-`size 169200 is not an 8x4x4 size`, and the maker's `detect.scan` calls it `other`, "unknown". `rawcarve.py bdf --dense`
-cuts it into a Unicode BDF (`binscan.py info` names the size: "KS X 1001 syllables, 24x24 (2,350 x 72 B)"), and
-[KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) goes on from there; with Sony Fixed 12x24 for ASCII:
+A raw dump of the 2,350 precomposed KS X 1001 syllables (one bitmap per syllable in code order, row-major, no header, as
+some DOS and embedded systems keep them) is read by `hwpfont.py` by its size: 2,350 x the bytes of a 16, 24, 32, 40 or
+48 px square glyph (75,200, 169,200, 300,800, 470,000 or 676,800 bytes), its first and last glyph inked and different.
+It writes the dump as a Unicode BDF, with the ASCII of any English font `--eng` reads; the maker lists such a file as
+`ks-raw` ("KS X 1001 raw dump Hangul 24x24: 2,350 KS X 1001 syllables", in upload and local mode, as it reads DOS raw
+fonts by size) with `hwp bdf + mkfont` and the experimental `hwp bdf + from-svf fit`. `jamoset.py --layout 844` still
+refuses one (`size 169200 is not an 8x4x4 size`): a dump is precomposed, and its jamo set is a fit.
 
-    python3 -I tools/rawcarve.py bdf GHAN24.PFT --glyph 24x24 --chars ks-hangul --dense --ascent 22 -o $OUT/ghan24.bdf
-    python3 tools/bdfface.py --hangul $OUT/ghan24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/GHAN24.SVF
+    python3 -I tools/hwpfont.py bdf GHAN24.PFT --ascii GASCII24.PFT -o $OUT/ghan24.bdf
+    python3 tools/mkfont.py $OUT/ghan24.bdf $OUT/ghan24.tmp --size 24 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/ghan24.tmp $OUT/GHAN24.SVF --profile default
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/GHAN24.SVF --mask-font none --check -o $OUT/GHAN24J.SVF
 
-The face is `216,448 bytes`, 2,350 syllables, `width=216 ascent=22 descent=2`, ink 1,074; the jamo set `33,684 bytes`, 344 pieces, IoU
-0.710 over the 2,350 syllables (the face is a whole-syllable design, not an OR of pieces, so the fit is poor). The same
-face came from a 15-line script before `rawcarve.py` existed; the tool's BDF gives a face of the same size and ink (216,448 bytes, ink
-1,074). A dump of the whole 94 x 94 table takes `--grid 0xA1,0xA1,94` instead of `--dense`
-([OS/2 Korean fonts](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)).
+Run on Taebaek 3.5.1 (`FNT/`, proprietary) on 2026-11-23, each with the English font of its own family and height:
+
+| Source | Result |
+|---|---|
+| `GHAN24.PFT` (Gothic 24 px, 169,200 bytes), `--ascii GASCII24.PFT` (12x24) | `216,192 bytes`, 2,350 syllables; `width=216 ascent=20 descent=4`, ink 1,133; the jamo set `33,428 bytes`, 344 pieces, IoU 0.710, ink 1,096 |
+| `MHAN24.PFT` (Myeongjo 24 px), `--ascii MASCII24.PFT` | `213,812 bytes`; `width=216 ascent=20 descent=4`, ink 907; the jamo set `31,664 bytes`, IoU 0.623 |
+| `GHAN40.PFT` (470,000 bytes), `--ascii GASCII40.PFT` (20x40) | `487,808 bytes`; `width=360 ascent=34 descent=6`, ink 3,112 |
+| `GHAN48.PFT` (676,800 bytes), `--ascii GASCII48.PFT` (24x48) | `663,328 bytes`; `width=432 ascent=40 descent=8`, ink 3,926 (`line 440 56 0 48`) |
+
+The fit is poor (IoU 0.710) because the face is a whole-syllable design, not an OR of pieces; the same IoU came from
+the BDF `rawcarve.py` cut before `hwpfont.py` existed. `rawcarve.py bdf --dense` still cuts a dump that sits inside a
+bigger file (`--offset`), and a dump of the whole 94 x 94 table takes `--grid 0xA1,0xA1,94` instead
+([OS/2 Korean fonts](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)):
+
+    python3 -I tools/rawcarve.py bdf GHAN24.PFT --glyph 24x24 --chars ks-hangul --dense --ascent 22 -o $OUT/ghan24.bdf
 
 ## Finding a font inside a program or data file, with Claude
 
@@ -1214,6 +1305,10 @@ what the route makes; the others are fits and are marked experimental):
 | precomposed, `bdfface` | bdf-ksc5601 (a BDF, or a PCF through the `pcf-bdf` step) | `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST -o OUT` (`WxH` = the BDF's box) | [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) |
 | jamo, `bdfface + from-svf fit` | bdf-ksc5601 | the `bdfface.py` face, then `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | [KS C 5601 BDF and PCF](#ks-c-5601-bdf-and-pcf) |
 | jamo, `mac fbit 1.0` | mac-fbit1 | `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
+| jamo, `hwp1` | hwp1 (an HWP 1.x `HANGUL.SFT` / `HANGUL*.PFT` face; local mode) | `jamoset.py SRC --layout hwp1 --face N --check -o OUT [--eng E]` | [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts) |
+| precomposed, `hwp bdf + mkfont` | hwp1, ks-raw (an HWP 3.0 Hangul FNT, local mode; a headerless KS X 1001 dump) | `hwpfont.py bdf SRC [--face N] [--syllables all] [--ascii E] -o hwp.bdf`, `mkfont.py hwp.bdf mkfont.tmp --size S --bpp 1 --unicode R`, `svf2to3.py mkfont.tmp OUT --profile default` (without `E` the range drops `ascii`) | [HWP 1.x and 2.x fonts](#hwp-1x-and-2x-fonts), [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
+| jamo, `hwp3 844` | ks-raw with an 8x4x4 set (an HWP 3.0 `HAN16_*.FNT`) | `jamoset.py SRC --layout 844-hwp3 --check -o OUT [--eng E]` | [HWP 3.0 FNT fonts](#hwp-30-fnt-fonts) |
+| jamo, `hwp bdf + from-svf fit` | ks-raw | the `hwp bdf + mkfont` face as `precomposed.svf`, then `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
 | jamo, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | precomposed, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | precomposed or jamo, `copy` | svf-precomposed, svf-jamo | none when used as uploaded; `svf2to3.py SRC OUT --jset-version V --check` for a v2 face or a requested JSET change | [An existing SVF](#an-existing-svf) |
@@ -1242,7 +1337,7 @@ The same check on copies of the proprietary sources of the recipes above (2026-1
 are `dos-raw` with `dos raw` (11,520-byte ones also `johab844`); `johabm16.bdf` is `bdf-johab` with `hanterm`; `batang24.bdf`
 is `bdf-ksc5601` with `bdfface` and `bdfface + from-svf fit`; Gulim and Mac Seoul with strikes are `outline-composite` / `outline`
 with `mkfont` (the bitmap-only Seoul `bitmap`, `mkfont` only); Windows FONs labelled with no route ("no Unicode character map, mkfont cannot read it");
-`GHAN24.PFT` and the HWP `.PFT` files `other`, "unknown"; the Mac fonts in local mode as above (the 1.0 fonts as `mac-fbit1` with `mac fbit 1.0`). The `mask fit` row appears for neodgm.ttf, Noto Sans CJK KR and Malgun Gothic once `mask_ok` is set (the server sets it
+the HWP 1.x, HWP 3.0 and KS X 1001 dump files as in their recipes (2026-11-23: `hwp1` three entries a Hangul file with `hwp1` and `hwp bdf + mkfont`, `ks-raw` with `hwp bdf + mkfont`, `hwp3 844` for the 16 px HWP 3.0 FNTs, and the experimental `hwp bdf + from-svf fit`; a `.PFT` of no layout read here, such as Taebaek's `HANJA24.PFT`, `hwp-pft` "other"); the Mac fonts in local mode as above (the 1.0 fonts as `mac-fbit1` with `mac fbit 1.0`). The `mask fit` row appears for neodgm.ttf, Noto Sans CJK KR and Malgun Gothic once `mask_ok` is set (the server sets it
 when `freetype-py` and `uharfbuzz` import).
 
 ## Faces of svf/

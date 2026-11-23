@@ -69,6 +69,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 | 11-22 | 공개 문서의 한국어 쌍(`*.ko.md`)과 데스크톱 앱·C 렌더러 안내서 | 3d40de8 |
 | 11-22 | 데스크톱 앱 설치·사용 문서(Quick start, 체크아웃에서 빌드, 메시지, 복구) | e5a6c39 (t_9b9e0bd8) |
 | 11-22 | C 렌더러 안내서 플랫폼·임베딩·페이스 고르기와 포트 README 갱신 | e1ef269 (t_847e4d29) |
+| 11-23 | HWP 폰트 리더 `tools/hwpfont.py`: HWP 1.x `.SFT`/`.PFT`(`jamoset.py --layout hwp1`, HWP.EXE 규칙 그대로의 자모 세트), HWP 3.0 `.FNT`(`--layout 844-hwp3`), 헤더 없는 KS X 1001 덤프; maker 종류 `hwp1`, `ks-raw`와 경로 넷 | t_d4cf7f46 |
 | 11-22 | 데스크톱 목표 종결: 커밋 3d40de8에서 빌드한 AppImage를 깨끗한 Ubuntu 24.04.5 호스트(libfuse2 없음)에서 Xvfb 아래 시작, 창이 그려지고 로컬 모드 변환이 패키지된 사이드카로 실행됨 | t_afb4689b; `docs/desktop-app.md` 13절 |
 
 ## 3. 현재 기능 표 (무엇을 읽는가, 얼마나 큰가)
@@ -175,6 +176,23 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 - **Pico `syl_bwelk` 50 µs 미달**: `-Os` 58.23 µs (MEASUREMENTS.md).
 - **`arduino-cli`는 실행하지 않았다**: Arduino 코어가 설치되어 있지 않아 스케치를 `arduino-cli`로 빌드하거나 실행한 적이 없다 (`c/ports/arduino/README.md`).
 - Mega 행에 JMAP 열 없음, AVR BIG 포트 (BIG + `SVF_NO_STREAM`/`mcu-strict`)는 fuzz 대상 없음 (jset-limits spec (g), (m)).
+
+**HWP와 KS 원시 폰트 (2026-11-23, t_d4cf7f46)**
+
+- **HWP 2.x / 3.0 `.HFT`는 읽지 못한다**: "HWP 2.0 font file", "Han Unified Font File 1.0" 헤더의 윤곽선 또는 획 폰트(HWP 3.0 CD에
+  160개)로, 헤더만 살폈고 해독기는 없다 (recipes.ko.md "HWP 1.x와 2.x 폰트").
+- **HWP 1.x 페이스 이름은 메뉴 순서로 추정했다**: 페이스 0/1/2 = 명조/고딕/샘물은 HWP.EXE 메뉴 순서일 뿐 증명되지 않았다
+  (johab-fonts notes/hwp1.md). 옛한글 조각(초성 20-31, 중성 22-29, 종성 28-31)은 유니코드 음절이 없어 버린다.
+- **기호·한자 파일은 페이스가 되지 않는다**: HWP 1.x `SPECIAL*`, `JAPAN`, `USER*`, `SYSTEM.PFT`는 목록에만, `HANJA.SFT`와 HWP 3.0
+  `HAJ16_0.FNT`는 `hwpfont.py bdf`로 BDF까지만 간다. 태백의 `HANJA*.PFT`, `SPC*.PFT`, `USER*.PFT`(크기로만 아는 한자·기호 덤프)는
+  여전히 `hwp-pft` "other"이다.
+- **HWP 3.0 16 px FNT의 2,350자와 8x4x4 세트는 한 페이스로 합쳐지지 않는다**: 완성형 2,350자 중 1,700-2,221자(필기체는 375자)만 그
+  세트의 조합과 같다. 2,350자는 완성형 페이스, 11,172자는 `844-hwp3` 자모 세트로 따로 만든다 (JMAP LIST로 합치는 것은 하지 않았다).
+- **KS 원시 덤프와 24 px 이상 HWP 3.0 FNT의 자모 세트는 맞춤이다**: 음절 통째의 디자인이라 IoU 0.62-0.82(태백 GHAN24 0.710, HWP 3.0
+  HAN24 0.819, HAN40 0.687). adaptive 레이아웃은 시험하지 않았다.
+- maker는 HWP 1.x / 3.0 파일을 로컬 모드에서만 변환한다(업로드는 "HWP font: not converted here (local-only mode)"); 헤더 없는 KS 덤프는
+  DOS 원시 폰트처럼 크기로 두 모드 모두 읽는다. HWP 1.x 한 파일의 페이스 셋은 같은 이름(예: `HANG16J.SVF`)을 제안하므로 함께
+  고르면 이름을 바꿔야 한다(Dokkaebi 프린터 페이스와 같다).
 
 **데스크톱 앱과 문서 (2026-11-22)**
 

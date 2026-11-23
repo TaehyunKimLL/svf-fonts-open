@@ -60,8 +60,9 @@ bpp 페이스(115,684 바이트)의 크기가 그대로이다.
 | HBF | `bdfface.py`의 ASCII 절반으로만 | 없음 | [HBF](#hbf) |
 | Windows `.FNT` / `.FON` | 리더 없음(FreeType이 유니코드 맵을 주지 않는다. 먼저 바깥 도구로 BDF로 변환하라) | 없음 | [Windows FNT와 FON](#windows-fnt와-fon) |
 | DOS 원시 자모 조각 폰트(8x4x4 `HANGUL.FNT`, san, 도깨비, Kyra...) | `johab844.py`(16 px 8x4x4) | `jamoset.py --layout L` | [DOS 시대 원시 폰트](#dos-시대-원시-폰트) |
-| HWP `.PFT` 한글 | 리더 없음 | 리더 없음 | [HWP 1.x와 2.x 폰트](#hwp-1x와-2x-폰트) |
-| KS X 1001 원시 덤프(코드 순서의 음절 2,350개, 또는 94 x 94 표) | `rawcarve.py bdf --dense` 다음 `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
+| HWP 1.x `HANGUL.SFT` / `HANGUL*.PFT` | `hwpfont.py bdf --face N` 다음 `mkfont.py` | `jamoset.py --layout hwp1 --face N`(HWP 자체 규칙, 정확) | [HWP 1.x와 2.x 폰트](#hwp-1x와-2x-폰트) |
+| HWP 3.0 `HAN*.FNT`(음절 2,350개, 16 px는 8x4x4 세트 추가) | `hwpfont.py bdf` 다음 `mkfont.py` | `jamoset.py --layout 844-hwp3`(16 px), 그 밖에는 `--from-svf` | [HWP 3.0 FNT 폰트](#hwp-30-fnt-폰트) |
+| KS X 1001 원시 덤프(코드 순서의 음절 2,350개, 또는 94 x 94 표) | `hwpfont.py bdf`(16-48 px 덤프), 또는 `rawcarve.py bdf --dense` / `--grid`; 다음 `mkfont.py`나 `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
 | 프로그램이나 ROM 안의 폰트(DOS 드라이버나 TSR, 워드프로세서, 한글 VGA BIOS + 폰트 ROM) | 찾기는 `binscan.py`, 잘라 내기는 `rawcarve.py`(원시, BDF, 또는 드라이버 규칙대로 조합), 다음 `bdfface.py` | 잘라 낸 원시 폰트에 `jamoset.py --layout 844`, 또는 `--from-svf` | [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기) |
 | OS/2 한글 System DBCS 폰트(`$korZN16.FNT`, `$korZN24.FNT`, 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 한글 폰트(완성형)](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) |
 | 자모 글리프가 있는 TTF(첫가끝 자모, PUA 조각, GSUB `ljmo`) | 다른 TTF와 같이 | 합성 글리프는 `jamovec.py --components`, 변형은 `--mask-font`, 그 밖에는 맞춤 | [이미 자모를 가진 TrueType 폰트](#이미-자모를-가진-truetype-폰트) |
@@ -625,50 +626,135 @@ GOTHIC16.FNT(레이블 "844, 844-ihnm". 두 레이아웃의 크기가 같다)는
 
 ### HWP 1.x와 2.x 폰트
 
-한글과컴퓨터의 DOS 워드프로세서는 프린터 폰트와 화면 폰트(`HANGUL*.PFT`, `ASCII.PFT`, `*.FNT`)를 실었다. 이 저장소가 직접 읽는
-것은 다음과 같다.
+한글과컴퓨터의 DOS 워드프로세서는 자체 비트맵 폰트를 실었다. `tools/hwpfont.py`가 이것을 읽는다. HWP 1.x `.SFT`(화면)와
+`.PFT`(프린터), HWP 3.0 `.FNT`([아래](#hwp-30-fnt-폰트))를 읽어 유니코드 BDF로 쓰고, `jamoset.py --layout hwp1`은 HWP 1.x 한글
+페이스를 HWP 자체의 조합 규칙 그대로 자모 세트로 만든다. 형식은 johab-fonts 연구 노트에서 왔고(거기서 HWP.EXE를 바이트로만 읽었으며
+실행한 적은 없다), 전체는 `hwpfont.py`의 docstring에 있다.
 
-- 12x24 영문 폰트: `jamoset.py ... --eng GASCII24.PFT` 또는 `MASCII24.PFT`(태백 3.5.1. 12,288 바이트, 48 바이트짜리 글리프 256개. 위 표에서
-  썼다)와 HBIOS 12x24(15,360 바이트). HWP 1.20 자신의 `ASCII.PFT`는 다른 파일이며(41,654 바이트: 32 바이트 "HWP Font Editor v1.0" 헤더와 14x24
-  글리프 991개, 각 42 바이트, 열 우선) 거부된다: `an English font has 2048 or 4096 bytes (8x16), 15360 (HBIOS 12x24), 12288 (PFT 12x24), 30720 (PFT 20x40) or 49152
-  (PFT 24x48), not 41654`;
-- 평범한 원시 8x4x4인 HWP 2.x 화면 폰트: 한글 2.1 PRO 디스크(13번)의 `HMJ.FNT`(11,520 바이트)는 다른 `844` 폰트처럼 읽힌다.
-  `python3 tools/jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check -o $OUT/HMJ.SVF`는 `15,700 바이트`를 쓰고 음절 11,172개를 모두 조합하며
-  `johab844.py`와 동일하다;
-- 직접 만든, 한글을 완성형으로 만든 1 bpp 페이스를 조각으로 다시 맞추기: `jamoset.py --layout 844 --from-svf FACE.SVF --mask-font none --check`;
-- 조합된 음절의 BDF: `bdfface.py --hangul HANGUL.bdf --ascii ASCII.bdf --cell 24x24 --chars-from LIST`.
+- HWP 1.x(1989-1990): 32 바이트 "HWP Font Editor v1.0" 헤더(`HPFT3.LZH`의 `HANGUL3.PFT`는 대신 "FE"), 0x1C에 글리프 수(빅엔디언 16비트),
+  0x1E에 (폭 - 1, 높이 - 1), 그다음 글리프. 파일 크기는 정확히 32 + 글리프 수 x 글리프 바이트이다. 화면 폰트(16행)는 행 우선,
+  프린터 폰트(24행, 24핀 헤드)는 열 우선이며 한 열이 3 바이트, MSB가 위다.
+- `HANGUL.SFT`(16x16, 글리프 1,193개)와 `HANGUL1/2/3.PFT`(24x24, 980개)는 페이스 셋을 담는다(HWP의 스타일 0, 1, 2: 메뉴 순서로 명조,
+  고딕, 샘물. 증명되지는 않았다). 페이스는 초성, 중성, 종성 조각 세트(한 세트에 조각 31, 29, 31개)로 되어 있다. SFT는 10/4/4, 7/2/2,
+  6/2/2 세트, PFT는 7/2/3, 7/2/2, 5/2/2 세트.
+- `ASCII.SFT`(8x16)와 `ASCII.PFT`(14x24): 글리프 991개. 다른 글리프 109개 다음에 코드 0x20-0xB2의 페이스 여섯(명조, 고딕, 위첨자,
+  아래첨자, 이탤릭, 필기체). `HANJA.SFT`: KS X 1001 한자 4,888자. 기호 파일(`SPECIAL1/2`, `JAPAN`, `USER1/2`, `SYSTEM.PFT`)은
+  알아보지만(`hwpfont.py info`) 변환하지 않는다.
 
-DOS용 HWP 1.20(한글과컴퓨터, 1989-1990; `HANGUL1.PFT`, 70,592 바이트, 24x24 페이스 셋(세트는 7/2/3, 7/2/2, 5/2/2), 글리프당 72 바이트, 열 우선;
-독점)의 페이스 1(메뉴 순서로 고딕)로 실행했다. johab-fonts 노트의 연구 도구 `hwp1_fnt.py`가 음절을 조합하고, 30줄짜리 스크립트가 그 KS X 1001
-음절 2,350자와 `ASCII.PFT`를 BDF 둘로 썼다(`ENCODING` = GL 코드; 24x24와 14x24). 그다음
+**맞춤이 아니라 자모 세트.** HWP.EXE는 음절을 조각 셋의 OR로 조합하며, 그 세트를 초성의 부류(ㄱ ㅋ 또는 나머지), 종성 유무,
+중성의 모양 부류로 고른다. 이것은 JSET 방식의 세트 규칙이고, 부류 2 x 2와 많아야 10/4/4 세트라서 표준 JSET 한도에 그대로 들어간다.
+`--layout hwp1`은 고른 페이스(`--face 0..2`)의 HWP.EXE 표를 그대로 쓰고, 모든 음절이 비트 단위로 똑같이 조합된다. `--check`는 쓴
+페이스에서 음절 11,172개를 모두 조합해, HWP의 표를 통해 조각을 직접 읽는 `hwpfont.py` 자체의 조합과 하나씩 비교한다. 그러므로
+자모 세트가 이 폰트들의 본래 형태이다(16 px에서 약 120 KB 대신 10-18 KB). 같은 음절의 완성형 페이스는 `hwpfont.py bdf`와
+`mkfont.py`로 만든다(maker의 `hwp bdf + mkfont`). HWP가 옛한글용으로 둔 조각(초성 20-31, 중성 22-29, 종성 28-31)은 유니코드
+음절에 속하지 않아 빠진다.
 
-    python3 tools/bdfface.py --hangul hwp-gothic.bdf --ascii hwp-ascii.bdf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/HWP24.SVF
-    python3 tools/jamoset.py --layout 844 --from-svf $OUT/HWP24.SVF --mask-font none --check -o $OUT/HWP24J.SVF
+    python3 -I tools/hwpfont.py info HANGUL.SFT
+    python3 -I tools/jamoset.py --layout hwp1 --face 1 HANGUL.SFT --eng ASCII.SFT --check -o $OUT/HWPS1J.SVF
+    python3 -I tools/hwpfont.py bdf HANGUL1.PFT --face 1 --ascii ASCII.PFT -o $OUT/hwp24.bdf
+    python3 tools/mkfont.py $OUT/hwp24.bdf $OUT/hwp24.tmp --size 24 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/hwp24.tmp $OUT/HWP24.SVF --profile default
 
-`218,848 바이트`, 음절 2,350자, `width=232 ascent=21 descent=3`, 잉크 886. 자모 세트는 `24,264 바이트`, 조각 344개, 음절 2,350자에 대한 IoU 1.000
-(모두 정확), 잉크 886: HWP 규칙이 모든 음절을 조각 셋으로 조합하므로 이 24 px 페이스들에서는 맞춤이 정확하다.
+`--eng`(jamoset.py)와 `--ascii`(hwpfont.py)는 HWP 영문 파일을 그대로 받는다. `--eng-face N` / `--ascii-face N`이 따로 말하지
+않으면 여섯 페이스 중 0번이다. 전에 `--eng`가 읽던 영문 폰트도 모두 받는다. `hwpfont.py bdf --syllables all`은 HWP 1.x 페이스의
+KS X 1001 음절 2,350자 대신 11,172자를 모두 쓴다. 완성형 BDF는 영문 페이스의 베이스라인을 ascent로 삼는다(`ASCII.SFT`는 12,
+`ASCII.PFT`는 20. `--ascent`로 바꾼다). `jamoset.py`는 다른 DOS 폰트와 같이 16 px 셀의 8x16 영문 폰트를 7/8(ascent 14)에 놓는다.
 
-읽지 **않는** 것: HWP의 `.PFT` 한글 파일 자체. `python3 tools/jamoset.py --layout 844 HANGUL1.PFT -o $OUT/rejected.SVF`는 `size 70592 is not an 8x4x4 size`로 멈춘다(종료 코드 1). 그 글리프는
-HWP 자체의 규칙으로 조합되며, 별도의 연구 도구(johab-fonts 연구 노트의 `hwp1_fnt.py`와 `kfont.py`)가 이를 해독한다. 그 리더는 이 저장소에
-속하지 않으며, 그 출력(BDF 또는 완성형 페이스)이 위 경로들의 입력이다. maker의 `detect.scan`은 이 파일을 종류 `other`, 레이블 "unknown"으로 준다.
+DOS용 HWP 1.20(한글과컴퓨터, 1989-1990; archive.org `hwp-120`; 독점)으로 2026-11-23에 실행했다. 영문 폰트는 같은 폴더의 것, 페이스 0:
+
+| 원본 | 명령 | 결과 |
+|---|---|---|
+| `HANGUL.SFT`(38,208 바이트), 페이스 0 / 1 / 2, `--eng ASCII.SFT` | `jamoset.py --layout hwp1 --face N --check` | `16,996` / `11,188` / `10,468 바이트`, 조각 382 / 229 / 210개(세트 10/4/4, 7/2/2, 6/2/2); `width=144 ascent=14 descent=2`, 잉크 497 / 403 / 363 |
+| `HANGUL1.PFT`(70,592 바이트), 페이스 0 / 1 / 2, `--eng ASCII.PFT` | 위와 같음 | `18,224` / `16,712` / `14,252 바이트`, 조각 256 / 229 / 191개; `width=232 ascent=20 descent=4`, 잉크 886 / 886 / 818 |
+| `HANGUL.SFT` 페이스 1과 `ASCII.SFT` | `hwpfont.py bdf --face 1`, `mkfont.py --size 16`, `svf2to3.py` | `122,440 바이트`, 음절 2,350자; `width=144 ascent=12 descent=4`, 잉크 403 |
+| `HANGUL1.PFT` 페이스 1과 `ASCII.PFT` | 같은 명령, `--size 24` | `218,748 바이트`; `width=232 ascent=20 descent=4`, 잉크 886 |
+
+자모 줄마다 `hwp1: 11172 syllables identical to the HWP 1.x rule (hwpfont.py)`가 찍혔다. 이 저장소에 기대지 않는 점검: 노트의
+연구 렌더러(`hwp1_fnt.py`, 저장소 밖)는 손에 있는 HWP 1.x 한글 파일 일곱 개(`HANGUL.SFT`, `HANGUL1/2.PFT`, `HANGUL.LZH`의 PFT 셋,
+`HPFT3.LZH`의 `HANGUL3.PFT`, 각각 페이스 셋)의 음절 11,172자를 모두 `hwpfont.py`와 똑같이 조합하고, 위 자모 세트들도 그것과
+똑같이 조합되며, 거기서 그린 샘플 줄은 그 렌더(`samples/printer/HANGUL.SFT.png`, `HANGUL1.PFT.png`)와 같다. `tools/test_hwpfont.py`는
+`JOHAB_FONTS`가 연구 트리를 가리키면 이 파일들 음절의 해시를 고정해 검사한다.
+
+DOS용 HWP 2.x는 폰트를 `.HFT` 파일로 둔다(아래). HWP 2.x 화면 폰트 가운데 평범한 원시 8x4x4인 것은 한글 2.1 PRO 디스크(13번)의
+`HMJ.FNT`(11,520 바이트) 하나이며 다른 `844` 폰트처럼 읽힌다. `python3 tools/jamoset.py --layout 844 HMJ.FNT --eng ROMAN16.FNT --check
+-o $OUT/HMJ.SVF`는 `15,700 바이트`를 쓰고 음절 11,172개를 모두 조합하며 `johab844.py`와 동일하다.
+
+**읽지 않는 것:** HWP 2.0("HWP 2.0 font file" 헤더), 2.1, 3.0("Han Unified Font File 1.0"; HWP 3.0 CD의 `HNC/FONT`에 160개)의
+`.HFT` 폰트. 헤더를 살펴보았다. 비트맵이 아니라 크기 조절이 되는 윤곽선 또는 획 폰트이며(HWP 2.0 헤더는 1,200 단위 정사각형을
+적는다), 여기에는 그것을 해독하는 도구가 없다. HWP 1.x 기호 파일은 목록에만 나오고 변환하지 않는다. `HANJA.SFT`(와 HWP 3.0의
+`HAJ16_0.FNT`)는 한자 4,888자를 유니코드 코드 포인트에 둔 BDF가 되지만(`hwpfont.py bdf`), 그것을 페이스로 만드는 경로는 없다.
+
+**maker**(로컬 모드에서만. Mac 폰트와 같이 업로드 작업은 HWP 파일마다 "HWP font: not converted here (local-only mode)"로 보인다)는
+HWP 1.x 한글 파일을 페이스마다 하나씩 `hwp1` 항목 셋으로("HWP 1.x Hangul (printer .PFT, 24x24), face 1 of 3 (Gothic by HWP's menu
+order)") 경로 `hwp1`(자모, native)과 `hwp bdf + mkfont`(완성형)와 함께 보이고, 영문 파일은 라틴 짝으로("HWP 1.x English (--eng,
+14x24; face 0 of 6)") 보인다. 다른 파일은 `other`이다("HWP 1.x font: 4888 hanja of 16x16, not a Hangul face"). 위 파일의 사본에
+`detect.scan(..., local=True)`와 `routes.routes`를 돌리고 모든 경로의 명령을 실행해 확인했다(2026-11-23). `hwp1` 경로는 표의
+16,712 바이트 페이스를, `hwp bdf + mkfont`는 218,748 바이트 페이스를 쓴다.
+
+#### HWP 3.0 FNT 폰트
+
+DOS용 HWP 3.0(1995; CD의 `HNCAPP/HDR30/FONT`)은 비트맵 폰트를 72 바이트 헤더가 붙은 `.FNT` 파일로 둔다. "FNT" 01, 형식 바이트(0 영문,
+1 한글, 2 한자), 01, 6과 8에 폭과 높이(리틀엔디언 16비트), 0x10에 글리프 수(32비트), 0x14에 조합형으로 된 폰트 이름("고딕체 16*16"),
+그다음 행 우선 글리프. 한글 FNT는 KS X 1001 음절 2,350자를 코드 순서로, 가부터 완성형으로 담는다. 16 px 파일(`HAN16_*.FNT`,
+86,792 바이트)은 그 뒤에 나머지 음절을 위한 360개짜리 8x4x4 자모 조각 세트를 더 두며, `jamoset.py --layout 844-hwp3`가 그것을
+읽는다(채움 슬롯을 점검하고, `--check`는 `johab844.py`와 같다). `HAN24_*` / `HAN40_0` / `96MT`는 2,350자만 담는다(HAN24의 헤더는
+그래도 2,710이라고 센다). 영문 FNT는 0x20부터의 코드를 담는다(글리프 147개; `ENG40_0`은 96개).
+
+    python3 -I tools/hwpfont.py bdf HAN16_0.FNT --ascii ENG16_3.FNT -o $OUT/han16.bdf
+    python3 tools/mkfont.py $OUT/han16.bdf $OUT/han16.tmp --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/han16.tmp $OUT/HAN16.SVF --profile default
+    python3 -I tools/jamoset.py --layout 844-hwp3 HAN16_0.FNT --eng ENG16_3.FNT --check -o $OUT/HAN16J.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/HAN24.SVF --mask-font none --check -o $OUT/HAN24J.SVF
+
+DOS용 HWP 3.0 CD(한글과컴퓨터, 1995; archive.org `hwp-30-dos`; 독점)로 2026-11-23에 실행했다. 완성형 페이스는 `hwpfont.py bdf`,
+셀 크기의 `mkfont.py`, `svf2to3.py --profile default`로 만들었다:
+
+| 원본 | 명령 | 결과 |
+|---|---|---|
+| `HAN16_0.FNT`("고딕체 16*16"), `--ascii ENG16_3.FNT`("고딕체 8*16") | 완성형 | `115,112 바이트`, 음절 2,350자; `width=144 ascent=12 descent=4`, 잉크 523 |
+| 같은 파일, `--eng ENG16_3.FNT` | `jamoset.py --layout 844-hwp3 --check` | `15,432 바이트`, 조각 344개, `johab844.py`와 동일; `width=144 ascent=14 descent=2`, 잉크 523 |
+| 완성형 `HAN16_0` 페이스 | `jamoset.py --layout 844 --from-svf --mask-font none` | `16,308 바이트`, IoU 0.994(2,350자 중 2,166자 정확) |
+| `HAN16_1` / `_2` / `_3` / `_4`(명조체, 샘물체, 필기체, 모양체), `--ascii ENG16_0.FNT` | 완성형 | `118,020` / `122,100` / `123,468` / `115,272 바이트`; 잉크 496 / 363 / 521 / 501 |
+| `HAN24_0.FNT`("고딕체 24*24", 169,272 바이트), `--ascii ENG24_0.FNT`(12x24) | 완성형 | `218,472 바이트`; `width=216 ascent=22 descent=2`, 잉크 972 |
+| `HAN24_1.FNT`("명조체 24*24"), `--ascii ENG24_0.FNT` | 완성형 | `220,044 바이트`, 잉크 984 |
+| `HAN40_0.FNT`("명조체 40*40", 470,072 바이트), `--ascii ENG40_0.FNT`(20x40) | 완성형 | `492,420 바이트`; `width=360 ascent=34 descent=6`, 잉크 2,289 |
+| `96MT.FNT`("문화부 바탕체 96*96", 2,707,272 바이트), 영문 폰트 없음 | 완성형, `--size 96` | `2,153,212 바이트`; `width=480 ascent=84 descent=12`, 잉크 6,058(`line 480 104 0 96`) |
+| `HAN24_0` / `HAN40_0` 페이스 | `jamoset.py --layout 844 --from-svf --mask-font none` | `28,928` / `64,904 바이트`, IoU 0.819 / 0.687 |
+
+16 px FNT의 음절 2,350자가 모두 그 자모 세트의 조합인 것은 아니다. 8x4x4 세트가 조합하는 것과 같은 음절은 2,083자(`HAN16_0`),
+1,788자(`_1`), 2,221자(`_2`), 375자(`_3`, 필기체), 1,700자(`_4`)이고 나머지는 통째로 그렸다. 그러니 2,350자는 완성형 페이스가
+더 낫고, 11,172자 전체는 자모 세트로 간다. maker(로컬 모드)는 한글 FNT를 `ks-raw`("HWP 3.0 FNT Hangul 16x16: 2,350 KS X 1001
+syllables + an 8x4x4 jamo set")로 `hwp bdf + mkfont`, `hwp3 844`(16 px 파일만), 실험적인 `hwp bdf + from-svf fit`과 함께 보이고,
+영문 FNT는 라틴 짝("HWP 3.0 English (--eng, 12x24)")으로 보인다. `HAJ16_0.FNT`는 `other`이다.
 
 ### KS X 1001 원시 덤프
 
-KS X 1001 완성형 음절 2,350자의 원시 덤프(코드 순서로 음절마다 비트맵 하나. 일부 DOS와 임베디드 시스템이 이렇게 보관한다)를 바로
-읽는 빌더는 없다. `jamoset.py`, `bdfface.py`, maker 어디에도 이를 위한 레이아웃이 없고, 그런 크기의 파일은 알아보지 못한다. 태백 3.5.1의
-`GHAN24.PFT`(고딕 24 px; 169,200 바이트 = 2,350 x 72, 헤더 없음, 한 줄이 3 바이트인 24x24 행 우선, KS 순서로 가부터)로 실행: `python3 tools/jamoset.py --layout 844
-GHAN24.PFT -o $OUT/rejected.SVF`는 `size 169200 is not an 8x4x4 size`로 멈추고(종료 코드 1), maker의 `detect.scan`은 `other`, "unknown"이라 부른다.
-`rawcarve.py bdf --dense`가 이것을 유니코드 BDF로 잘라 내고(`binscan.py info`가 크기를 알려 준다: "KS X 1001 syllables, 24x24 (2,350 x
-72 B)"), 그다음은 [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf)대로 간다. ASCII는 Sony Fixed 12x24로:
+KS X 1001 완성형 음절 2,350자의 원시 덤프(일부 DOS와 임베디드 시스템이 하듯 코드 순서로 음절마다 비트맵 하나, 행 우선, 헤더
+없음)는 `hwpfont.py`가 크기로 읽는다. 2,350 x 16, 24, 32, 40, 48 px 정사각형 글리프의 바이트 수(75,200, 169,200, 300,800,
+470,000, 676,800 바이트)이고, 첫 글리프와 마지막 글리프에 잉크가 있으며 서로 달라야 한다. 덤프를 유니코드 BDF로 쓰고, `--eng`가
+읽는 어떤 영문 폰트의 ASCII든 함께 넣는다. maker는 그런 파일을 `ks-raw`("KS X 1001 raw dump Hangul 24x24: 2,350 KS X 1001 syllables",
+DOS 원시 폰트를 크기로 읽듯 업로드와 로컬 모드 모두)로 `hwp bdf + mkfont`와 실험적인 `hwp bdf + from-svf fit`과 함께 보인다.
+`jamoset.py --layout 844`는 여전히 거부한다(`size 169200 is not an 8x4x4 size`). 덤프는 완성형이고, 그 자모 세트는 맞춤이다.
 
-    python3 -I tools/rawcarve.py bdf GHAN24.PFT --glyph 24x24 --chars ks-hangul --dense --ascent 22 -o $OUT/ghan24.bdf
-    python3 tools/bdfface.py --hangul $OUT/ghan24.bdf --ascii 12x24.hbf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/GHAN24.SVF
+    python3 -I tools/hwpfont.py bdf GHAN24.PFT --ascii GASCII24.PFT -o $OUT/ghan24.bdf
+    python3 tools/mkfont.py $OUT/ghan24.bdf $OUT/ghan24.tmp --size 24 --bpp 1 --unicode ascii,ksx1001-hangul
+    python3 tools/svf2to3.py $OUT/ghan24.tmp $OUT/GHAN24.SVF --profile default
     python3 tools/jamoset.py --layout 844 --from-svf $OUT/GHAN24.SVF --mask-font none --check -o $OUT/GHAN24J.SVF
 
-페이스는 `216,448 바이트`, 음절 2,350자, `width=216 ascent=22 descent=2`, 잉크 1,074. 자모 세트는 `33,684 바이트`, 조각 344개, 음절 2,350자에 대한 IoU
-0.710(페이스가 조각의 OR이 아니라 음절 통째의 디자인이라 맞춤이 나쁘다)이다. `rawcarve.py`가 생기기 전에는 같은 페이스를 15줄 스크립트로
-만들었다. 도구의 BDF는 같은 크기와 잉크의 페이스를 준다(216,448 바이트, 잉크 1,074). 94 x 94 표 전체의 덤프는 `--dense` 대신
-`--grid 0xA1,0xA1,94`를 쓴다([OS/2 한글 폰트](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)).
+태백 3.5.1(`FNT/`, 독점)로 2026-11-23에 실행했다. 각각 같은 계열과 높이의 영문 폰트를 썼다:
+
+| 원본 | 결과 |
+|---|---|
+| `GHAN24.PFT`(고딕 24 px, 169,200 바이트), `--ascii GASCII24.PFT`(12x24) | `216,192 바이트`, 음절 2,350자; `width=216 ascent=20 descent=4`, 잉크 1,133; 자모 세트 `33,428 바이트`, 조각 344개, IoU 0.710, 잉크 1,096 |
+| `MHAN24.PFT`(명조 24 px), `--ascii MASCII24.PFT` | `213,812 바이트`; `width=216 ascent=20 descent=4`, 잉크 907; 자모 세트 `31,664 바이트`, IoU 0.623 |
+| `GHAN40.PFT`(470,000 바이트), `--ascii GASCII40.PFT`(20x40) | `487,808 바이트`; `width=360 ascent=34 descent=6`, 잉크 3,112 |
+| `GHAN48.PFT`(676,800 바이트), `--ascii GASCII48.PFT`(24x48) | `663,328 바이트`; `width=432 ascent=40 descent=8`, 잉크 3,926(`line 440 56 0 48`) |
+
+맞춤이 나쁜 것(IoU 0.710)은 페이스가 조각의 OR이 아니라 음절 통째의 디자인이라서다. `hwpfont.py`가 생기기 전 `rawcarve.py`로
+잘라 낸 BDF에서도 같은 IoU가 나왔다. `rawcarve.py bdf --dense`는 여전히 더 큰 파일 안에 든 덤프를 잘라 내고(`--offset`), 94 x 94 표
+전체의 덤프는 그 대신 `--grid 0xA1,0xA1,94`를 쓴다([OS/2 한글 폰트](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)):
+
+    python3 -I tools/rawcarve.py bdf GHAN24.PFT --glyph 24x24 --chars ks-hangul --dense --ascent 22 -o $OUT/ghan24.bdf
 
 ## Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기
 
@@ -1118,6 +1204,10 @@ maker(`maker/`, [desktop-app.md](desktop-app.ko.md)의 데스크톱 앱, [maker/
 | 완성형, `bdfface` | bdf-ksc5601(BDF, 또는 `pcf-bdf` 단계를 거친 PCF) | `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST -o OUT`(`WxH` = BDF의 박스) | [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf) |
 | 자모, `bdfface + from-svf fit` | bdf-ksc5601 | `bdfface.py` 페이스 다음 `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | [KS C 5601 BDF와 PCF](#ks-c-5601-bdf와-pcf) |
 | 자모, `mac fbit 1.0` | mac-fbit1 | `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
+| 자모, `hwp1` | hwp1(HWP 1.x `HANGUL.SFT` / `HANGUL*.PFT`의 페이스; 로컬 모드) | `jamoset.py SRC --layout hwp1 --face N --check -o OUT [--eng E]` | [HWP 1.x와 2.x 폰트](#hwp-1x와-2x-폰트) |
+| 완성형, `hwp bdf + mkfont` | hwp1, ks-raw(HWP 3.0 한글 FNT는 로컬 모드; 헤더 없는 KS X 1001 덤프) | `hwpfont.py bdf SRC [--face N] [--syllables all] [--ascii E] -o hwp.bdf`, `mkfont.py hwp.bdf mkfont.tmp --size S --bpp 1 --unicode R`, `svf2to3.py mkfont.tmp OUT --profile default`(`E`가 없으면 범위에서 `ascii`를 뺀다) | [HWP 1.x와 2.x 폰트](#hwp-1x와-2x-폰트), [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
+| 자모, `hwp3 844` | 8x4x4 세트가 있는 ks-raw(HWP 3.0 `HAN16_*.FNT`) | `jamoset.py SRC --layout 844-hwp3 --check -o OUT [--eng E]` | [HWP 3.0 FNT 폰트](#hwp-30-fnt-폰트) |
+| 자모, `hwp bdf + from-svf fit` | ks-raw | `hwp bdf + mkfont` 페이스를 `precomposed.svf`로, 다음 `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
 | 자모, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형 또는 자모, `copy` | svf-precomposed, svf-jamo | 업로드된 그대로 쓰면 없음. v2 페이스나 요청한 JSET 변경에는 `svf2to3.py SRC OUT --jset-version V --check` | [기존 SVF](#기존-svf) |
@@ -1144,7 +1234,9 @@ Verified: 이 표의 경로 레이블과 종류는 `routes.py`에서 읽고, 이
 위 레시피의 독점 원본 사본에 같은 점검을 했다(2026-11-22. 자세한 것은 각 레시피에): 원시 DOS 폰트는 `dos-raw`에 `dos raw`(11,520 바이트짜리는 `johab844`도),
 `johabm16.bdf`는 `bdf-johab`에 `hanterm`, `batang24.bdf`는 `bdf-ksc5601`에 `bdfface`와 `bdfface + from-svf fit`, 스트라이크가 있는 굴림과 Mac Seoul은
 `outline-composite` / `outline`에 `mkfont`(비트맵 전용 Seoul은 `bitmap`에 `mkfont`만), Windows FON은 경로 없이 레이블만("no Unicode character map, mkfont cannot read it"),
-`GHAN24.PFT`와 HWP `.PFT` 파일은 `other`, "unknown", 로컬 모드의 Mac 폰트는 위와 같다(1.0 폰트는 `mac-fbit1`에 `mac fbit 1.0`). `mask fit` 행은 `mask_ok`를 설정하면
+HWP 1.x, HWP 3.0, KS X 1001 덤프 파일은 각 레시피대로(2026-11-23: 한글 파일 하나에 `hwp1` 항목 셋과 `hwp1`, `hwp bdf + mkfont`; `ks-raw`에
+`hwp bdf + mkfont`, 16 px HWP 3.0 FNT에는 `hwp3 844`, 그리고 실험적인 `hwp bdf + from-svf fit`; 여기서 읽는 레이아웃이 아닌 `.PFT`, 예컨대 태백의
+`HANJA24.PFT`는 `hwp-pft` "other"), 로컬 모드의 Mac 폰트는 위와 같다(1.0 폰트는 `mac-fbit1`에 `mac fbit 1.0`). `mask fit` 행은 `mask_ok`를 설정하면
 (서버가 `freetype-py`와 `uharfbuzz`를 import할 수 있을 때 설정한다) neodgm.ttf, Noto Sans CJK KR, 맑은 고딕에 나타난다.
 
 ## svf/의 페이스
