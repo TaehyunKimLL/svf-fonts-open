@@ -429,6 +429,8 @@ class Bdf(unittest.TestCase):
 class Cps(unittest.TestCase):
     def test_ranges(self):
         self.assertEqual(svf2ttf.cp_ranges([0x20, 0x21, 0x22, 0x41, 0xAC00, 0xAC01]), "20-22,41,ac00-ac01")
+        # a one-code-point gap is not bridged: 41 and 43 stay apart, 44 joins 43
+        self.assertEqual(svf2ttf.cp_ranges([0x41, 0x43, 0x44]), "41,43-44")
         out = run(os.path.join(HERE, "svf2ttf.py"), "cps", NEODG16A).strip()
         self.assertIn("ac00-d7a3", out)
 
@@ -709,6 +711,78 @@ class Synthetic(unittest.TestCase):
                    if _inside(glyph, f["glyf"], c * 64 + 32, (3 - r - 1) * 64 + 32)}
             self.assertEqual(got, want, threshold)
             self.assertEqual(f["EBLC"].strikes[0].bitmapSizeTable.bitDepth, 2)
+
+    def test_default_threshold_is_128(self):
+        face = synth(self.path("t.svf"), 4, 4, 3, {0x41: (4, 0, ["1230", "0000", "3000", "0000"])}, bpp=2)
+        plain, explicit = self.ttf(face), self.ttf(face, "--threshold", "128")
+        name = plain.getBestCmap()[0x41]
+        self.assertEqual(plain["glyf"][name].getCoordinates(plain["glyf"])[0],
+                         explicit["glyf"][name].getCoordinates(explicit["glyf"])[0])
+        got = {(c, r) for c in range(4) for r in range(4)
+               if _inside(plain["glyf"][name], plain["glyf"], c * 64 + 32, (3 - r - 1) * 64 + 32)}
+        self.assertEqual(got, {(1, 0), (2, 0), (0, 2)})          # levels 2 and 3
+
+    def bdf_text(self, face, *opts):
+        out = self.path("b.bdf")
+        run(os.path.join(HERE, "svf2ttf.py"), "bdf", face, out, *opts)
+        with open(out, "rb") as fh:
+            return fh.read().decode("utf-8")
+
+    def test_bdf_bpp1_threshold(self):
+        face = synth(self.path("t.svf"), 4, 4, 3, {0x41: (4, 0, ["1230", "0000", "3000", "0000"])}, bpp=2)
+        for opts, rows in (((), ["60", "00", "80"]), (("--threshold", "80"), ["E0", "00", "80"]),
+                           (("--threshold", "200"), ["20", "00", "80"])):
+            text = self.bdf_text(face, "--licence", "none", "--bpp1", *opts)
+            self.assertIn("SIZE 4 72 72\n", text, opts)                  # BDF 2.1, no bit depth field
+            bitmap = text.split("STARTCHAR uni0041")[1].split("BITMAP\n")[1].split("\nENDCHAR")[0].split("\n")
+            self.assertEqual(bitmap, rows, opts)
+
+    def test_bdf_utf8_and_average_width(self):
+        note = self.path("NOTE.TXT")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("테스트 글꼴 (T.SVF)\nCopyright (c) 2026 누군가\n")
+        face = synth(self.path("t.svf"), 8, 8, 6, {0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7)),
+                                                    0x2E: (3, 0, box_rows(8, 8, 0, 5, 1, 6)),
+                                                    0x20: (4, 0, box_rows(8, 8, 0, 0, 0, 0))})
+        text = self.bdf_text(face, "--licence", note)
+        self.assertIn("COMMENT 테스트 글꼴 (T.SVF)", text)
+        self.assertIn("누군가", text)
+        self.assertIn("AVERAGE_WIDTH 50\n", text)                         # (8 + 3 + 4) / 3 * 10
+        self.assertIn("-P-50-ISO10646-1", text)
+
+    def test_name_14_only_with_an_ofl_text(self):
+        note = self.path("PLAIN.TXT")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("A test face. Public domain.\n")
+        face = synth(self.path("t.svf"), 8, 8, 6, {0x41: (8, 0, box_rows(8, 8, 1, 1, 6, 7))})
+        f = self.ttf(face, "--licence", note)                     # self.ttf passes --licence none first; last wins
+        self.assertIn("Public domain", f["name"].getDebugName(13))
+        self.assertIsNone(f["name"].getDebugName(14))
+        out = self.path("ofl.ttf")
+        run(os.path.join(HERE, "svf2ttf.py"), "ttf", NEODG16J, out)
+        self.assertEqual(TTFont(out)["name"].getDebugName(14), svf2ttf.OFL_URL)
+
+    def test_glyph_limit(self):
+        n = 65535
+        big = self.path("big.svf")
+        with open(big, "wb") as fh:
+            fh.write(jamoset.pack_svfn(1, 1, 1, 1, jamoset.FLAG_MARKS_AT_ORIGIN, [b"\x80"] * n,
+                                       [(0x10000 + i, i) for i in range(n)], [(1, 0, 1, 0)] * n, None, (0, 0)))
+        err = self.fails("ttf", big, self.path("big.ttf"), "--licence", "none")
+        self.assertIn("has 65535 glyphs; a TrueType font holds 65534 besides .notdef", err)
+
+    def test_strike_line_metrics_and_win_ascent(self):
+        """Ink a dy moves above the cell: the strike's highest ink, OS/2 winAscent and the lowest ink follow it."""
+        g = {0x41: (8, 0, box_rows(8, 8, 1, 0, 6, 6)), 0x67: (8, 0, box_rows(8, 8, 2, 3, 5, 8))}
+        face = synth(self.path("up.svf"), 8, 8, 6, g, dy={0x41: -2})
+        f = self.ttf(face)
+        hori = f["EBLC"].strikes[0].bitmapSizeTable.hori
+        # A: rows 0..5 of the cell, its top 6 + 2 = 8 rows above the baseline; g: rows 3..7, down to 2 rows below
+        self.assertEqual((hori.ascender, hori.descender), (6, -2))
+        self.assertEqual((hori.maxBeforeBL, hori.minAfterBL), (8, -2))
+        self.assertEqual((hori.minOriginSB, hori.minAdvanceSB, hori.widthMax), (1, 2, 8))
+        self.assertEqual((f["OS/2"].usWinAscent, f["OS/2"].usWinDescent), (8 * 64, 2 * 64))
+        self.assertEqual(f["OS/2"].sTypoAscender, 6 * 64)
 
     def test_win_metrics_with_dy_below_the_cell(self):
         face = synth(self.path("dy.svf"), 8, 8, 6, {0x67: (8, 0, box_rows(8, 8, 1, 4, 6, 8))}, dy={0x67: 3})
