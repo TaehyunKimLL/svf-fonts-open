@@ -33,8 +33,9 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
     ppem, and the outlines at other sizes. --no-strike leaves it out; --apple adds the same strike as bloc/bdat. The
     strike's metrics are signed bytes: the ascent, descent, each glyph's bearing x and ink top, and the strike's
     extremes (least bearing x and right side bearing, highest and lowest ink; a glyph's own right side bearing is not
-    stored) past -128..127 (a face over about 127 rows) is an error naming the field, except that a least value above
-    127 is stored as 127 (still a lower bound); --no-strike converts such a face.
+    stored) past -128..127 (a face over about 127 rows) is an error naming the field, except that the least right side
+    bearing above 127 is stored as 127 (still a lower bound; the only extreme that can pass 127 when every glyph's
+    bearing x and ink top fit); --no-strike converts such a face.
   - cmap (format 4, and 12 when a code point is past U+FFFF), hmtx (advance * 64, lsb = the outline's x minimum),
     hhea / OS/2 typo ascender and descender = the face's ascent and cell height - ascent (USE_TYPO_METRICS), OS/2 win
     ascent / descent = the larger of those and the ink's reach (a dy may take ink past the cell), post format 3,
@@ -64,7 +65,9 @@ ttf: unitsPerEm = ppem * 64 (one pixel = 64 units; ppem defaults to the cell hei
       FreeType limits apply: it shifts a component by its x offset in bits, not pixels, so every piece bitmap of a 2
       or 8 bpp face starts at the pen (x0 = 0, the compound's offsets x 0); and OR is not the face's max of levels
       (2 bpp levels 1 | 2 = 3), so a syllable whose pieces overlap with levels a | b != max(a, b) keeps an expanded
-      format-1 bitmap (bitmap_conflicts; its outline stays a composite). The summary line counts them.
+      format-1 bitmap (bitmap_conflicts; its outline stays a composite). So does a syllable whose compound would place
+      a piece more than 127 pixels from its top-left (component offsets are int8: a cell over 128 px), so --composite
+      converts every face the plain strike does. The summary line counts them.
 
 
 bdf: BDF 2.1 (1 bpp) or 2.3 (2 and 8 bpp: SIZE's fourth field is the bit depth; --bpp1 writes 1 bpp by --threshold),
@@ -451,11 +454,13 @@ def bitmap_conflicts(face):
 
 
 class CompositePlan:
-    """How a jamo set becomes composite glyphs (svf2ttf.py ttf --composite):
+    """CompositePlan(face): how a jamo set becomes composite glyphs (svf2ttf.py ttf --composite):
     pieces       {n: Glyph} of every piece a syllable or a compatibility jamo uses (ink or not);
     syllables    {cp: [n, ...]} the non-blank pieces of each composed syllable with any (in draw order);
     compat       {cp: n} the compatibility jamo, mapped by the cmap to their piece glyph itself;
-    expanded     the syllables whose strike bitmap stays expanded (bitmap_conflicts)."""
+    expanded     the syllables whose strike bitmap stays expanded: bitmap_conflicts, and those whose compound would
+                 place a piece more than 127 pixels from its top-left (EBDT component offsets are int8; a cell over
+                 128 px)."""
 
     def __init__(self, face):
         self.pieces, self.syllables, self.compat = {}, {}, {}
@@ -474,6 +479,12 @@ class CompositePlan:
                     self.pieces[n] = piece_glyph(face, n)
                     self.pieces[n].left0 = face.bpp > 1
         self.expanded = bitmap_conflicts(face) & set(self.syllables)
+        for cp, nums in self.syllables.items():
+            boxes = [b for b in (self.pieces[k].box() for k in nums) if b]
+            if boxes:
+                x0, y0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+                if any(b[0] - x0 > 127 or b[1] - y0 > 127 for b in boxes):
+                    self.expanded.add(cp)
 
 
 def _pack_rows(g, depth):
@@ -543,14 +554,14 @@ def strike_tables(glyphs, ppem, depth, ascent, descent, compounds=()):
         wmax = max(wmax, g.adv)
     coffs.append(len(data))
     # the strike's line metrics hold only the extremes (EBDT small metrics have no right side bearing or ink bottom):
-    # those are checked, not each glyph's. A least value (bearing x, right side bearing, lowest ink) past 127 is
-    # stored as 127, still a true lower bound (a 200-wide '.' of advance 200: right side bearing 199); below -128 it
-    # cannot be bounded and is refused.
+    # those are checked, not each glyph's. The least right side bearing past 127 is stored as 127, still a true lower
+    # bound (a 200-wide '.' of advance 200: 199); the least bearing x and the lowest ink cannot pass 127 once every
+    # glyph's bearing x and ink top fit. Below -128 nothing bounds them and they are refused.
     if inked:
-        bx_min = i8(min(127, min(b[0] for b in inked)), "the strike's least bearing x")
+        bx_min = i8(min(b[0] for b in inked), "the strike's least bearing x")
         rsb_min = i8(min(127, min(b[4] - b[2] for b in inked)), "the strike's least right side bearing")
         bl_max = i8(max(-b[1] for b in inked), "the strike's highest ink above the baseline")
-        bl_min = i8(min(127, min(-b[3] for b in inked)), "the strike's lowest ink below the baseline")
+        bl_min = i8(min(-b[3] for b in inked), "the strike's lowest ink below the baseline")
     else:
         bx_min = rsb_min = bl_max = bl_min = 0
     hori = struct.pack(">bbBbbbbbbbbb", ascent, -descent, wmax, 1, 0, 0, bx_min, rsb_min, bl_max, bl_min, 0, 0)
@@ -637,14 +648,16 @@ def _composite_glyph(names):
     """A glyf composite of the glyphs @p names, each at offset 0. The pieces overlap, so the first component has
     OVERLAP_COMPOUND: FreeType then renders the composite oversampled, and at sizes that are not whole multiples of
     ppem an edge pixel two pieces share is not covered twice (as the expanded outline draws it)."""
-    from fontTools.ttLib.tables._g_l_y_f import Glyph as TTGlyph, GlyphComponent
+    from fontTools.ttLib.tables._g_l_y_f import (ARGS_ARE_XY_VALUES, OVERLAP_COMPOUND, ROUND_XY_TO_GRID,
+                                                  Glyph as TTGlyph, GlyphComponent)
     g = TTGlyph()
     g.numberOfContours = -1
     g.components = []
     for i, name in enumerate(names):
         c = GlyphComponent()
         c.glyphName, c.x, c.y = name, 0, 0
-        c.flags = 0x0004 | (0x0400 if i == 0 and len(names) > 1 else 0)   # ROUND_XY_TO_GRID, OVERLAP_COMPOUND
+        c.flags = (ARGS_ARE_XY_VALUES | ROUND_XY_TO_GRID
+                   | (OVERLAP_COMPOUND if i == 0 and len(names) > 1 else 0))   # fontTools adds MORE_COMPONENTS
         g.components.append(c)
     return g
 
