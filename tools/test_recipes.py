@@ -260,5 +260,25 @@ class Outline(unittest.TestCase):
             self.assertEqual((f.dy_min, f.dy_max), (0, 1))
 
 
+class SvfToTtf(unittest.TestCase):
+    """An SVF face back to a TTF bitmap font: the section's commands on the shipped jamo set NEODG16A."""
+
+    def test_jamo_set_to_ttf_and_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            face_path = os.path.join(ROOT, "svf", "dos", "NEODG16A.SVF")
+            tool = os.path.join(HERE, "svf2ttf.py")
+            ttf, bdf, back = (os.path.join(d, n) for n in ("NEODG16A.ttf", "NEODG16A.bdf", "back.svf"))
+            self.assertIn("11319 glyphs", run(tool, "ttf", face_path, ttf, "--family", "My Pixel", "--style",
+                                             "Regular", "--version", "1.001"))
+            self.assertIn("11319 glyphs", run(tool, "bdf", face_path, bdf))
+            cps = run(tool, "cps", face_path).strip()
+            self.assertEqual(cps, "20-7e,25a1,3131-3163,ac00-d7a3")
+            run(os.path.join(HERE, "mkfont.py"), ttf, back, "--size", 16, "--bpp", 1, "--probe", "--width", 16,
+                "--only-listed", "--unicode", cps)
+            out = run(tool, "compare", face_path, back)
+            self.assertIn("compared 11318 glyphs: mismatches 0", out)
+            self.assertIn("blank glyphs only one face has 1", out)
+
+
 if __name__ == "__main__":
     unittest.main()

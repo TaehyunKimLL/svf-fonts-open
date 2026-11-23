@@ -10,7 +10,7 @@ SVF maker의 설계가 이 문서를 바탕으로 계획되므로, 아래의 모
 `svf/`의 각 페이스를 만드는 방법과, 모든 종류의 한글 폰트 원본에서 SVF로 가는 레시피(입력 종류별)는 [recipes.ko.md](recipes.ko.md)에 있다.
 
 도구는 명령줄용으로 작성되었다. 한 도구가 다른 도구의 라이브러리가 될 수 있다. `jamoset.py`는 `bdfface.py`,
-`jamoaa.py`, `jamoadapt.py`, `svfdy.py`, `svfline.py`, `svf_synth.py`, `jamovec.py`, `web/mkindex.py`가 import하며,
+`jamoaa.py`, `jamoadapt.py`, `svfdy.py`, `svfline.py`, `svf_synth.py`, `svf2ttf.py`, `jamovec.py`, `web/mkindex.py`가 import하며,
 맞춤(fitting) 모듈(`jamofit.py`, `jamoaa.py`, `jamoadapt.py`, `jamoseg.py`)에는 자체 명령줄이 없다.
 
 ## 도구가 만드는 SVFN 종류
@@ -495,6 +495,65 @@ bearing_x)는 w / W로 비례해 반올림한다(w = `round(W x h / H)`). 글리
 
 **import하는 저장소 모듈.** `jamoset.py`, `svfline.py`. **서드파티.** 없음. **테스트.** `tools/test_svf2to3.py`
 (픽스처는 `tools/testdata/v2/`).
+
+### `tools/svf2ttf.py`
+
+**목적.** 완성형이든 자모 세트든 SVF 페이스를 비트맵 폰트로 되돌린다: TrueType 폰트(픽셀 아웃라인과 내장 비트맵 스트라이크)나
+BDF. 그리고 두 페이스를 글리프마다 비교한다(왕복 점검).
+
+**상태.** 범용이다.
+
+**입력.** SVFN v3 페이스. C 라이브러리가 읽는 방식(`svfline.Face`)으로 읽는다: U+F0000 아래의 글리프와, 자모 세트라면 그 표가
+주는 모든 음절과 호환 자모(`jamoset.compose`로 합성). `--licence`가 지정하지 않으면 페이스 옆의 라이선스 노트(출력 참고).
+
+**출력.**
+
+- `ttf`: `unitsPerEm` = ppem x 64인 TrueType 폰트(ppem의 기본은 셀 높이). `glyf`: 각 글리프에서 커버리지가 `--threshold`(기본
+  128: 1 bpp는 모든 픽셀, 2 bpp는 단계 2와 3) 이상인 픽셀을 윤곽선으로 추적한 것. ppem과 그 정수배에서 정확하며 힌팅은 없다.
+  `EBLC`/`EBDT`: 페이스의 비트 깊이(1, 2, 8)로 ppem의 스트라이크 하나(이미지 형식 1, 인덱스 형식 1). 각 글리프는 잉크 상자로
+  잘리고 bearing과 advance를 가진다(`--no-strike`는 빼고, `--apple`은 `bloc`/`bdat`으로도 쓴다). `cmap`(4, U+FFFF를 넘으면 12),
+  `hmtx`(페이스의 advance. 결합 부호는 `svfline.py`가 놓는 대로 원점에 advance 0), `hhea` / OS/2 typo 메트릭 = ascent와 셀 높이 -
+  ascent, dy가 옮긴 잉크까지 덮는 OS/2 win 메트릭, `post` 형식 3, `head`, `maxp`, `gasp`, `name`(패밀리, 스타일, 버전, 페이스를
+  밝히는 설명, 그리고 라이선스: 페이스 옆에서 제목 줄이 그 파일 이름이나 그에 맞는 패턴을 적은 `*.TXT`, 없으면 옆 `FACES.TSV`의
+  licence 열, 여기에 노트가 이름을 든 라이선스 파일을 더해 name 13으로. 라이선스의 저작권 문단은 name 0, OFL URL은 name 14).
+  GSUB, GPOS, 첫가끝 자모 셰이핑은 없다: 출력은 완성형이다. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값.
+- `bdf`: BDF 2.1(1 bpp) 또는 2.3(2 / 8 bpp: 비트 깊이를 `SIZE`의 네 번째 필드에. `--bpp1`은 1 bpp로 자른다), ISO10646-1,
+  글리프마다 잉크 상자(BBX)와 advance(DWIDTH), `FONT_ASCENT` / `FONT_DESCENT`는 페이스의 값, 라이선스 노트는 `COMMENT` 줄.
+- `compare`: 한 줄 `compared N glyphs: mismatches M (pixels P, advance A, inked only in A X, only in B Y); blank glyphs only
+  one face has Z`와, 이어서 처음 다른 코드 포인트들. 글리프는 `svfline.py`가 놓는 대로 놓는다(펜과 기준선에 대한 픽셀의
+  커버리지, 그리고 advance).
+- `cps`: 페이스의 코드 포인트를 `mkfont.py --unicode` 범위로.
+
+**개요(Synopsis).**
+
+    python3 tools/svf2ttf.py ttf FACE.SVF OUT.ttf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
+                                                  [--licence FILE|none] [--no-strike] [--apple]
+    python3 tools/svf2ttf.py bdf FACE.SVF OUT.bdf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
+                                                  [--licence FILE|none] [--bpp1]
+    python3 tools/svf2ttf.py compare A.SVF B.SVF
+    python3 tools/svf2ttf.py cps FACE.SVF
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--family F` | `<FACE STEM> SVF` | 패밀리 이름(기본값은 원본 폰트의 이름을 되풀이하지 않는다: OFL의 Reserved Font Name이 이를 금할 수 있다) |
+| `--style S` | `Regular` | 스타일 이름. "Bold" / "Italic"이 있으면 OS/2와 `head`의 스타일 비트, 굵기 700 |
+| `--version V` | `1.000` | name 5와 `head.fontRevision` |
+| `--ppem N` | 셀 높이 | 스트라이크의 크기이자 em(1..255) |
+| `--threshold C` | 128 | 아웃라인(과 `--bpp1` BDF)에 들어갈 픽셀의 커버리지 |
+| `--licence FILE\|none` | 페이스 옆의 노트 | 넣을 라이선스 노트. `none`은 넣지 않는다 |
+| `--no-strike` (ttf) | off | 아웃라인만 |
+| `--apple` (ttf) | off | 스트라이크를 `bloc`/`bdat`으로도 쓴다 |
+| `--bpp1` (bdf) | off | 2 또는 8 bpp 페이스를 1 bpp BDF로 |
+
+종료 상태: 0. 1은 읽을 수 없는 페이스나 범위를 벗어난 값(`compare`: 불일치가 있으면 1). 2는 사용법 오류. 옆에 라이선스 노트가 없는
+페이스는 경고를 찍고, 원본 폰트의 라이선스가 적용된다는 한 줄을 받는다.
+
+왕복 점검과 여섯 페이스(완성형과 자모 세트, 1과 2 bpp, 16과 24 px, HWP 1.x 페이스)의 결과:
+[recipes.ko.md, SVF 페이스를 다시 TTF 비트맵 폰트로](recipes.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로).
+
+**import하는 저장소 모듈.** `jamoset.py`, `svfline.py`. **서드파티.** fontTools(`ttf`). **테스트.** `tools/test_svf2ttf.py`(`svf/`의
+페이스로: 글리프 집합과 합성 수, 메트릭과 이름, 페이스와 대조한 스트라이크, 2비트 스트라이크, 1 x와 2 x의 FreeType 렌더, 스트라이크가
+있을 때와 없을 때의 `mkfont.py` 왕복, dy, BDF).
 
 ### `tools/svf_synth.py`
 

@@ -10,7 +10,7 @@ from running it; none is inferred from a name. The format itself is `spec/SVF.md
 How each face of `svf/` is made, and the recipes from every kind of Korean font source to an SVF, by input kind: [recipes.md](recipes.md).
 
 The tools are written for the command line. One tool can be a library for another: `jamoset.py` is imported by
-`bdfface.py`, `jamoaa.py`, `jamoadapt.py`, `svfdy.py`, `svfline.py`, `svf_synth.py`, `jamovec.py` and
+`bdfface.py`, `jamoaa.py`, `jamoadapt.py`, `svfdy.py`, `svfline.py`, `svf_synth.py`, `svf2ttf.py`, `jamovec.py` and
 `web/mkindex.py`, and the fitting modules (`jamofit.py`, `jamoaa.py`, `jamoadapt.py`, `jamoseg.py`) have no command
 line of their own.
 
@@ -517,6 +517,69 @@ count converted faces only; `failed=` counts the others. SIGTERM removes the tem
 
 **Repository modules imported.** `jamoset.py`, `svfline.py`. **Third-party.** None. **Test.** `tools/test_svf2to3.py`
 (fixtures in `tools/testdata/v2/`).
+
+### `tools/svf2ttf.py`
+
+**Purpose.** Turn an SVF face, precomposed or a jamo set, back into a bitmap font: a TrueType font (pixel outlines and
+an embedded bitmap strike) or a BDF; and compare two faces glyph by glyph (the round-trip check).
+
+**Status.** General-purpose.
+
+**Inputs.** An SVFN v3 face, read as the C library loads it (`svfline.Face`): its glyphs below U+F0000 and, for a jamo
+set, every syllable and compatibility jamo its table gives (composed by `jamoset.compose`). The licence note beside the
+face (see Outputs) unless `--licence` names one.
+
+**Outputs.**
+
+- `ttf`: a TrueType font with `unitsPerEm` = ppem x 64 (ppem defaults to the cell height). `glyf`: each glyph's pixels
+  of coverage >= `--threshold` (default 128: every 1 bpp pixel, 2 bpp levels 2 and 3) traced into contours, exact at ppem
+  and its multiples, no hinting. `EBLC`/`EBDT`: one strike at ppem in the face's bit depth (1, 2 or 8; image format 1,
+  index format 1), each glyph cut to its ink box with its bearings and advance (`--no-strike` leaves it out; `--apple`
+  adds it as `bloc`/`bdat` too). `cmap` (4, and 12 past U+FFFF), `hmtx` (the face's advances; a combining mark advance 0
+  at its origin, as `svfline.py` places it), `hhea` / OS/2 typo metrics = ascent and cell height - ascent, OS/2 win
+  metrics covering ink moved by a dy, `post` format 3, `head`, `maxp`, `gasp`, `name` (family, style, version, a
+  description naming the face, and the licence: the `*.TXT` beside the face whose title line names its file or a
+  pattern matching it, else the licence column of a `FACES.TSV` beside it, plus the licence files the note names, as
+  name 13; the licence's copyright paragraph as name 0; the OFL URL as name 14). No GSUB, GPOS or conjoining-jamo
+  shaping: the output is precomposed. Timestamps from `$SOURCE_DATE_EPOCH` when set.
+- `bdf`: BDF 2.1 (1 bpp) or 2.3 (2 / 8 bpp: the bit depth as the fourth field of `SIZE`; `--bpp1` cuts it to 1 bpp),
+  ISO10646-1, each glyph its ink box (BBX) and advance (DWIDTH), `FONT_ASCENT` / `FONT_DESCENT` the face's, the licence
+  note as `COMMENT` lines.
+- `compare`: one line, `compared N glyphs: mismatches M (pixels P, advance A, inked only in A X, only in B Y); blank
+  glyphs only one face has Z`, then the first differing code points. Glyphs are placed as `svfline.py` places them
+  (pixels as coverage relative to the pen and baseline, and the advance).
+- `cps`: the face's code points as `mkfont.py --unicode` ranges.
+
+**Synopsis.**
+
+    python3 tools/svf2ttf.py ttf FACE.SVF OUT.ttf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
+                                                  [--licence FILE|none] [--no-strike] [--apple]
+    python3 tools/svf2ttf.py bdf FACE.SVF OUT.bdf [--family F] [--style S] [--version V] [--ppem N] [--threshold C]
+                                                  [--licence FILE|none] [--bpp1]
+    python3 tools/svf2ttf.py compare A.SVF B.SVF
+    python3 tools/svf2ttf.py cps FACE.SVF
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--family F` | `<FACE STEM> SVF` | family name (the default never repeats the source font's name, which an OFL Reserved Font Name may forbid) |
+| `--style S` | `Regular` | style name; "Bold" / "Italic" in it set the OS/2 and `head` style bits and weight 700 |
+| `--version V` | `1.000` | name 5 and `head.fontRevision` |
+| `--ppem N` | the cell height | the strike's size and the em (1..255) |
+| `--threshold C` | 128 | coverage a pixel needs to be in the outline (and in a `--bpp1` BDF) |
+| `--licence FILE\|none` | the note beside the face | the licence note to embed; `none` embeds none |
+| `--no-strike` (ttf) | off | outlines only |
+| `--apple` (ttf) | off | also write the strike as `bloc`/`bdat` |
+| `--bpp1` (bdf) | off | a 2 or 8 bpp face as a 1 bpp BDF |
+
+Exit status: 0; 1 an unreadable face or a value out of range (`compare`: 1 when mismatches > 0); 2 a usage error. A face
+with no licence note beside it prints a warning and gets a line saying its source font's licence applies.
+
+The round trip and its results on six faces (precomposed and jamo sets, 1 and 2 bpp, 16 and 24 px, an HWP 1.x face):
+[recipes.md, An SVF face back to a TTF bitmap font](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font).
+
+**Repository modules imported.** `jamoset.py`, `svfline.py`. **Third-party.** fontTools (`ttf`). **Test.**
+`tools/test_svf2ttf.py` (on faces of `svf/`: glyph set and composition count, metrics and names, the strike against the
+face, 2-bit strike, FreeType renders at 1 x and 2 x, the `mkfont.py` round trip with and without the strike, dy, BDF).
 
 ### `tools/svf_synth.py`
 
