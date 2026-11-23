@@ -418,6 +418,13 @@ function readPerPanel(box, per) {
   return {options, bad};
 }
 
+// @p options without the "also write" group (`export`): what the advanced panel itself holds.
+function withoutExport(options) {
+  const out = Object.assign({}, options || {});
+  delete out.export;
+  return out;
+}
+
 function optionsAreEmpty(options) {
   for (const [name, group] of Object.entries(options || {})) {
     if (name === "export" && Object.keys(group || {}).length) return false;   // "off" overrides a batch "on"
@@ -1255,7 +1262,7 @@ function namesField(font) {
 // never stored as null or false and never drops the batch's other values.
 function advancedFieldset(per, font) {
   const toggle = el("input", {type: "checkbox", class: "ov-advanced-toggle"});
-  toggle.checked = !!(per.options && !optionsAreEmpty(per.options));
+  toggle.checked = !!(per.options && !optionsAreEmpty(withoutExport(per.options)));   // "also write" has its own selects
   toggle.setAttribute("aria-label", "advanced options for " + fontName(font));
   const box = el("div", {class: "override-grid advanced-grid"});
   const nodes = [];
@@ -1306,7 +1313,12 @@ function advancedFieldset(per, font) {
   // would show next time belong to the batch again.
   toggle.onchange = () => {
     box.hidden = !toggle.checked;
-    if (!toggle.checked) { delete per.options; for (const node of box.querySelectorAll("[data-option]")) node.value = ""; }
+    if (!toggle.checked) {                              // the panel's own keys go; the font's "also write" stays
+      const kept = (per.options || {}).export;
+      delete per.options;
+      if (kept && Object.keys(kept).length) per.options = {export: kept};
+      for (const node of box.querySelectorAll("[data-option]")) node.value = "";
+    }
     markDirty();
   };
   const refresh = () => {
@@ -2198,7 +2210,9 @@ function stepRow(step) {
         " glyphs, " + Number(step.facts.bytes).toLocaleString("en-US") + " bytes" +
         (step.written ? ", written " + escapeControls(step.written) : "")}));
   }
-  if (job && step.state === "done" && (step.kind === "precomposed" || step.kind === "jamo")) {
+  if (step.export_only && step.state === "done") {    // route svf2ttf: the face was read for its exports, not written
+    result.append(el("span", {class: "sub", text: "read for its TTF / BDF only"}));
+  } else if (job && step.state === "done" && (step.kind === "precomposed" || step.kind === "jamo")) {
     const cell = previewCell(step);
     result.append(cell.node);
     redraw = cell.redraw;
@@ -2666,6 +2680,13 @@ function wire() {
   cancelEl.onclick = cancel;
   destEl.onchange = () => { destNewEl.disabled = destEl.value !== "__new"; markDirty(); };
   presetEl.onchange = () => { presetEl.title = presetTitle(presetEl.value); };   // Q2: the short label keeps the tooltip
+  for (const key of EXPORT_KEYS) {                     // the fonts' "(batch: on/off)" follows the batch's tick
+    $("export-" + key).addEventListener("change", () => {
+      for (const select of document.querySelectorAll("select[data-export=" + key + "]")) {
+        select.options[0].textContent = "(batch: " + ($("export-" + key).checked ? "on" : "off") + ")";
+      }
+    });
+  }
   const count = () => {
     const chosen = (filesEl.files || []).length + (folderEl.files || []).length;
     countEl.textContent = chosen ? chosen + " file(s) chosen" : "";

@@ -86,6 +86,7 @@ class SidecarTest(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         info = json.loads(out.stdout)
         self.assertIs(info["frozen"], False)
+        self.assertEqual(len(info["recipes"]), 7)
         self.assertEqual(info["tools"], sorted(sidecar.TOOLS))
         self.assertEqual(set(info["modules"]), set(sidecar.GRAPH_MODULES))
         self.assertEqual([v for v in info["modules"].values() if v is not None], [])

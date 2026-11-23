@@ -200,8 +200,13 @@ def selfcheck():
                   "recog_probe_s": caps.RECOG_PROBE_S}
     except BaseException as exc:
         budget = {"error": "%s: %s" % (type(exc).__name__, exc)}
+    try:                                                  # the built-in recipes are bundled data (sidecar.spec)
+        import recipe
+        recipes = sorted(recipe.library())
+    except BaseException as exc:
+        recipes = "%s: %s" % (type(exc).__name__, exc)
     flags = sys.flags
-    return {"frozen": bool(getattr(sys, "frozen", False)), "version": VERSION, "build_id": _build_id(),
+    return {"recipes": recipes, "frozen": bool(getattr(sys, "frozen", False)), "version": VERSION, "build_id": _build_id(),
             "python": platform.python_version(),
             "flags": {"isolated": bool(flags.isolated), "ignore_environment": bool(flags.ignore_environment),
                       "safe_path": bool(getattr(flags, "safe_path", False)), "no_site": bool(flags.no_site)},
@@ -224,7 +229,8 @@ def main(argv=None):
     if argv == ["selfcheck"]:
         info = selfcheck()
         print(json.dumps(info, indent=1, sort_keys=True))
-        return 0 if all(v is None for v in info["modules"].values()) and "error" not in info["budget"] else 1
+        return 0 if (all(v is None for v in info["modules"].values()) and "error" not in info["budget"]
+                     and isinstance(info["recipes"], list) and info["recipes"]) else 1
     if argv == ["--version"]:
         import platform
         print("svf-maker-sidecar %s %s python %s" % (VERSION, _build_id(), platform.python_version()))
