@@ -300,8 +300,11 @@ def _check_mkindex(out_dir, job, scratch):
 def _check_pins_and_ink(out_dir, fails):
     gow = os.path.join(out_dir, FACES["gowun"])
     try:
-        if _read(gow) != _read(GBATB17):
-            fails.append("pin: %s is not byte-equal to svf/dos/GBATB17.SVF" % FACES["gowun"])
+        made, shipped = _read(gow), _read(GBATB17)
+        if made != shipped:
+            import wincompat                            # Windows: equal but for the pinned glyph (wincompat)
+            if not wincompat.render_matches(made, shipped, "GBATB17.SVF"):
+                fails.append("pin: %s is not byte-equal to svf/dos/GBATB17.SVF" % FACES["gowun"])
     except OSError as exc:
         fails.append("pin: %s: %s" % (FACES["gowun"], exc))
     for key, rel in sorted(FACES.items()):

@@ -1096,8 +1096,8 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
 
 def _replace_in(dfd, src, dst):
     """`os.replace` of @p src by @p dst, both in the folder @p dfd."""
-    if oscompat.WINDOWS:
-        os.replace(_at(dfd, src), _at(dfd, dst))
+    if oscompat.WINDOWS:                                   # retried while a reader has the old file open
+        oscompat.replace(_at(dfd, src), _at(dfd, dst))
     else:
         os.replace(src, dst, src_dir_fd=dfd, dst_dir_fd=dfd)
 
@@ -1105,7 +1105,7 @@ def _replace_in(dfd, src, dst):
 def _remove_in(dfd, name):
     """`os.remove` of @p name in the folder @p dfd (a link is removed itself, never its target)."""
     if oscompat.WINDOWS:
-        os.remove(_at(dfd, name))
+        oscompat.retry_sharing(os.remove, _at(dfd, name))
     else:
         os.remove(name, dir_fd=dfd)
 

@@ -441,7 +441,7 @@ class ExportLocalJobTest(LocalRunBase):
         build = self.read_out("build-%s/BUILD.md" % jid).decode("utf-8")
         self.assertIn("python3 -P tools/svf2ttf.py ttf", build)
         self.assertRegex(build, r"svf2ttf\.py ttf \S+HAN16J\.SVF'? \S+ --composite\n")   # quoted on Windows (a backslash)
-        self.assertRegex(build, r"svf2ttf\.py ttf \S+ \S+ --licence \S+/licence/OFL\.txt\n")   # the TTF font's own, staged
+        self.assertRegex(build, r"svf2ttf\.py ttf \S+ \S+ --licence \S+[/\\]licence[/\\]OFL\.txt'?\n")   # the TTF font's own, staged
         for f in files:
             if f.endswith((".ttf", ".bdf")):
                 self.assertIn("- written: %s" % f, build)

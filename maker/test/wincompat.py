@@ -88,3 +88,29 @@ def interpreter_stub(path, sh_body, py_body):
     with open(path + ".bat", "w") as f:
         f.write('@"%s" "%s.py" %%*\n' % (sys.executable, path))
     return path + ".bat"
+
+
+# The glyphs whose pixels Pillow's Windows wheel draws differently from the Linux Pillow the shipped faces were made with
+# (measured on GitHub Actions windows-latest, raqm on through FriBiDi: GowunBatang-Bold 17 px 2 bpp, U+2116 only). On
+# Windows a face made from the same font is then not the shipped face's bytes; every other glyph and the glyph set must be.
+WINDOWS_RENDER_DIFFERS = {"GBATB17.SVF": frozenset({0x2116})}
+
+
+def face_difference(made, shipped):
+    """`(only_made, only_shipped, differing)`: the code points of two SVF faces (bytes) that are not the same glyph."""
+    import jamoset
+    a, b = jamoset.parse_svfn(made), jamoset.parse_svfn(shipped)
+    differ = {cp for cp in set(a.glyphs) & set(b.glyphs)
+              if a.glyphs[cp] != b.glyphs[cp] or a.metrics.get(cp) != b.metrics.get(cp)}
+    return set(a.glyphs) - set(b.glyphs), set(b.glyphs) - set(a.glyphs), differ
+
+
+def render_matches(made, shipped, name):
+    """True when @p made is @p shipped byte for byte, or (Windows) differs from it only in the pinned glyphs of
+    `WINDOWS_RENDER_DIFFERS[name]` (same glyph set, every other glyph and metric equal)."""
+    if made == shipped:
+        return True
+    if not WIN or name not in WINDOWS_RENDER_DIFFERS:
+        return False
+    only_made, only_shipped, differ = face_difference(made, shipped)
+    return not only_made and not only_shipped and differ <= WINDOWS_RENDER_DIFFERS[name]

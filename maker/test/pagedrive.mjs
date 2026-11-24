@@ -87,7 +87,11 @@ setTimeout(async () => { process.stderr.write('pagedrive: watchdog\n'); process.
 try {
   const portFile = join(profile, 'DevToolsActivePort');
   await until(() => existsSync(portFile), 30000, 'chrome start');
-  const [port, path] = readFileSync(portFile, 'utf8').trim().split('\n');
+  // Windows: Chrome may still hold the file open a moment after it appears (EBUSY): read it again until it can be read
+  const portText = await until(() => {
+    try { return readFileSync(portFile, 'utf8'); } catch (e) { if (e.code === 'EBUSY' || e.code === 'EPERM') return null; throw e; }
+  }, 10000, 'DevToolsActivePort readable');
+  const [port, path] = portText.trim().split('\n');
   ws = new WebSocket('ws://127.0.0.1:' + port + path);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('websocket')); });
   let id = 0;
