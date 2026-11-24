@@ -148,10 +148,10 @@ def run_tool(name, args):
         sys.exit(2)
     _, how = TOOLS[name]
     sys.argv = [name + ".py"] + list(args)
-    if os.name == "nt":                                   # LF on the pipes, as a POSIX tool writes (no CRLF translation)
-        for stream in (sys.stdout, sys.stderr):
+    if os.name == "nt":                                   # UTF-8 and LF on the pipes, as a POSIX tool writes
+        for stream in (sys.stdout, sys.stderr):           # (the frozen sidecar is built in UTF-8 mode already)
             try:
-                stream.reconfigure(newline="\n")
+                stream.reconfigure(encoding="utf-8", newline="\n")
             except (AttributeError, ValueError):
                 pass
     try:

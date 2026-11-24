@@ -27,6 +27,7 @@ import localfx
 import preview
 import server
 from localfx import LocalBase, LocalRunBase, mode_of, walk_rel
+import wincompat
 
 
 class LocalJobTest(LocalBase):
@@ -37,8 +38,8 @@ class LocalJobTest(LocalBase):
         job = self.srv.store.load(jid)
         self.assertEqual((job["source"], job["output_dir"], job["roots"], job["owned"]), ("local", self.out, [], {}))
         self.assertEqual(sorted(os.listdir(self.srv.store.path(jid))), ["job.json"])
-        self.assertEqual(mode_of(self.files_dir(jid)), 0o700)
-        self.assertEqual(mode_of(os.path.join(self.files_dir(jid), "work", "tmp")), 0o700)
+        self.assert_mode(self.files_dir(jid), 0o700)
+        self.assert_mode(os.path.join(self.files_dir(jid), "work", "tmp"), 0o700)
         self.assertEqual(self.srv.store.list()[0]["source"], "local")
         self.assertEqual(self.srv.store.list()[0]["output_id"], job["output_id"])
 
@@ -62,6 +63,7 @@ class LocalJobTest(LocalBase):
     def refused_reasons(self, body):
         return {os.path.basename(item["path"]) or item["path"]: item["reason"] for item in body["refused"]}
 
+    @wincompat.posix_only("a FIFO and a symlink as picked paths (the Windows refusals are test_oscompat)")
     def test_path_rules(self):
         jid = self.new_job()
         a, b = self.roots[0], self.roots[1]
@@ -1239,7 +1241,8 @@ class LocalSweepTest(LocalRunBase):
         real = os.fsync
         with mock.patch("os.fsync", lambda fd_: (synced.append(fd_), real(fd_))[1]):
             self.srv.store._write_pending([{"path": "x"}])
-        self.assertGreaterEqual(len(synced), 2)                                 # the file and its directory
+        # the file and its directory (Windows cannot open a directory to sync it: the file only)
+        self.assertGreaterEqual(len(synced), 1 if wincompat.WIN else 2)
 
     def test_a_retry_paused_after_its_state_check_cannot_be_overtaken_by_a_reactivation(self):
         import threading
@@ -1843,12 +1846,12 @@ class LocalSweepTest(LocalRunBase):
             self.select(jid, lambda st: st["fonts"][gz].update(selected=True, dest="jamo-extra", kinds=["jamo"]))
             fd = self.files_dir(jid)
             self.assertEqual(self.probe(jid, self.ttf)[0], 200)                 # while it existed: 0700, files 0600
-            self.assertEqual(mode_of(fd), 0o700)
+            self.assert_mode(fd, 0o700)
             for dirpath, dirnames, names in os.walk(fd):
                 for d in dirnames:
-                    self.assertEqual(mode_of(os.path.join(dirpath, d)), 0o700, d)
+                    self.assert_mode(os.path.join(dirpath, d), 0o700, d)
                 for n in names:
-                    self.assertEqual(mode_of(os.path.join(dirpath, n)), 0o600, n)
+                    self.assert_mode(os.path.join(dirpath, n), 0o600, n)
             job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done", job.get("error"))
         self.srv.worker.stop()

@@ -1332,7 +1332,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if current.get("state") not in ("uploading", "detected"):
                     raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
                 try:
-                    os.replace(out["tmp"], dest)                  # the body lands only under this lock (W1)
+                    oscompat.replace(out["tmp"], dest)                  # the body lands only under this lock (W1)
                 except OSError as exc:
                     raise _HttpError(400, _os_reason(exc))
                 release()                                         # reserved bytes become the real ones

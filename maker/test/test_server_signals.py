@@ -26,11 +26,14 @@ import jobs
 import localfx
 import toolreg
 import toolrun
+import wincompat
 
 NEODG = os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF")
 
 
 def alive(pid):
+    if os.name == "nt":                               # no /proc: the process handle (oscompat.process_alive)
+        return toolrun.alive(pid)
     try:
         with open("/proc/%d/stat" % pid, "rb") as f:
             return f.read().rsplit(b") ", 1)[1].split()[0] not in (b"Z", b"X", b"x")
@@ -47,7 +50,7 @@ def wait_until(cond, timeout=60):
     return False
 
 
-class SignalTest(unittest.TestCase):
+class JobFixture(unittest.TestCase):
     def long_job(self, root, pidfile):
         """A queued job whose one step starts a grandchild and then sleeps; the server's recover() runs it."""
         store = jobs.Store(root)
@@ -81,6 +84,9 @@ class SignalTest(unittest.TestCase):
         store.save(j)
         return j["id"]
 
+
+@wincompat.posix_only("SIGTERM and SIGINT to the server (WindowsStopTest covers the Windows stop)")
+class SignalTest(JobFixture):
     def run_signal(self, sig):
         tmp = tempfile.mkdtemp(prefix="svf-signal-")
         self.addCleanup(shutil.rmtree, tmp, True)
@@ -135,6 +141,78 @@ class SignalTest(unittest.TestCase):
 
     def test_sigint_does_the_same(self):
         self.run_signal(signal.SIGINT)
+
+
+@unittest.skipUnless(wincompat.WIN, "Windows only: the stop by the end of stdin and the parent's process handle")
+class WindowsStopTest(JobFixture):
+    """Windows has no SIGTERM: the shell closes the server's stdin (`--stop-on-eof`), and a dead parent is seen through
+    its process handle (`--exit-with-parent`). Either way the running tool and its child go (their Job Object)."""
+
+    def start(self, extra_args=(), stdin=subprocess.PIPE):
+        tmp = tempfile.mkdtemp(prefix="svf-winstop-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        pidfile = os.path.join(tmp, "pids")
+        jid = self.long_job(os.path.join(tmp, "data"), pidfile)
+        env = dict(os.environ, SVF_MAKER_REPO=REPO_DIR, SVF_MAKER_DATA=os.path.join(tmp, "data"),
+                   SVF_MAKER_BIND="127.0.0.1:0")
+        return tmp, pidfile, jid, env
+
+    def wait_tools(self, pidfile):
+        self.assertTrue(wait_until(lambda: os.path.exists(pidfile) and len(open(pidfile).read().split()) == 2),
+                        "the step never started")
+        pids = [int(v) for v in open(pidfile).read().split()]
+        for pid in pids:
+            self.addCleanup(lambda p=pid: wincompat.kill_group(p) if alive(p) else None)
+        self.assertTrue(all(alive(p) for p in pids))
+        return pids
+
+    def test_end_of_stdin_stops_the_server_the_tool_and_its_child(self):
+        tmp, pidfile, jid, env = self.start()
+        proc = subprocess.Popen([sys.executable, "-P", SERVER, "--stop-on-eof"], env=env, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(proc.kill)
+        pids = self.wait_tools(pidfile)
+        proc.stdin.close()
+        try:
+            _out, err = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail("the server did not stop at the end of stdin")
+        self.assertNotIn(b"Traceback", err)
+        self.assertEqual(proc.returncode, 0)
+        self.assertTrue(wait_until(lambda: not any(alive(p) for p in pids), 20), "a tool outlived the server")
+        job = jobs.Store(os.path.join(tmp, "data")).load(jid)
+        self.assertEqual((job["state"], job["error"]), ("failed", "interrupted"))
+
+    def test_a_dead_parent_stops_the_server_and_its_tools(self):
+        tmp, pidfile, jid, env = self.start()
+        out = os.path.join(tmp, "server.pid")
+        helper = ("import subprocess, sys, time, os\n"
+                  "p = subprocess.Popen([sys.executable, '-P', %r, '--exit-with-parent=%%d' %% os.getpid()],\n"
+                  "                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                  "open(%r, 'w').write(str(p.pid))\ntime.sleep(300)\n" % (SERVER, out))
+        parent = subprocess.Popen([sys.executable, "-c", helper], env=env)
+        self.addCleanup(lambda: (parent.kill(), parent.wait()))
+        self.assertTrue(wait_until(lambda: os.path.exists(out) and open(out).read().strip()))
+        server_pid = int(open(out).read())
+        self.addCleanup(lambda: wincompat.kill_group(server_pid) if alive(server_pid) else None)
+        pids = self.wait_tools(pidfile)
+        parent.kill()
+        parent.wait()
+        self.assertTrue(wait_until(lambda: not alive(server_pid), 30), "the server outlived its parent")
+        self.assertTrue(wait_until(lambda: not any(alive(p) for p in pids), 20), "a tool outlived the server")
+        job = jobs.Store(os.path.join(tmp, "data")).load(jid)
+        self.assertEqual((job["state"], job["error"]), ("failed", "interrupted"))
+
+    def test_a_killed_server_takes_its_tools_with_it(self):
+        """TerminateProcess of the server (the shell's escalation): the tools' Job Objects close with it."""
+        tmp, pidfile, jid, env = self.start()
+        proc = subprocess.Popen([sys.executable, "-P", SERVER], env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(proc.kill)
+        pids = self.wait_tools(pidfile)
+        proc.kill()
+        proc.wait(30)
+        self.assertTrue(wait_until(lambda: not any(alive(p) for p in pids), 20), "a tool outlived the killed server")
 
 
 HARNESS = os.path.join(TEST_DIR, "parent_harness.py")

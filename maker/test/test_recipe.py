@@ -34,6 +34,7 @@ import settings
 import svf2ttf
 import toolrun
 from localfx import LocalBase, walk_rel
+import wincompat
 
 NEODG16 = os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF")
 TG = "86box-tgkorvga"
@@ -86,7 +87,7 @@ def library_for(rom, bios):
     return {TG: recipe.validate(rec)}
 
 
-class LibraryTest(unittest.TestCase):
+class LibraryTest(wincompat.SlashEqual, unittest.TestCase):
     def test_builtin_recipes(self):
         lib = recipe.library()
         self.assertEqual(sorted(lib), ["86box-atikorvga", "86box-kasan16", "86box-tgkorvga", "mame-dquizgo",
@@ -224,7 +225,7 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(routes.routes(dict(font, recipe={"id": "no-such"})), [])
 
 
-class ValidateTest(unittest.TestCase):
+class ValidateTest(wincompat.SlashEqual, unittest.TestCase):
     def base(self):
         return copy.deepcopy(recipe.library()[TG])
 
@@ -360,7 +361,7 @@ class ValidateTest(unittest.TestCase):
             recipe.library(os.path.join(tempfile.gettempdir(), "no-such-recipes-folder-%d" % os.getpid()))
 
 
-class MatchTest(unittest.TestCase):
+class MatchTest(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="svf-recipe-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -487,7 +488,7 @@ def _real_faces(test, roots, want_ids):
 
 
 @unittest.skipUnless(os.environ.get("SVF_MAKER_REAL_86BOX"), "SVF_MAKER_REAL_86BOX names a folder with the 86Box ROMs")
-class RealRomTest(unittest.TestCase):
+class RealRomTest(wincompat.SlashEqual, unittest.TestCase):
     """The real 86Box files (your own copy; nothing is copied or kept): every pair is `known`, and each recipe's
     precomposed and jamo faces have the sizes `expect` records (docs/recipes.md's table)."""
 
@@ -496,7 +497,7 @@ class RealRomTest(unittest.TestCase):
 
 
 @unittest.skipUnless(os.environ.get("SVF_MAKER_REAL_MAME"), "SVF_MAKER_REAL_MAME names a folder of unpacked MAME sets")
-class RealMameTest(unittest.TestCase):
+class RealMameTest(wincompat.SlashEqual, unittest.TestCase):
     """The real MAME sets (spc1500, dquizgo, xsedae, quizkofk unpacked as <set>/<file>): every set `known`, every face
     the size docs/recipes.md "Korean font ROMs in MAME sets" records."""
 

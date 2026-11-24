@@ -28,6 +28,7 @@ import unittest
 import fixtures
 import inputfx
 import server
+import wincompat
 
 TOKEN = "0123456789abcdef0123456789abcdef"
 WAIT_S = 180
@@ -108,8 +109,14 @@ def read_only(test, path):
     test.addCleanup(walk, 0o755, 0o644)
 
 
-class LocalBase(unittest.TestCase):
+class LocalBase(wincompat.SlashEqual, unittest.TestCase):
     """A token server over a temp data root, plus a `local_tree`. Subclasses add the tests."""
+
+    def assert_mode(self, path, mode, msg=None):
+        """The permission bits of @p path are @p mode. POSIX only: Windows has no mode bits (a folder's privacy there is
+        its ACL, inherited from the user's profile), so nothing is asserted on Windows."""
+        if not wincompat.WIN:
+            self.assertEqual(mode_of(path), mode, msg)
 
     def setUp(self):
         self._umask = os.umask(0o022)

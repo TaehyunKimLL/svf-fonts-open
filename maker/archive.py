@@ -53,6 +53,8 @@ import unicodedata
 import zipfile
 import zlib
 
+import oscompat
+
 # A container that claims to be an archive but will not parse (a truncated zip, a bad tar header) and the
 # decompression errors a broken gzip/xz raises. `unpack` reports these as a stop, not as a crash: the upload path
 # must never fail on a malformed upload.
@@ -285,7 +287,8 @@ def check_rel_path(rel, component=LIMITS["component"]):
     Components are split on "/": nothing absolute, no backslash, no control, format or separator character, no
     ".." or "." component, no empty component (a trailing slash or "//": W5), no drive-letter first component
     (`"C:..."`), no empty path, no component over @p component bytes, no path over `_PATH_MAX` bytes and no path
-    deeper than `_DEPTH_MAX` components.
+    deeper than `_DEPTH_MAX` components. Windows also refuses a component Windows cannot hold as a plain file name
+    (`oscompat.windows_unsafe_name`: CON, NUL.TXT, a ":" that would name a stream, a trailing dot or space).
     """
     if not rel:
         return "empty path"
@@ -304,6 +307,8 @@ def check_rel_path(rel, component=LIMITS["component"]):
         return "path has .."
     if "." in parts:
         return "path has ."
+    if oscompat.WINDOWS and any(oscompat.windows_unsafe_name(part) for part in parts):
+        return "a name Windows cannot hold (a device name, a colon, a trailing dot or space)"
     if any(len(part.encode("utf-8", "surrogateescape")) > component for part in parts):
         return "path component over %d bytes" % component
     if len(rel.encode("utf-8", "surrogateescape")) > _PATH_MAX or len(parts) > _DEPTH_MAX:
@@ -545,6 +550,8 @@ def _output(out_path, name):
     except IsADirectoryError:
         raise _Stop("%s: is a directory" % _short(name))
     except OSError as exc:
+        if isinstance(exc, PermissionError) and os.path.isdir(out_path):   # what Windows says for a directory
+            raise _Stop("%s: is a directory" % _short(name))
         raise _Stop("%s: %s" % (_short(name), exc.strerror or type(exc).__name__))
 
 

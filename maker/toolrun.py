@@ -114,9 +114,13 @@ def note_text(text, repo_dir):
     (johab844 prints its base face) reads the same from a checkout and from an AppImage mount."""
     if not text or not repo_dir:
         return text
-    for base in sorted({os.path.normpath(repo_dir), os.path.realpath(repo_dir)}, key=len, reverse=True):
-        if base != os.sep:
-            text = text.replace(base.rstrip(os.sep) + os.sep, "")
+    bases = {os.path.normpath(repo_dir), os.path.realpath(repo_dir)}
+    if oscompat.WINDOWS:                        # a tool may print the path with "/" (a joined relative path) or "\\"
+        bases |= {b.replace("\\", "/") for b in bases}
+    for base in sorted(bases, key=len, reverse=True):
+        if base not in (os.sep, "/"):
+            for sep in ((os.sep, "/") if oscompat.WINDOWS else (os.sep,)):
+                text = text.replace(base.rstrip("\\/" if oscompat.WINDOWS else os.sep) + sep, "")
     return text
 
 

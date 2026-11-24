@@ -28,6 +28,7 @@ import preview
 import server
 import toolreg
 import toolrun
+import wincompat
 
 
 def wait_until(cond, timeout=10):
@@ -58,13 +59,10 @@ class RegBase(unittest.TestCase):
     def sleeper(self, code="import time; time.sleep(60)", argv0=None):
         """A python child in its own session; killed in cleanup and waited."""
         argv = [sys.executable, "-c", code]
-        proc = subprocess.Popen(argv, start_new_session=True, stdin=subprocess.DEVNULL)
+        proc = wincompat.popen_group(argv, stdin=subprocess.DEVNULL)
 
         def cleanup():
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
+            wincompat.kill_group(proc)
             proc.wait()
         self.addCleanup(cleanup)
         return proc
@@ -129,6 +127,7 @@ class RegistryTest(RegBase):
             bad.register(proc)
         self.assertTrue(any("toolreg: ENOENT" in str(c) for c in e.write.call_args_list))
 
+    @wincompat.posix_only("a zombie (an unreaped child)")
     def test_alive_zombie(self):
         proc = subprocess.Popen([sys.executable, "-c", "pass"])
         self.addCleanup(proc.wait)
@@ -161,15 +160,20 @@ class ReapTest(RegBase):
 
     def test_reap_external_interpreter(self):
         stub = os.path.join(self.tmp, "py")
-        with open(stub, "w") as f:
-            f.write("#!/bin/sh\nexec sleep 60\n")
-        os.chmod(stub, 0o755)
+        if wincompat.WIN:                             # an interpreter wrapper that is not Python: a batch file there
+            stub += ".bat"
+            with open(stub, "w") as f:
+                f.write('@"%s" -c "import time; time.sleep(60)"\n' % sys.executable)
+        else:
+            with open(stub, "w") as f:
+                f.write("#!/bin/sh\nexec sleep 60\n")
+            os.chmod(stub, 0o755)
         toolreg.activate(self.reg)
         t = threading.Thread(target=lambda: jobs.run_command([stub], self.tmp, 60, threading.Event()), daemon=True)
         t.start()
         self.assertTrue(wait_until(lambda: len(lines(self.reg)) == 1))
         pid = int(lines(self.reg)[0].split()[1])
-        self.addCleanup(lambda: os.killpg(pid, signal.SIGKILL) if toolrun.alive(pid) else None)
+        self.addCleanup(lambda: wincompat.kill_group(pid) if toolrun.alive(pid) else None)
         got = toolreg.Registry(self.reg.path).reap()
         self.assertEqual(got["killed"], 1)
         t.join(20)
@@ -187,7 +191,7 @@ class ReapTest(RegBase):
         """Three stuck groups: their per-entry allowances (3 x 1 s) exceed the patched overall bound (1.5 s)."""
         procs = [self.sleeper() for _ in range(3)]
         self.put(*[self.line_for(p) for p in procs])
-        with mock.patch.object(toolreg.os, "killpg"), mock.patch.object(toolreg, "REAP_EACH_S", 1.0), \
+        with mock.patch.object(toolreg.oscompat, "kill_registered"), mock.patch.object(toolreg, "REAP_EACH_S", 1.0), \
                 mock.patch.object(toolreg, "REAP_TOTAL_S", 1.5):
             started = time.monotonic()
             got = self.reg.reap()
@@ -233,7 +237,7 @@ class AtomicityTest(RegBase):
         import random
         victim = self.sleeper()
         script = ("import sys, subprocess, itertools\nsys.path.insert(0, %r)\nimport toolreg\n"
-                  "reg = toolreg.Registry(%r)\nv = subprocess.Popen(['sleep', '60'])\n"
+                  "reg = toolreg.Registry(%r)\nv = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
                   "open(%r, 'w').write(str(v.pid))\n"
                   "reg.register(v)\nclass P:\n    pid = 999999\n    args = ['x']\n"
                   "for i in itertools.count():\n    reg.register(P)\n    reg.unregister(P)\n"
@@ -255,7 +259,7 @@ class AtomicityTest(RegBase):
                 self.assertIn(str(vpid), " ".join(r.split()[1] for r in lines(self.reg)), "round %d" % round_)
             finally:
                 try:
-                    os.kill(vpid, signal.SIGKILL)
+                    os.kill(vpid, wincompat.oscompat.SIGKILL)
                 except OSError:
                     pass
 

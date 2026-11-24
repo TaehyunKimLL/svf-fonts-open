@@ -135,7 +135,7 @@ class Face:
 
 
 def read_bdf(path, unicode_enc=None):
-    t = _read(path).decode("latin-1")
+    t = _read(path).decode("latin-1").replace("\r\n", "\n")      # CRLF line ends (a BDF saved on Windows)
     if not t.startswith("STARTFONT"):
         raise FaceError(f"{path}: not a BDF")
     reg = re.search(r'CHARSET_REGISTRY\s+"?([^"\n]*)', t)
@@ -152,7 +152,7 @@ def read_bdf(path, unicode_enc=None):
         block = block.split("ENDCHAR")[0]
         enc = re.search(r"^ENCODING\s+(-?\d+)", block, re.M)
         bbx = re.search(r"^BBX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", block, re.M)
-        bm = re.search(r"^BITMAP[ \t]*\n(.*)", block, re.M | re.S)
+        bm = re.search(r"^BITMAP[ \t]*\r?\n(.*)", block, re.M | re.S)     # a BDF saved with CRLF line ends too
         dw = re.search(r"^DWIDTH\s+(-?\d+)", block, re.M)
         if not enc or not bbx or not bm:
             continue
@@ -174,7 +174,7 @@ def read_bdf(path, unicode_enc=None):
 def read_hbf(path):
     """An HBF (HBF_CODE_RANGE lines naming bitmap files beside it): single-byte ranges only; returns the same
     glyph tuples as read_bdf."""
-    t = _read(path).decode("latin-1")
+    t = _read(path).decode("latin-1").replace("\r\n", "\n")      # CRLF line ends (a BDF saved on Windows)
     if "HBF_START_FONT" not in t:
         raise FaceError(f"{path}: not an HBF")
     bb = re.search(r"HBF_BITMAP_BOUNDING_BOX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", t)

@@ -543,31 +543,39 @@ def _read_strike_advances(path, size):
     try:
         from fontTools.ttLib import TTFont
         f = TTFont(path, lazy=True, fontNumber=0)       # face 0, as Pillow and cmap_has open it
-        cmap = f.getBestCmap() or {}
-        adv = {}
-        upem = f["head"].unitsPerEm if "head" in f else f["bhed"].unitsPerEm if "bhed" in f else 0
-        if "hmtx" in f and upem:
-            for name, (w, _) in f["hmtx"].metrics.items():
-                adv[name] = int(round(w * size / upem))
-        for i, strike in enumerate(f[pair[0]].strikes):
-            t = strike.bitmapSizeTable
-            if (t.ppemX, t.ppemY) != (size, size):
-                continue
-            data = f[pair[1]].strikeData[i]
-            for sub in strike.indexSubTables:
-                for name in sub.names:
-                    g = data.get(name)
-                    m = getattr(g, "metrics", None) if g is not None else None
-                    a = _metrics_advance(m) if m is not None else _metrics_advance(getattr(sub, "metrics", None))
-                    if a is not None:
-                        adv[name] = a
-            break
-        return cmap, adv
+        try:
+            return _strike_advances_of(f, pair, size)
+        finally:
+            f.close()                                   # a lazy font holds its file open (Windows: undeletable until then)
     except Exception as e:
         # ImportError (no fontTools) as well: the font is bitmap-only and its advances would stay 0
         print(f"{path}: 비트맵 전용 글꼴의 스트라이크 폭을 읽지 못했다 ({e!r}); advance 는 0 으로 남을 수 있다",
               file=sys.stderr)
         return None, {}
+
+
+def _strike_advances_of(f, pair, size):
+    """`_read_strike_advances`'s body over the open font @p f."""
+    cmap = f.getBestCmap() or {}
+    adv = {}
+    upem = f["head"].unitsPerEm if "head" in f else f["bhed"].unitsPerEm if "bhed" in f else 0
+    if "hmtx" in f and upem:
+        for name, (w, _) in f["hmtx"].metrics.items():
+            adv[name] = int(round(w * size / upem))
+    for i, strike in enumerate(f[pair[0]].strikes):
+        t = strike.bitmapSizeTable
+        if (t.ppemX, t.ppemY) != (size, size):
+            continue
+        data = f[pair[1]].strikeData[i]
+        for sub in strike.indexSubTables:
+            for name in sub.names:
+                g = data.get(name)
+                m = getattr(g, "metrics", None) if g is not None else None
+                a = _metrics_advance(m) if m is not None else _metrics_advance(getattr(sub, "metrics", None))
+                if a is not None:
+                    adv[name] = a
+        break
+    return cmap, adv
 
 
 def font_advance(font, ch, path, size):
@@ -591,7 +599,11 @@ def cmap_has(path, cp):
     cache = cmap_has.__dict__.setdefault("cache", {})
     if path not in cache:
         try:
-            cache[path] = TTFont(path, lazy=True, fontNumber=0).getBestCmap()
+            f = TTFont(path, lazy=True, fontNumber=0)
+            try:
+                cache[path] = f.getBestCmap()
+            finally:
+                f.close()                               # do not keep the file open (Windows: it could not be removed)
         except TTLibError:
             cache[path] = None
     return None if cache[path] is None else cp in cache[path]

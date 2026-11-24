@@ -31,6 +31,7 @@ import inputfx  # noqa: E402
 import jobs  # noqa: E402
 import localfx  # noqa: E402
 import server  # noqa: E402
+import wincompat
 
 DRIVER = os.path.join(TEST_DIR, "pagedrive.mjs")
 WAIT_S = 240
@@ -42,7 +43,18 @@ def read_report(srv, job, step):
 
 
 def browser():
-    return next((shutil.which(n) for n in ("google-chrome", "chromium-browser") if shutil.which(n)), None)
+    """google-chrome or chromium-browser on PATH; SVF_TEST_CHROME names one anywhere; on Windows the standard Chrome
+    install (no chrome on PATH there)."""
+    if os.environ.get("SVF_TEST_CHROME") and os.path.isfile(os.environ["SVF_TEST_CHROME"]):
+        return os.environ["SVF_TEST_CHROME"]
+    found = next((shutil.which(n) for n in ("google-chrome", "chromium-browser") if shutil.which(n)), None)
+    if found or os.name != "nt":
+        return found
+    for base in (os.environ.get("PROGRAMFILES"), os.environ.get("PROGRAMFILES(X86)"), os.environ.get("LOCALAPPDATA")):
+        path = os.path.join(base or "", "Google", "Chrome", "Application", "chrome.exe")
+        if base and os.path.isfile(path):
+            return path
+    return None
 
 
 def read(path):
@@ -156,13 +168,12 @@ class PageDomTest(unittest.TestCase):
         # cannot starve the rest of the suite of threads
         env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WAIT_S - 20))        # the driver's own limit comes first
         env.update(env_extra)
-        proc = subprocess.Popen(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
-                                env=env)
+        proc = wincompat.popen_group(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         try:
             stdout, stderr = proc.communicate(timeout=WAIT_S)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            wincompat.kill_group(proc)
             proc.communicate()
             self.fail("the page driver timed out after %d s" % WAIT_S)
         self.assertEqual(proc.returncode, 0, stderr)
@@ -616,12 +627,11 @@ class LocalPageTest(localfx.LocalBase):
                 f.write(preload)
             argv += ["--preload", pre]
         env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WAIT_S - 20))
-        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                start_new_session=True, env=env)
+        proc = wincompat.popen_group(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         try:
             stdout, stderr = proc.communicate(timeout=WAIT_S)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            wincompat.kill_group(proc)
             proc.communicate()
             self.fail("the page driver timed out after %d s" % WAIT_S)
         self.assertEqual(proc.returncode, 0, stderr)

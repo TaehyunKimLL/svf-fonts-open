@@ -329,3 +329,48 @@ test('usr/lib64 next to usr/lib is attributed like usr/lib', async (t) => {
   assert.deepEqual(ok.problems, []);
   assert.ok(ok.text.includes('usr/lib64/libXtst.so.6'));
 });
+
+// The Windows notices (t_9b8f56f0): --platform win32 attributes *.dll and *.pyd (case-blind), needs no usr/lib, takes an
+// entry "from": "python" from the interpreter's LICENSE.txt, and still fails closed on an unmatched DLL.
+test('win32: dll and pyd attributed, python-origin text, unmatched dll fails closed', async (t) => {
+  const root = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-tpw-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sidecar = path.join(root, 'sidecar');
+  const electron = path.join(root, 'win-unpacked');
+  const repo = path.join(root, 'repo');
+  write(electron, 'LICENSE.electron.txt', 'Electron MIT\n');
+  write(electron, 'LICENSES.chromium.html', '<html>chromium notices</html>');
+  write(electron, 'ffmpeg.dll', 'ffmpeg-bytes');
+  write(electron, 'resources/app.asar.unpacked/x.dll', 'not walked');
+  const py = write(sidecar, '_internal/python312.dll', 'py-bytes');
+  const vc = write(sidecar, '_internal/VCRUNTIME140.dll', 'vc-bytes');
+  const im = write(sidecar, '_internal/PIL/_imaging.cp312-win_amd64.pyd', 'imaging');
+  const provenance = {
+    'python312.dll': { source: 'C:/py/python312.dll', sha256: sha(fs.readFileSync(py)), origin: 'python', package: 'python3', version: '3.12.3' },
+    'VCRUNTIME140.dll': { source: 'C:/py/VCRUNTIME140.dll', sha256: sha(fs.readFileSync(vc)), origin: 'python', package: 'python3', version: '3.12.3' },
+    'PIL/_imaging.cp312-win_amd64.pyd': { source: 'C:/pysite/PIL/_imaging.pyd', sha256: sha(fs.readFileSync(im)), origin: 'wheel', package: 'pillow', version: '10.2.0' },
+  };
+  write(repo, 'svf/dos/A.SVF', 'face');
+  write(repo, 'svf/dos/OFL.TXT', 'OFL text');
+  write(repo, 'web/LICENCES.tsv', 'dos/A*.SVF\tdos/OFL.TXT\n');
+  const pysite = path.join(root, 'pysite');
+  write(pysite, 'pillow-10.2.0.dist-info/LICENSE', 'HPND licence text');
+  write(pysite, 'fonttools-4.66.1.dist-info/LICENSE', 'MIT fonttools');
+  write(pysite, 'pyinstaller-6.22.3.dist-info/COPYING.txt', 'GPL with bootloader exception');
+  const meta = path.join(root, 'meta');
+  write(meta, 'LICENSE', 'MIT maker licence');
+  write(meta, 'NOTICE.md', '| `svf/dos/A*` | Font A |\n');
+  write(meta, 'desktop/package.json', JSON.stringify({ name: 'svf-maker' }));
+  const pyLicence = write(root, 'LICENSE.txt', 'PSF licence and the bundled libraries of the Windows build');
+  const licences = path.join(__dirname, '..', 'build', 'licences');
+  const map = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'build', 'third-party-map-win.json'), 'utf8'));
+  const opts = { platform: 'win32', sidecar, provenance, electron, pysite, repo, meta, map, licencesDir: licences, pythonLicence: pyLicence };
+  const r = await generate(opts);
+  withoutProblems(r);
+  for (const needle of ['PSF licence and the bundled libraries', 'python312.dll', 'Microsoft Visual C++ runtime', 'ffmpeg.dll', 'HPND licence text']) {
+    assert.ok(r.text.includes(needle), needle);
+  }
+  write(electron, 'mystery.dll', 'x');
+  const r2 = await generate(opts);
+  assert.deepEqual(r2.problems, ['unattributed: mystery.dll']);
+});

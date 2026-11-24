@@ -86,7 +86,7 @@ def materialize(abs_path, work_dir):
                 if size > detect.MAX_DECOMPRESSED:
                     raise detect.TooLarge("too large (> %d MiB decompressed)" % (detect.MAX_DECOMPRESSED >> 20))
                 dst.write(chunk)
-        os.replace(tmp, out)
+        oscompat.replace(tmp, out)
     except BaseException:
         _remove(tmp)
         raise
@@ -370,7 +370,7 @@ def _save_png(img, out_path):
     os.close(fd)
     try:
         img.save(tmp, "PNG")            # the `.tmp` name carries no format: say PNG outright
-        os.replace(tmp, out_path)
+        oscompat.replace(tmp, out_path)
     except Exception:
         _remove(tmp)
         raise

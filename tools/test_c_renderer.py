@@ -42,6 +42,9 @@ def build():
     """Build c/ once into a temp dir; returns {'svfdump': path, 'svfdump-asan': path} or raises SkipTest."""
     if "dir" in _build:
         return _build
+    if os.name == "nt":
+        raise unittest.SkipTest("POSIX only: the C renderer's host build (make, gcc with the address and undefined "
+                                "sanitizers, POSIX executables); on Windows the renderer runs as the maker's WASM module")
     cc = os.environ.get("CC") or shutil.which("cc") or shutil.which("gcc")
     if not cc or not shutil.which("make"):
         raise unittest.SkipTest("no C compiler or make on this host: the C renderer tests are skipped")

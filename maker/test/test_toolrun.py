@@ -27,6 +27,11 @@ import recipe
 import routes
 import settings
 import toolrun
+import oscompat
+import wincompat
+
+# what base_env adds on Windows whatever the input holds (toolrun.WINDOWS_KEYS)
+WINDOWS_EXTRA = {"PYTHONUTF8": "1"} if oscompat.WINDOWS else {}
 
 PATHS = {"tools": "/T", "src": "/u/in.ttf", "out": "/w/OUT.SVF", "work": "/w", "eng": None, "latin": None,
          "master": "/w/master.json", "range_file": "/w/range-2350.txt", "base": "/R/svf/dos/NEODG16.SVF",
@@ -36,7 +41,7 @@ PATHS = {"tools": "/T", "src": "/u/in.ttf", "out": "/w/OUT.SVF", "work": "/w", "
 PATHS_ALT = dict(PATHS, eng="/u/eng.fnt", latin="/u/latin.bdf", pylib="/lib")
 
 
-class ShapesTest(unittest.TestCase):
+class ShapesTest(wincompat.SlashEqual, unittest.TestCase):
     def test_source_shapes(self):
         self.assertEqual(toolrun.tool("mkfont", "/T"), [sys.executable, "-P", "/T/mkfont.py"])
         self.assertEqual(toolrun.maker_script("srcprep"), [sys.executable, "-P", os.path.join(toolrun.MAKER_DIR, "srcprep.py")])
@@ -89,18 +94,27 @@ class ShapesTest(unittest.TestCase):
     def test_base_env(self):
         self.assertEqual(toolrun.base_env({"PATH": "/b", "HOME": "/h", "SVF_MAKER_TOKEN": "x" * 32, "PYTHONPATH": "/e",
                                            "SVF_MAKER_NO_PDEATHSIG": "yes"}),
-                         {"PATH": "/b", "HOME": "/h", "LANG": "C.UTF-8"})
+                         dict({"PATH": "/b", "HOME": "/h", "LANG": "C.UTF-8"}, **WINDOWS_EXTRA))
         self.assertEqual(toolrun.base_env({"JAMOSET_PYLIB": "/lib"})["JAMOSET_PYLIB"], "/lib")
         self.assertEqual(toolrun.base_env({"JAMOSET_MASK_FONT": "/f.ttf"})["JAMOSET_MASK_FONT"], "/f.ttf")
         self.assertNotIn("JAMOSET_PYLIB", toolrun.base_env({"JAMOSET_PYLIB": ""}))
         self.assertEqual(toolrun.base_env({"SVF_MAKER_NO_PDEATHSIG": "1"})["SVF_MAKER_NO_PDEATHSIG"], "1")
+
+    @unittest.skipUnless(oscompat.WINDOWS, "Windows only: the keys a Windows interpreter needs")
+    def test_base_env_windows_keys(self):
+        env = toolrun.base_env({"PATH": "C:\\b", "SYSTEMROOT": "C:\\Windows", "TEMP": "C:\\t", "PYTHONHOME": "C:\\x",
+                                "PYTHONUTF8": "0"})
+        self.assertEqual(env, {"PATH": "C:\\b", "HOME": "/", "LANG": "C.UTF-8", "SYSTEMROOT": "C:\\Windows",
+                               "TEMP": "C:\\t", "PYTHONUTF8": "1"})
 
     def test_tool_env_has_no_maker_keys(self):
         # the token, the bind, the data root and every PYTHON* key never reach a tool; the one SVF_ key ever allowed is
         # the test knob, and only as "1"
         for env in (jobs.ENV, preview.ENV,
                     toolrun.base_env({**os.environ, "SVF_MAKER_TOKEN": "a" * 32, "PYTHONHOME": "/x"})):
-            self.assertEqual([k for k in env if k.startswith("PYTHON")], [])
+            # PYTHONUTF8=1 is the maker's own key on Windows (toolrun.WINDOWS_KEYS), never an inherited value
+            self.assertEqual([k for k in env if k.startswith("PYTHON") and (k, env[k]) != ("PYTHONUTF8", "1")], [])
+            self.assertEqual("PYTHONUTF8" in env, oscompat.WINDOWS)
             self.assertEqual([k for k in env if k.startswith("SVF_") and k not in toolrun.TEST_KEYS], [])   # unfrozen
             self.assertIn(env.get("SVF_MAKER_NO_PDEATHSIG", "1"), ("1",))
 
@@ -179,7 +193,7 @@ def _commands_of_all_kinds():  # noqa
     return [a for a in argvs if a]
 
 
-class BuildersTest(unittest.TestCase):
+class BuildersTest(wincompat.SlashEqual, unittest.TestCase):
     def test_every_builder_uses_toolrun_both_modes(self):
         import tempfile
         for frozen in (False, True):
@@ -219,13 +233,13 @@ class BuildersTest(unittest.TestCase):
                 self.assertIsNone(re.search(r'"[a-z0-9_]+\.py"', text), name)
 
 
-class LifecycleHelpersTest(unittest.TestCase):
+class LifecycleHelpersTest(wincompat.SlashEqual, unittest.TestCase):
     def test_set_pdeathsig_knob(self):
         with mock.patch.dict(os.environ, {"SVF_MAKER_NO_PDEATHSIG": "1"}):
             self.assertIs(toolrun.set_pdeathsig(15), False)
 
 
-class RecogArgvTest(unittest.TestCase):
+class RecogArgvTest(wincompat.SlashEqual, unittest.TestCase):
     def test_recog_argv(self):
         self.assertIsNone(toolrun.recog_argv({"recog": False}, "/R"))
         self.assertEqual(toolrun.recog_argv({"recog": True, "recog_python": "/py"}, "/R"),

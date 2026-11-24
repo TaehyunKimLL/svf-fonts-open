@@ -328,7 +328,8 @@ class Svf2To3Test(unittest.TestCase):
                 self.assertEqual(st, 2, src)
             self.assertFalse(os.path.exists(dst))
 
-    @unittest.skipIf(os.geteuid() == 0, "root reads everything")
+    @unittest.skipIf(os.name == "nt", "POSIX only: a mode-000 folder (Windows has no read permission bit chmod can clear)")
+    @unittest.skipIf(os.name != "nt" and os.geteuid() == 0, "root reads everything")
     def test_tree_unreadable_subdir_fails(self):                 # Z2
         with tempfile.TemporaryDirectory() as d:
             src, dst = os.path.join(d, "src"), os.path.join(d, "dst")

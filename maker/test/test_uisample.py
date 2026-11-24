@@ -25,6 +25,7 @@ import inputkinds
 import jamoset
 import localfx
 import uisample
+import wincompat
 
 BASE = os.path.join(os.path.expanduser("~"), "work", "tmp", "svf-uisample-test-%d" % os.getpid())
 UISAMPLE = os.path.join(TEST_DIR, "uisample.py")
@@ -72,7 +73,7 @@ def _snapshot(*dirs):
     return out
 
 
-class UiSampleTest(unittest.TestCase):
+class UiSampleTest(wincompat.SlashEqual, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         shutil.rmtree(BASE, ignore_errors=True)

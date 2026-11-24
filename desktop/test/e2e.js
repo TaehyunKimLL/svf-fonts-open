@@ -13,6 +13,10 @@ const electron = require('electron');
 const { app, BrowserWindow, session } = electron;
 
 const TMP = process.env.TMP_DIR || os.tmpdir();
+// Windows (t_9b8f56f0): no `sh` stub in front of the sidecar (the canary stderr pin runs on POSIX only), directory links are
+// junctions (no privilege needed), the development interpreter is `python`
+const WIN = process.platform === 'win32';
+const DIRLINK = WIN ? 'junction' : undefined;
 const REPO = path.join(__dirname, '..', '..');
 const results = { pass: 0, fail: 0 };
 const dialogQueue = [];
@@ -30,6 +34,7 @@ const { resolveLaunch } = require('../lib/paths.js');
 function wrappedLaunch(opts, ud) {
   const base = resolveLaunch({ resourcesPath: opts.resourcesPath || process.resourcesPath, appDir: path.join(__dirname, '..'),
     env: opts.env, pid: process.pid, userData: ud });
+  if (WIN) return base;
   const script = 'echo "test-stderr: ' + CANARY_DIR + ' $SVF_MAKER_TOKEN" >&2; exec "$@"';
   return Object.assign({}, base, { cmd: 'sh', args: ['-c', script, 'sh', base.cmd].concat(base.args) });
 }
@@ -102,7 +107,7 @@ async function pass(name, opts) {
   const outC = mkdir(name, 'realparent', 'outC'), outD = mkdir(name, 'outD');
   // the dialog hands out a path through a symlinked parent (the server refuses a symlink as the folder itself)
   const outCLink = path.join(TMP, name, 'linkparent', 'outC');
-  fs.symlinkSync(path.join(TMP, name, 'realparent'), path.join(TMP, name, 'linkparent'));
+  fs.symlinkSync(path.join(TMP, name, 'realparent'), path.join(TMP, name, 'linkparent'), DIRLINK);
   for (const d of [tmpA, tmpB]) fs.copyFileSync(path.join(REPO, 'ttf', 'neodgm', 'neodgm.ttf'), path.join(d, 'neodgm.ttf'));
   const T = (n) => name + ': ' + n;
   let jobA = null, jobB = null, jobC = null;
@@ -120,7 +125,7 @@ async function pass(name, opts) {
   await step(T('bridge'), async () => {
     const t = await run(handle, `return ['pickFiles', 'pickFolder', 'pickOutputDir', 'openOutputFolder'].map((k) => typeof window.svfMaker[k])
       .concat([window.svfMaker.platform, typeof window.require, typeof window.ipcRenderer]);`);
-    assert.deepEqual(t, ['function', 'function', 'function', 'function', 'linux', 'undefined', 'undefined']);
+    assert.deepEqual(t, ['function', 'function', 'function', 'function', process.platform, 'undefined', 'undefined']);
   });
   await step(T('header'), async () => {
     const t = await run(handle, `return [(await fetch('/api/caps')).status,
@@ -163,7 +168,7 @@ async function pass(name, opts) {
     const realTmp = fs.realpathSync(TMP);
     const bareTmp = path.join(path.sep, 'tmp');
     assert.ok(realTmp !== bareTmp && !realTmp.startsWith(bareTmp + path.sep), 'TMP must not be under ' + bareTmp + ': ' + realTmp);
-    const PY = process.env.SVF_E2E_PYTHON || 'python3';
+    const PY = process.env.SVF_E2E_PYTHON || (WIN ? 'python' : 'python3');
     const helper = path.join(REPO, 'maker', 'test', 'uisample.py');
     const sampleDir = path.join(TMP, name, 'sample');
     try {                                                          // (the body keeps its indentation; see the finally)
@@ -441,12 +446,16 @@ async function pass(name, opts) {
       path.join(TMP, name, 'sample'), path.join(REPO, 'ttf')]) assert.ok(!text.includes(d), 'log has ' + d);
     assert.ok(!text.includes('/api/jobs/'));
     // the positive pin: the stub's stderr line (a path with spaces, a token) is in the log, redacted, for both sidecars
-    const lines = text.split('\n').filter((l) => l.includes('sidecar stderr:'));
-    assert.ok(lines.length >= 2, 'expected the redacted stderr line of both sidecars, got ' + lines.length);
-    for (const l of lines) assert.match(l, /sidecar stderr: test-stderr: <path>$/);
+    // (POSIX only: Windows runs the sidecar without the `sh` stub)
+    if (!WIN) {
+      const lines = text.split('\n').filter((l) => l.includes('sidecar stderr:'));
+      assert.ok(lines.length >= 2, 'expected the redacted stderr line of both sidecars, got ' + lines.length);
+      for (const l of lines) assert.match(l, /sidecar stderr: test-stderr: <path>$/);
+    }
     for (const frag of ['Secret', 'My Fonts', 'canary']) assert.ok(!text.includes(frag), 'log has ' + frag);
     assert.match(text, /pick-folder: 1/);
-    assert.match(text, /sandbox renderer sandbox: off \(--no-sandbox; user namespaces \w+\)/);
+    if (WIN) assert.match(text, /sandbox renderer sandbox: (on|off)/);
+    else assert.match(text, /sandbox renderer sandbox: off \(--no-sandbox; user namespaces \w+\)/);
     assert.match(text, /restart allowed/);
     assert.match(text, /stopped \d+ sidecar\(s\) in \d+ ms/);
   });
@@ -461,7 +470,9 @@ async function pass(name, opts) {
 async function loadFailureCase() {
   const dir = mkdir('loadfail');
   const ud = mkdir('loadfail', 'ud');
-  const launch = { mode: 'dev', cmd: 'sh', args: ['-c', 'echo "svf-maker listening on 127.0.0.1:1"; exec sleep 300'], repo: REPO, data: path.join(dir, 'data') };
+  const launch = WIN
+    ? { mode: 'dev', cmd: 'python', args: ['-c', "print('svf-maker listening on 127.0.0.1:1', flush=True); import time; time.sleep(300)"], repo: REPO, data: path.join(dir, 'data') }
+    : { mode: 'dev', cmd: 'sh', args: ['-c', 'echo "svf-maker listening on 127.0.0.1:1"; exec sleep 300'], repo: REPO, data: path.join(dir, 'data') };
   let fatal = 0;
   const boxes = messageBoxes.length;
   let pid = 0;
@@ -488,8 +499,8 @@ app.whenReady().then(async () => {
     const res = mkdir('res');
     for (const n of ['sidecar', 'repo']) { try { fs.rmSync(path.join(res, n), { recursive: true, force: true }); } catch (e) { /* none */ } }
     fs.mkdirSync(path.join(res, 'sidecar'), { recursive: true });
-    fs.symlinkSync(path.dirname(process.env.SVF_MAKER_SIDECAR), path.join(res, 'sidecar', 'svf-maker-sidecar'));
-    fs.symlinkSync(process.env.SVF_MAKER_STAGED_REPO, path.join(res, 'repo'));
+    fs.symlinkSync(path.dirname(process.env.SVF_MAKER_SIDECAR), path.join(res, 'sidecar', 'svf-maker-sidecar'), DIRLINK);
+    fs.symlinkSync(process.env.SVF_MAKER_STAGED_REPO, path.join(res, 'repo'), DIRLINK);
     await pass('packaged', { resourcesPath: res, env: base });
   }
   } finally { cleanupSamples(); }

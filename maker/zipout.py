@@ -769,7 +769,7 @@ def _archive(job_dir, job_id, entries, sidecar, result):
                 info = zipfile.ZipInfo(name, ZIP_TIME)
                 info.compress_type = zipfile.ZIP_DEFLATED
                 z.writestr(info, data)
-        os.replace(tmp, final)
+        oscompat.replace(tmp, final)
     except BaseException:
         try:
             os.remove(tmp)

@@ -29,6 +29,7 @@ import toolrun
 import inputfx
 from sources import Sources
 from test_routes import FONT_COMPOSITE, FONT_DOS, FONT_JOHAB, FONT_KSC, FONT_TTF
+import wincompat
 
 ROOT = None
 FONTS = []
@@ -598,6 +599,7 @@ class RunReadyTest(unittest.TestCase):
                       settings.run_ready(FONTS, self.only("nanum/NanumGothic-Bold.ttf",
                                                           licence={"kind": "repo", "path": "dos/NEODGM.TXT"},
                                                           licence_name="OFLNANUM.TXT"), self.idx, ROOT))
+    @wincompat.posix_only("a mode-000 folder (Windows has no read permission bit chmod can clear)")
     def test_a_destination_the_walk_could_not_read_is_refused(self):
         """F6: an unreadable destination folder fails at `POST run`, not at `write_zip`."""
         svf = tempfile.mkdtemp(prefix="svf-unlisted-")
@@ -631,6 +633,7 @@ class RunReadyTest(unittest.TestCase):
         with self.assertRaises(TypeError) as cm:
             settings.run_ready(FONTS, s, self.idx, None)
         self.assertEqual(str(cm.exception), "run_ready needs upload_dir")
+    @wincompat.posix_only("/dev/zero and SIGALRM")
     def test_an_upload_licence_outside_the_batch_is_never_opened(self):
         """G1: a path `validate` refused is not hashed; `/dev/zero` must not hang the request."""
         nan = fid("nanum/NanumGothic-Bold.ttf")

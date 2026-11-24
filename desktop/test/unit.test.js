@@ -27,12 +27,13 @@ test('parsePortLine', () => {
 
 test('isOurs', () => {
   const { isOurs } = lib('guard.js');
-  const o = 'http://127.0.0.1:4000', s = 'file:///app/starting.html';
+  const root = process.platform === 'win32' ? 'file:///C:' : 'file://';       // a file URL is a drive path on Windows
+  const o = 'http://127.0.0.1:4000', s = root + '/app/starting.html';
   const opts = { startingUrl: s, devtools: false };
   for (const url of [o + '/', o + '/api/caps', s]) assert.equal(isOurs(o, url, opts), true, url);
   assert.equal(isOurs(o, 'data:,', opts), false, 'data: is never a navigation');                   // top-level: refused
   assert.equal(isOurs(o, 'data:,', { ...opts, subresource: true }), true);                       // the favicon request
-  assert.equal(isOurs(o, 'file:///a%20b/starting.html', { startingUrl: 'file:///a b/starting.html' }), true);
+  assert.equal(isOurs(o, root + '/a%20b/starting.html', { startingUrl: root + '/a b/starting.html' }), true);
   for (const url of ['http://127.0.0.1:4001/', 'http://localhost:4000/', o, 'http://127.0.0.1:4000.evil/',
     'file:///etc/passwd', 'devtools://devtools/x']) assert.equal(isOurs(o, url, opts), false, url);
   assert.equal(isOurs(o, 'devtools://devtools/x', { startingUrl: s, devtools: true }), true);
@@ -54,12 +55,16 @@ test('withToken', () => {
 });
 
 test('buildEnv', () => {
-  const { buildEnv, ENV_KEYS, PASS_KEYS } = lib('env.js');
+  const { buildEnv, ENV_KEYS, PASS_KEYS, WINDOWS_KEYS } = lib('env.js');
   const parent = { ...process.env, SVF_MAKER_TOKEN: 'decoy', PYTHONPATH: '/x', SVF_RECOG_PYTHON: '/py',
     JAMOSET_MASK_FONT: '/f.ttf' };
   delete parent.JAMOSET_PYLIB;
-  const { env, token } = buildEnv(parent, { repo: '/r', data: '/d' });
+  const { env, token } = buildEnv(parent, { repo: '/r', data: '/d' }, 'linux');
   for (const k of Object.keys(env)) assert.ok(ENV_KEYS.includes(k), k);
+  // Windows: the interpreter's own keys pass too (SYSTEMROOT and the temp folders), PYTHONUTF8=1 is added, nothing else
+  const w = buildEnv({ ...parent, SYSTEMROOT: 'C:\\Windows', TEMP: 'C:\\T', PYTHONHOME: 'C:\\x' }, { repo: '/r', data: '/d' }, 'win32').env;
+  for (const k of Object.keys(w)) assert.ok(ENV_KEYS.includes(k) || WINDOWS_KEYS.includes(k), k);
+  assert.deepEqual([w.SYSTEMROOT, w.TEMP, w.PYTHONUTF8, w.PYTHONHOME, w.PYTHONPATH], ['C:\\Windows', 'C:\\T', '1', undefined, undefined]);
   assert.match(token, /^[0-9a-f]{32}$/);
   assert.notEqual(token, 'decoy');
   assert.equal(env.SVF_MAKER_TOKEN, token);
@@ -92,20 +97,23 @@ test('budget derives from the server', () => {
 
 test('stopSidecar', async () => {
   const { stopSidecar } = lib('shutdown.js');
-  const code = "process.on('SIGTERM',()=>process.exit(0)); setInterval(()=>{},1e3)";
-  const a = spawn(process.execPath, ['-e', code], { detached: true, stdio: 'ignore' });
+  // Windows: the clean stop is the end of stdin (the sidecar's --stop-on-eof), the escalation TerminateProcess
+  const win = process.platform === 'win32';
+  const code = win ? "process.stdin.on('end',()=>process.exit(0)); process.stdin.resume(); setInterval(()=>{},1e3)"
+    : "process.on('SIGTERM',()=>process.exit(0)); setInterval(()=>{},1e3)";
+  const a = spawn(process.execPath, ['-e', code], { detached: true, stdio: [win ? 'pipe' : 'ignore', 'ignore', 'ignore'] });
   await new Promise((r) => setTimeout(r, 300));
   const t0 = Date.now();
   const res = await stopSidecar(a, { termWaitS: 5, killWaitS: 2 });
   assert.equal(res.code, 0);
   assert.equal(res.escalated, false);
   assert.ok(Date.now() - t0 < 2500);
-  const stubborn = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{}); setInterval(()=>{},1e3)"],
-    { detached: true, stdio: 'ignore' });
+  const stubborn = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{}); process.stdin.resume(); setInterval(()=>{},1e3)"],
+    { detached: true, stdio: [win ? 'pipe' : 'ignore', 'ignore', 'ignore'] });
   await new Promise((r) => setTimeout(r, 300));
   const res2 = await stopSidecar(stubborn, { termWaitS: 0.3, killWaitS: 3 });
   assert.equal(res2.escalated, true);
-  assert.equal(res2.signal, 'SIGKILL');
+  assert.equal(res2.signal, 'SIGKILL');                 // node reports TerminateProcess as the signal it was asked for
   const t1 = Date.now();
   const res3 = await stopSidecar(a, { termWaitS: 5, killWaitS: 2 });          // already exited
   assert.ok(Date.now() - t1 < 200);
@@ -129,11 +137,15 @@ test('readSandbox / sandboxText', () => {
     'renderer sandbox: off (--no-sandbox; user namespaces unavailable)');
   assert.equal(sandboxText({ seccomp: 2 }, { noSandboxSwitch: false, userns: 'available' }), 'renderer sandbox: on');
   assert.equal(sandboxText(null, { noSandboxSwitch: false, userns: 'unknown' }), 'renderer sandbox: unknown');
+  const { metricSandboxText } = lib('sandbox.js');
+  assert.equal(metricSandboxText({ pid: 1, sandboxed: true }, { noSandboxSwitch: false }), 'renderer sandbox: on');
+  assert.equal(metricSandboxText({ pid: 1, sandboxed: false }, { noSandboxSwitch: true }), 'renderer sandbox: off (--no-sandbox)');
+  assert.equal(metricSandboxText(undefined, { noSandboxSwitch: false }), 'renderer sandbox: unknown');
 });
 
 test('resolveLaunch', () => {
   const { resolveLaunch } = lib('paths.js');
-  const base = { resourcesPath: '/res', appDir: '/co/desktop', env: {}, pid: 42, userData: '/ud' };
+  const base = { resourcesPath: '/res', appDir: '/co/desktop', env: {}, pid: 42, userData: '/ud', platform: 'linux' };
   const packaged = resolveLaunch({ ...base, exists: (p) => p === '/res/sidecar/svf-maker-sidecar/svf-maker-sidecar' });
   assert.deepEqual(packaged, { mode: 'packaged', cmd: '/res/sidecar/svf-maker-sidecar/svf-maker-sidecar',
     args: ['serve', '--exit-with-parent=42'], repo: '/res/repo', data: '/ud/maker' });
@@ -143,6 +155,14 @@ test('resolveLaunch', () => {
   const forced = resolveLaunch({ ...base, env: { SVF_MAKER_DEV: '1', SVF_MAKER_DEV_REPO: '/other' }, exists: () => true });
   assert.equal(forced.mode, 'dev');
   assert.equal(forced.repo, '/other');
+  // Windows: the .exe, `python`, and --stop-on-eof (the shell's clean stop is the end of stdin)
+  const wbase = { resourcesPath: 'C:\\res', appDir: 'C:\\co\\desktop', env: {}, pid: 42, userData: 'C:\\ud', platform: 'win32' };
+  const wpack = resolveLaunch({ ...wbase, exists: (p) => p === 'C:\\res\\sidecar\\svf-maker-sidecar\\svf-maker-sidecar.exe' });
+  assert.deepEqual(wpack, { mode: 'packaged', cmd: 'C:\\res\\sidecar\\svf-maker-sidecar\\svf-maker-sidecar.exe',
+    args: ['serve', '--exit-with-parent=42', '--stop-on-eof'], repo: 'C:\\res\\repo', data: 'C:\\ud\\maker' });
+  const wdev = resolveLaunch({ ...wbase, exists: () => false });
+  assert.deepEqual(wdev, { mode: 'dev', cmd: 'python', args: ['-P', 'C:\\co\\maker\\server.py', '--exit-with-parent=42', '--stop-on-eof'],
+    repo: 'C:\\co', data: 'C:\\ud\\maker-dev' });
 });
 
 test('log rotation, redaction, ring', (t) => {
@@ -244,10 +264,17 @@ function supervisorFor(t, stubFile, extra = {}) {
   const sup = createSupervisor({ launch, parentEnv: { PATH: process.env.PATH, HOME: process.env.HOME }, log, handshakeS: 30,
     termWaitS: 0.4, killWaitS: 3, busyRetryS: 0, ...extra });
   sup.logText = () => fs.readFileSync(log.path, 'utf8');
-  t.after(async () => { for (const c of sup.children) { try { process.kill(-c.pid, 'SIGKILL'); } catch (e) { /* gone */ } } });
+  t.after(async () => {
+    for (const c of sup.children) {
+      try { if (process.platform === 'win32') c.kill('SIGKILL'); else process.kill(-c.pid, 'SIGKILL'); } catch (e) { /* gone */ }
+    }
+  });
   return sup;
 }
 const alive = (pid) => {
+  if (process.platform === 'win32') {                   // no /proc: signal 0 asks whether the process exists
+    try { process.kill(pid, 0); return true; } catch (e) { return false; }
+  }
   try {
     const st = fs.readFileSync('/proc/' + pid + '/stat', 'utf8');
     const state = st.slice(st.lastIndexOf(')') + 2).split(' ')[0];
@@ -333,7 +360,9 @@ test('supervisor: a command that cannot be spawned (ENOENT, EACCES) fails cleanl
   const dir = tmpDir(t);
   const noexec = path.join(dir, 'not-executable');
   fs.writeFileSync(noexec, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
-  for (const [cmd, code] of [[path.join(dir, 'missing'), 'ENOENT'], [noexec, 'EACCES']]) {
+  // a file without the execute bit (EACCES) is POSIX only: Windows has no such bit
+  const cases = [[path.join(dir, 'missing'), 'ENOENT']].concat(process.platform === 'win32' ? [] : [[noexec, 'EACCES']]);
+  for (const [cmd, code] of cases) {
     const { createSupervisor } = lib('supervisor.js');
     const { createLog } = lib('log.js');
     const log = createLog({ dir: tmpDir(t), toStderr: false });

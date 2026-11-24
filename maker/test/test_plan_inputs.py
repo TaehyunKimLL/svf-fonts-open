@@ -35,6 +35,7 @@ import settings
 import toolrun
 import zipout
 from inputkinds import fid_of, select
+import wincompat
 
 BOX1 = (50, 0, 950, 800)
 BOX2 = (300, 0, 700, 400)
@@ -45,7 +46,7 @@ def ga(zip_path):
     return inputkinds.zip_face(zip_path).glyphs[0xAC00]
 
 
-class Case(unittest.TestCase):
+class Case(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="plan-inputs-")
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
@@ -67,7 +68,7 @@ class Case(unittest.TestCase):
         return job["steps"]
 
 
-class SourceCommandsTest(unittest.TestCase):
+class SourceCommandsTest(wincompat.SlashEqual, unittest.TestCase):
     def test_ops_chain_through_numbered_files(self):
         argvs, out = routes.source_commands([{"op": "rsrc-sfnt", "id": 128}, {"op": "mac-cmap"}], "/u/F.dfont", "/w", "/T")
         self.assertEqual(argvs, [toolrun.tool("macsfnt", "/T") + ["extract", "/u/F.dfont", "/w/source-1.ttf", "--id", "128"],
@@ -708,7 +709,7 @@ class FaceArgvTest(Case):
                           toolrun.tool("svf2to3", "/T") + ["/w/mkfont.tmp", "/w/O.SVF", "--profile", "default"]])
 
 
-class ProbeArgvTest(unittest.TestCase):
+class ProbeArgvTest(wincompat.SlashEqual, unittest.TestCase):
     MKFONT = toolrun.tool("mkfont", "/T") + ["/u/in.ttf", "/w/OUT.SVF"]
 
     def probe(self, flags, size=16):
@@ -834,7 +835,7 @@ class NamedRangeTest(Case):
         self.assertNotEqual(plain.ascent, latin.ascent)
 
 
-class ZipoutSourceTitleTest(unittest.TestCase):
+class ZipoutSourceTitleTest(wincompat.SlashEqual, unittest.TestCase):
     def test_source_step_title(self):
         self.assertEqual(zipout._step_title({"id": "s01", "font": "f02", "kind": "source"}), "## s01 f02 source")
 

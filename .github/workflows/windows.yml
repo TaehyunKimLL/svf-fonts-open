@@ -89,13 +89,17 @@ jobs:
       - name: Desktop unit tests
         id: unit
         continue-on-error: true
+        timeout-minutes: 10
         working-directory: desktop
         run: node --test test/unit.test.js test/third-party.test.js
       - name: Build the sidecar (frozen test included)
+        timeout-minutes: 30
         env:
           SVF_DESKTOP_TMP: ${{ runner.temp }}\sdb
         run: python desktop/build/build-sidecar-win.py
       - name: THIRD-PARTY.txt (fail closed)
+        id: notices
+        continue-on-error: true
         env:
           SVF_DESKTOP_TMP: ${{ runner.temp }}\sdb
         run: |
@@ -105,11 +109,27 @@ jobs:
             --pysite "$env:SVF_DESKTOP_TMP\pysite" --repo desktop/build/out/repo --meta . --python-licence $lic `
             --out desktop/build/out/THIRD-PARTY.txt
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Desktop e2e (development pass, then the packaged sidecar)
+        id: e2e
+        continue-on-error: true
+        timeout-minutes: 25
+        working-directory: desktop
+        env:
+          TMP_DIR: ${{ runner.temp }}\e2e
+          SVF_MAKER_SIDECAR: ${{ github.workspace }}\desktop\build\out\sidecar\svf-maker-sidecar\svf-maker-sidecar.exe
+          SVF_MAKER_STAGED_REPO: ${{ github.workspace }}\desktop\build\out\repo
+        run: |
+          New-Item -ItemType Directory -Force $env:TMP_DIR | Out-Null
+          $env:TMPDIR = $env:TMP_DIR
+          & node_modules\electron\dist\electron.exe --disable-gpu "--user-data-dir=$env:TMP_DIR\e2e-base" test/e2e.js 2>&1 | Out-Host
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Installer and portable (electron-builder, unsigned)
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
+          # a failed notices step leaves a placeholder only so the later stages still run; the gate below fails the run
+          if (-not (Test-Path ../desktop/build/out/THIRD-PARTY.txt)) { "placeholder: THIRD-PARTY generation failed" | Out-File build/out/THIRD-PARTY.txt }
           npx electron-builder --win nsis portable --x64 --publish never
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem dist -File | Format-Table Name, Length
@@ -127,5 +147,5 @@ jobs:
       - name: Suites passed
         if: always()
         run: |
-          echo "maker=${{ steps.maker.outcome }} tools=${{ steps.tools.outcome }} unit=${{ steps.unit.outcome }}"
-          if ("${{ steps.maker.outcome }}" -ne "success" -or "${{ steps.tools.outcome }}" -ne "success" -or "${{ steps.unit.outcome }}" -ne "success") { exit 1 }
+          echo "maker=${{ steps.maker.outcome }} tools=${{ steps.tools.outcome }} unit=${{ steps.unit.outcome }} e2e=${{ steps.e2e.outcome }} notices=${{ steps.notices.outcome }}"
+          if ("${{ steps.maker.outcome }}" -ne "success" -or "${{ steps.tools.outcome }}" -ne "success" -or "${{ steps.unit.outcome }}" -ne "success" -or "${{ steps.e2e.outcome }}" -ne "success" -or "${{ steps.notices.outcome }}" -ne "success") { exit 1 }

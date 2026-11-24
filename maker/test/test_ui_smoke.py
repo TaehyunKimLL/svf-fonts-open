@@ -25,6 +25,7 @@ import e2efx
 import inputkinds
 import jamoset
 from test_page_dom import browser
+import wincompat
 
 DRIVER = os.path.join(TEST_DIR, "pagedrive.mjs")
 PAGE_S = 90          # the page script's one deadline for every step
@@ -119,13 +120,13 @@ class UploadPageSmokeTest(unittest.TestCase):
         with open(script, "w") as fh:
             fh.write(PAGE_SCRIPT % {"page_ms": PAGE_S * 1000})
         env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WATCHDOG_S))
-        proc = subprocess.Popen(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/" % self.server.port, script,
-                                 "--files", "#files=" + self.zip_in],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True, env=env)
+        proc = wincompat.popen_group(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/" % self.server.port, script,
+                                      "--files", "#files=" + self.zip_in],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         try:
             stdout, stderr = proc.communicate(timeout=KILL_S)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            wincompat.kill_group(proc)
             proc.communicate()
             self.fail("the page driver timed out after %d s" % KILL_S)
         self.assertEqual(proc.returncode, 0, stderr)

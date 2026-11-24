@@ -25,6 +25,7 @@ import detect
 import fixtures
 import jamoset
 import routes
+import wincompat
 
 ROOT = None
 F = {}
@@ -1192,6 +1193,7 @@ class Task4FixOneTest(FixtureCase):
 
     # item 4: one unreadable file must not crash the scan
 
+    @wincompat.posix_only("a mode-000 file (Windows has no read permission bit chmod can clear)")
     def test_an_unreadable_file_does_not_crash_the_scan(self):
         with tempfile.TemporaryDirectory() as d:
             shutil.copyfile(F["ttf"], os.path.join(d, "font.ttf"))

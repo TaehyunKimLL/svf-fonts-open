@@ -26,6 +26,7 @@ import routes
 import settings
 import test_hwpfont as fx
 from sources import Sources
+import wincompat
 
 
 def ks_raw(px=24):
@@ -55,7 +56,7 @@ FILES = {
 }
 
 
-class Tree(unittest.TestCase):
+class Tree(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self.root = os.path.realpath(tempfile.mkdtemp(prefix="svf-hwp-"))
         self.addCleanup(shutil.rmtree, self.root, True)

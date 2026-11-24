@@ -30,6 +30,7 @@ Only fontTools is needed (no FreeType, no numpy). It is looked up like jamofit's
 $JAMOSET_PYLIB may name the directory that holds it.
 """
 
+import io
 import math
 import os
 import sys
@@ -197,7 +198,9 @@ class OutlineFace:
     def __init__(self, path, size, pylib=None, font_number=0):
         ft = load_fonttools(pylib)
         try:
-            self.font = ft.ttLib.TTFont(path, fontNumber=font_number, lazy=True)
+            with open(path, "rb") as fh:                # read whole: a lazy TTFont on a path keeps the file open for
+                data = io.BytesIO(fh.read())            # the face's life (Windows could not remove or replace it)
+            self.font = ft.ttLib.TTFont(data, fontNumber=font_number, lazy=True)
             self.cmap = self.font.getBestCmap() or {}
             self.glyphs = self.font.getGlyphSet()
         except Exception as e:

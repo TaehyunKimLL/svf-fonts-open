@@ -24,6 +24,7 @@ import fixtures
 import inputfx
 import routes
 from sources import Sources
+import wincompat
 
 BOX1 = (50, 0, 950, 800)
 BOX2 = (300, 0, 700, 400)
@@ -712,6 +713,7 @@ class SourcesScanTest(DirCase):
                 base = Sources("local", roots).roots[l["root"]]
                 self.assertTrue(os.path.isfile(os.path.join(base, l["path"])), (roots, l))
 
+    @wincompat.posix_only("a mode-000 folder (Windows has no read permission bit chmod can clear)")
     def test_unreadable_folder_is_an_other_entry(self):
         if os.geteuid() == 0:
             self.skipTest("root reads every folder")

@@ -35,6 +35,7 @@ import toolrun
 import sources
 import zipout
 from sources import Sources
+import wincompat
 
 # The hand-built job dir and job; `setUp` fills them so every test starts from the same state.
 JOB = JD = IDX = FONTS = EFF = REPO = None
@@ -298,6 +299,20 @@ class WriteTreeTest(unittest.TestCase):
                 self.tree({"svf/dos/X.SVF": b"again"}, {})
         self.assertEqual(_read(os.path.join(self.out, "svf/dos/X.SVF")), b"mine")
 
+    def held_rename_is_refused(self, entries, sidecar, rename):
+        """Windows: the output tree holds every folder it writes through (oscompat.hold_dir), so @p rename, tried after
+        the first landing, is refused with PermissionError and the write lands everything."""
+        tried = []
+
+        def note(rel, sha):
+            tried.append(rel)
+            if len(tried) == 1:
+                with self.assertRaises(PermissionError):
+                    rename()
+        landed = zipout.write_tree(self.job, entries, sidecar, self.out, self.oid, {}, note)
+        self.assertEqual(sorted(landed), sorted(list(entries) + ["build-%s/%s" % (self.job["id"], n) for n, _ in sidecar]))
+
+    @wincompat.posix_only("permission bits (Windows has no mode bits)")
     def test_directories_it_makes_are_readable_files_are_mode_644(self):
         old = os.umask(0o077)
         try:
@@ -309,6 +324,7 @@ class WriteTreeTest(unittest.TestCase):
         self.assertEqual(os.stat(os.path.join(self.out, "svf/dos/X.SVF")).st_mode & 0o777, 0o644)
         self.assertEqual(os.stat(self.out).st_mode & 0o777, os.stat(self._tmp.name).st_mode & 0o777)
 
+    @wincompat.posix_only("fchmod (Windows has no mode bits and no os.fchmod)")
     def test_a_chmod_that_is_refused_does_not_fail_the_write(self):
         import errno
         with mock.patch("os.fchmod", side_effect=OSError(errno.EPERM, "fat")):
@@ -328,9 +344,13 @@ class WriteTreeTest(unittest.TestCase):
         with mock.patch("os.chmod") as chmod, mock.patch("os.link", link):
             self.tree({"svf/dos/X.SVF": b"mine"}, {}, [("BUILD.md", b"b")])
         chmod.assert_not_called()
-        self.assertEqual(seen, [False])
+        self.assertEqual(seen, [None] if wincompat.WIN else [False])   # Windows: CreateHardLink of our own temp file
 
     def test_svf_renamed_away_between_two_landings_stops_the_write(self):
+        if wincompat.WIN:
+            return self.held_rename_is_refused(
+                {"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b", "svf/dos/C.SVF": b"c"}, [],
+                lambda: os.rename(os.path.join(self.out, "svf"), os.path.join(self.out, "svf.moved")))
         landed = []
 
         def swap(rel, sha):
@@ -348,6 +368,12 @@ class WriteTreeTest(unittest.TestCase):
     def test_dest_swapped_for_a_symlink_between_two_landings_stops_the_write(self):
         elsewhere = tempfile.mkdtemp(prefix="svf-elsewhere-")
         self.addCleanup(shutil.rmtree, elsewhere, ignore_errors=True)
+        if wincompat.WIN:
+            self.held_rename_is_refused(
+                {"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b"}, [],
+                lambda: os.rename(os.path.join(self.out, "svf", "dos"), os.path.join(self.out, "svf", "dos.moved")))
+            self.assertEqual(os.listdir(elsewhere), [])
+            return
         landed = []
 
         def swap(rel, sha):
@@ -386,6 +412,10 @@ class WriteTreeTest(unittest.TestCase):
         except sources.OutputGone:
             pass
         t.join(10)
+        if wincompat.WIN:                                 # the held folder could not be renamed: everything landed
+            self.assertFalse(os.path.exists(moved))
+            self.assertEqual(sorted(landed), sorted(files))
+            return
         self.assertTrue(os.path.isdir(moved))
         # every file in the swapped-away folder was reported as landed: later ones were unlinked, not left behind
         self.assertLessEqual({"svf/dos/" + n for n in os.listdir(moved)}, set(landed))
@@ -426,6 +456,9 @@ class WriteTreeTest(unittest.TestCase):
         self.assertEqual(_read(os.path.join(elsewhere, "target")), b"")
 
     def test_the_output_folder_replaced_between_two_files_stops_the_write(self):
+        if wincompat.WIN:
+            return self.held_rename_is_refused({"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b"}, [],
+                                               lambda: os.rename(self.out, self.out + ".moved"))
         landed = []
 
         def swap(rel, sha):
@@ -441,6 +474,9 @@ class WriteTreeTest(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(os.path.join(self.out + ".moved", "svf", "dos"))), ["A.SVF"])
 
     def test_the_output_folder_removed_between_two_files_is_not_re_made(self):
+        if wincompat.WIN:
+            return self.held_rename_is_refused({"svf/dos/A.SVF": b"a", "svf/dos/B.SVF": b"b"}, [("BUILD.md", b"x")],
+                                               lambda: os.rename(self.out, self.out + ".gone"))
         landed = []
 
         def remove(rel, sha):

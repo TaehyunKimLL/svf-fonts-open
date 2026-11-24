@@ -10,7 +10,9 @@ and `killpg`, `flock`, `O_NOFOLLOW`, `S_ISLNK`), so POSIX behaviour does not cha
   on Windows is immediate (no grace period). A job that cannot be created or assigned is refused (the tool is killed and
   `OSError` raised): a tool never runs without its tree kill. When the sidecar dies its job handles close and the kernel
   kills every tool (the Windows counterpart of PR_SET_PDEATHSIG).
-- **Locks.** `msvcrt.locking` on byte 0 of the lock file (per handle, like `flock` per open file description).
+- **Locks.** `msvcrt.locking` of one byte far past the lock file's end (per handle, like `flock` per open file
+  description; past the end, so the file itself stays readable). A sharing conflict on a replace or a read
+  (`retry_sharing`) is retried briefly: Windows refuses to replace a file another thread has open.
 - **Links.** A link is a symlink **or any name-surrogate reparse point** (a junction, a volume mount point): `lstat`
   reports a junction as a plain directory, so `S_ISLNK` alone would miss it.
 - **No-follow opens.** Windows has no `O_NOFOLLOW`: an existing file is `lstat`ed (refused when it is a link), opened,
@@ -98,6 +100,33 @@ def open_nofollow(path, flags, mode=0o777, dir_fd=None):
     return fd
 
 
+# ---- sharing retries ----------------------------------------------------------------------------------------------
+
+SHARING_RETRY_S = 2.0
+_SHARING_WINERRORS = (5, 32, 33)             # ERROR_ACCESS_DENIED (a delete pending), SHARING_VIOLATION, LOCK_VIOLATION
+
+
+def retry_sharing(fn, *args, **kwargs):
+    """`fn(*args, **kwargs)`. Windows: a `PermissionError` that is a sharing conflict (another thread or process has the
+    file open, or is replacing it, at this moment: a reader of job.json while the worker writes it) is retried for up to
+    `SHARING_RETRY_S` seconds; POSIX has no such conflict and calls once."""
+    if not WINDOWS:
+        return fn(*args, **kwargs)
+    end = time.monotonic() + SHARING_RETRY_S
+    while True:
+        try:
+            return fn(*args, **kwargs)
+        except PermissionError as exc:
+            if getattr(exc, "winerror", None) not in _SHARING_WINERRORS or time.monotonic() >= end:
+                raise
+        time.sleep(0.01)
+
+
+def replace(src, dst):
+    """`os.replace(src, dst)`, retried on Windows while the target is open elsewhere (`retry_sharing`)."""
+    return retry_sharing(os.replace, src, dst)
+
+
 # ---- names ----------------------------------------------------------------------------------------------------------
 
 _DEVICE_NAMES = ({"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
@@ -117,16 +146,21 @@ def windows_unsafe_name(name):
 
 # ---- locks ----------------------------------------------------------------------------------------------------------
 
+# Windows byte-range locks are mandatory: a lock on byte 0 would make the (empty) lock file unreadable to everyone else,
+# so the locked byte lies far past its end (locking beyond the end of a file is allowed).
+_LOCK_OFFSET = 1 << 30
+
+
 def lock(fd, blocking=True):
-    """An exclusive lock on the open lock file @p fd (`flock`; Windows: `msvcrt.locking` of byte 0). Non-blocking:
-    `OSError` when another holder has it."""
+    """An exclusive lock on the open lock file @p fd (`flock`; Windows: `msvcrt.locking` of one byte at `_LOCK_OFFSET`).
+    Non-blocking: `OSError` when another holder has it."""
     if not WINDOWS:
         import fcntl
         fcntl.flock(fd, fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
         return
     import msvcrt
     while True:
-        os.lseek(fd, 0, os.SEEK_SET)
+        os.lseek(fd, _LOCK_OFFSET, os.SEEK_SET)
         try:
             msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
             return
@@ -143,7 +177,7 @@ def unlock(fd):
         fcntl.flock(fd, fcntl.LOCK_UN)
         return
     import msvcrt
-    os.lseek(fd, 0, os.SEEK_SET)
+    os.lseek(fd, _LOCK_OFFSET, os.SEEK_SET)
     msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 
@@ -193,6 +227,14 @@ if WINDOWS:
     _CreateFileW = _proto("CreateFileW", wintypes.HANDLE, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
     _NtResumeProcess = _proto("NtResumeProcess", ctypes.c_long, wintypes.HANDLE, dll=_ntdll)
+    class _ProcessEntry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                    ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                    ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+    _CreateToolhelp32Snapshot = _proto("CreateToolhelp32Snapshot", wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD)
+    _Process32FirstW = _proto("Process32FirstW", wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
+    _Process32NextW = _proto("Process32NextW", wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
     _GetFileInformationByHandleEx = _proto("GetFileInformationByHandleEx", wintypes.BOOL, wintypes.HANDLE, ctypes.c_int,
                                            wintypes.LPVOID, wintypes.DWORD)
 
@@ -287,13 +329,38 @@ def signal_group(proc, sig):
         raise _last_error("TerminateJobObject")
 
 
-def kill_registered(pid):
-    """Kill what a dead run registered under @p pid (its group id = its pid): POSIX `killpg(pid, SIGKILL)`. Windows:
-    `TerminateProcess` of that pid (its job died with the sidecar that held it, taking the tool's children with it).
-    `OSError` when it cannot be done."""
-    if not WINDOWS:
-        os.killpg(pid, signal.SIGKILL)
-        return
+def _descendants(pid):
+    """Windows: the pids below @p pid (children first found, deepest last), by the parent links of a process snapshot.
+    A child must have been created after its parent: a parent pid that was reused by an older process links nothing."""
+    snap = _CreateToolhelp32Snapshot(0x2, 0)               # TH32CS_SNAPPROCESS
+    if snap == _INVALID_HANDLE or not snap:
+        return []
+    children = {}
+    try:
+        entry = _ProcessEntry()
+        entry.dwSize = ctypes.sizeof(entry)
+        ok = _Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            children.setdefault(entry.th32ParentProcessID, []).append(entry.th32ProcessID)
+            ok = _Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        _CloseHandle(snap)
+    out, todo = [], [pid]
+    while todo:
+        parent = todo.pop()
+        born = process_start_time(parent)
+        for child in children.get(parent, ()):
+            if child in out or child == pid:
+                continue
+            started = process_start_time(child)
+            if born is None or started is None or int(started) < int(born):
+                continue
+            out.append(child)
+            todo.append(child)
+    return out
+
+
+def _terminate(pid):
     handle = _OpenProcess(_PROCESS_TERMINATE, False, pid)
     if not handle:
         raise _last_error("OpenProcess")
@@ -302,6 +369,22 @@ def kill_registered(pid):
             raise _last_error("TerminateProcess")
     finally:
         _CloseHandle(handle)
+
+
+def kill_registered(pid):
+    """Kill what a dead run registered under @p pid (its group id = its pid): POSIX `killpg(pid, SIGKILL)`. Windows:
+    `TerminateProcess` of that pid and of every process below it (by the snapshot's parent links; normally they died
+    with the dead sidecar's Job Objects already). `OSError` when the pid itself cannot be terminated."""
+    if not WINDOWS:
+        os.killpg(pid, signal.SIGKILL)
+        return
+    below = _descendants(pid)
+    _terminate(pid)
+    for child in below:
+        try:
+            _terminate(child)
+        except OSError:
+            pass
 
 
 def process_alive(pid):

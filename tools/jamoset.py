@@ -273,7 +273,7 @@ def open_hwp3_844(d, face=0, path=""):
 
 def open_bdf_glyphs(d, face=0, path=""):
     """A hanterm BDF whose ENCODING is the glyph number (johab-1); cells are the font's box."""
-    t = d.decode("latin-1")
+    t = d.decode("latin-1").replace("\r\n", "\n")                  # CRLF line ends (a BDF saved on Windows)
     if not t.startswith("STARTFONT"):
         raise SourceError("not a BDF")
     fb = re.search(r"FONTBOUNDINGBOX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", t)
@@ -292,7 +292,7 @@ def open_bdf_glyphs(d, face=0, path=""):
             raise SourceError("BDF glyph without ENCODING")
         enc = int(enc.group(1))
         bbx = re.search(r"^BBX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", block, re.M)
-        bm = re.search(r"^BITMAP[ \t]*\n(.*)", block, re.M | re.S)
+        bm = re.search(r"^BITMAP[ \t]*\r?\n(.*)", block, re.M | re.S)     # a BDF saved with CRLF line ends too
         if not bbx or not bm:
             raise SourceError(f"BDF glyph {enc} has no BBX or BITMAP")
         bw, bhh, bx, by = map(int, bbx.groups())

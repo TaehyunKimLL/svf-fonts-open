@@ -724,9 +724,11 @@ class Store:
 
     def load(self, job_id):
         """The job of @p job_id; `KeyError` when the id is not 12 hex digits or its `job.json` cannot be read."""
-        try:
+        def read():
             with open(os.path.join(self.path(job_id), "job.json"), encoding="utf-8") as f:
-                job = json.load(f)
+                return json.load(f)
+        try:
+            job = oscompat.retry_sharing(read)             # Windows: the worker may be replacing it this moment
         except (OSError, UnicodeDecodeError, ValueError):
             raise KeyError(job_id)
         if not isinstance(job, dict) or job.get("id") != job_id:
@@ -744,7 +746,7 @@ class Store:
         tmp = self.path(job["id"], "job.json.tmp")
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(job, f, indent=2, sort_keys=True, ensure_ascii=False)
-        os.replace(tmp, self.path(job["id"], "job.json"))
+        oscompat.replace(tmp, self.path(job["id"], "job.json"))
 
     def update(self, job_id, fn, timeout=None):
         """Load @p job_id, call `fn(job)`, save it and return it, all under the job's lock. With @p timeout (seconds) the
@@ -867,7 +869,7 @@ class Store:
     def _set_bad_aside(self, kind):
         bad = "%s.bad-%d" % (self._pending_path(), int(time.time()))
         try:
-            os.replace(self._pending_path(), bad)
+            oscompat.replace(self._pending_path(), bad)
             print("sweep: pending-sweeps.json is unreadable (%s); kept as %s" % (kind, os.path.basename(bad)),
                   file=sys.stderr)
         except OSError:
@@ -880,7 +882,7 @@ class Store:
             json.dump(entries, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, self._pending_path())
+        oscompat.replace(tmp, self._pending_path())
         try:
             fd = os.open(self.data_root, os.O_RDONLY)
             try:

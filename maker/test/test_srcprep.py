@@ -27,6 +27,7 @@ import macfx
 import srcprep
 from PIL import Image, ImageFont
 from fontTools.ttLib import TTFont
+import wincompat
 
 
 class TmpCase(unittest.TestCase):
@@ -327,6 +328,7 @@ class PcfTest(TmpCase):
             srcprep.pcf_to_bdf(pcf)
         self.assertLess(time.time() - t0, 5.0)
 
+    @wincompat.posix_only("the resource module (getrusage peak memory)")
     def test_many_small_glyphs_are_refused_before_their_rows_are_built(self):
         import resource
         import time

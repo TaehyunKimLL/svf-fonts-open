@@ -18,9 +18,10 @@ from unittest import mock
 
 import sources
 from sources import Sources
+import wincompat
 
 
-class SourcesTest(unittest.TestCase):
+class SourcesTest(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -70,6 +71,7 @@ class SourcesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             s.rel_of(self.tmp + "/elsewhere.txt")
 
+    @wincompat.posix_only("a FIFO (Windows has none; the junction case is test_oscompat)")
     def test_walk_skips_links_and_devices(self):
         root = os.path.join(self.tmp, "r")
         x = self.put("r/x.ttf")
@@ -175,6 +177,7 @@ class SourcesTest(unittest.TestCase):
         up = Sources("upload", [root])                            # an upload keeps today's rule
         self.assertEqual(up.abs_of(0, "alias.ttf"), os.path.join(root, "alias.ttf"))
 
+    @wincompat.posix_only("a mode-000 folder (Windows has no read permission bit chmod can clear)")
     def test_unreadable_subfolder_is_reported(self):
         if os.geteuid() == 0:
             self.skipTest("root reads every folder")

@@ -87,7 +87,7 @@ class Registry:
             f.write("".join(row + "\n" for row in rows))
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, self.path)
+        oscompat.replace(tmp, self.path)
 
     @staticmethod
     def _report(exc):

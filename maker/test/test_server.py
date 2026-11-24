@@ -50,6 +50,7 @@ import routes
 import server
 import settings
 import zipout
+import wincompat
 
 WAIT_S = 180
 
@@ -802,7 +803,7 @@ class ApiTest(ApiBase):
             job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done", job.get("error"))
         under_other = [os.path.join(d, n) for d, _, ns in os.walk(other) for n in ns]
-        self.assertTrue(any("/work/" in p for p in under_other))
+        self.assertTrue(any(os.sep + "work" + os.sep in p for p in under_other))
         jdir = os.path.join(self.data, "jobs", jid)
         self.assertEqual(sorted(os.listdir(jdir)), ["job.json", "log.md", "out", "upload", "work"])
         self.assertEqual([n for _, _, ns in os.walk(os.path.join(jdir, "work")) for n in ns], [])   # made empty, never used
@@ -1765,8 +1766,8 @@ class TwoServersTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, data, True)
         first = server.make_server("127.0.0.1", 0, fixtures.REPO_DIR, data)
         self.addCleanup(lambda: (first.worker.stop(), first.server_close()))
-        sleeper = subprocess.Popen(["sleep", "60"], start_new_session=True)
-        self.addCleanup(lambda: (os.killpg(sleeper.pid, 9), sleeper.wait()))
+        sleeper = wincompat.popen_group([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(lambda: (wincompat.kill_group(sleeper), sleeper.wait()))
         with open(os.path.join(data, "tools.pids"), "w") as f:
             f.write("%d %d %s sleep\n" % (sleeper.pid, sleeper.pid, toolreg.start_time(sleeper.pid)))
         with self.assertRaises(server.DataRootBusyError):
@@ -2093,32 +2094,31 @@ class RecogCapsTest(ApiBase):
         os.mkdir(self.recog)
         open(os.path.join(self.recog, "recog.py"), "w").close()
 
-    def stub(self, body):
-        path = os.path.join(self.tmp, "py-stub")
-        with open(path, "w") as f:
-            f.write("#!/bin/sh\n%s\n" % body)
-        os.chmod(path, 0o755)
-        return path
+    def stub(self, body, py_body):
+        """The interpreter stand-in: @p body for /bin/sh, @p py_body (Python) on Windows (wincompat.interpreter_stub)."""
+        return wincompat.interpreter_stub(os.path.join(self.tmp, "py-stub"), body, "import os, sys, time\n" + py_body)
 
     def compute(self, python, directory=None, **extra):
         environ = {"SVF_RECOG_PYTHON": python, "SVF_RECOG_DIR": directory or self.recog,
                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/h"}
+        if wincompat.WIN:                                      # what every Windows environment holds
+            environ["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
         environ.update(extra)
         return capsmod.compute(os.path.join(fixtures.REPO_DIR, "maker", "static"), environ)
 
     def test_external_interpreter_probe_ok(self):
-        stub = self.stub("exit 0")
+        stub = self.stub("exit 0", "sys.exit(0)")
         got = self.compute(stub)
         self.assertIs(got["recog"], True)
         self.assertEqual((got["recog_python"], got["recog_dir"]), (stub, self.recog))
 
     def test_external_interpreter_probe_fails(self):
-        got = self.compute(self.stub("exit 1"))
+        got = self.compute(self.stub("exit 1", "sys.exit(1)"))
         self.assertIs(got["recog"], False)
         self.assertIsNone(got["recog_python"])
 
     def test_external_interpreter_probe_times_out(self):
-        stub = self.stub("exec sleep 30")
+        stub = self.stub("exec sleep 30", "time.sleep(30)")
         started = time.monotonic()
         with mock.patch.object(capsmod, "RECOG_PROBE_S", 0.5):
             got = self.compute(stub)
@@ -2131,7 +2131,7 @@ class RecogCapsTest(ApiBase):
         toolreg.activate(reg)
         self.addCleanup(toolreg.deactivate, reg)
         seen = []
-        stub = self.stub("sleep 1")
+        stub = self.stub("sleep 1", "time.sleep(1)")
         t = threading.Thread(target=lambda: self.compute(stub))
         t.start()
         deadline = time.monotonic() + 5
@@ -2147,16 +2147,16 @@ class RecogCapsTest(ApiBase):
         self.assertEqual(open(reg.path).read().strip(), "")
 
     def test_relative_interpreter_is_rejected(self):
-        self.stub("exit 0")
+        self.stub("exit 0", "sys.exit(0)")
         cwd = os.getcwd()
         os.chdir(self.tmp)
         self.addCleanup(os.chdir, cwd)
-        got = self.compute("./py-stub")
+        got = self.compute("./py-stub" + (".bat" if wincompat.WIN else ""))
         self.assertIs(got["recog"], False)
         self.assertIsNone(got["recog_python"])
 
     def test_relative_recog_dir_is_stored_absolute(self):
-        stub = self.stub("exit 0")
+        stub = self.stub("exit 0", "sys.exit(0)")
         cwd = os.getcwd()
         os.chdir(self.tmp)
         self.addCleanup(os.chdir, cwd)
@@ -2165,19 +2165,28 @@ class RecogCapsTest(ApiBase):
 
     def test_probe_argv_is_the_scorers_isolation_flag_and_the_four_imports(self):
         out = os.path.join(self.tmp, "argv.txt")
-        self.compute(self.stub("for a in \"$@\"; do echo \"$a\"; done > %s" % out))
+        self.compute(self.stub("for a in \"$@\"; do echo \"$a\"; done > %s" % out,
+                               "open(%r, 'w').write(''.join(a + '\\n' for a in sys.argv[1:]))" % out))
         with open(out) as f:
             self.assertEqual(f.read().splitlines(), ["-P", "-c", "import numpy, torch, PIL, fontTools"])
         self.assertEqual(capsmod.PROBE_ARGS[0], toolrun.recog_argv({"recog": True, "recog_python": "/p"}, "/R")[1])
 
     def test_probe_timeout_kills_a_grandchild(self):
         pidfile = os.path.join(self.tmp, "child.pid")
-        stub = self.stub("sleep 60 &\necho $! > %s\nwait" % pidfile)         # no exec: the sleep is a grandchild
-        with mock.patch.object(capsmod, "RECOG_PROBE_S", 0.5):
+        stub = self.stub("sleep 60 &\necho $! > %s\nwait" % pidfile,          # no exec: the sleep is a grandchild
+                         "import subprocess\np = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                         "open(%r, 'w').write(str(p.pid))\np.wait()" % pidfile)
+        with mock.patch.object(capsmod, "RECOG_PROBE_S", 0.5 if not wincompat.WIN else 3):   # Windows: cmd + python start
             got = self.compute(stub)
         self.assertIs(got["recog"], False)
         with open(pidfile) as f:
             pid = int(f.read())
+        if wincompat.WIN:                                      # no /proc: ask the process handle
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline and toolrun.alive(pid):
+                time.sleep(0.05)
+            self.assertFalse(toolrun.alive(pid))
+            return
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline and os.path.exists("/proc/%d" % pid) and \
                 open("/proc/%d/stat" % pid).read().split(") ")[1][0] not in "ZX":
@@ -2187,7 +2196,7 @@ class RecogCapsTest(ApiBase):
     def test_external_interpreter_needs_recog_py(self):
         """A guard on the order of checks (the base ignores SVF_RECOG_PYTHON, so it cannot fail there)."""
         marker = os.path.join(self.tmp, "ran")
-        stub = self.stub("touch %s" % marker)
+        stub = self.stub("touch %s" % marker, "open(%r, 'w').close()" % marker)
         empty = os.path.join(self.tmp, "empty")
         os.mkdir(empty)
         got = self.compute(stub, directory=empty)
@@ -2196,12 +2205,14 @@ class RecogCapsTest(ApiBase):
 
     def test_probe_env_is_scrubbed(self):
         dump = os.path.join(self.tmp, "env.txt")
-        stub = self.stub("env > %s" % dump)
+        stub = self.stub("env > %s" % dump, "open(%r, 'w').write(''.join(k + '=x\\n' for k in os.environ))" % dump)
         self.compute(stub, SVF_MAKER_TOKEN="t" * 32, PYTHONPATH="/p", JAMOSET_PYLIB="/l")
         with open(dump) as f:
             keys = {line.split("=", 1)[0] for line in f.read().splitlines() if "=" in line}
         self.assertTrue({"PATH", "HOME", "LANG"} <= keys)
-        self.assertEqual(keys - {"PATH", "HOME", "LANG", "PWD", "SHLVL", "_", "OLDPWD"}, set())
+        # Windows: the keys an interpreter needs (toolrun.WINDOWS_KEYS) and what cmd.exe itself sets for a batch file
+        extra = set(toolrun.WINDOWS_KEYS) | {"PROMPT", "PATHEXT", "COMSPEC"} if wincompat.WIN else set()
+        self.assertEqual(keys - {"PATH", "HOME", "LANG", "PWD", "SHLVL", "_", "OLDPWD"} - extra, set())
 
     def test_api_caps_public_keys_only(self):
         with mock.patch.dict(self.srv.caps, {"recog_python": "/x", "recog_dir": "/y"}):
