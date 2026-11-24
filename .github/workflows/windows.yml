@@ -148,7 +148,10 @@ jobs:
         run: python -c "from PIL import features; import sys; print('raqm', features.version('raqm'), 'fribidi', features.version('fribidi'), 'freetype', features.version('freetype2')); sys.exit(0 if features.check('raqm') else 1)"
       - name: npm ci (Electron, electron-builder)
         working-directory: desktop
-        run: npm ci
+        run: |
+          npm ci
+          node node_modules/electron/install.js      # as on Linux: the binary even where install scripts are blocked
+          if (-not (Test-Path node_modules/electron/dist/electron.exe)) { exit 1 }
       - name: Build the sidecar (frozen test included)
         timeout-minutes: 30
         run: python desktop/build/build-sidecar-win.py

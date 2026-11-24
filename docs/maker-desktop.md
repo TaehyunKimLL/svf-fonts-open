@@ -238,7 +238,8 @@ Electron's folder (case-blind). The DLLs and extension modules of the python.org
 take their text from that interpreter's `LICENSE.txt` (`--python-licence`), which carries the licences of the libraries the
 Windows build bundles. Microsoft binaries that come with the interpreter or with Electron (`VCRUNTIME140*.dll`,
 `d3dcompiler_47.dll`, `dxil.dll`) are class `ms-redist`: redistributed unmodified under Microsoft's terms
-(`desktop/build/licences/ms-distributable.txt` says so; it is not their licence text). ANGLE (`libEGL.dll`, `libGLESv2.dll`)
+(`desktop/build/licences/ms-distributable.txt` says so; it is not their licence text), and so is the app-local Universal
+CRT the python.org build carries (`ucrtbase.dll`, `api-ms-win-*.dll`). ANGLE (`libEGL.dll`, `libGLESv2.dll`)
 and the DirectX Shader Compiler point at `LICENSES.chromium.html`. The copyleft parts are the same as on Linux minus the
 AppImage runtime, plus FriBiDi: `ffmpeg.dll` and `fribidi-0.dll` (LGPL-2.1; the D8 release gate applies to both the same
 way) and the PyInstaller bootloader.

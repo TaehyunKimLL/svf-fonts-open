@@ -153,6 +153,26 @@
   "note": "shipped with the python.org CPython build; not open source, redistributable as Distributable Code"
  },
  {
+  "match": "api-ms-win-*.dll",
+  "component": "Microsoft Universal C Runtime (in the python.org build)",
+  "licence": "Microsoft Windows SDK / Universal CRT redistributable",
+  "source_url": "https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment",
+  "class": "ms-redist",
+  "from": "python",
+  "licence_file": "ms-distributable.txt",
+  "note": "the app-local Universal CRT the python.org CPython build ships for Windows versions without it; Windows 10 and later use their own"
+ },
+ {
+  "match": "ucrtbase.dll",
+  "component": "Microsoft Universal C Runtime (in the python.org build)",
+  "licence": "Microsoft Windows SDK / Universal CRT redistributable",
+  "source_url": "https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment",
+  "class": "ms-redist",
+  "from": "python",
+  "licence_file": "ms-distributable.txt",
+  "note": "the app-local Universal CRT the python.org CPython build ships for Windows versions without it; Windows 10 and later use their own"
+ },
+ {
   "match": "ffmpeg.dll",
   "component": "ffmpeg (Chromium build, in Electron)",
   "licence": "LGPL-2.1-or-later",

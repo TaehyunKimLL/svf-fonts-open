@@ -230,7 +230,8 @@ Windows에서는 UTF-8 모드(`X utf8_mode=1`: frozen 프로그램은 `PYTHONUTF
 귀속한다. python.org 인터프리터의 DLL과 확장 모듈(CPython, OpenSSL, libffi, ...)은 그 인터프리터의 `LICENSE.txt`(`--python-licence`)에서
 글을 가져온다. 그 파일에 Windows 빌드가 묶는 라이브러리들의 라이선스가 들어 있다. 인터프리터나 Electron과 함께 오는 Microsoft
 바이너리(`VCRUNTIME140*.dll`, `d3dcompiler_47.dll`, `dxil.dll`)는 클래스 `ms-redist`다: Microsoft의 조건에 따라 수정 없이 재배포한다
-(`desktop/build/licences/ms-distributable.txt`가 그렇게 말한다. 그 라이선스 원문은 아니다). ANGLE(`libEGL.dll`, `libGLESv2.dll`)과
+(`desktop/build/licences/ms-distributable.txt`가 그렇게 말한다. 그 라이선스 원문은 아니다). python.org 빌드가 함께 싣는 앱 로컬
+Universal CRT(`ucrtbase.dll`, `api-ms-win-*.dll`)도 그렇다. ANGLE(`libEGL.dll`, `libGLESv2.dll`)과
 DirectX Shader Compiler는 `LICENSES.chromium.html`을 가리킨다. 카피레프트 부분은 AppImage runtime을 빼고 FriBiDi를 더한 Linux와 같다:
 `ffmpeg.dll`과 `fribidi-0.dll`(LGPL-2.1, D8 릴리스 게이트가 둘 모두에 똑같이 적용된다)과 PyInstaller 부트로더.
 
