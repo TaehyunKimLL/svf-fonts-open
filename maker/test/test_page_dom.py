@@ -181,6 +181,7 @@ class PageDomTest(unittest.TestCase):
 
     # ---- tests ------------------------------------------------------------------------------------------------
 
+    @wincompat.posix_only("the Unix socket path limit of Chrome's singleton (107 bytes); Windows has no such socket")
     def test_driver_starts_chrome_with_a_long_tmpdir(self):
         """Chrome's singleton socket path must stay under 107 bytes whatever TMPDIR is (the TMP_DIR project rule); the
         short profile goes under $HOME/work/tmp, never /dev/shm or /tmp."""

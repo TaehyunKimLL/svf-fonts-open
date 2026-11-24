@@ -486,7 +486,7 @@ def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None, rep
 def _johab844_comment(rest):
     """The note line before a johab844 command: its Hangul are redrawn on the repository's base face, the Latin and
     symbols stay the base's unless an English font is named, and the batch's chosen range does not apply."""
-    base = rest[1] if len(rest) > 1 else "svf/dos/NEODG16.SVF"
+    base = (rest[1] if len(rest) > 1 else "svf/dos/NEODG16.SVF").replace(os.sep, "/")   # Windows: "\\" too
     base = base[base.rfind("svf/"):] if "svf/" in base else os.path.basename(base)
     text = "# johab844: Hangul redrawn on the base face %s (OFL); the chosen range is ignored" % base
     if "--eng" in rest and rest.index("--eng") + 1 < len(rest):

@@ -168,15 +168,23 @@ class WindowsStopTest(JobFixture):
 
     def test_end_of_stdin_stops_the_server_the_tool_and_its_child(self):
         tmp, pidfile, jid, env = self.start()
-        proc = subprocess.Popen([sys.executable, "-P", SERVER, "--stop-on-eof"], env=env, stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        log = os.path.join(tmp, "server.err")                 # a file: a pipe nobody reads could block the server
+        with open(log, "wb") as err_file:
+            proc = subprocess.Popen([sys.executable, "-P", SERVER, "--stop-on-eof"], env=env, stdin=subprocess.PIPE,
+                                    stdout=subprocess.DEVNULL, stderr=err_file)
         self.addCleanup(proc.kill)
-        pids = self.wait_tools(pidfile)
+        try:
+            pids = self.wait_tools(pidfile)
+        except AssertionError:
+            with open(log, "rb") as f:
+                raise AssertionError("the step never started; server stderr: %r" % f.read()[-2000:])
         proc.stdin.close()
         try:
-            _out, err = proc.communicate(timeout=30)
+            proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             self.fail("the server did not stop at the end of stdin")
+        with open(log, "rb") as f:
+            err = f.read()
         self.assertNotIn(b"Traceback", err)
         self.assertEqual(proc.returncode, 0)
         self.assertTrue(wait_until(lambda: not any(alive(p) for p in pids), 20), "a tool outlived the server")

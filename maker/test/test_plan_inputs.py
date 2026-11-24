@@ -140,7 +140,7 @@ class SourceStepE2ETest(Case):
                                 self.face_1)
         self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py ttc-face"], ["mkfont.py", "svf2to3.py"]])
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
-        self.assertTrue(job["steps"][0]["output"].endswith("/source.otf"))
+        self.assertTrue(wincompat.slashes(job["steps"][0]["output"]).endswith("/source.otf"))
         inputkinds.assert_facecheck(self, z)
 
     def test_mac_cmap_ttf_converts(self):
@@ -168,7 +168,7 @@ class SourceStepE2ETest(Case):
                                 lambda f, s: select(s, fid_of(f, face=1), kinds=["jamo"], layout="844",
                                                     experimental=False))
         self.assertEqual([st["kind"] for st in job["steps"]], ["source", "prepare", "jamo"])
-        self.assertTrue(any(a.endswith("/source.ttf") for a in job["steps"][1]["argv"][0]))
+        self.assertTrue(any(wincompat.slashes(a).endswith("/source.ttf") for a in job["steps"][1]["argv"][0]))
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done", "done"])
         self.assertEqual(job["steps"][2]["quality"]["compared"], 66)     # the converted face 1; the raw TTC gives 1
 
@@ -316,7 +316,7 @@ class PcfE2ETest(Case):
         self.assertEqual(inputkinds.step_tools(job["steps"]), [["srcprep.py pcf-bdf"], ["jamoset.py"]])
         argv = job["steps"][1]["argv"][0]
         self.assertEqual(argv[argv.index("--layout") + 1], "hanterm-johab")
-        self.assertIn(True, [a.endswith("/source.bdf") for a in argv])
+        self.assertIn(True, [wincompat.slashes(a).endswith("/source.bdf") for a in argv])
         self.assertEqual([st["state"] for st in job["steps"]], ["done", "done"])
         inputkinds.assert_facecheck(self, z)
 
@@ -412,7 +412,7 @@ class Johab844Test(Case):
                                                            dos_layout="844"))
         self.assertEqual(inputkinds.step_tools(job["steps"]), [["johab844.py"]])
         argv = job["steps"][0]["argv"][0]
-        self.assertTrue(toolrun.split_prefix(argv)[1][1].endswith("svf/dos/NEODG16.SVF"))
+        self.assertTrue(wincompat.slashes(toolrun.split_prefix(argv)[1][1]).endswith("svf/dos/NEODG16.SVF"))
         self.assertIn("--eng", argv)
         self.assertEqual([st["state"] for st in job["steps"]], ["done"])
         inputkinds.assert_facecheck(self, z)
@@ -1001,7 +1001,7 @@ class MacEndToEndTest(localfx.LocalBase):
                 self.assertEqual(face["state"], "done")
                 if path != "Munjo16.rsrc":                                          # wrapped: a source step first
                     src = next(s for s in done["steps"] if s["kind"] == "source")
-                    self.assertTrue(src["output"].endswith("/Munjo16.rsrc"), src["output"])
+                    self.assertTrue(wincompat.slashes(src["output"]).endswith("/Munjo16.rsrc"), src["output"])
                 with open(os.path.join(self.srv.store.path(jid), "log.md"), encoding="utf-8") as f:
                     self.assertIn("check: composed 11172 syllables", f.read())       # jamoset's own verdict line
                 rel = next(f for f in done["result"]["files"] if f.endswith(".SVF"))
