@@ -1,0 +1,23 @@
+# The Windows (win_amd64, cp312) counterpart of requirements.lock: every wheel the Windows sidecar build installs, with
+# hashes (the same direct pins as requirements-sidecar.txt; pefile and pywin32-ctypes are PyInstaller's Windows-only
+# dependencies). desktop/build/build-sidecar-win.py installs it with --require-hashes --no-deps --only-binary=:all:; the
+# Windows workflow installs it for the test suites too. Regenerate: pip download --platform win_amd64 --python-version
+# 3.12 --implementation cp --abi cp312 --only-binary=:all: --no-deps <each pin> -d DIR, and hash each wheel (sha256).
+altgraph==0.17.5 \
+    --hash=sha256:f3a22400bce1b0c701683820ac4f3b159cd301acab067c51c653e06961600597  # altgraph-0.17.5-py2.py3-none-any.whl
+fonttools==4.66.1 \
+    --hash=sha256:261d8dc95845e751f975fe8d6075600593ee253470d46d1b84801688051b09f6  # fonttools-4.66.1-cp312-cp312-win_amd64.whl
+packaging==26.3 \
+    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c  # packaging-26.3-py3-none-any.whl
+pefile==2024.8.26 \
+    --hash=sha256:76f8b485dcd3b1bb8166f1128d395fa3d87af26360c2358fb75b80019b957c6f  # pefile-2024.8.26-py3-none-any.whl
+pillow==10.2.0 \
+    --hash=sha256:154e939c5f0053a383de4fd3d3da48d9427a7e985f58af8e94d0b3c9fcfcf4f9  # pillow-10.2.0-cp312-cp312-win_amd64.whl
+pyinstaller==6.22.3 \
+    --hash=sha256:500bd58c7bf7e584a8435adccbd763a0b918d5c12b08d74ff50fd79b2915458b  # pyinstaller-6.22.3-py3-none-win_amd64.whl
+pyinstaller-hooks-contrib==2026.9 \
+    --hash=sha256:fb3e67dd64122561724c48ad0366ac9e8c16e638b63bf7d85de03bf3fdbf06c3  # pyinstaller_hooks_contrib-2026.9-py3-none-any.whl
+pywin32-ctypes==0.2.3 \
+    --hash=sha256:8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8  # pywin32_ctypes-0.2.3-py3-none-any.whl
+setuptools==84.2.1 \
+    --hash=sha256:ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2  # setuptools-84.2.1-py3-none-any.whl

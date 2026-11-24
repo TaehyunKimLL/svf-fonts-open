@@ -1,0 +1,88 @@
+# Windows build of the desktop maker (t_9b8f56f0): the maker and tools suites on Windows, the frozen sidecar, the NSIS
+# installer and the portable .exe (unsigned), the desktop e2e against the packaged sidecar. Linux gates run locally.
+name: windows
+on:
+  push:
+    branches: [windows-build]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wasm:
+    # the preview module (maker/static/wasm, git-ignored): emcc 6.0.13 as c/cross/install-toolchains.sh pins it
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache emsdk
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-6.0.13-v1
+      - name: Install emsdk 6.0.13
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch 6.0.13 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          test "$(git -C ~/emsdk rev-parse HEAD)" = 35659964bc2762fffec0d257997fb61475f765b7
+          ~/emsdk/emsdk install 6.0.13
+          ~/emsdk/emsdk activate 6.0.13
+      - name: Build the preview module
+        run: EMSDK=$HOME/emsdk bash maker/build-wasm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm
+          path: maker/static/wasm/
+          retention-days: 3
+
+  windows:
+    needs: wasm
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: maker/static/wasm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.3"
+          cache: pip
+          cache-dependency-path: desktop/build/requirements-win.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Test dependencies (the pinned Pillow and fontTools)
+        run: python -m pip install --require-hashes --only-binary=:all: --no-deps -r desktop/build/requirements-win.lock
+      - name: Scratch directory
+        run: |
+          $t = Join-Path $env:RUNNER_TEMP "t"
+          New-Item -ItemType Directory -Force $t | Out-Null
+          "TMPDIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "TMP_DIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Maker suite
+        id: maker
+        continue-on-error: true
+        run: python desktop/build/run-suite.py maker/test
+      - name: Tools suite
+        id: tools
+        continue-on-error: true
+        run: python desktop/build/run-suite.py tools
+      - name: Suites passed
+        if: steps.maker.outcome != 'success' || steps.tools.outcome != 'success'
+        run: |
+          echo "maker=${{ steps.maker.outcome }} tools=${{ steps.tools.outcome }}"
+          exit 1
