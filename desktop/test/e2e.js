@@ -56,7 +56,8 @@ async function step(name, fn) {
 
 const PRELUDE = `const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = async (fn, ms = 60000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v;
-    if (Date.now() > end) throw new Error('page timeout: ' + fn); await sleep(100); } };
+    if (Date.now() > end) { const st = document.getElementById('state'); throw new Error('page timeout: ' + fn + ' (state: ' + (st ? st.textContent : '-') + ')'); }
+    await sleep(100); } };
   const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;`;
 const run = (handle, js) => handle.win.webContents.executeJavaScript('(async () => {' + PRELUDE + js + '})()', true);
 const logText = (handle) => fs.readFileSync(handle.log.path, 'utf8');
@@ -64,6 +65,20 @@ const logText = (handle) => fs.readFileSync(handle.log.path, 'utf8');
 // The dev pass's sample folder stays until the end of the run (the packaged pass compares with its output); every way
 // out of the run, a failed start included, removes it.
 const cleanupSamples = () => { try { fs.rmSync(path.join(TMP, 'dev', 'sample'), { recursive: true, force: true }); } catch (e) { /* none */ } };
+
+// fs.rmSync, and on Windows a second try after a moment: a file the sidecar has only just closed may still be busy. What
+// stays after that is named (relative paths only), so a handle the sidecar keeps open shows up as a failure with its file.
+function removeTree(dir) {
+  try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch (e) { if (!WIN) throw e; }
+  const until = Date.now() + 3000;
+  while (Date.now() < until) { /* a short busy wait: the step's cleanup is synchronous */ }
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {
+    const left = [];
+    const walk = (d) => { for (const n of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, n.name); left.push(path.relative(dir, p)); if (n.isDirectory()) walk(p); } };
+    try { walk(dir); } catch (e2) { /* gone meanwhile */ }
+    throw new Error(e.code + ' removing the sample folder; left: ' + left.slice(0, 12).join(', '));
+  }
+}
 
 function mkdir(...p) { const d = path.join(TMP, ...p); fs.mkdirSync(d, { recursive: true }); return d; }
 
@@ -331,7 +346,7 @@ async function pass(name, opts) {
     } finally {
       dialogQueue.length = 0;                                      // answers a failed step never used
       // the dev sample stays: the packaged pass compares against its output (removed at the end of the run)
-      if (name !== 'dev') fs.rmSync(sampleDir, { recursive: true, force: true });
+      if (name !== 'dev') removeTree(sampleDir);
     }
   });
   await step(T('open-folder'), async () => {
