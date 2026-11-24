@@ -207,7 +207,9 @@ elsewhere (Linux or WSL: `bash maker/build-wasm.sh`) and copied to `maker/static
     # in the checkout root, PowerShell
     python -m pip install --require-hashes "--only-binary=:all:" --no-deps -r desktop/build/requirements-win.lock
     cd desktop; npm ci; cd ..
-    python desktop/build/build-sidecar-win.py          # wheels, icon.ico, PyInstaller, provenance, staged repo, selfcheck, frozen test
+    python desktop/build/fetch-fribidi-win.py $env:USERPROFILE\work\tmp\fribidi   # and put that folder on PATH (below)
+    $env:PATH = "$env:USERPROFILE\work\tmp\fribidi;$env:PATH"
+    python desktop/build/build-sidecar-win.py          # wheels, icon.ico, FriBiDi, PyInstaller, provenance, staged repo, selfcheck, frozen test
     $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
     node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
       --provenance desktop/build/out/sidecar-provenance.json --electron desktop/node_modules/electron/dist `
@@ -215,6 +217,14 @@ elsewhere (Linux or WSL: `bash maker/build-wasm.sh`) and copied to `maker/static
       --python-licence $lic --out desktop/build/out/THIRD-PARTY.txt
     cd desktop; npx electron-builder --win nsis portable --x64 --publish never; cd ..
     python desktop/build/smoke-win.py desktop/dist
+
+**FriBiDi.** Pillow's Windows wheel carries libraqm and HarfBuzz but loads FriBiDi at run time, and does not ship it;
+without it Pillow falls back to its basic layout, and a face made on Windows is not the bytes the same face made on Linux
+is (measured: GowunBatang-Bold 17 px 2 bpp gained U+00AD and drew U+2116 differently; a combining mark kept its
+advance). `desktop/build/fetch-fribidi-win.py` downloads conda-forge's MSVC build of FriBiDi 1.0.10 (archive and DLL
+sha256-pinned) and the build bundles `fribidi-0.dll` in the sidecar's `_internal/` (the spec refuses to build without
+it); a development run or the test suites on Windows need that folder on `PATH`. FriBiDi is LGPL-2.1-or-later: a
+separate, replaceable DLL, listed with a distribution record, and under the D8 release gate like `ffmpeg.dll`.
 
 `desktop/build/requirements-win.lock` pins the win_amd64 cp312 wheels with hashes (the same Pillow 10.2.0, fontTools
 4.66.1 and PyInstaller 6.22.3 as Linux, plus PyInstaller's Windows-only `pefile` and `pywin32-ctypes`). The spec
@@ -230,7 +240,8 @@ Windows build bundles. Microsoft binaries that come with the interpreter or with
 `d3dcompiler_47.dll`, `dxil.dll`) are class `ms-redist`: redistributed unmodified under Microsoft's terms
 (`desktop/build/licences/ms-distributable.txt` says so; it is not their licence text). ANGLE (`libEGL.dll`, `libGLESv2.dll`)
 and the DirectX Shader Compiler point at `LICENSES.chromium.html`. The copyleft parts are the same as on Linux minus the
-AppImage runtime: `ffmpeg.dll` (LGPL-2.1, the D8 release gate applies to it the same way) and the PyInstaller bootloader.
+AppImage runtime, plus FriBiDi: `ffmpeg.dll` and `fribidi-0.dll` (LGPL-2.1; the D8 release gate applies to both the same
+way) and the PyInstaller bootloader.
 
 ### What differs on Windows (the server)
 

@@ -1,5 +1,19 @@
 [
  {
+  "match": "fribidi-0.dll",
+  "component": "FriBiDi",
+  "version": "1.0.10 (conda-forge build h8d14728_0)",
+  "licence": "LGPL-2.1-or-later",
+  "source_url": "https://github.com/fribidi/fribidi",
+  "class": "lgpl",
+  "licence_file": "lgpl-2.1.txt",
+  "note": "loaded by Pillow's raqm layout; fetched and sha256-checked by desktop/build/fetch-fribidi-win.py",
+  "record": {
+   "source": "https://github.com/fribidi/fribidi/releases/tag/v1.0.10 (the conda-forge recipe of build h8d14728_0: https://github.com/conda-forge/fribidi-feedstock)",
+   "replace": "fribidi-0.dll is a separate DLL in the sidecar's _internal folder that Pillow loads at run time; a compatible build (same ABI) may replace it (LGPL-2.1 section 6)"
+  }
+ },
+ {
   "match": "_imaging*.pyd",
   "component": "Pillow",
   "licence": "HPND",

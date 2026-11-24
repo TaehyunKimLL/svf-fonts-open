@@ -28,6 +28,7 @@ import jobs
 import localfx
 import server
 import settings
+import wincompat
 
 
 class Hang:
@@ -1044,7 +1045,8 @@ class StartupBoundsTest(localfx.LocalRunBase):
             t.join(4)
             self.assertFalse(t.is_alive())
             elapsed = time.monotonic() - t0
-        self.assertLess(elapsed, 2.6)     # a budget guard: deadline 1.0 + one floor + the flush floor + load slack (the batching itself is pinned by test_one_batched_record_per_sweep_trash_call)
+        # Windows runners start a server slower (the import probes of caps alone take a few hundred ms): one more second
+        self.assertLess(elapsed, 2.6 if not wincompat.WIN else 4.0)     # a budget guard: deadline 1.0 + one floor + the flush floor + load slack (the batching itself is pinned by test_one_batched_record_per_sweep_trash_call)
         fsync.release.set()
         poll_pending(self, self.data, lambda es: all(any(e["path"] == p for e in es) for p in tombs), timeout=5)
 

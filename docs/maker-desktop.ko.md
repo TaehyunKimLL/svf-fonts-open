@@ -202,7 +202,9 @@ Windows 작업에 넘긴다. Windows에서는 `desktop/build/run-suite.py`로 ma
     # 체크아웃 루트에서, PowerShell
     python -m pip install --require-hashes "--only-binary=:all:" --no-deps -r desktop/build/requirements-win.lock
     cd desktop; npm ci; cd ..
-    python desktop/build/build-sidecar-win.py          # wheel, icon.ico, PyInstaller, provenance, 스테이징 repo, selfcheck, frozen 테스트
+    python desktop/build/fetch-fribidi-win.py $env:USERPROFILE\work\tmp\fribidi   # 그리고 그 폴더를 PATH에 둔다(아래)
+    $env:PATH = "$env:USERPROFILE\work\tmp\fribidi;$env:PATH"
+    python desktop/build/build-sidecar-win.py          # wheel, icon.ico, FriBiDi, PyInstaller, provenance, 스테이징 repo, selfcheck, frozen 테스트
     $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
     node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
       --provenance desktop/build/out/sidecar-provenance.json --electron desktop/node_modules/electron/dist `
@@ -210,6 +212,13 @@ Windows 작업에 넘긴다. Windows에서는 `desktop/build/run-suite.py`로 ma
       --python-licence $lic --out desktop/build/out/THIRD-PARTY.txt
     cd desktop; npx electron-builder --win nsis portable --x64 --publish never; cd ..
     python desktop/build/smoke-win.py desktop/dist
+
+**FriBiDi.** Pillow의 Windows wheel은 libraqm과 HarfBuzz를 담지만 FriBiDi는 실행 시에 불러오며 함께 주지 않는다. 그것이 없으면
+Pillow는 기본 레이아웃으로 돌아가고, Windows에서 만든 페이스는 Linux에서 만든 같은 페이스와 바이트가 같지 않다(측정: GowunBatang-Bold
+17 px 2 bpp에 U+00AD가 더해지고 U+2116이 다르게 그려졌다. 결합 부호가 advance를 유지했다). `desktop/build/fetch-fribidi-win.py`가
+conda-forge의 MSVC 빌드 FriBiDi 1.0.10(압축 파일과 DLL의 sha256 고정)을 내려받고, 빌드는 `fribidi-0.dll`을 사이드카의 `_internal/`에
+묶는다(spec은 그것 없이 빌드하기를 거부한다). Windows에서의 개발 실행이나 테스트 스위트에는 그 폴더가 `PATH`에 있어야 한다.
+FriBiDi는 LGPL-2.1-or-later다: 교체할 수 있는 별도 DLL이며, 배포 기록과 함께 나열되고 `ffmpeg.dll`처럼 D8 릴리스 게이트 아래에 있다.
 
 `desktop/build/requirements-win.lock`은 win_amd64 cp312 wheel을 해시와 함께 고정한다(Linux와 같은 Pillow 10.2.0, fontTools 4.66.1,
 PyInstaller 6.22.3, 그리고 PyInstaller의 Windows 전용 의존성 `pefile`과 `pywin32-ctypes`). spec(`maker/sidecar.spec`)은 Linux의 것이고,
@@ -222,8 +231,8 @@ Windows에서는 UTF-8 모드(`X utf8_mode=1`: frozen 프로그램은 `PYTHONUTF
 글을 가져온다. 그 파일에 Windows 빌드가 묶는 라이브러리들의 라이선스가 들어 있다. 인터프리터나 Electron과 함께 오는 Microsoft
 바이너리(`VCRUNTIME140*.dll`, `d3dcompiler_47.dll`, `dxil.dll`)는 클래스 `ms-redist`다: Microsoft의 조건에 따라 수정 없이 재배포한다
 (`desktop/build/licences/ms-distributable.txt`가 그렇게 말한다. 그 라이선스 원문은 아니다). ANGLE(`libEGL.dll`, `libGLESv2.dll`)과
-DirectX Shader Compiler는 `LICENSES.chromium.html`을 가리킨다. 카피레프트 부분은 AppImage runtime을 뺀 Linux와 같다: `ffmpeg.dll`
-(LGPL-2.1, D8 릴리스 게이트가 똑같이 적용된다)과 PyInstaller 부트로더.
+DirectX Shader Compiler는 `LICENSES.chromium.html`을 가리킨다. 카피레프트 부분은 AppImage runtime을 빼고 FriBiDi를 더한 Linux와 같다:
+`ffmpeg.dll`과 `fribidi-0.dll`(LGPL-2.1, D8 릴리스 게이트가 둘 모두에 똑같이 적용된다)과 PyInstaller 부트로더.
 
 ### Windows에서 다른 것 (서버)
 

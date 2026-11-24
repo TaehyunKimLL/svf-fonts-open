@@ -60,6 +60,22 @@ LOCKED_IO_S = 5.0             # one lifecycle-lock section of a request or of th
 _MAKING = "making"            # `_rename_away`'s generation slot when a mkdir/chmod of the path is still in flight
 
 
+_CREATED_LOCK = threading.Lock()
+_last_created = [0.0]
+
+
+def _creation_time():
+    """`time.time()`, made strictly later than the previous job's creation in this process: Windows' clock ticks every
+    15.6 ms under Python 3.12, and two jobs created within one tick would otherwise tie in the newest-first order (and
+    in retention). On a clock that fine-grained already, this is `time.time()`."""
+    with _CREATED_LOCK:
+        now = time.time()
+        if now <= _last_created[0]:
+            now = _last_created[0] + 1e-6
+        _last_created[0] = now
+        return now
+
+
 class Busy(TimeoutError):
     """A job's lock was not free in time, or its cleanup record could not be saved in time (a stalled pending file):
     nothing was made and nothing was forgotten."""
@@ -710,7 +726,7 @@ class Store:
         sha256 of the bytes this job wrote there). `owned` is top-level on purpose: `POST detect` and `POST run`
         reset `result`, and must not forget what the job owns.
         """
-        job = {"id": secrets.token_hex(6), "state": "uploading", "created": time.time(), "updated": time.time(),
+        job = {"id": secrets.token_hex(6), "state": "uploading", "created": _creation_time(), "updated": time.time(),
                "error": None, "upload": {"files": 0, "bytes": 0, "refused": []}, "fonts": [],
                "settings": {"batch": {}, "fonts": {}}, "steps": [], "queue_position": None, "result": None}
         if source == "local":

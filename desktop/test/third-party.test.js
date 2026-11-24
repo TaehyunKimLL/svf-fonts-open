@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const GEN = path.join(__dirname, '..', 'build', 'third-party.mjs');
-const generate = async (opts) => (await import(GEN)).generate(opts);
+const generate = async (opts) => (await import(require('node:url').pathToFileURL(GEN).href)).generate(opts);   // a file URL: Windows paths are not URLs
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 const MAP = [

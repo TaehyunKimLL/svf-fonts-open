@@ -637,12 +637,7 @@ class WorkerTest(wincompat.SlashEqual, unittest.TestCase):
         self.assertEqual(w.position(b["id"]), 1)
 
     def test_retention(self):
-        ids = []
-        for _ in range(22):
-            ids.append(self.store.create()["id"])
-            if wincompat.WIN:
-                time.sleep(0.02)           # Python 3.12's time.time() ticks every 15.6 ms there: one creation per tick
-
+        ids = [self.store.create()["id"] for _ in range(22)]
         for i in ids[:21]:
             self.store.update(i, lambda j: j.update(state="done"))
         self.store.update(ids[21], lambda j: j.update(state="queued"))

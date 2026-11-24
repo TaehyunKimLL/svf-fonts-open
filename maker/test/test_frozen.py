@@ -206,6 +206,8 @@ class FrozenByteEqualTest(Needs):
                              "PYTHONPATH": REF_SITE, "SOURCE_DATE_EPOCH": "1700000000"}, **WIN_ENV)
         if os.name == "nt":
             self.ref_env["PYTHONUTF8"] = "1"            # as the frozen tool (UTF-8 mode) and a maker-launched tool
+            if os.environ.get("SVF_FRIBIDI_DIR"):       # the reference's Pillow loads raqm as the bundle's does
+                self.ref_env["PATH"] = os.environ["SVF_FRIBIDI_DIR"]
 
     def path(self, *parts):
         p = os.path.join(self.tmp, *parts)

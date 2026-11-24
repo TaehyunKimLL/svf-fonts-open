@@ -81,6 +81,15 @@ jobs:
           New-Item -ItemType Directory -Force $t | Out-Null
           "TMPDIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           "TMP_DIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: FriBiDi for Pillow's raqm layout (pinned; on PATH)
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP "fribidi"
+          python desktop/build/fetch-fribidi-win.py $d
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $d | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          "SVF_FRIBIDI_DIR=$d" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Pillow loads raqm
+        run: python -c "from PIL import features; import sys; print('raqm', features.version('raqm'), 'fribidi', features.version('fribidi'), 'freetype', features.version('freetype2')); sys.exit(0 if features.check('raqm') else 1)"
       - name: Suite
         timeout-minutes: 45
         run: python desktop/build/run-suite.py ${{ matrix.shard.dir }} "${{ matrix.shard.pattern }}"
@@ -128,6 +137,15 @@ jobs:
           New-Item -ItemType Directory -Force $t | Out-Null
           "TMPDIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           "TMP_DIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: FriBiDi for Pillow's raqm layout (pinned; on PATH)
+        run: |
+          $d = Join-Path $env:RUNNER_TEMP "fribidi"
+          python desktop/build/fetch-fribidi-win.py $d
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $d | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          "SVF_FRIBIDI_DIR=$d" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Pillow loads raqm
+        run: python -c "from PIL import features; import sys; print('raqm', features.version('raqm'), 'fribidi', features.version('fribidi'), 'freetype', features.version('freetype2')); sys.exit(0 if features.check('raqm') else 1)"
       - name: npm ci (Electron, electron-builder)
         working-directory: desktop
         run: npm ci

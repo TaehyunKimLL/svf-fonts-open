@@ -6,7 +6,9 @@ Steps, as build-sidecar.sh takes them:
   1. the WASM preview module must already be built (maker/static/wasm/svf.js + svf.wasm; emcc does not run here: the
      Windows workflow builds it on Linux with maker/build-wasm.sh and hands it over);
   2. the pinned win_amd64 wheels (desktop/build/requirements-win.lock, `pip install --target`, hashes required);
-  3. desktop/build/out/icon.ico from desktop/build/icon.png (make-icon.py --ico);
+  3. desktop/build/out/icon.ico from desktop/build/icon.png (make-icon.py --ico), and the pinned FriBiDi DLL
+     (fetch-fribidi-win.py: Pillow's raqm layout needs it; the spec bundles it), checked by loading raqm with the
+     pinned Pillow;
   4. the PyInstaller one-dir bundle into desktop/build/out/sidecar/ (`python -S`, PYTHONPATH = the wheels only;
      SOURCE_DATE_EPOCH = the last commit's time);
   5. the build-time provenance of every collected binary (sidecar-provenance.py);
@@ -79,8 +81,20 @@ def main(argv):
 
     os.makedirs(OUT, exist_ok=True)
     run([sys.executable, os.path.join(HERE, "make-icon.py"), "--ico", os.path.join(OUT, "icon.ico")])
+    fribidi = os.path.join(tmp, "fribidi")
+    run([sys.executable, os.path.join(HERE, "fetch-fribidi-win.py"), fribidi])
+    probe = subprocess.run([sys.executable, "-S", "-c", "from PIL import features; import sys; "
+                            "print('raqm', features.version('raqm'), 'fribidi', features.version('fribidi')); "
+                            "sys.exit(0 if features.check('raqm') else 1)"],
+                           env=dict(os.environ, PYTHONPATH=pysite, PATH=fribidi + os.pathsep + os.environ.get("PATH", "")),
+                           capture_output=True, text=True)
+    print(probe.stdout.strip() or probe.stderr.strip())
+    if probe.returncode != 0:
+        print("build-sidecar-win.py: the pinned Pillow does not load raqm with %s" % fribidi, file=sys.stderr)
+        return 1
 
-    env = dict(os.environ, SOURCE_DATE_EPOCH=git("log", "-1", "--format=%ct"), PYTHONPATH=pysite, TMP=tmp, TEMP=tmp)
+    env = dict(os.environ, SOURCE_DATE_EPOCH=git("log", "-1", "--format=%ct"), PYTHONPATH=pysite, TMP=tmp, TEMP=tmp,
+               SVF_FRIBIDI_DIR=fribidi)
     work = os.path.join(tmp, "pyi-work")
     for path in (os.path.join(OUT, "sidecar"), work):
         shutil.rmtree(path, ignore_errors=True)
@@ -88,7 +102,7 @@ def main(argv):
          os.path.join(OUT, "sidecar"), os.path.join(ROOT, "maker", "sidecar.spec")], env=env, cwd=ROOT)
 
     run([sys.executable, os.path.join(HERE, "sidecar-provenance.py"), os.path.join(work, "sidecar"),
-         os.path.join(OUT, "sidecar-provenance.json"), "--pysite", pysite])
+         os.path.join(OUT, "sidecar-provenance.json"), "--pysite", pysite, "--fetched", fribidi])
 
     repo = os.path.join(OUT, "repo")
     shutil.rmtree(repo, ignore_errors=True)
@@ -125,7 +139,7 @@ def main(argv):
 
     if not no_test:
         test_env = dict(os.environ, SVF_MAKER_SIDECAR=exe, SVF_MAKER_REF_SITE=pysite, SVF_MAKER_STAGED_REPO=repo,
-                        SVF_MAKER_FROZEN_REQUIRED="1")
+                        SVF_MAKER_FROZEN_REQUIRED="1", SVF_FRIBIDI_DIR=fribidi)
         run([sys.executable, os.path.join(HERE, "run-suite.py"), os.path.join(ROOT, "maker", "test"), "test_frozen.py"],
             env=test_env, cwd=ROOT)
     size = sum(os.path.getsize(os.path.join(d, n)) for d, _, ns in os.walk(os.path.join(OUT, "sidecar")) for n in ns)

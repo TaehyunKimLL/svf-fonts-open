@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""sidecar-provenance.py WORKPATH OUT.json [--pysite DIR]: where every binary PyInstaller collected came from.
+"""sidecar-provenance.py WORKPATH OUT.json [--pysite DIR] [--fetched DIR]: where every binary PyInstaller collected
+came from (--fetched: the folder of a pinned download, Windows' FriBiDi DLL).
 
 Reads `WORKPATH/COLLECT-00.toc` (the table of contents PyInstaller wrote while building) and writes, for every binary
 entry (an extension module or a shared library), `{dest: {"source", "sha256", "origin": "wheel" | "dpkg" | "python",
@@ -29,9 +30,13 @@ def wheel_owner(source, pysite):
     """(distribution, version) of the wheel under @p pysite that lists @p source in its RECORD, else None."""
     if not pysite:
         return None
-    rel = os.path.relpath(os.path.realpath(source), os.path.realpath(pysite))
+    try:
+        rel = os.path.relpath(os.path.realpath(source), os.path.realpath(pysite))
+    except ValueError:                                   # Windows: another drive is never under the wheels' folder
+        return None
     if rel.startswith(".."):
         return None
+    rel = rel.replace(os.sep, "/")                       # RECORD lists "/"-separated paths
     for record in glob.glob(os.path.join(pysite, "*.dist-info", "RECORD")):
         with open(record, encoding="utf-8") as f:
             if any(line.split(",", 1)[0] == rel for line in f):
@@ -61,6 +66,7 @@ def main(argv):
         return 2
     work, out = argv[0], argv[1]
     pysite = argv[argv.index("--pysite") + 1] if "--pysite" in argv else None
+    fetched = argv[argv.index("--fetched") + 1] if "--fetched" in argv else None   # Windows: the FriBiDi DLL's folder
     with open(os.path.join(work, "COLLECT-00.toc"), encoding="utf-8") as f:
         toc = ast.literal_eval(f.read())
     entries = toc[0] if isinstance(toc, tuple) and toc and isinstance(toc[0], list) else toc
@@ -72,7 +78,9 @@ def main(argv):
         if not os.path.isfile(source):
             continue
         owner = wheel_owner(source, pysite)
-        if owner:
+        if fetched and os.path.dirname(os.path.realpath(source)) == os.path.realpath(fetched):
+            record = {"origin": "fetched", "package": os.path.basename(source), "version": "pinned"}
+        elif owner:
             record = {"origin": "wheel", "package": owner[0], "version": owner[1]}
         else:
             deb = dpkg_owner(source)
