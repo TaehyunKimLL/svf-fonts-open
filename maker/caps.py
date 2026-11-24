@@ -11,11 +11,12 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 
 import importlib.util
 import os
-import signal
 import subprocess
 import sys
 
+import oscompat
 import toolreg
+import toolrun
 
 PUBLIC_KEYS = ("wasm", "mask_libs", "recog", "local")      # what /api/caps serves; the private keys never leave
 PROBE_ARGS = ["-P", "-c", "import numpy, torch, PIL, fontTools"]
@@ -62,11 +63,13 @@ def recog_python(environ):
     if recog_dir(environ, probe=False) is None:
         return _rejected("SVF_RECOG_DIR is not a directory with recog.py")
     env = {"PATH": environ.get("PATH", "/usr/bin:/bin"), "HOME": environ.get("HOME", "/"), "LANG": "C.UTF-8"}
+    if oscompat.WINDOWS:                             # an interpreter cannot start without SYSTEMROOT there
+        env.update({key: environ[key] for key in toolrun.WINDOWS_KEYS if environ.get(key)})
     # The same flag as the scorer's own launch (`toolrun.recog_argv`): -P keeps the cwd off the path and leaves the
     # user's site packages (a `pip install --user` numpy) visible to both; -I would hide them from both.
     try:
-        proc = subprocess.Popen([path] + PROBE_ARGS, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, start_new_session=True)
+        proc = oscompat.popen_group([path] + PROBE_ARGS, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
     except OSError:
         return _rejected("could not start")
     toolreg.register(proc)                           # a SIGKILL of the server must leave a line the next start reaps
@@ -77,7 +80,7 @@ def recog_python(environ):
         pass
     finally:                                         # also on a KeyboardInterrupt (SIGTERM while the probe runs)
         try:
-            os.killpg(proc.pid, signal.SIGKILL)      # a wrapper that did not exec leaves its python behind
+            oscompat.signal_group(proc, oscompat.SIGKILL)   # a wrapper that did not exec leaves its python behind
         except OSError:
             pass
         proc.wait()

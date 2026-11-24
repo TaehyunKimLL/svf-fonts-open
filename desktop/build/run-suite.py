@@ -6,6 +6,7 @@ and reasons are in the log (docs/desktop-app.md, Windows); it works the same on 
 """
 
 import collections
+import faulthandler
 import os
 import sys
 import unittest
@@ -17,6 +18,8 @@ def main(argv):
         return 2
     start = argv[0]
     pattern = argv[1] if len(argv) > 1 else "test_*.py"
+    # a hung test prints every thread's stack every 10 minutes (the job's timeout then names where it hung)
+    faulthandler.dump_traceback_later(600, repeat=True, file=sys.stderr)
     suite = unittest.defaultTestLoader.discover(start, pattern=pattern, top_level_dir=start)
     result = unittest.TextTestRunner(verbosity=2, stream=sys.stdout).run(suite)
     reasons = collections.Counter(reason for _, reason in result.skipped)

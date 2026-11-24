@@ -27,8 +27,11 @@ function createSupervisor({ launch, parentEnv, log, handshakeS = budget.HANDSHAK
   function attempt() {
     return new Promise((resolve, reject) => {
       const { env, token } = buildEnv(parentEnv, { repo: launch.repo, data: launch.data });
-      const child = spawnFn(launch.cmd, launch.args, { detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+      // Windows: stdin is a pipe the shell keeps open; closing it is the clean stop (--stop-on-eof, lib/shutdown.js)
+      const stdin = process.platform === 'win32' ? 'pipe' : 'ignore';
+      const child = spawnFn(launch.cmd, launch.args, { detached: true, stdio: [stdin, 'pipe', 'pipe'], windowsHide: true,
         cwd: os.homedir(), env });
+      if (child.stdin) child.stdin.on('error', () => {});   // a sidecar that is gone already: EPIPE on the close is fine
       children.add(child);                            // tracked from the spawn on, before any handshake
       const ring = new Ring(50);
       sup.ring = ring;

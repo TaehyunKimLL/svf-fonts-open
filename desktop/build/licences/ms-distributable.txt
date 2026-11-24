@@ -1,0 +1,6 @@
+This file is a Microsoft binary that is not open source. It is redistributed unmodified, as the package it came with
+redistributes it (the python.org CPython build for the Visual C++ runtime; Electron for the DirectX compilers), under
+Microsoft's terms for redistributable / Distributable Code of the product it belongs to (Visual Studio for the Visual C++
+runtime: https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution ; the DirectX SDK and the DirectX
+Shader Compiler for D3DCompiler and DXIL). The terms are Microsoft's, not this project's; no right beyond running this
+package is granted here.

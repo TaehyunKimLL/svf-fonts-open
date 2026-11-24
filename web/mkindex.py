@@ -302,7 +302,7 @@ def main(argv=None):
         print(f"mkindex.py: {e}", file=sys.stderr)
         return 2
     if not args.check:
-        with open(args.out_json, "w", encoding="utf-8") as f:
+        with open(args.out_json, "w", encoding="utf-8", newline="\n") as f:
             json.dump({"format": FORMAT, "faces": faces}, f, ensure_ascii=False, indent=1)
             f.write("\n")
     listed = sum(not e["subset"] for e in faces)

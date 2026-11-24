@@ -22,6 +22,7 @@ a face other than the two named.
 """
 
 import argparse
+import errno
 import gzip
 import os
 import re
@@ -47,10 +48,27 @@ class DamagedBitmapError(FaceError):
 HBF_MAX = 128 << 20          # one HBF's bitmaps, decompressed, in total
 
 
+def _open_nofollow_windows(path):
+    """Windows has no O_NOFOLLOW: `lstat` first (a symlink or a junction is refused), open, and require the descriptor
+    to be the file the `lstat` saw (volume serial + file index), so a name swapped for a link meanwhile is refused."""
+    before = os.lstat(path)
+    if stat.S_ISLNK(before.st_mode) or getattr(before, "st_reparse_tag", 0) & 0x20000000:   # a name surrogate
+        raise OSError(errno.ELOOP, "Too many levels of symbolic links", path)
+    fd = os.open(path, os.O_RDONLY | os.O_BINARY)
+    st = os.fstat(fd)
+    if (st.st_dev, st.st_ino) != (before.st_dev, before.st_ino):
+        os.close(fd)
+        raise OSError(errno.ELOOP, "Too many levels of symbolic links", path)
+    return fd
+
+
 def open_regular(path):
     """@p path opened without following a link, and only when it is a regular file (FaceError otherwise)."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
+        if os.name == "nt":
+            fd = _open_nofollow_windows(path)
+        else:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
     except OSError as e:
         raise FaceError(f"{path}: {e.strerror or 'cannot open'}")
     try:

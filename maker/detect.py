@@ -18,6 +18,7 @@ import unicodedata
 
 import bdfface
 import hwpfont
+import oscompat
 import recipe
 import jamoaa
 import jamoset
@@ -1564,7 +1565,7 @@ def _licence_folders(paths):
     """
     out = {}
     for p in paths:
-        if os.path.islink(p):
+        if oscompat.islink(p):
             continue
         if is_licence_name(os.path.basename(p)) or is_licence_text(p):
             out.setdefault(os.path.dirname(p), []).append(p)

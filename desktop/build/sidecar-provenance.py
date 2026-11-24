@@ -12,6 +12,7 @@ import glob
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -40,7 +41,10 @@ def wheel_owner(source, pysite):
 
 
 def dpkg_owner(source):
-    """(package, version) that owns @p source (or its real path) per dpkg, else None."""
+    """(package, version) that owns @p source (or its real path) per dpkg, else None (always None without dpkg: the
+    Windows build, where every non-wheel binary is the python.org interpreter's own)."""
+    if shutil.which("dpkg") is None:
+        return None
     for path in dict.fromkeys([source, os.path.realpath(source)]):
         out = subprocess.run(["dpkg", "-S", path], capture_output=True, text=True)
         if out.returncode == 0 and out.stdout.strip():
@@ -62,7 +66,7 @@ def main(argv):
     entries = toc[0] if isinstance(toc, tuple) and toc and isinstance(toc[0], list) else toc
     result = {}
     for item in entries:
-        dest, source, kind = item[0], item[1], item[2]
+        dest, source, kind = item[0].replace(os.sep, "/"), item[1], item[2]    # Windows: the bundle's paths with "/"
         if kind not in ("BINARY", "EXTENSION") and not re.search(r"\.so(\.|$)", os.path.basename(dest)):
             continue
         if not os.path.isfile(source):

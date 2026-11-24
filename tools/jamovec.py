@@ -411,7 +411,7 @@ def main():
         lim = tuple(int(x) for x in args.adaptive.split(",")) if args.adaptive else None
         mst = build_master(args.font, lim, args.decision_px, pylib=args.pylib, log=lambda *a: print(*a, flush=True),
                            class_limit=args.class_limit, components=args.components)
-        with open(args.output, "w") as fh:
+        with open(args.output, "w", newline="\n") as fh:
             json.dump(mst, fh, ensure_ascii=False)
         print(f"{args.output}: {len(mst['pieces'])} pieces, {mst['info']['medoids']}")
     else:

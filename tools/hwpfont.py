@@ -481,7 +481,7 @@ def cmd_bdf(a):
     for cp, rows in glyphs.items():
         gw = widths.get(cp, f.w)
         bits[cp] = [[r >> (gw - 1 - x) & 1 for x in range(gw)] for r in rows]
-    with open(a.output, "w", encoding="ascii") as fh:
+    with open(a.output, "w", encoding="ascii", newline="\n") as fh:
         fh.write(rawcarve.bdf_text(bits, f.w, f.h, ascent, a.name, advance))
     print(f"wrote {a.output}: {', '.join(what)}; cell {f.w}x{f.h}, ascent {ascent}")
 

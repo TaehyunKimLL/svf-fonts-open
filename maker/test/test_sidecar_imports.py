@@ -19,7 +19,7 @@ for _p in (MAKER_DIR, TOOLS_DIR):
 
 ROOTS = ["sidecar"]
 EXPECTED = {"archive", "bdfface", "binscan", "caps", "detect", "hwpfont", "rawcarve", "jamoaa", "jamoadapt", "jamofit", "jamoset", "jamovec", "jobs",
-            "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets", "preview", "quality",
+            "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "oscompat", "presets", "preview", "quality",
             "recipe", "routes", "server", "settings", "sources", "srcprep", "svf2to3", "svf2ttf", "svfdy", "svfline", "toolreg", "toolrun",
             "zipout"}
 SP = "sys.path entry for the tool's own directory (python -I drops it); frozen the modules are bundled, the entry is harmless"

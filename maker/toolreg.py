@@ -12,13 +12,12 @@ tests that call the runners directly register nothing.
 """
 
 import errno
-import fcntl
 import os
-import signal
 import subprocess
 import sys
 import time
 
+import oscompat
 import toolrun
 
 REAP_EACH_S = 5.0
@@ -34,7 +33,10 @@ def squeeze(text):
 
 
 def start_time(pid):
-    """The process start time as text: `/proc/<pid>/stat` field 22 (Linux), `ps -o lstart=` (macOS), else None."""
+    """The process start time as text: `/proc/<pid>/stat` field 22 (Linux), `ps -o lstart=` (macOS), the creation
+    FILETIME (Windows), else None."""
+    if oscompat.WINDOWS:
+        return oscompat.process_start_time(pid)
     try:
         with open("/proc/%d/stat" % pid, "rb") as f:
             return f.read().rsplit(b")", 1)[1].split()[19].decode()
@@ -56,13 +58,17 @@ class Registry:
 
     def _locked(self):
         fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            oscompat.lock(fd)
+        except BaseException:
+            os.close(fd)
+            raise
         return fd
 
     @staticmethod
     def _unlock(fd):
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            oscompat.unlock(fd)
         finally:
             os.close(fd)
 
@@ -77,7 +83,7 @@ class Registry:
         """Replace the file with @p rows, atomically (a temp file beside it, fsynced, then `os.replace`): a SIGKILL
         between the two steps leaves the old rows, never an empty file that forgets a live tool. Under the lock."""
         tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             f.write("".join(row + "\n" for row in rows))
             f.flush()
             os.fsync(f.fileno())
@@ -95,7 +101,7 @@ class Registry:
                                    os.path.basename(str(argv0)).replace(" ", "_"))
             fd = self._locked()
             try:
-                with open(self.path, "a", encoding="utf-8") as f:
+                with open(self.path, "a", encoding="utf-8", newline="\n") as f:
                     f.write(row + "\n")
             finally:
                 self._unlock(fd)
@@ -143,7 +149,7 @@ class Registry:
                     result["stale"] += 1
                     continue
                 try:
-                    os.killpg(pgid, signal.SIGKILL)
+                    oscompat.kill_registered(pgid)
                 except OSError:
                     pass
                 limit = started + REAP_TOTAL_S

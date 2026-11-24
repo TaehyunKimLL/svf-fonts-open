@@ -12,7 +12,7 @@ const { createSupervisor } = require('./lib/supervisor.js');
 const { isOurs, withToken } = require('./lib/guard.js');
 const budget = require('./lib/budget.js');
 const { restartAllowed } = require('./lib/restart.js');
-const { readSandbox, sandboxText } = require('./lib/sandbox.js');
+const { readSandbox, sandboxText, metricSandboxText } = require('./lib/sandbox.js');
 const { resolveLaunch } = require('./lib/paths.js');
 const { createLog, pathsLine, redactLine } = require('./lib/log.js');
 const { loadState, saveState } = require('./lib/state.js');
@@ -275,9 +275,14 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
   }
 
   // the renderer's sandbox state, once, for the log and About
-  const userns = (() => { try { const r = spawnSync('unshare', ['-Ur', 'true'], { timeout: 5000 }); return r.error ? 'unknown' : (r.status === 0 ? 'available' : 'unavailable'); } catch (e) { return 'unknown'; } })();
   const noSandboxSwitch = process.argv.includes('--no-sandbox');
-  handle.sandboxLine = sandboxText(readSandbox(win.webContents.getOSProcessId()), { noSandboxSwitch, userns });
+  if (process.platform === 'linux') {
+    const userns = (() => { try { const r = spawnSync('unshare', ['-Ur', 'true'], { timeout: 5000 }); return r.error ? 'unknown' : (r.status === 0 ? 'available' : 'unavailable'); } catch (e) { return 'unknown'; } })();
+    handle.sandboxLine = sandboxText(readSandbox(win.webContents.getOSProcessId()), { noSandboxSwitch, userns });
+  } else {                                                 // Windows / macOS: no /proc; Electron reports it there
+    const rpid = win.webContents.getOSProcessId();
+    handle.sandboxLine = metricSandboxText(app.getAppMetrics().find((m) => m.pid === rpid), { noSandboxSwitch });
+  }
   log.line('sandbox ' + handle.sandboxLine);
 
   if (smoke) {

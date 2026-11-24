@@ -221,7 +221,7 @@ def cmd_bdf(a):
     if not glyphs:
         raise CarveError("no inked glyph at these offsets")
     ascent = a.ascent if a.ascent is not None else default_ascent(h)
-    with open(a.output, "w", encoding="ascii") as fh:
+    with open(a.output, "w", encoding="ascii", newline="\n") as fh:
         fh.write(bdf_text(glyphs, w, h, ascent, a.name))
     hangul = sum(1 for cp in glyphs if 0xAC00 <= cp <= 0xD7A3)
     print(f"wrote {a.output}: {len(glyphs)} glyphs ({hangul} Hangul syllables) of {w}x{h}, ascent {ascent}")
@@ -445,7 +445,7 @@ def cmd_compose(a):
             glyphs[cp] = rows[:c.h]
             advance[cp] = 8
     ascent = a.ascent if a.ascent is not None else default_ascent(c.h)
-    with open(a.output, "w", encoding="ascii") as fh:
+    with open(a.output, "w", encoding="ascii", newline="\n") as fh:
         fh.write(bdf_text(glyphs, c.w, c.h, ascent, a.name, advance))
     print(f"wrote {a.output}: {len(cps)} syllables{' + ASCII' if a.eng else ''} of {c.w}x{c.h}, ascent {ascent}")
 

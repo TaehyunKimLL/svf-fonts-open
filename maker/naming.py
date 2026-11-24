@@ -15,6 +15,8 @@ import os
 import re
 import stat
 
+import oscompat
+
 # A face name, a text name and a destination folder (Global Constraints).
 NAME_RE = re.compile(r"^[A-Z0-9]{1,8}\.SVF$")
 TXT_RE = re.compile(r"^[A-Z0-9]{1,8}\.TXT$")
@@ -201,7 +203,9 @@ class RepoIndex:
         for root, dirs, files in os.walk(self.dir, followlinks=False, onerror=unreadable):
             dirs.sort()
             folder = os.path.relpath(root, self.dir).replace(os.sep, "/")
-            entries = files + [d for d in dirs if os.path.islink(os.path.join(root, d))]
+            linked = [d for d in dirs if oscompat.islink(os.path.join(root, d))]
+            dirs[:] = [d for d in dirs if d not in linked]         # never descended (a Windows junction neither)
+            entries = files + linked
             out.append(("" if folder == "." else folder, sorted(entries)))
         out.sort()
         return out

@@ -1449,7 +1449,7 @@ def write_range_files(work_dir):
         lines = ["".join(chr(cp) for cp in points[i:i + RANGE_CHARS_PER_LINE])
                  for i in range(0, len(points), RANGE_CHARS_PER_LINE)]
         path = os.path.join(work_dir, "range-%s.txt" % name)
-        with open(path, "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(lines) + "\n")
         out[name] = path
     return out
@@ -1535,7 +1535,7 @@ def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
     for key, value in dy.items():
         table[_dy_key(key)] = value
     path = os.path.join(step_dir, "dy.json")
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump({"0x%X" % cp: table[cp] for cp in sorted(table)}, f)
         f.write("\n")
     return toolrun.tool("svfdy", tools_dir) + [out if commands else src, out, "--json", path]
@@ -1585,7 +1585,7 @@ def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), exp
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, os.path.basename(name))
         if path not in staged:
-            with open(path, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
             staged.append(path)
         return path

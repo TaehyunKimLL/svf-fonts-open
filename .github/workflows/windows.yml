@@ -76,13 +76,56 @@ jobs:
       - name: Maker suite
         id: maker
         continue-on-error: true
+        timeout-minutes: 45
         run: python desktop/build/run-suite.py maker/test
       - name: Tools suite
         id: tools
         continue-on-error: true
+        timeout-minutes: 20
         run: python desktop/build/run-suite.py tools
-      - name: Suites passed
-        if: steps.maker.outcome != 'success' || steps.tools.outcome != 'success'
+      - name: npm ci (Electron, electron-builder)
+        working-directory: desktop
+        run: npm ci
+      - name: Desktop unit tests
+        id: unit
+        continue-on-error: true
+        working-directory: desktop
+        run: node --test test/unit.test.js test/third-party.test.js
+      - name: Build the sidecar (frozen test included)
+        env:
+          SVF_DESKTOP_TMP: ${{ runner.temp }}\sdb
+        run: python desktop/build/build-sidecar-win.py
+      - name: THIRD-PARTY.txt (fail closed)
+        env:
+          SVF_DESKTOP_TMP: ${{ runner.temp }}\sdb
         run: |
-          echo "maker=${{ steps.maker.outcome }} tools=${{ steps.tools.outcome }}"
-          exit 1
+          $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
+          node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
+            --provenance desktop/build/out/sidecar-provenance.json --electron desktop/node_modules/electron/dist `
+            --pysite "$env:SVF_DESKTOP_TMP\pysite" --repo desktop/build/out/repo --meta . --python-licence $lic `
+            --out desktop/build/out/THIRD-PARTY.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Installer and portable (electron-builder, unsigned)
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npx electron-builder --win nsis portable --x64 --publish never
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-ChildItem dist -File | Format-Table Name, Length
+      - name: Smoke (unpacked, installed, portable)
+        timeout-minutes: 10
+        run: python desktop/build/smoke-win.py desktop/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: svf-maker-windows
+          path: |
+            desktop/dist/*.exe
+            desktop/build/out/THIRD-PARTY.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Suites passed
+        if: always()
+        run: |
+          echo "maker=${{ steps.maker.outcome }} tools=${{ steps.tools.outcome }} unit=${{ steps.unit.outcome }}"
+          if ("${{ steps.maker.outcome }}" -ne "success" -or "${{ steps.tools.outcome }}" -ne "success" -or "${{ steps.unit.outcome }}" -ne "success") { exit 1 }

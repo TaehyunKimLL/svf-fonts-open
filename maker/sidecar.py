@@ -46,7 +46,7 @@ SMOKE["svfline"] = (["--help"], 1, "stderr", "  svfline.py line W H X Y")
 
 # The modules reachable from this file (test_sidecar_imports computes the same set from the sources and pins equality).
 GRAPH_MODULES = ("archive", "bdfface", "binscan", "caps", "detect", "hwpfont", "jamoaa", "jamoadapt", "jamofit", "jamoset",
-                 "jamovec", "jobs", "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets",
+                 "jamovec", "jobs", "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "oscompat", "presets",
                  "preview", "quality", "rawcarve", "recipe", "routes", "server", "settings", "sidecar", "sources", "srcprep",
                  "svf2to3", "svf2ttf", "svfdy", "svfline", "toolreg", "toolrun", "zipout")
 
@@ -148,6 +148,12 @@ def run_tool(name, args):
         sys.exit(2)
     _, how = TOOLS[name]
     sys.argv = [name + ".py"] + list(args)
+    if os.name == "nt":                                   # LF on the pipes, as a POSIX tool writes (no CRLF translation)
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(newline="\n")
+            except (AttributeError, ValueError):
+                pass
     try:
         main = ENTRIES[name]()
         if how == "bare":

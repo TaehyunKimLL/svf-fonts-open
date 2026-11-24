@@ -1128,7 +1128,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == "planes":
         d = mac_planes(open(args.fbit, "rb").read(), open(args.htbl, "rb").read())
-        json.dump({"ks": {str(s): list(v) for s, v in d.items()}}, open(args.out, "w"))
+        json.dump({"ks": {str(s): list(v) for s, v in d.items()}}, open(args.out, "w", newline="\n"))
         return 0
     log = lambda s: print(time.strftime("%H:%M:%S"), s, file=sys.stderr, flush=True)
     fc = read_face(args.face)
@@ -1144,7 +1144,7 @@ def main(argv=None):
         rep["stem_widths"] = stem_widths(fc)
         txt = json.dumps(rep, ensure_ascii=False, indent=1)
         if args.out:
-            open(args.out, "w").write(txt)
+            open(args.out, "w", newline="\n").write(txt)
         print(txt)
         return 0
     os.makedirs(args.outdir, exist_ok=True)

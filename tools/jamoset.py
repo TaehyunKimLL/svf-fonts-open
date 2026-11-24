@@ -3046,7 +3046,7 @@ def ttf_targets(path, size, cell, baseline, present_only, pylib=None):
 
 def write_report(path, info):
     import json
-    with open(path, "w") as fh:
+    with open(path, "w", newline="\n") as fh:
         json.dump(info, fh, indent=1, sort_keys=True, ensure_ascii=False)
         fh.write("\n")
 

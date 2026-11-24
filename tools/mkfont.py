@@ -852,7 +852,7 @@ def build_report(*, size, requested_size, cell_w, cell_h, ascent, auto_ascent, m
 
 def write_report(path, rep):
     import json
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(rep, f, ensure_ascii=False)
         f.write("\n")
 

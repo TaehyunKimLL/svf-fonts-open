@@ -36,6 +36,7 @@ import zlib
 
 import detect
 import naming
+import oscompat
 import preview
 import quality
 import recipe
@@ -211,8 +212,10 @@ def stat_id_bounded(path, timeout=STAT_TIMEOUT_S):
 
 
 def fs_bounded(op, path, timeout):
-    """`os.path.<op>(path)` (lexists, islink, isdir) within @p timeout seconds (`OSError` otherwise)."""
-    return bounded_call((op, path), lambda: getattr(os.path, op)(path), timeout)
+    """`os.path.<op>(path)` (lexists, islink, isdir) within @p timeout seconds (`OSError` otherwise). `islink` is
+    `oscompat.islink` (a Windows junction is a link too)."""
+    fn = oscompat.islink if op == "islink" else getattr(os.path, op)
+    return bounded_call((op, path), lambda: fn(path), timeout)
 
 
 
@@ -351,20 +354,25 @@ class _Capture:
         except (OSError, ValueError):
             return
 
+    def _bytes(self):
+        """The kept tail; on Windows with CRLF line ends made LF (a Python tool's text stdout writes CRLF there), so
+        the files and notes read as on POSIX."""
+        return bytes(self.data).replace(b"\r\n", b"\n") if oscompat.WINDOWS else self.data
+
     def write(self, path):
         """Write the kept tail to @p path, so a file behind the cap holds at most `cap` bytes."""
         with open(path, "wb") as f:
-            f.write(self.data)
+            f.write(self._bytes())
 
     def text(self):
         """The kept tail as UTF-8 text, undecodable bytes replaced."""
-        return self.data.decode("utf-8", "replace")
+        return self._bytes().decode("utf-8", "replace")
 
 
 def _signal_group(proc, sig):
     """Send @p sig to @p proc's process group, falling back to the process alone if the group is gone."""
     try:
-        os.killpg(proc.pid, sig)
+        oscompat.signal_group(proc, sig)
     except OSError:
         try:
             proc.send_signal(sig)
@@ -376,14 +384,15 @@ def _stop(proc):
     """Stop @p proc's whole process group: `SIGTERM`, then `SIGKILL` after `KILL_GRACE` seconds (Global Constraints).
 
     `run_command` starts the child in its own session (`start_new_session=True`), so `proc.pid` is the group's leader
-    and `killpg` reaches the grandchildren a tool may have spawned.
+    and `killpg` reaches the grandchildren a tool may have spawned. On Windows the group is the tool's Job Object and
+    both steps terminate it (`oscompat.signal_group`): a tool there has no grace period.
     """
     _signal_group(proc, signal.SIGTERM)
     try:
         proc.wait(KILL_GRACE)
     except subprocess.TimeoutExpired:
         pass
-    _signal_group(proc, signal.SIGKILL)                 # always: a grandchild may outlive the reaped tool
+    _signal_group(proc, oscompat.SIGKILL)               # always: a grandchild may outlive the reaped tool
     proc.wait()
 
 
@@ -409,8 +418,8 @@ def run_command(argv, cwd, timeout, cancel, env=None):
             pass
     started = time.monotonic()
     error = None
-    proc = subprocess.Popen(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    proc = oscompat.popen_group(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     toolreg.register(proc)                          # a no-op unless a server activated a registry
     out, err = _Capture(proc.stdout, OUTPUT_CAP), _Capture(proc.stderr, OUTPUT_CAP)
     out.start()
@@ -435,7 +444,7 @@ def run_command(argv, cwd, timeout, cancel, env=None):
     finally:
         if proc.poll() is None:                     # an exception in the loop must not leave the child running
             _stop(proc)
-        _signal_group(proc, signal.SIGKILL)         # every path: no straggler of the group may hold a pipe open
+        _signal_group(proc, oscompat.SIGKILL)       # every path: no straggler of the group may hold a pipe open
         held = not (out.join(KILL_GRACE) and err.join(KILL_GRACE))
         if held and error is None:                  # a descendant that left the group (setsid) still holds a pipe
             error = "a descendant kept the output open"
@@ -627,7 +636,8 @@ class Store:
             if stat_id_bounded(job["output_dir"], left()) != tuple(job.get("output_id") or ()):
                 return False
             st = bounded_call(("lstat", files), lambda: os.lstat(files), left())
-            return stat.S_ISDIR(st.st_mode) and [st.st_dev, st.st_ino] == list(job.get("files_id") or ())
+            return (stat.S_ISDIR(st.st_mode) and not oscompat.is_link(st)
+                    and [st.st_dev, st.st_ino] == list(job.get("files_id") or ()))
         except OSError:
             return False
 
@@ -671,14 +681,14 @@ class Store:
         files = self.files_dir(job)
         for path in (files, os.path.join(files, "work"), os.path.join(files, "work", "tmp")):
             try:
-                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left()).st_mode   # one result type per key
+                st = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left())   # one result type per key
             except FileNotFoundError:
                 if made is not None and path == files:
                     made.append(path)
                 bounded_call(("mkdir", path), lambda p=path: os.mkdir(p, 0o700), left())
                 bounded_call(("chmod", path), lambda p=path: os.chmod(p, 0o700), left())
                 continue
-            if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):    # a link planted at the name would lead elsewhere
+            if oscompat.is_link(st) or not stat.S_ISDIR(st.st_mode):    # a link planted at the name would lead elsewhere
                 raise OutputGone("the files directory is a link or not a folder: refusing to use it")
         job["files_id"] = list(stat_id_bounded(files, left()))   # the directory's own identity (a run saves it and checks it per step)
         return files
@@ -732,7 +742,7 @@ class Store:
         """`save`'s body: the caller holds the job's lock (`update` holds it across load, `fn` and this write)."""
         job["updated"] = time.time()
         tmp = self.path(job["id"], "job.json.tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(job, f, indent=2, sort_keys=True, ensure_ascii=False)
         os.replace(tmp, self.path(job["id"], "job.json"))
 
@@ -866,7 +876,7 @@ class Store:
     def _write_pending(self, entries):
         os.makedirs(self.data_root, exist_ok=True)
         tmp = self._pending_path() + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(entries, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
@@ -1284,8 +1294,8 @@ class Store:
                     continue
                 # a bounded lstat, not `os.path.islink/isdir` (they turn every OSError into False, and a tombstone whose
                 # lookup fails would then be skipped and forgotten): FileNotFoundError = gone, any other error collects it
-                mode = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left()).st_mode   # one result type per key
-                if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+                st = bounded_call(("lstat", path), lambda p=path: os.lstat(p), left())   # one result type per key
+                if oscompat.is_link(st) or not stat.S_ISDIR(st.st_mode):
                     continue
                 if left() <= 0 or not remove_tree_bounded(path, min(REMOVE_BOUND_S, dl.remaining())):
                     collected.append(self._entry(job, path, reason))
@@ -1659,7 +1669,7 @@ class Worker(threading.Thread):
             if known:
                 files = os.path.join(job["output_dir"], FILES_DIR_PREFIX + job["id"])
                 st = os.lstat(files)
-                if stat.S_ISLNK(st.st_mode) or [st.st_dev, st.st_ino] != list(known):
+                if oscompat.is_link(st) or [st.st_dev, st.st_ino] != list(known):
                     return False
             return True
         except OSError:

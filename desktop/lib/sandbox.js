@@ -21,4 +21,10 @@ function sandboxText(state, { noSandboxSwitch, userns }) {
   }
   return 'renderer sandbox: on';
 }
-module.exports = { readSandbox, sandboxText };
+// Windows and macOS (no /proc): Electron's own process metric for the renderer (`app.getAppMetrics()`, `sandboxed` is
+// reported there only).
+function metricSandboxText(metric, { noSandboxSwitch }) {
+  if (!metric || typeof metric.sandboxed !== 'boolean') return 'renderer sandbox: unknown';
+  return metric.sandboxed ? 'renderer sandbox: on' : 'renderer sandbox: off' + (noSandboxSwitch ? ' (--no-sandbox)' : '');
+}
+module.exports = { readSandbox, sandboxText, metricSandboxText };
