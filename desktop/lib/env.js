@@ -13,6 +13,12 @@ const WINDOWS_KEYS = ['SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE', 'LOC
 
 function buildEnv(parentEnv, { repo, data }, platform = process.platform) {
   const token = crypto.randomBytes(16).toString('hex');
+  if (platform === 'win32') {
+    // Windows names are case-blind (`Path`, `SystemRoot`): process.env answers either spelling, a plain copy of it does not
+    const upper = {};
+    for (const [k, v] of Object.entries(parentEnv)) if (!(k.toUpperCase() in upper)) upper[k.toUpperCase()] = v;
+    parentEnv = upper;
+  }
   const env = {
     PATH: parentEnv.PATH || '/usr/bin:/bin',
     HOME: parentEnv.HOME || os.homedir(),

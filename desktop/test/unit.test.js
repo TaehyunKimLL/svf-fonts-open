@@ -65,6 +65,9 @@ test('buildEnv', () => {
   const w = buildEnv({ ...parent, SYSTEMROOT: 'C:\\Windows', TEMP: 'C:\\T', PYTHONHOME: 'C:\\x' }, { repo: '/r', data: '/d' }, 'win32').env;
   for (const k of Object.keys(w)) assert.ok(ENV_KEYS.includes(k) || WINDOWS_KEYS.includes(k), k);
   assert.deepEqual([w.SYSTEMROOT, w.TEMP, w.PYTHONUTF8, w.PYTHONHOME, w.PYTHONPATH], ['C:\\Windows', 'C:\\T', '1', undefined, undefined]);
+  // a plain copy of a Windows environment keeps its own spellings: Path and SystemRoot are found all the same
+  const m = buildEnv({ Path: 'C:\\bin', SystemRoot: 'C:\\Windows', SVF_RECOG_DIR: 'C:\\r' }, { repo: '/r', data: '/d' }, 'win32').env;
+  assert.deepEqual([m.PATH, m.SYSTEMROOT, m.SVF_RECOG_DIR], ['C:\\bin', 'C:\\Windows', 'C:\\r']);
   assert.match(token, /^[0-9a-f]{32}$/);
   assert.notEqual(token, 'decoy');
   assert.equal(env.SVF_MAKER_TOKEN, token);
