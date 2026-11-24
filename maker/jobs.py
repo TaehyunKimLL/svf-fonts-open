@@ -743,10 +743,18 @@ class Store:
         def read():
             with open(os.path.join(self.path(job_id), "job.json"), encoding="utf-8") as f:
                 return json.load(f)
-        try:
-            job = oscompat.retry_sharing(read)             # Windows: the worker may be replacing it this moment
-        except (OSError, UnicodeDecodeError, ValueError):
-            raise KeyError(job_id)
+        # Windows: the worker may be replacing it this moment (a sharing conflict is retried, and a read that still fails
+        # while the job's folder is there is tried again for up to a second); POSIX reads once, as before
+        until = time.monotonic() + (1.0 if oscompat.WINDOWS else 0.0)
+        while True:
+            try:
+                job = oscompat.retry_sharing(read)
+                break
+            except (OSError, UnicodeDecodeError, ValueError):
+                if time.monotonic() < until and os.path.isdir(self.path(job_id)):
+                    time.sleep(0.02)
+                    continue
+                raise KeyError(job_id)
         if not isinstance(job, dict) or job.get("id") != job_id:
             raise KeyError(job_id)
         return job
