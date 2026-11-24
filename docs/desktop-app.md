@@ -545,14 +545,16 @@ The faces already written in your output folders are yours and stay.
   `libfuse2`) under Xvfb; the window rendered and a conversion in local mode ran through the packaged sidecar. Still
   not verified: a real desktop with a window manager and a GPU, and Windows and macOS.
 - Windows x64 (t_9b8f56f0): built and tested on GitHub Actions `windows-latest` (Windows Server, no user at a desktop).
-  Verified there: the maker and tools test suites on Windows {{WIN_SUITES}}, the frozen sidecar's test, the desktop unit
+  Verified there: the maker and tools test suites on Windows (1,277 and 980 tests, 0 failed; the skips are listed in maker-desktop.md), the frozen sidecar's test, the desktop unit
   tests, the desktop end-to-end test against the development server and against the packaged sidecar (stubbed dialogs),
   a silent per-user install and uninstall, and a start of the unpacked, the installed and the portable app that loads
   the page through the packaged sidecar and stops it cleanly. **Not verified**: a real Windows 10/11 desktop (a person
   using the window, native dialogs, the GPU path, high-DPI scaling), the SmartScreen and browser download warnings (the
   files are not signed), antivirus interplay, folders synced by OneDrive or on network shares, FAT/exFAT output drives,
   long paths (over 260 characters), and Windows on Arm. The server's checks hold on Windows in their Windows form
-  (maker-desktop.md, "What differs on Windows"); a tool stop there is immediate (no 5 s grace).
+  (maker-desktop.md, "What differs on Windows"); a tool stop there is immediate (no 5 s grace). A face made on Windows
+  can differ from the same face made on Linux in single glyphs (measured: U+2116 of GowunBatang-Bold at 17 px 2 bpp), so
+  such a face is written as a new one there instead of being recognised as the shipped face.
 - macOS: not built, not run. The plan (signing, notarisation) is written in [maker-desktop.md](maker-desktop.md).
 - TTF / BDF export: each file is read back (fontTools for a TTF) and must hold exactly the face's characters; the
   round trip (baking the TTF back with `mkfont.py` and comparing, recipes.md) is not part of a run, it takes minutes for a

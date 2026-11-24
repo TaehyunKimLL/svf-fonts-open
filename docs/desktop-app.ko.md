@@ -516,13 +516,14 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
   창이 그려졌으며 로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 아직 검증하지 않음: 창 관리자와 GPU가 있는 실제 데스크톱,
   Windows와 macOS.
 - Windows x64(t_9b8f56f0): GitHub Actions `windows-latest`(Windows Server, 데스크톱 앞의 사용자 없음)에서 빌드하고 테스트했다.
-  그곳에서 검증한 것: Windows에서의 maker와 tools 테스트 스위트{{WIN_SUITES_KO}}, frozen 사이드카의 테스트, 데스크톱 단위 테스트,
+  그곳에서 검증한 것: Windows에서의 maker와 tools 테스트 스위트(1,277개와 980개, 실패 0. 건너뛴 것은 maker-desktop.ko.md에 있다), frozen 사이드카의 테스트, 데스크톱 단위 테스트,
   개발 서버와 패키지된 사이드카에 대한 데스크톱 end-to-end 테스트(대화상자는 스텁), 사용자별 무인 설치와 제거, 그리고 풀어 둔 앱,
   설치된 앱, 포터블 앱이 패키지된 사이드카로 페이지를 로드하고 깨끗하게 멈추는 시작. **검증하지 않은 것**: 실제 Windows 10/11
   데스크톱(창을 쓰는 사람, 네이티브 대화상자, GPU 경로, 고DPI 배율), SmartScreen과 브라우저 다운로드 경고(파일에 서명이 없다),
   백신과의 상호작용, OneDrive가 동기화하는 폴더나 네트워크 공유, FAT/exFAT 출력 드라이브, 긴 경로(260자 초과), Arm용 Windows.
   서버의 검사는 Windows에서 그 Windows 형태로 지켜진다(maker-desktop.ko.md, "Windows에서 다른 것"). 그곳에서 도구 정지는 즉시다(5초
-  유예 없음).
+  유예 없음). Windows에서 만든 페이스는 Linux에서 만든 같은 페이스와 글리프 몇 개가 다를 수 있다(측정: GowunBatang-Bold 17 px 2 bpp의
+  U+2116). 그래서 그곳에서는 그런 페이스가 수록된 페이스로 인식되지 않고 새 페이스로 쓰인다.
 - macOS: 빌드하지도 실행하지도 않았다. 계획(서명, notarisation)은 [maker-desktop.ko.md](maker-desktop.ko.md)에 적혀 있다.
 - TTF / BDF 내보내기: 각 파일을 다시 읽어(TTF는 fontTools로) 페이스의 문자를 정확히 담았는지 확인한다. 왕복 검사(TTF를
   `mkfont.py`로 다시 구워 비교하는 것, recipes.md)는 실행에 포함되지 않는다. 자모 세트에서는 수 분이 걸린다. 프로그램이 TTF의 2 bpp

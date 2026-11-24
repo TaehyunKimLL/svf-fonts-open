@@ -264,7 +264,25 @@ DirectX Shader Compiler는 `LICENSES.chromium.html`을 가리킨다. 카피레�
 
 ### 측정값 (GitHub Actions windows-latest)
 
-{{WIN_MEASURED_KO}}
+Windows Server 2025(빌드 26100) 러너, Python 3.12.3, node 22, 2026-11-24.
+
+| 항목 | 값 |
+|---|---|
+| 사이드카 one-dir | 약 30 MB. `build-sidecar-win.py` 55초(frozen 테스트 포함: 28개, 실패 0, 건너뜀 2: fork 경쟁과 `PR_SET_PDEATHSIG` 노브, 본래 POSIX의 것. Windows에서는 Job Object가 둘 다 맡는다) |
+| 설치 프로그램 | `svf-maker-0.1.0-setup.exe` 138,366,326바이트. 사용자별 무인 설치와 제거를 확인 |
+| 포터블 | `svf-maker-0.1.0-portable.exe` 125,605,175바이트 |
+| smoke 시작부터 깨끗한 정지까지 | 풀어 둔 앱 1.3초, 설치된 앱 1.5초, 포터블 12.5초(먼저 자신을 푼다). Help > About의 줄: "renderer sandbox: on" |
+| 데스크톱 e2e | 33단계 통과(개발 패스와 패키지 패스, sample set 포함. `sample set` 개발 20.9초, 패키지 20.2초). `sh` 스텁의 stderr canary는 POSIX 전용이다. |
+| maker 스위트 | 두 조각으로 1,277개(13분과 27분. Chrome 페이지 테스트가 느린 부분), 실패 0, 건너뜀 62: 본래 POSIX인 것 30(권한 비트, 시그널, FIFO, 좀비, `/proc`과 `PR_SET_PDEATHSIG`, `/dev/zero`, `resource` 모듈, Chrome의 Unix 소켓 경로, 네임스페이스), 아래의 U+2116 고정 1, Linux와 같은 환경 건너뜀 31(당신의 실제 글꼴과 ROM, 선택 라이브러리, 느린 fit, 패키지 작업에서 도는 frozen 클래스) |
+| tools 스위트 | 980개(6.5분), 실패 0, 건너뜀 642: 본래 POSIX인 것 609(gcc sanitizer를 쓰는 C 렌더러 호스트 빌드와 그 벤치·VESA 셸 스크립트: Windows에서 렌더러는 WASM 모듈로 돈다. 모드 000 폴더. bash 빌드 스크립트), Linux와 같은 환경 건너뜀 33 |
+| 데스크톱 단위 테스트 | 43개 통과(`unit.test.js`, `third-party.test.js`, win32 고지 사례 포함) |
+| 고지 | `THIRD-PARTY.txt` 15개 구성 요소, 귀속되지 않은 DLL 없음 |
+
+**Windows에서 바이트가 같지 않은 것.** FriBiDi가 있으면 테스트 스위트의 모든 페이스가 Linux의 바이트와 같다. 측정된 글리프 하나만
+예외다: GowunBatang-Bold 17 px 2 bpp(`dos-u-2bpp`, 수록된 `svf/dos/GBATB17.SVF`)는 Pillow의 Windows 빌드에서 U+2116을 다르게
+그리므로, Windows에서는 그 페이스가 수록된 것으로 인식되지 않고 새 페이스로 쓰인다. 테스트는 정확히 그 글리프만 고정한다
+(`maker/test/wincompat.py`, `WINDOWS_RENDER_DIFFERS`): 다른 모든 글리프와 메트릭은 같아야 한다. 원인은 밝히지 못했다(양쪽 모두
+FreeType 2.13.2, raqm 0.10.1).
 
 ## macOS (UNVERIFIED)
 

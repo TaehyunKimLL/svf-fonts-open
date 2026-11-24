@@ -273,7 +273,25 @@ A swap of a folder the tree has not reached yet is still caught by `lstat` + ide
 
 ### Measured (GitHub Actions windows-latest)
 
-{{WIN_MEASURED}}
+Windows Server 2025 (build 26100) runners, Python 3.12.3, node 22, 2026-11-24.
+
+| Item | Value |
+|---|---|
+| Sidecar one-dir | about 30 MB; `build-sidecar-win.py` 55 s including the frozen test (28 tests, 0 failed, 2 skipped: the fork race and the `PR_SET_PDEATHSIG` knob, POSIX by nature; on Windows the Job Object covers both) |
+| Installer | `svf-maker-0.1.0-setup.exe` 138,366,326 bytes; silent per-user install and uninstall checked |
+| Portable | `svf-maker-0.1.0-portable.exe` 125,605,175 bytes |
+| Smoke start to the clean stop | unpacked 1.3 s, installed 1.5 s, portable 12.5 s (it unpacks itself first); Help > About's line: "renderer sandbox: on" |
+| Desktop e2e | 33 steps pass (development pass and packaged pass, the sample set included; `sample set` dev 20.9 s, packaged 20.2 s). The `sh` stub's stderr canary is POSIX only. |
+| Maker suite | 1,277 tests in two shards (13 and 27 min; the Chrome page tests are the slow part), 0 failed, 62 skipped: 30 POSIX by nature (permission bits, signals, FIFOs, zombies, `/proc` and `PR_SET_PDEATHSIG`, `/dev/zero`, the `resource` module, Chrome's Unix socket path, a namespace), 1 the U+2116 pin below, 31 the same environment skips as on Linux (your real fonts and ROMs, optional libraries, the slow fit, the frozen classes, which run in the package job) |
+| Tools suite | 980 tests (6.5 min), 0 failed, 642 skipped: 609 POSIX by nature (the C renderer's host build with gcc sanitizers and its bench and VESA shell scripts: on Windows the renderer runs as the WASM module; a mode-000 folder; the bash build scripts), 33 environment skips as on Linux |
+| Desktop unit tests | 43 pass (`unit.test.js`, `third-party.test.js`, a win32 notices case included) |
+| Notices | `THIRD-PARTY.txt` 15 components, no unattributed DLL |
+
+**Not byte-equal on Windows.** With FriBiDi in place every face of the test suites is the Linux bytes except one measured
+glyph: GowunBatang-Bold at 17 px 2 bpp (`dos-u-2bpp`, the shipped `svf/dos/GBATB17.SVF`) draws U+2116 differently with
+Pillow's Windows build, so on Windows that face is written as a new face rather than recognised as the shipped one. The
+tests pin exactly that glyph (`maker/test/wincompat.py`, `WINDOWS_RENDER_DIFFERS`): every other glyph and metric must
+be equal. The cause is not established (FreeType 2.13.2 and raqm 0.10.1 on both sides).
 
 ## macOS (UNVERIFIED)
 
