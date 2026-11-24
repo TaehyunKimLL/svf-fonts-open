@@ -125,7 +125,7 @@ try {
   }
   const body = readFileSync(scriptFile, 'utf8');
   const expr = `(async () => { const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const waitFor = async (fn, ms = 20000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('waitFor timeout: ' + fn); await sleep(100); } };
+    const waitFor = async (fn, ms = 20000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) { const st = document.getElementById('state'); const pe = document.getElementById('page-error') || document.querySelector('.error:not([hidden])'); throw new Error('waitFor timeout: ' + fn + ' (state: ' + (st ? st.textContent : '-') + (pe ? '; error: ' + pe.textContent : '') + ')'); } await sleep(100); } };
     ${body} })()`;
   const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId);
   if (r.result.exceptionDetails) {

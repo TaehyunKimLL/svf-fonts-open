@@ -2283,13 +2283,9 @@ def _parse_args(argv):
 
 
 def _watch_stdin():
-    """Daemon thread (`--stop-on-eof`): read stdin until end of file (what is read is ignored), then stop as SIGTERM
-    would."""
-    try:
-        while sys.stdin.buffer.read1(4096):
-            pass
-    except (OSError, ValueError, AttributeError):
-        pass
+    """Daemon thread (`--stop-on-eof`): wait until stdin reaches end of file (`oscompat.wait_stdin_eof`), then stop as
+    SIGTERM would."""
+    oscompat.wait_stdin_eof()
     oscompat.request_stop()
 
 

@@ -235,6 +235,8 @@ if WINDOWS:
     _CreateToolhelp32Snapshot = _proto("CreateToolhelp32Snapshot", wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD)
     _Process32FirstW = _proto("Process32FirstW", wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
     _Process32NextW = _proto("Process32NextW", wintypes.BOOL, wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
+    _PeekNamedPipe = _proto("PeekNamedPipe", wintypes.BOOL, wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                            wintypes.LPVOID, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID)
     _GetFileInformationByHandleEx = _proto("GetFileInformationByHandleEx", wintypes.BOOL, wintypes.HANDLE, ctypes.c_int,
                                            wintypes.LPVOID, wintypes.DWORD)
 
@@ -426,6 +428,33 @@ def watch_process(pid, on_exit, name="svf-maker-process-watch"):
     thread = threading.Thread(target=wait, daemon=True, name=name)
     thread.start()
     return thread
+
+
+def wait_stdin_eof(poll_s=0.5):
+    """Return once stdin has reached end of file (POSIX: read until EOF, what is read is ignored). Windows: the pipe
+    is polled with PeekNamedPipe and never read, because a pending synchronous read on a pipe holds up other calls on
+    that handle (a child process could not be created meanwhile). A stdin that is not a pipe (a console, NUL, a file)
+    is never "at its end" there: the call then blocks for good, as an unwatched stdin would."""
+    if not WINDOWS:
+        try:
+            while sys.stdin.buffer.read1(4096):
+                pass
+        except (OSError, ValueError, AttributeError):
+            pass
+        return
+    try:
+        handle = msvcrt.get_osfhandle(0)
+    except OSError:
+        handle = None
+    avail = wintypes.DWORD()
+    while True:
+        if handle is not None and not _PeekNamedPipe(handle, None, 0, None, ctypes.byref(avail), None):
+            if ctypes.get_last_error() in (109, 232, 6):  # BROKEN_PIPE, NO_DATA (closing), INVALID_HANDLE: the writer is gone
+                return
+            handle = None                                 # not a pipe: nothing to watch
+        if handle is None:
+            threading.Event().wait()
+        time.sleep(poll_s)
 
 
 def request_stop():

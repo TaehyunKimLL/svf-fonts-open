@@ -931,7 +931,7 @@ class StartupBoundsTest(localfx.LocalRunBase):
         self.assertLessEqual(max(calls), 0.8)
         self.assertLessEqual(sum(calls), 1.0 + 0.05, calls)
         self.assertLessEqual(len(calls), 2, calls)
-        self.assertLess(elapsed, 2.5)                     # only a guard: it includes the server's construction
+        self.assertLess(elapsed, 2.5 if not wincompat.WIN else 3.5)   # only a guard: it includes the server's construction (slower on a Windows runner)
         self.assertNotIn(jid, box[0].cleanup_pending)
 
     def test_startup_returns_by_the_deadline_although_listdir_hangs(self):
