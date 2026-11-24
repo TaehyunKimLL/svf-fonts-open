@@ -263,7 +263,8 @@ test('golden TOC: sidecar-provenance.py keys and the generator agree on the dest
   const pysite = path.join(root, 'pysite');
   const sys_ = path.join(root, 'system');
   let toc = fs.readFileSync(path.join(__dirname, 'fixtures', 'collect-sample.toc'), 'utf8');
-  toc = toc.replace(/PYSITE/g, pysite).replace(/SYSTEM/g, sys_).replace(/WORK/g, work);
+  const lit = (p) => p.split(path.sep).join('/');       // a TOC is a Python literal: no backslash (Windows) in it
+  toc = toc.replace(/PYSITE/g, lit(pysite)).replace(/SYSTEM/g, lit(sys_)).replace(/WORK/g, lit(work));
   write(work, 'COLLECT-00.toc', toc);
   write(pysite, 'pillow-10.2.0.dist-info/RECORD', 'PIL/_imaging.cpython-312-x86_64-linux-gnu.so,,\npillow.libs/libfreetype-f154df84.so.6.20.1,,\n');
   write(pysite, 'pillow-10.2.0.dist-info/LICENSE', 'HPND');
@@ -271,7 +272,8 @@ test('golden TOC: sidecar-provenance.py keys and the generator agree on the dest
   write(sys_, 'libz.so.1', 'zlib bytes');
   write(sys_, 'lib-dynload/_json.cpython-312-x86_64-linux-gnu.so', 'json bytes');
   const out = path.join(root, 'prov.json');
-  const r = spawnSync('python3', ['-I', path.join(__dirname, '..', 'build', 'sidecar-provenance.py'), work, out, '--pysite', pysite], { encoding: 'utf8' });
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  const r = spawnSync(python, ['-I', path.join(__dirname, '..', 'build', 'sidecar-provenance.py'), work, out, '--pysite', pysite], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const prov = JSON.parse(fs.readFileSync(out, 'utf8'));
   assert.deepEqual(Object.keys(prov).sort(), ['PIL/_imaging.cpython-312-x86_64-linux-gnu.so', 'libfreetype-f154df84.so.6.20.1', 'libz.so.1',
