@@ -84,7 +84,7 @@ class NoteRefused(ValueError):
 
 def append_log(job_dir, text):
     """Append @p text to `<job_dir>/log.md` (UTF-8), creating it when it is not there yet."""
-    with open(os.path.join(job_dir, "log.md"), "a", encoding="utf-8") as f:
+    with open(os.path.join(job_dir, "log.md"), "a", encoding="utf-8", newline="\n") as f:
         f.write(text)
 
 

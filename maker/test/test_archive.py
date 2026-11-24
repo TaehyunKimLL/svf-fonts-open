@@ -28,6 +28,7 @@ from unittest import mock
 
 import archive
 import fixtures
+import wincompat
 
 FIXTURE_ROOT = None
 
@@ -243,7 +244,9 @@ class PathTest(unittest.TestCase):
         self.assertEqual(archive.check_rel_path("C:evil"), "drive letter in path")
         self.assertEqual(archive.check_rel_path("c:/x"), "drive letter in path")
         self.assertEqual(archive.check_rel_path("Z:"), "drive letter in path")
-        self.assertIsNone(archive.check_rel_path("a/C:evil"))        # only a *first* component is a drive
+        # only a *first* component is a drive; on Windows a colon anywhere would name a stream, so it is refused there
+        self.assertEqual(archive.check_rel_path("a/C:evil"), None if not wincompat.WIN else
+                         "a name Windows cannot hold (a device name, a colon, a trailing dot or space)")
         self.assertIsNone(archive.check_rel_path("C"))
 
     def test_unicode_control_categories_are_refused(self):

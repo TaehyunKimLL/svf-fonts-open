@@ -38,15 +38,70 @@ jobs:
           path: maker/static/wasm/
           retention-days: 3
 
-  windows:
+  suites:
+    # the maker suite in two shards and the tools suite with the desktop unit tests, in parallel; every skip is listed
+    # with its reason (desktop/build/run-suite.py prints SUITE ... ran= skipped= and SKIP <n> <reason>)
     needs: wasm
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - { name: maker-a-l, dir: maker/test, pattern: "test_[a-l]*.py" }
+          - { name: maker-m-z, dir: maker/test, pattern: "test_[m-z]*.py" }
+          - { name: tools, dir: tools, pattern: "test_*.py" }
+    name: suite ${{ matrix.shard.name }}
     defaults:
       run:
         shell: pwsh
     env:
       PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm
+          path: maker/static/wasm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.3"
+          cache: pip
+          cache-dependency-path: desktop/build/requirements-win.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Test dependencies (the pinned Pillow and fontTools)
+        run: python -m pip install --require-hashes "--only-binary=:all:" --no-deps -r desktop/build/requirements-win.lock
+      - name: Scratch directory
+        run: |
+          $t = Join-Path $env:RUNNER_TEMP "t"
+          New-Item -ItemType Directory -Force $t | Out-Null
+          "TMPDIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "TMP_DIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - name: Suite
+        timeout-minutes: 45
+        run: python desktop/build/run-suite.py ${{ matrix.shard.dir }} "${{ matrix.shard.pattern }}"
+      - name: Desktop unit tests
+        if: matrix.shard.name == 'tools' && !cancelled()
+        timeout-minutes: 10
+        working-directory: desktop
+        run: node --test test/unit.test.js test/third-party.test.js
+
+  package:
+    # the frozen sidecar (its frozen test included), THIRD-PARTY.txt, the desktop e2e, the installer and the portable
+    # .exe, the smoke of the unpacked, installed and portable app; the artifact svf-maker-windows
+    needs: wasm
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: "1"
+      SVF_DESKTOP_TMP: ${{ github.workspace }}\..\sdb
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,35 +128,13 @@ jobs:
           New-Item -ItemType Directory -Force $t | Out-Null
           "TMPDIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           "TMP_DIR=$t" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-      - name: Maker suite
-        id: maker
-        continue-on-error: true
-        timeout-minutes: 45
-        run: python desktop/build/run-suite.py maker/test
-      - name: Tools suite
-        id: tools
-        continue-on-error: true
-        timeout-minutes: 20
-        run: python desktop/build/run-suite.py tools
       - name: npm ci (Electron, electron-builder)
         working-directory: desktop
         run: npm ci
-      - name: Desktop unit tests
-        id: unit
-        continue-on-error: true
-        timeout-minutes: 10
-        working-directory: desktop
-        run: node --test test/unit.test.js test/third-party.test.js
       - name: Build the sidecar (frozen test included)
         timeout-minutes: 30
-        env:
-          SVF_DESKTOP_TMP: ${{ runner.temp }}\sdb
         run: python desktop/build/build-sidecar-win.py
       - name: THIRD-PARTY.txt (fail closed)
-        id: notices
-        continue-on-error: true
-        env:
-          SVF_DESKTOP_TMP: ${{ runner.temp }}\sdb
         run: |
           $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
           node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
@@ -111,14 +144,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Desktop e2e (development pass, then the packaged sidecar)
         id: e2e
-        continue-on-error: true
+        continue-on-error: true            # the packages are still built and smoked; the last step fails the job
         timeout-minutes: 25
         working-directory: desktop
         env:
-          TMP_DIR: ${{ runner.temp }}\e2e
           SVF_MAKER_SIDECAR: ${{ github.workspace }}\desktop\build\out\sidecar\svf-maker-sidecar\svf-maker-sidecar.exe
           SVF_MAKER_STAGED_REPO: ${{ github.workspace }}\desktop\build\out\repo
         run: |
+          $env:TMP_DIR = Join-Path $env:RUNNER_TEMP "e2e"
           New-Item -ItemType Directory -Force $env:TMP_DIR | Out-Null
           $env:TMPDIR = $env:TMP_DIR
           & node_modules\electron\dist\electron.exe --disable-gpu "--user-data-dir=$env:TMP_DIR\e2e-base" test/e2e.js 2>&1 | Out-Host
@@ -128,8 +161,6 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
-          # a failed notices step leaves a placeholder only so the later stages still run; the gate below fails the run
-          if (-not (Test-Path ../desktop/build/out/THIRD-PARTY.txt)) { "placeholder: THIRD-PARTY generation failed" | Out-File build/out/THIRD-PARTY.txt }
           npx electron-builder --win nsis portable --x64 --publish never
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem dist -File | Format-Table Name, Length
@@ -144,8 +175,8 @@ jobs:
             desktop/build/out/THIRD-PARTY.txt
           if-no-files-found: error
           retention-days: 14
-      - name: Suites passed
-        if: always()
+      - name: The e2e passed
+        if: steps.e2e.outcome != 'success'
         run: |
-          echo "maker=${{ steps.maker.outcome }} tools=${{ steps.tools.outcome }} unit=${{ steps.unit.outcome }} e2e=${{ steps.e2e.outcome }} notices=${{ steps.notices.outcome }}"
-          if ("${{ steps.maker.outcome }}" -ne "success" -or "${{ steps.tools.outcome }}" -ne "success" -or "${{ steps.unit.outcome }}" -ne "success" -or "${{ steps.e2e.outcome }}" -ne "success" -or "${{ steps.notices.outcome }}" -ne "success") { exit 1 }
+          echo "desktop e2e: ${{ steps.e2e.outcome }}"
+          exit 1

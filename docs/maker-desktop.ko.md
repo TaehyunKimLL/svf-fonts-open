@@ -181,9 +181,84 @@ libfuse 오류는 사라졌다. 이제는 FUSE 마운트 뒤에(마운트된 이
 140,426,554 바이트), 추출한 `AppRun`과 AppImage 자체가 Xvfb 아래에서 smoke 줄 `svf-maker smoke ok SVF maker`를 출력했으며, 개발 실행(`desktop/`에서
 `node_modules/.bin/electron --no-sandbox .`, Xvfb 아래)은 `sidecar start mode=dev`와 사이드카의 포트 줄을 기록했다.
 
-## Windows와 macOS (UNVERIFIED)
+## Windows (t_9b8f56f0)
 
-아래의 어느 것도 실행하지 않았다. 이 호스트들의 빌더가 따를 계획과 그것을 막는 것이다. 빌드도 검증도 하지 않았다.
+Windows x64는 GitHub Actions(`windows-latest`, 워크플로 `.github/workflows/windows.yml`)에서 빌드하고 테스트한다. 데스크톱
+머신에서는 한 번도 하지 않았다. 한 번의 실행은 이 순서로 한다: Ubuntu 러너에서 WASM 미리보기 모듈(emsdk 6.0.13,
+`c/cross/install-toolchains.sh`의 고정값. `maker/build-wasm.sh`는 bash이고 Windows 러너에는 emcc를 두지 않는다)을 만들어 아티팩트로
+Windows 작업에 넘긴다. Windows에서는 `desktop/build/run-suite.py`로 maker 스위트와 tools 스위트를 돌리고(`SUITE ... ran= skipped=`와
+건너뛴 이유마다 `SKIP <n> <이유>` 한 줄을 찍는다), 데스크톱 단위 테스트, frozen 사이드카(`desktop/build/build-sidecar-win.py`,
+`SVF_MAKER_FROZEN_REQUIRED=1`로 frozen 테스트 포함), `THIRD-PARTY.txt`(`third-party.mjs --platform win32`, 닫힌 쪽으로 실패),
+데스크톱 e2e(개발 패스, 이어서 패키지된 사이드카), 설치 프로그램과 포터블 `.exe`(electron-builder `--win nsis portable`, 서명 없음),
+그리고 풀어 둔 앱, 설치된 앱, 포터블 앱의 smoke(`desktop/build/smoke-win.py`)를 한다. 두 `.exe` 파일과 `THIRD-PARTY.txt`가 실행의
+아티팩트 `svf-maker-windows`다. pip와 npm 다운로드는 캐시한다.
+
+### 직접 빌드하기 (Windows)
+
+러너 밖에서는 해 보지 않았다. 단계는 워크플로의 것이다. git 체크아웃(`.gitattributes`가 모든 파일을 바이트 그대로 둔다: CRLF 변환
+없음), `PATH`에 `python`으로 있는 Python 3.12(3.12.3 사용), npm이 있는 node 22, 다른 곳(Linux나 WSL: `bash maker/build-wasm.sh`)에서
+빌드해 `maker/static/wasm/`에 복사한 WASM 모듈이 필요하다:
+
+    # 체크아웃 루트에서, PowerShell
+    python -m pip install --require-hashes "--only-binary=:all:" --no-deps -r desktop/build/requirements-win.lock
+    cd desktop; npm ci; cd ..
+    python desktop/build/build-sidecar-win.py          # wheel, icon.ico, PyInstaller, provenance, 스테이징 repo, selfcheck, frozen 테스트
+    $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
+    node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
+      --provenance desktop/build/out/sidecar-provenance.json --electron desktop/node_modules/electron/dist `
+      --pysite "$env:USERPROFILE\work\tmp\svf-desktop-build\pysite" --repo desktop/build/out/repo --meta . `
+      --python-licence $lic --out desktop/build/out/THIRD-PARTY.txt
+    cd desktop; npx electron-builder --win nsis portable --x64 --publish never; cd ..
+    python desktop/build/smoke-win.py desktop/dist
+
+`desktop/build/requirements-win.lock`은 win_amd64 cp312 wheel을 해시와 함께 고정한다(Linux와 같은 Pillow 10.2.0, fontTools 4.66.1,
+PyInstaller 6.22.3, 그리고 PyInstaller의 Windows 전용 의존성 `pefile`과 `pywin32-ctypes`). spec(`maker/sidecar.spec`)은 Linux의 것이고,
+Windows에서는 UTF-8 모드(`X utf8_mode=1`: frozen 프로그램은 `PYTHONUTF8`을 무시한다)와 아이콘을 더한다. `desktop/package.json`의
+`build.win`: 대상은 `nsis`(원클릭, 사용자별, 권한 상승 없음, 시작 메뉴 바로 가기 "SVF maker", `%LOCALAPPDATA%\Programs\svf-maker`에
+설치)와 `portable`이다. 아이콘 `build/out/icon.ico`는 `make-icon.py --ico`가 `build/icon.png`에서 만든다(커밋하지 않는다).
+
+고지: `desktop/build/third-party-map-win.json`이 사이드카 `_internal/`과 Electron 폴더의 모든 `*.dll`, `*.pyd`를 대소문자 구분 없이
+귀속한다. python.org 인터프리터의 DLL과 확장 모듈(CPython, OpenSSL, libffi, ...)은 그 인터프리터의 `LICENSE.txt`(`--python-licence`)에서
+글을 가져온다. 그 파일에 Windows 빌드가 묶는 라이브러리들의 라이선스가 들어 있다. 인터프리터나 Electron과 함께 오는 Microsoft
+바이너리(`VCRUNTIME140*.dll`, `d3dcompiler_47.dll`, `dxil.dll`)는 클래스 `ms-redist`다: Microsoft의 조건에 따라 수정 없이 재배포한다
+(`desktop/build/licences/ms-distributable.txt`가 그렇게 말한다. 그 라이선스 원문은 아니다). ANGLE(`libEGL.dll`, `libGLESv2.dll`)과
+DirectX Shader Compiler는 `LICENSES.chromium.html`을 가리킨다. 카피레프트 부분은 AppImage runtime을 뺀 Linux와 같다: `ffmpeg.dll`
+(LGPL-2.1, D8 릴리스 게이트가 똑같이 적용된다)과 PyInstaller 부트로더.
+
+### Windows에서 다른 것 (서버)
+
+`maker/oscompat.py`가 POSIX와 Windows가 다르게 쓰는 모든 기본 동작을 갖는다. POSIX에서는 각 함수가 이 모듈 이전에 maker가 하던 바로
+그 호출이므로 Linux 동작은 바뀌지 않는다.
+
+| 무엇 | POSIX | Windows |
+|---|---|---|
+| 도구의 프로세스 트리 | 새 세션. `killpg` SIGTERM, 5초 뒤 SIGKILL | 콘솔 없는 새 프로세스 그룹에서 일시 정지 상태로 시작해 자기 Job Object(`KILL_ON_JOB_CLOSE`)에 넣은 뒤 재개한다. 정지는 job을 즉시 끝낸다(유예 없음: 그에게 SIGTERM이 없다). job을 만들거나 넣지 못하면 그 도구를 거부한다. |
+| 죽은 사이드카의 도구 | `PR_SET_PDEATHSIG` + 다음 시작의 reap | 사이드카의 job 핸들이 닫힐 때 커널이 끝낸다. reap은 기록된 pid와 그 아래 모든 프로세스를 끝낸다(스냅숏의 부모 연결, 생성 시각 확인) |
+| 사이드카 정지 | 셸이 그룹에 SIGTERM | 셸이 사이드카의 stdin을 닫는다(`serve --stop-on-eof`): SIGTERM과 같은 깨끗한 정지. 45초 뒤에는 끝낸다(TerminateProcess) |
+| 부모 감시(`--exit-with-parent`) | `getppid()` 폴링 | 시작할 때 연 부모의 프로세스 핸들을 기다린다 |
+| 데이터 루트와 레지스트리 락 | `flock` | 락 파일 끝보다 훨씬 뒤의 한 바이트에 `msvcrt.locking`(파일은 읽을 수 있게 남는다) |
+| 다른 스레드와 겹친 교체나 읽기 | 원자적, 실패하지 않음 | 공유 위반을 최대 2초 다시 시도한다(`retry_sharing`) |
+| 링크 | `S_ISLNK` | 심볼릭 링크 **또는 이름 대리(name surrogate) reparse point 모두**(정션, 마운트 지점). `lstat`은 정션을 폴더로 보이므로 reparse 태그로 판단한다 |
+| 기존 파일을 링크를 따르지 않고 열기 | `O_NOFOLLOW` | `lstat`(링크면 거부), 열기, `fstat`: `lstat`이 본 파일(볼륨 일련번호 + 파일 인덱스)이어야 한다 |
+| 출력 트리 | 디렉터리 디스크립터와 `*at()` 호출 | 쓰기가 지나가는 모든 폴더를 삭제 공유 없이, reparse point를 따르지 않고 연 채로 둔다(`hold_dir`): 쓰는 동안 그 폴더와 그 위의 모든 폴더는 이름을 바꾸거나 지울 수 없다. 각 착지 앞뒤의 경로 -> 정체 검사는 POSIX와 같다 |
+| 새 이름 차지 | `link()`, 안 되면 `O_EXCL` + 교체 + 다시 읽기 | 같다(`CreateHardLink`. 하드 링크가 없는 FAT/exFAT와 공유 폴더는 둘째 방법) |
+| 출력 이름 | 이름 규칙대로 | 다음도 거부한다: 장치 이름(`CON`, `NUL.TXT`, `COM1`, ...), 끝의 점이나 공백, 문자 `<` `>` `:` `"` `/` `\` `?` `*`와 세로 막대(`TreeRefused`. 업로드 압축 파일의 항목도) |
+| 고른 경로 | 절대 경로 | 드라이브나 UNC 공유가 있는 절대 경로. 장치 경로(`\\.\`), 확장 길이 경로(`\\?\`), 드라이브 루트, 대체 데이터 스트림(`이름:스트림`)은 거부한다. 소스 안의 상대 경로에는 드라이브와 콜론이 있을 수 없다 |
+| `SVF_MAKER_ROOTS` | `:`로 구분 | `;`로 구분 |
+| 권한 비트 | `umask 077`, 폴더 0700, 파일 0600 | 모드 비트가 없다: 데이터 폴더의 비공개는 사용자 프로필(`%APPDATA%`)에서 물려받은 ACL이다 |
+| maker와 도구가 쓰는 텍스트 | LF | LF(모든 텍스트 쓰기에 `newline="\n"`. 도구의 CRLF stdout은 LF로 읽는다) |
+
+같은 보장이 아닌 것: POSIX에서는 두 착지 사이에 바뀐 폴더를 알아채고 쓰기를 멈춘다(`OutputGone`). Windows에서는 폴더를 연 채로 두는
+동안 그 바꿔치기 자체가 불가능하므로, 쓰기는 검사한 그 폴더 안에서 끝난다. 트리가 아직 닿지 않은 폴더의 바꿔치기는 그 폴더를 열기
+전에 `lstat` + 정체 검사가 여전히 잡는다.
+
+### 측정값 (GitHub Actions windows-latest)
+
+{{WIN_MEASURED_KO}}
+
+## macOS (UNVERIFIED)
+
+아래의 어느 것도 실행하지 않았다. 이 호스트의 빌더가 따를 계획이다. 빌드도 검증도 하지 않았다.
 
 - **macOS.** PyInstaller one-dir은 macOS에서 같은 spec을 빌드한다(arm64와 x86_64는 별개의 빌드이고, universal2 빌드에는 Pillow와
   fontTools의 universal wheel이 필요하다. `desktop/build/requirements.lock`은 Linux cp312 wheel만 고정한다). 서버는 이미 macOS
@@ -193,12 +268,6 @@ libfuse 오류는 사라졌다. 이제는 FUSE 마운트 뒤에(마운트된 이
   `resources/sidecar/` 아래의 모든 바이너리도 서명해야 한다(`codesign --deep`은 `_internal/*.so`에 확실히 닿지 않는다. 각각
   `--options runtime`으로 개별 서명한다). 그다음 `notarytool submit`과 `stapler`. 서명하지 않으면 Gatekeeper가 첫 실행에서 앱을
   막는다(오른쪽 클릭으로 열기는 된다).
-- **Windows.** **서버는 Windows용이 아니다**(`os.killpg`, `start_new_session`, 그룹에 대한 `signal.SIGTERM`, `os.umask(0o077)`의
-  의미, 덮어쓰기 없는 쓰기를 위한 `os.link`, 레지스트리와 데이터 루트 락의 `fcntl` 락). 포팅에는 그룹 kill을 위한 Job Objects(또는
-  `CREATE_NEW_PROCESS_GROUP` + `GenerateConsoleCtrlEvent`), `run_command`/`run_bounded`의 `CreateProcess` 플래그, NTFS에서 로컬 모드
-  설계의 모든 `realpath`/inode 규칙에 대한 검토가 필요하다. 이는 별도의 카드이며, 이것이 끝나기 전에는 Windows 빌드를 시도하지
-  않는다. 그다음: 같은 PyInstaller spec(`console=True`와 셸의 `windowsHide`를 유지), electron-builder 대상 `nsis` 또는 `portable`,
-  Job Object를 쓰는 Electron spawn, 코드 서명 인증서로 서명.
 
 ## 여기서 검증하지 않은 것
 

@@ -185,9 +185,87 @@ extracted `AppRun` and the AppImage itself printed the smoke line `svf-maker smo
 development run (`node_modules/.bin/electron --no-sandbox .` in `desktop/`, under Xvfb) logged `sidecar start mode=dev`
 and the sidecar's port line.
 
-## Windows and macOS (UNVERIFIED)
+## Windows (t_9b8f56f0)
 
-Nothing below was run. It is the plan a builder on those hosts follows, and what blocks it. Not built or verified.
+Windows x64 is built and tested on GitHub Actions (`windows-latest`, workflow `.github/workflows/windows.yml`), never on a
+desktop machine. One run does, in this order: the WASM preview module on an Ubuntu runner (emsdk 6.0.13, the pin of
+`c/cross/install-toolchains.sh`; `maker/build-wasm.sh` is bash and emcc is not set up on the Windows runner), handed to the
+Windows job as an artifact; on Windows the maker suite and the tools suite through `desktop/build/run-suite.py` (it prints
+`SUITE ... ran= skipped=` and one `SKIP <n> <reason>` line per skip reason), the desktop unit tests, the frozen sidecar
+(`desktop/build/build-sidecar-win.py`, frozen test included with `SVF_MAKER_FROZEN_REQUIRED=1`), `THIRD-PARTY.txt`
+(`third-party.mjs --platform win32`, fail closed), the desktop e2e (development pass, then the packaged sidecar), the
+installer and the portable `.exe` (electron-builder `--win nsis portable`, unsigned), and the smoke of the unpacked app, the
+installed app and the portable app (`desktop/build/smoke-win.py`). The two `.exe` files and `THIRD-PARTY.txt` are the
+run's artifact `svf-maker-windows`. pip and npm downloads are cached.
+
+### Build it yourself (Windows)
+
+Not tried outside the runner; the steps are the workflow's. A git checkout (`.gitattributes` keeps every file byte for byte:
+no CRLF conversion), Python 3.12 (3.12.3 used) on `PATH` as `python`, node 22 with npm, and the WASM module built
+elsewhere (Linux or WSL: `bash maker/build-wasm.sh`) and copied to `maker/static/wasm/`:
+
+    # in the checkout root, PowerShell
+    python -m pip install --require-hashes "--only-binary=:all:" --no-deps -r desktop/build/requirements-win.lock
+    cd desktop; npm ci; cd ..
+    python desktop/build/build-sidecar-win.py          # wheels, icon.ico, PyInstaller, provenance, staged repo, selfcheck, frozen test
+    $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
+    node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
+      --provenance desktop/build/out/sidecar-provenance.json --electron desktop/node_modules/electron/dist `
+      --pysite "$env:USERPROFILE\work\tmp\svf-desktop-build\pysite" --repo desktop/build/out/repo --meta . `
+      --python-licence $lic --out desktop/build/out/THIRD-PARTY.txt
+    cd desktop; npx electron-builder --win nsis portable --x64 --publish never; cd ..
+    python desktop/build/smoke-win.py desktop/dist
+
+`desktop/build/requirements-win.lock` pins the win_amd64 cp312 wheels with hashes (the same Pillow 10.2.0, fontTools
+4.66.1 and PyInstaller 6.22.3 as Linux, plus PyInstaller's Windows-only `pefile` and `pywin32-ctypes`). The spec
+(`maker/sidecar.spec`) is the Linux one; on Windows it adds UTF-8 mode (`X utf8_mode=1`: a frozen program ignores
+`PYTHONUTF8`) and the icon. `desktop/package.json` `build.win`: targets `nsis` (one-click, per user, no elevation,
+Start-menu shortcut "SVF maker", installs to `%LOCALAPPDATA%\Programs\svf-maker`) and `portable`; icon
+`build/out/icon.ico`, made from `build/icon.png` by `make-icon.py --ico` (not committed).
+
+Notices: `desktop/build/third-party-map-win.json` attributes every `*.dll` and `*.pyd` of the sidecar's `_internal/` and of
+Electron's folder (case-blind). The DLLs and extension modules of the python.org interpreter (CPython, OpenSSL, libffi, ...)
+take their text from that interpreter's `LICENSE.txt` (`--python-licence`), which carries the licences of the libraries the
+Windows build bundles. Microsoft binaries that come with the interpreter or with Electron (`VCRUNTIME140*.dll`,
+`d3dcompiler_47.dll`, `dxil.dll`) are class `ms-redist`: redistributed unmodified under Microsoft's terms
+(`desktop/build/licences/ms-distributable.txt` says so; it is not their licence text). ANGLE (`libEGL.dll`, `libGLESv2.dll`)
+and the DirectX Shader Compiler point at `LICENSES.chromium.html`. The copyleft parts are the same as on Linux minus the
+AppImage runtime: `ffmpeg.dll` (LGPL-2.1, the D8 release gate applies to it the same way) and the PyInstaller bootloader.
+
+### What differs on Windows (the server)
+
+`maker/oscompat.py` holds every primitive that POSIX and Windows spell differently; on POSIX each function is exactly the
+call the maker made before, so Linux behaviour is unchanged.
+
+| What | POSIX | Windows |
+|---|---|---|
+| A tool's process tree | new session; `killpg` SIGTERM, then SIGKILL after 5 s | started suspended in a new process group with no console, put into its own Job Object (`KILL_ON_JOB_CLOSE`), then resumed; a stop terminates the job at once (no grace period: no SIGTERM exists for it). A job that cannot be made or assigned refuses the tool. |
+| A dead sidecar's tools | `PR_SET_PDEATHSIG` + the next start's reap | the kernel kills them when the sidecar's job handles close; the reap kills a recorded pid and every process below it (snapshot parent links, creation time checked) |
+| Stopping the sidecar | the shell sends SIGTERM to its group | the shell closes the sidecar's stdin (`serve --stop-on-eof`): the same clean stop as SIGTERM; after 45 s it kills it (TerminateProcess) |
+| The parent watch (`--exit-with-parent`) | `getppid()` polled | the parent's process handle, opened at start and waited on |
+| Data-root and registry locks | `flock` | `msvcrt.locking` of one byte far past the end of the lock file (the file stays readable) |
+| A replace or read racing another thread | atomic, never fails | a sharing violation is retried for up to 2 s (`retry_sharing`) |
+| Links | `S_ISLNK` | a symlink **or any name-surrogate reparse point** (junction, mount point); `lstat` reports a junction as a folder, so it is checked by its reparse tag |
+| No-follow open of an existing file | `O_NOFOLLOW` | `lstat` (a link is refused), open, `fstat`: the file must be the one `lstat` saw (volume serial + file index) |
+| The output tree | directory descriptors and `*at()` calls | every folder written through is held open without delete sharing and without following a reparse point (`hold_dir`): it, and every folder above it, cannot be renamed or removed while the write runs; the path -> identity checks before and after each landing are the same as on POSIX |
+| New-name claim | `link()`, else `O_EXCL` + replace + read-back | the same (`CreateHardLink`; FAT/exFAT and shares without hard links take the second way) |
+| Output names | as the naming rules say | also refused: a device name (`CON`, `NUL.TXT`, `COM1`, ...), a trailing dot or space, the characters `<` `>` `:` `"` `/` `\` `?` `*` and the vertical bar (`TreeRefused`; an upload archive member too) |
+| Picked paths | absolute | absolute with a drive or a UNC share; a device path (`\\.\`), an extended-length path (`\\?\`), a drive root and an alternate data stream (`name:stream`) are refused; a relative path inside a source may hold no drive and no colon |
+| `SVF_MAKER_ROOTS` | `:`-separated | `;`-separated |
+| Permission bits | `umask 077`, folders 0700, files 0600 | no mode bits: the data folder's privacy is its ACL, inherited from the user's profile (`%APPDATA%`) |
+| Text written by the maker and the tools | LF | LF (`newline="\n"` on every text write; a tool's CRLF stdout is read as LF) |
+
+Not the same guarantee: on POSIX a folder swapped between two landings is detected and the write stops (`OutputGone`); on
+Windows the swap itself is impossible while the folders are held, so the write completes into the folder that was checked.
+A swap of a folder the tree has not reached yet is still caught by `lstat` + identity before the folder is held.
+
+### Measured (GitHub Actions windows-latest)
+
+{{WIN_MEASURED}}
+
+## macOS (UNVERIFIED)
+
+Nothing below was run. It is the plan a builder on that host follows. Not built or verified.
 
 - **macOS.** PyInstaller one-dir builds the same spec on macOS (arm64 and x86_64 are separate builds; a universal2
   build needs universal wheels of Pillow and fontTools; `desktop/build/requirements.lock` pins Linux cp312 wheels only).
@@ -197,13 +275,6 @@ Nothing below was run. It is the plan a builder on those hosts follows, and what
   `com.apple.security.cs.allow-unsigned-executable-memory` (Chromium) - and every binary under `resources/sidecar/` must be
   signed too (`codesign --deep` does not reach `_internal/*.so` reliably; sign them individually with `--options runtime`),
   then `notarytool submit` and `stapler`. Without signing, Gatekeeper blocks the app on first run (right-click Open works).
-- **Windows.** The **server is not Windows-ready** (`os.killpg`, `start_new_session`, `signal.SIGTERM` to a group,
-  `os.umask(0o077)` semantics, `os.link` for the no-replace write, `fcntl` locks in the registry and the data-root lock): a
-  port needs Job Objects (or `CREATE_NEW_PROCESS_GROUP` + `GenerateConsoleCtrlEvent`) for the group kill, `CreateProcess`
-  flags in `run_command`/`run_bounded`, and a review of every `realpath`/inode rule of the local-mode design on NTFS. That is
-  a card of its own; until it is done the Windows build is not attempted. Then: the same PyInstaller spec (keep
-  `console=True` and the shell's `windowsHide`), electron-builder target `nsis` or `portable`, the Electron spawn with a Job
-  Object, signing with a code-signing certificate.
 
 ## Not verified here
 

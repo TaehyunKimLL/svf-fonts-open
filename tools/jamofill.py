@@ -1692,7 +1692,7 @@ def main(argv=None):
         d, k, a, b = min(ds)
         fill.merge_sets(k, a, b)
         fill.descend(sweeps=3)
-    json.dump(curve, open(os.path.join(args.outdir, args.prefix + "-curve.json"), "w"), indent=1)
+    json.dump(curve, open(os.path.join(args.outdir, args.prefix + "-curve.json"), "w", newline="\n"), indent=1)
     return 0
 
 

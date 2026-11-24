@@ -58,7 +58,16 @@ class CanonicalMkfontTest(unittest.TestCase):
     def test_gowun_bold_17_2bpp_equals_the_shipped_face(self):
         self.assertEqual(self.job["steps"][0]["state"], "done")
         with open(SHIPPED, "rb") as g:
-            self.assertEqual(self.bytes, g.read())
+            shipped = g.read()
+        if self.bytes != shipped:                      # say which characters differ, not only that the bytes do
+            import jamoset
+            a, b = jamoset.parse_svfn(self.bytes), jamoset.parse_svfn(shipped)
+            only_a = sorted(set(a.glyphs) - set(b.glyphs))
+            only_b = sorted(set(b.glyphs) - set(a.glyphs))
+            differ = sorted(cp for cp in set(a.glyphs) & set(b.glyphs) if a.glyphs[cp] != b.glyphs[cp])
+            self.fail("made %d glyphs, shipped %d; only made %s; only shipped %s; %d differ %s" % (
+                len(a.glyphs), len(b.glyphs), [hex(c) for c in only_a[:20]], [hex(c) for c in only_b[:20]],
+                len(differ), [hex(c) for c in differ[:20]]))
 
     def test_the_step_is_recognised_as_the_shipped_face(self):
         self.assertEqual(self.job["steps"][0]["identical_to"], "dos/GBATB17.SVF")

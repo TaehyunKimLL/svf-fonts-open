@@ -41,12 +41,13 @@ import sidecar
 import test_recog_score
 import toolreg
 import toolrun
+import wincompat
 
 SIDECAR = os.environ.get("SVF_MAKER_SIDECAR")
 REF_SITE = os.environ.get("SVF_MAKER_REF_SITE")
 STAGED = os.environ.get("SVF_MAKER_STAGED_REPO")
 REQUIRED = os.environ.get("SVF_MAKER_FROZEN_REQUIRED") == "1"
-PY3 = shutil.which("python3") or "/usr/bin/python3"
+PY3 = sys.executable if os.name == "nt" else (shutil.which("python3") or "/usr/bin/python3")   # Windows: no python3
 REPO = STAGED or REPO_DIR
 
 
@@ -87,7 +88,12 @@ def isolated_env(tmp):
     os.makedirs(planted, exist_ok=True)
     with open(os.path.join(planted, "json.py"), "w") as f:
         f.write("raise RuntimeError('planted json.py was imported')\n")
-    return {"PATH": empty, "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8", "PYTHONPATH": planted}
+    env = {"PATH": empty, "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8", "PYTHONPATH": planted}
+    return dict(env, **WIN_ENV)
+
+
+# Windows: the keys any process there is started with (SYSTEMROOT, the temp folders); POSIX: none (`env -i`)
+WIN_ENV = {k: os.environ[k] for k in toolrun.WINDOWS_KEYS if os.environ.get(k)} if os.name == "nt" else {}
 
 
 class FrozenSelfcheckTest(Needs):
@@ -113,6 +119,8 @@ class FrozenSelfcheckTest(Needs):
                                           "recog_probe_s": caps.RECOG_PROBE_S})
 
 
+@wincompat.posix_only("fork and PR_SET_PDEATHSIG (on Windows the tool's Job Object closes with the sidecar: "
+                      "FrozenJobTest.test_sigkill_sidecar_kills_tool)")
 class FrozenForkRaceTest(Needs):
     def test_tool_whose_sidecar_died_before_the_prctl_exits(self):
         """A stand-in sidecar starts `run-tool` with its own pid in the environment and dies at once: the tool must not
@@ -194,8 +202,10 @@ class FrozenByteEqualTest(Needs):
         self.addCleanup(shutil.rmtree, self.tmp, True)
         # SOURCE_DATE_EPOCH: fontTools stamps head.modified with the wall clock otherwise, and two runs a second apart differ
         self.env = dict(isolated_env(self.tmp), SOURCE_DATE_EPOCH="1700000000")
-        self.ref_env = {"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8",
-                        "PYTHONPATH": REF_SITE, "SOURCE_DATE_EPOCH": "1700000000"}
+        self.ref_env = dict({"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8",
+                             "PYTHONPATH": REF_SITE, "SOURCE_DATE_EPOCH": "1700000000"}, **WIN_ENV)
+        if os.name == "nt":
+            self.ref_env["PYTHONUTF8"] = "1"            # as the frozen tool (UTF-8 mode) and a maker-launched tool
 
     def path(self, *parts):
         p = os.path.join(self.tmp, *parts)
@@ -295,7 +305,7 @@ class FrozenByteEqualTest(Needs):
         args = [src, self.path("plain", "out"), "--size", "16", "--bpp", "1", "--unicode", "ascii,ksx1001-hangul"]
         frozen = self.frozen("mkfont", [src, self.path("frozen", "out")] + args[2:])
         plain = subprocess.run([PY3, "-P", os.path.join(REPO_DIR, "tools", "mkfont.py")] + args,
-                               env={"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "/")}, capture_output=True,
+                               env=dict({"PATH": "/usr/bin:/bin", "HOME": os.environ.get("HOME", "/")}, **WIN_ENV), capture_output=True,
                                text=True, timeout=300)
         self.assertEqual(frozen.returncode, 0, frozen.stderr)
         if plain.returncode != 0:
@@ -339,8 +349,8 @@ class FrozenStartTest(Needs):
     def run_sidecar(self, env, *args):
         tmp = tempfile.mkdtemp(prefix="svf-frz-")
         self.addCleanup(shutil.rmtree, tmp, True)
-        full = {"PATH": tmp, "HOME": tmp, "LANG": "C.UTF-8", "SVF_MAKER_DATA": os.path.join(tmp, "d"),
-                "SVF_MAKER_REPO": REPO, "SVF_MAKER_BIND": "127.0.0.1:0"}
+        full = dict({"PATH": tmp, "HOME": tmp, "LANG": "C.UTF-8", "SVF_MAKER_DATA": os.path.join(tmp, "d"),
+                     "SVF_MAKER_REPO": REPO, "SVF_MAKER_BIND": "127.0.0.1:0"}, **WIN_ENV)
         full.update(env)
         return subprocess.run([SIDECAR, "serve"] + list(args), env=full, capture_output=True, text=True, timeout=60)
 
@@ -376,7 +386,7 @@ class LongJobMixin:
         pids = os.path.join(self.data, "tools.pids")
         self.assertTrue(wait_until(lambda: os.path.exists(pids) and open(pids).read().strip(), 60), "no tool started")
         pid = int(open(pids).read().split()[1])
-        self.addCleanup(lambda: os.killpg(pid, signal.SIGKILL) if alive(pid) else None)
+        self.addCleanup(lambda: wincompat.kill_group(pid) if alive(pid) else None)
         self.assertTrue(alive(pid))
         return jid, pid
 
@@ -388,9 +398,14 @@ class FrozenJobTest(Needs, LongJobMixin, localfx.SubprocessLocalBase, localfx.Lo
     def ref_run(self, edit):
         """The same job in-process with the tools run by the pinned wheels (toolrun.PYTHON -> a wrapper)."""
         wrapper = os.path.join(self.tmp, "ref-python")
-        with open(wrapper, "w") as f:
-            f.write("#!/bin/sh\nPYTHONPATH=%s exec %s -S \"$@\"\n" % (REF_SITE, PY3))
-        os.chmod(wrapper, 0o755)
+        if wincompat.WIN:                                 # a batch file there (a tool argv's first word may be one)
+            wrapper += ".bat"
+            with open(wrapper, "w") as f:
+                f.write('@set "PYTHONPATH=%s"\n@"%s" -S %%*\n' % (REF_SITE, PY3))
+        else:
+            with open(wrapper, "w") as f:
+                f.write("#!/bin/sh\nPYTHONPATH=%s exec %s -S \"$@\"\n" % (REF_SITE, PY3))
+            os.chmod(wrapper, 0o755)
 
         class Ref(localfx.LocalRunBase):
             def runTest(self):
@@ -465,7 +480,7 @@ class FrozenJobTest(Needs, LongJobMixin, localfx.SubprocessLocalBase, localfx.Lo
     def test_sigterm_cancels_tool(self):
         jid, pid = self.long_job()
         time.sleep(0.5)
-        self.proc.send_signal(signal.SIGTERM)
+        self.request_stop()                               # SIGTERM; on Windows the end of stdin
         self.assertEqual(self.proc.wait(60), 0)
         self.assertTrue(wait_until(lambda: not alive(pid), 5), "the tool outlived the sidecar's SIGTERM")
         self.assertFalse(os.path.exists(self.files_dir(jid)))
@@ -487,6 +502,8 @@ def walk_files(root):
             yield os.path.relpath(os.path.join(dirpath, name), root)
 
 
+@wincompat.posix_only("the PR_SET_PDEATHSIG knob (on Windows a tool cannot outlive its sidecar: its Job Object closes "
+                      "with it; the reap is test_toolreg's)")
 class FrozenNoPdeathsigTest(Needs, LongJobMixin, localfx.SubprocessLocalBase):
     repo = REPO
 
@@ -528,12 +545,13 @@ class FrozenRecogStubTest(FrozenRecogTest):
         recog = os.path.join(self.tmp, "recog")
         os.makedirs(recog, exist_ok=True)
         test_recog_score.write_stub(recog)
-        stub = os.path.join(self.tmp, "stub-python")
-        with open(stub, "w") as f:
-            f.write("#!/bin/sh\n[ \"$1\" = -P ] && [ \"$2\" = -c ] && exit 0      # the 7.7 probe\n"
-                    "for a; do [ \"$a\" = numpy ] && a=lists; set -- \"$@\" \"$a\"; shift; done\n"
-                    "exec %s \"$@\"\n" % PY3)
-        os.chmod(stub, 0o755)
+        stub = wincompat.interpreter_stub(
+            os.path.join(self.tmp, "stub-python"),
+            "[ \"$1\" = -P ] && [ \"$2\" = -c ] && exit 0      # the 7.7 probe\n"
+            "for a; do [ \"$a\" = numpy ] && a=lists; set -- \"$@\" \"$a\"; shift; done\n"
+            "exec %s \"$@\"" % PY3,
+            "import subprocess, sys\nargs = sys.argv[1:]\nif args[:2] == ['-P', '-c']:\n    sys.exit(0)\n"
+            "sys.exit(subprocess.call([%r] + ['lists' if a == 'numpy' else a for a in args]))" % PY3)
         return {"SVF_RECOG_DIR": recog, "SVF_RECOG_PYTHON": stub}
 
     def test_recog_unconfigured(self):

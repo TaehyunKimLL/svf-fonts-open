@@ -198,9 +198,11 @@ class OutlineFace:
     def __init__(self, path, size, pylib=None, font_number=0):
         ft = load_fonttools(pylib)
         try:
-            with open(path, "rb") as fh:                # read whole: a lazy TTFont on a path keeps the file open for
-                data = io.BytesIO(fh.read())            # the face's life (Windows could not remove or replace it)
-            self.font = ft.ttLib.TTFont(data, fontNumber=font_number, lazy=True)
+            src = path
+            if isinstance(path, (str, bytes, os.PathLike)):
+                with open(path, "rb") as fh:            # read whole: a lazy TTFont on a path keeps the file open for
+                    src = io.BytesIO(fh.read())         # the face's life (Windows could not remove or replace it)
+            self.font = ft.ttLib.TTFont(src, fontNumber=font_number, lazy=True)
             self.cmap = self.font.getBestCmap() or {}
             self.glyphs = self.font.getGlyphSet()
         except Exception as e:
