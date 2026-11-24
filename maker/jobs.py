@@ -38,6 +38,7 @@ import detect
 import naming
 import preview
 import quality
+import recipe
 import routes
 import settings
 import toolreg
@@ -483,6 +484,14 @@ def materialized_argv(steps, sources, work_dir):
         for argv in step.get("argv") or []:
             out.append([_materialized_token(token, sources, work_dir, step.get("font") or "f") for token in argv])
     return out
+
+
+def delivered(step):
+    """True when @p step made a file the job delivers: a `done` face step that is not export-only (route `svf2ttf` reads
+    its face for the exports alone), or a `done` export. A job is `done` only with one of these."""
+    if step.get("state") != "done":
+        return False
+    return step.get("kind") == "export" or (step.get("kind") in ("precomposed", "jamo") and not step.get("export_only"))
 
 
 def own_earlier(job):
@@ -1782,8 +1791,9 @@ class Worker(threading.Thread):
                 raise OutputGone("output folder is gone or changed")
             failed_need = next((n for n in step.get("needs") or []
                                 if (steps_by_id.get(n) or {}).get("state") == "failed"), None)
-            if failed_need is not None:                 # a companion's source step failed: this one cannot read it
-                self._fail_step(job, job_dir, step, "companion source failed")
+            if failed_need is not None:                 # a companion's source step (an export's face) failed: nothing to read
+                self._fail_step(job, job_dir, step, "face step failed" if step.get("kind") == "export"
+                                else "companion source failed")
                 continue
             self._run_step(job, job_dir, files_dir, sources, gz_upload, plain, fonts_by_id, step, cancel)
             if step.get("state") == "failed" and step.get("kind") == "source":
@@ -1848,7 +1858,9 @@ class Worker(threading.Thread):
                                                   self._job_env(job))
         if error == "cancelled" and self._stopping:
             error = "interrupted"                   # the server stopped, not the owner
-        if error is None and step.get("kind") not in ("prepare", "source"):
+        if error is None and step.get("kind") == "export":
+            error = self._read_back_export(job, files_dir, step, sources.kind == "local")
+        elif error is None and step.get("kind") not in ("prepare", "source"):
             error = self._read_back(job, files_dir, sources, plain, step, font, cancel, stdout)
         if error is not None:
             step["state"] = "failed"
@@ -1915,6 +1927,8 @@ class Worker(threading.Thread):
                  os.path.join(cwd, "identity.json")]            # nor serve the last build's piece scores
         stale += [os.path.join(cwd, name) for name in (routes.MKFONT_TMP,) + routes.MAC_BDFS
                   + (routes.HWP_BDF, routes.HWP_PRECOMPOSED)]   # a route's temp files
+        if os.path.isdir(cwd):                                  # a known set's regions and carved items
+            stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith(recipe.WORK_PREFIX)]
         if step.get("kind") == "source":
             stale += [os.path.join(cwd, name) for name in os.listdir(cwd) if name.startswith("source-")] \
                 if os.path.isdir(cwd) else []
@@ -1954,6 +1968,22 @@ class Worker(threading.Thread):
             return exc_text(exc, sources.kind == "local")
         if step.get("kind") == "jamo":
             step["identity"] = self._identity(files_dir, step, cancel or threading.Event(), stdout, self._job_env(job))
+        return None
+
+    @staticmethod
+    def _read_back_export(job, files_dir, step, local):
+        """Read an `export` step's TTF / BDF back (`quality.export_facts`): it must open and hold exactly the code
+        points of the face it was made from (fontTools for a TTF). Its facts go to `step["facts"]`; an error or None."""
+        need = (step.get("needs") or [None])[0]
+        face = next((other for other in job.get("steps") or [] if other.get("id") == need), None)
+        if face is None:
+            return "no face step"
+        try:
+            step["facts"] = quality.export_facts(os.path.join(files_dir, step.get("output") or ""), step.get("format"),
+                                                 os.path.join(files_dir, face.get("output") or ""),
+                                                 composite=bool(step.get("composite")))
+        except Exception as exc:                        # fontTools raises its own types for a damaged table
+            return exc_text(exc, local)
         return None
 
     def _identity(self, files_dir, step, cancel, stdout, env=None):
@@ -2083,7 +2113,7 @@ class Worker(threading.Thread):
             job["error"] = str(exc)
         else:
             job["result"] = result
-            if any(step.get("state") == "done" and step.get("kind") in ("precomposed", "jamo") for step in steps):
+            if any(delivered(step) for step in steps):
                 job["state"] = "done"
             else:
                 job["state"] = "failed"
@@ -2139,7 +2169,7 @@ class Worker(threading.Thread):
             result["files"] = landed + [rel for rel in kept if rel not in landed]
             result["output_dir"] = output_dir
             job["result"] = result
-            if any(step.get("state") == "done" and step.get("kind") in ("precomposed", "jamo") for step in steps):
+            if any(delivered(step) for step in steps):
                 job["state"] = "done"
             else:
                 job["state"] = "failed"

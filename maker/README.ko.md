@@ -48,7 +48,17 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`)를 출력 폴더에 쓰며, 그 밖에는 쓰지 않는다.
   `BUILD.md`는 실행한 명령을 나열한다. [docs/recipes.ko.md](../docs/recipes.ko.md#데스크톱-앱과-maker-경로)는 페이지의 모든 경로 레이블을
   그 명령줄과 레시피에 대응시킨다.
-  작업이 직접 쓰지 않은 이름은 절대 덮어쓰지 않는다. 작업이 살아 있는 동안 변환에 중간에 필요한 파일은
+  `options.export`(`{"ttf": true, "bdf": true}`, 일괄 또는 폰트별)가 있으면 모든 페이스를 그 옆에 `<NAME>.ttf` / `<NAME>.bdf`로도
+  쓴다. 페이스 단계 뒤의 `export` 단계가 `tools/svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`을 실행하고(작업이 그 폰트에 대해 아는
+  라이선스를, 그것이 이름을 든 `.TXT` 중 배치에 있는 것만 소스를 거쳐 찾아 `work/<font id>/licence/`에 UTF-8로 옮겨 둔 것(UTF-8로, 아니면 CP949로, 아니면 바이트를 바꾸어 읽는다). svf2ttf.py는
+  이름 든 파일을 따라가므로 루트 밖으로 가는 링크나 고르지 않은 파일은 보지 못한다. 라이선스를 고르지 않은 채 내보내기만 하는 SVF는
+  svf2ttf.py의 규칙으로 그 옆의 노트를 배치의 파일 중에서만 찾는다. 다른 파일은 열지 않는다), 그 확인(`quality.export_facts`)은 파일을
+  열어(TTF는 fontTools로) 페이스의 코드 포인트를 정확히 담았는지 요구한다. 내보낸 파일은 `.lines` 행이 없고 페이스의 노트에도
+  없으며 `BUILD.md`가 나열한다. SVF 소스의 경로 `svf2ttf`(`precomposed_route` / `jamo_route`)는 페이스를 내보내기용으로만 읽고
+  SVF, 노트, 라이선스 본문을 쓰지 않으며(그 이름은 필요하지도 검사하지도 않는다), `ttf`나 `bdf`가 필요하고, 내보낸 파일이 하나라도
+  쓰였을 때만 작업이 `done`이다. `"composite": true`는 자모 세트의 TTF에 `--composite`를 더한다(조각은 한 번, 모든 음절은 그 합성. 확인은 문자 외에 조각
+  글리프를 허용한다). `ttf` 없는 `composite`는 거부한다.
+  작업이 직접 쓰지 않은 이름은(내보낸 파일의 이름도) 절대 덮어쓰지 않는다. 작업이 살아 있는 동안 변환에 중간에 필요한 파일은
   출력 폴더 안의 `.svf-maker-<id>/`(모드 0700)에 두며, 작업이 끝나거나, 삭제되거나, 서버가
   멈추면 지운다. 동기화되지 않는 폴더를 고른다.
 - 라이선스는 **선택 사항**이다. 고르지 않으면 노트와 `BUILD.md`에 "licence: not checked (user's
@@ -63,11 +73,22 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   hwp1`(HWP 자체의 조합 규칙, 정확)이나 `hwpfont.py bdf` + `mkfont.py`로 읽고, `ASCII.SFT` / `ASCII.PFT`가 영문 짝이다. HWP 3.0:
   `HAN*.FNT` 한글 폰트(음절 2,350자. 16 px 파일은 8x4x4 세트로도, `--layout 844-hwp3`)와 `ENG*.FNT` 짝(`tools/hwpfont.py`,
   recipes.ko.md "HWP 1.x와 2.x 폰트"). 헤더 없는 KS X 1001 음절 덤프(태백 `GHAN24.PFT`)는 두 모드 모두 크기로 읽는다. 12x24나 14x24 영문
-  폰트(태백 `GASCII24.PFT`는 12x24, HWP 1.x `ASCII.PFT`는 14x24)는 24 px 페이스의 동반 파일이며 배치의 어느 폴더에 있어도 된다. 단일 파일로 고른 폰트 옆의 라이선스 파일은
+  폰트(태백 `GASCII24.PFT`는 12x24, HWP 1.x `ASCII.PFT`는 14x24)는 24 px 페이스의 동반 파일이며 배치의 어느 폴더에 있어도 된다.
+  **알려진 ROM 세트**: `maker/recipes/*.json`의 내장 레시피(`maker/recipe.py`, 글꼴 찾기 설계의 레시피 스키마 버전 1 중 `files`,
+  `ks-grid` / `english` 항목, `bdfface` 페이스, `expect`만. 그 밖의 것은 이름을 들어 거부한다)는 파일을 내용이 아니라 크기와
+  SHA-256으로 지정한다. 레시피가 이름 붙인 크기의 파일만 해시를 구하며, 완전한 세트는 `recipe` 항목 하나("known: <제목>", 파일들이
+  함께 고정됨)가 되고 그 경로는 레시피의 명령(각 항목의 `rawcarve.py bdf`, `bdfface.py`, `jamoset.py --from-svf` fit)을 실행한다.
+  현재: 86Box 한글 VGA ROM 쌍 셋(recipes.ko.md "한글 VGA 글꼴 ROM (86Box)")과 MAME 세트 넷, SPC-1500(정확한 자모 세트, 경로 `spec`),
+  Date Quiz Go Go, X Se Dae Quiz(경로 `dos raw`), Quiz King of Fighters(한국판)(recipes.ko.md "MAME 세트의 한글 폰트 ROM". 영역, 타일
+  배치, 펜도 레시피 데이터이며, 스키마 9.4를 넘는 확장 하나: 페이스의 `english`는 여러 항목을 나열할 수 있고 `srcprep.py or-files`로
+  OR한다). 파일이 빠진 세트는 "part of <제목>: also needs
+  <이름>; pick the folder", 레시피의 이름과 크기이지만 해시가 다른 파일은 "looks like <제목>, another revision"이다. 업로드
+  작업은 표시만 한다. 단일 파일로 고른 폰트 옆의 라이선스 파일은
   그것도 함께 골랐을 때(또는 폴더를 골랐을 때)만 사용한다.
 - **독점 폰트는 배포하지 않는다**: 독점 폰트, 비트맵, 테이블은 이 저장소와 maker 어디에도 없다.
   테스트는 합성 입력을 만들며, 실제 파일에 대한 검사는 환경 변수가 사용자 본인의 사본을 가리킬 때만 실행된다
-  (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, ...).
+  (`SVF_MAKER_REAL_MAC1`, `_MAC3`, `_NAMEDFORK`, `_PFT`, `SVF_MAKER_REAL_86BOX`, `SVF_MAKER_REAL_MAME`, ...). 내장 레시피는 독점 파일의 이름, 크기,
+  해시, 오프셋을 담을 뿐 그 바이트는 담지 않는다.
 - maker에는 외부로 연결하는 코드가 없고 어디로도 아무것도 보내지 않는다(텔레메트리, 충돌 업로드, 업데이트 확인 없음). 테스트는 maker 자신의 모듈이 네트워크 라이브러리를 임포트하지 않는지, 그리고 프로세스 내 소켓 감시자가 127.0.0.1 외의 어떤 연결도 보지 못하는지를 검사하지만, 그 도구 하위 프로세스는 보지 못한다. 유일한 선택적
   외부 구성 요소는 정체성 검사이다. `SVF_RECOG_DIR`이 사용자 본인의 `recog.py`를 가리키며, 네트워크 없음 테스트는
   그 외부 코드를 다루지 않는다.

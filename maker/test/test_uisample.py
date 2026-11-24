@@ -15,6 +15,7 @@ import json
 import shutil
 import struct
 import subprocess
+import tempfile
 import time
 import unittest
 from unittest import mock
@@ -41,6 +42,9 @@ STEPS = sorted([
     ("jamo", "HAN24.FNT", ["jamoset.py"]),
     ("jamo", "johab.bdf", ["jamoset.py"]),
     ("precomposed", "ksc.bdf", ["bdfface.py"]),
+    ("export", "ksc.bdf", ["svf2ttf.py"]),
+    ("export", "ksc.bdf", ["svf2ttf.py"]),
+    ("export", "johab.bdf", ["svf2ttf.py"]),
     ("jamo", "Munjo16.rsrc", ["jamoset.py"]),
     ("source", "Synth.dfont", ["macsfnt.py extract", "macsfnt.py unicode"]),
     ("precomposed", "Synth.dfont", ["mkfont.py", "svf2to3.py"]),
@@ -173,7 +177,7 @@ class UiSampleTest(unittest.TestCase):
 
     def test_api_run_writes_exactly_the_expected_tree(self):
         self.maxDiff = None
-        self.assertEqual(len(uisample.EXPECTED), 33)
+        self.assertEqual(len(uisample.EXPECTED), 36)
         self.assertEqual(len(uisample.FACES), 10)
         self.assertEqual(self.job["state"], "done", self.job.get("error"))
         self.assertEqual(self.job["result"]["failed_steps"], [])
@@ -184,11 +188,12 @@ class UiSampleTest(unittest.TestCase):
         path_of = {f["id"]: f["path"] for f in self.job["fonts"]}
         steps = sorted((s["kind"], path_of[s["font"]], t)
                        for s, t in zip(self.job["steps"], inputkinds.step_tools(self.job["steps"])))
-        self.assertEqual(len(steps), 14)
+        self.assertEqual(len(steps), 17)
+        self.assertEqual([s["name"] for s in self.job["steps"] if s.get("composite")], ["JOHA16J.ttf"])
         self.assertEqual(steps, STEPS)
         self.assertTrue(all(s["state"] == "done" for s in self.job["steps"]))
         self.assertEqual(sorted(s["written"] for s in self.job["steps"] if s.get("written")),
-                         sorted(uisample.FACES.values()))
+                         sorted(list(uisample.FACES.values()) + [e for _f, e in uisample.EXPORTS.values()]))
 
     def test_check_flags_a_missing_face(self):
         gone = ("svf/jamo-extra/MUNJ16J.SVF", "svf/jamo-extra/MUNJO.TXT", "svf/jamo-extra/OFLMUNJO.TXT")
@@ -261,6 +266,32 @@ class UiSampleTest(unittest.TestCase):
         lines = self.mutated(lambda out: None, job=job)
         self.assertIn("files: on disk but not reported by the job: svf/dos/KSC.TXT", lines)
         self.assertIn("files: reported by the job but not on disk: svf/dos/BOGUS.SVF", lines)
+
+    def test_check_flags_an_export_that_misses_a_glyph(self):
+        def mutate(out):
+            path = os.path.join(out, "svf/dos/KSC16.bdf")
+            text = _read(path).decode("utf-8")
+            start = text.index("STARTCHAR uniAC00")
+            _write(path, (text[:start] + text[text.index("ENDCHAR", start) + 8:]).encode("utf-8"))
+        self.assertTrue(any(ln.startswith("export: svf/dos/KSC16.bdf") for ln in self.mutated(mutate)))
+
+    def test_same_as_ignores_ttf_timestamps_only(self):
+        other = tempfile.mkdtemp(prefix="uisample-other-", dir=os.path.dirname(self.out))
+        self.addCleanup(shutil.rmtree, other, True)
+        shutil.copytree(self.out, other, dirs_exist_ok=True)
+        from fontTools.ttLib import TTFont
+        ttf = os.path.join(other, "svf/dos/KSC16.ttf")
+        with TTFont(ttf, recalcTimestamp=False) as font:
+            font["head"].created += 1000
+            font.save(ttf + ".new")
+        os.replace(ttf + ".new", ttf)
+        self.assertEqual([ln for ln in self.mutated(lambda out: None, same_as=other) if "KSC16" in ln], [])
+        with TTFont(ttf, recalcTimestamp=False) as font:
+            font["head"].fontRevision = 2.0
+            font.save(ttf + ".new")
+        os.replace(ttf + ".new", ttf)
+        self.assertIn("same-as: svf/dos/KSC16.ttf differs from %s (beyond its timestamps)" % os.path.realpath(other),
+                      self.mutated(lambda out: None, same_as=other))
 
     def test_check_flags_a_job_that_is_not_done(self):
         lines = self.mutated(lambda out: None, job=dict(self.job, state="failed"))

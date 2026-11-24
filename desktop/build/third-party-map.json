@@ -71,6 +71,15 @@
   "wheel": "fonttools"
  },
  {
+  "match": "lexer.cpython*.so",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
   "match": "*.cpython-312-x86_64-linux-gnu.so",
   "component": "CPython",
   "licence": "PSF-2.0",

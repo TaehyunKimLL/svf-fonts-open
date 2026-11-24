@@ -1,0 +1,92 @@
+{
+ "recipe": 1,
+ "id": "86box-atikorvga",
+ "title": {
+  "en": "ATI 28800 Korean VGA font ROM",
+  "ko": "ATI 28800 한글 VGA 글꼴 ROM"
+ },
+ "notes": "A 512 KB KS C 5601 font ROM read as a 128 x 128 grid of 16x16 glyphs in two 8-pixel strips (86Box src/video/vid_svga_render.c); the English font is the VGA BIOS's 8x16 font at 0x4d59. Both files are needed.",
+ "refs": [
+  "86Box/roms 1ac40f2 video/ati28800/ati_ksc5601.rom",
+  "86Box/roms 1ac40f2 video/ati28800/atikorvga.bin",
+  "docs/recipes.md#korean-vga-font-roms-86box"
+ ],
+ "files": [
+  {
+   "id": "font",
+   "name": "ati_ksc5601.rom",
+   "size": 524288,
+   "sha256": "ca6e24c35f94075f4abcf87fac0e1eeb74f44002e83b6ebc5a1c593b2ccd0257"
+  },
+  {
+   "id": "bios",
+   "name": "atikorvga.bin",
+   "size": 32768,
+   "sha256": "2bcf00d479908d1755bca5c2f44859c6a45a861e3beb7ffae874c599ee997e72"
+  }
+ ],
+ "items": [
+  {
+   "id": "hangul",
+   "kind": "ks-grid",
+   "region": "font",
+   "offset": 0,
+   "reading": {
+    "glyph": [
+     16,
+     16
+    ],
+    "order": "strips"
+   },
+   "chars": "ks-hangul",
+   "grid": [
+    128,
+    128,
+    128
+   ],
+   "ascent": 12
+  },
+  {
+   "id": "ascii",
+   "kind": "english",
+   "region": "bios",
+   "offset": 19801,
+   "reading": {
+    "glyph": [
+     8,
+     16
+    ]
+   },
+   "ascent": 12
+  }
+ ],
+ "faces": [
+  {
+   "name": "ATIVGA16",
+   "kind": "precomposed",
+   "route": "bdfface",
+   "hangul": "hangul",
+   "english": "ascii"
+  },
+  {
+   "name": "ATIVG16J",
+   "kind": "jamo",
+   "route": "bdfface + from-svf fit",
+   "layout": "844",
+   "from": "ATIVGA16"
+  }
+ ],
+ "expect": {
+  "faces": {
+   "ATIVGA16": {
+    "bytes": 123188,
+    "glyphs": 2447,
+    "ink": 517
+   },
+   "ATIVG16J": {
+    "bytes": 17596,
+    "ink": 517
+   }
+  }
+ }
+}

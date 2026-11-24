@@ -18,6 +18,7 @@ import unicodedata
 
 import bdfface
 import hwpfont
+import recipe
 import jamoaa
 import jamoset
 import macfbit3
@@ -1765,6 +1766,7 @@ def scan(sources, local=False):
     def key_of(entry):
         return (entry.get("root", 0), entry["path"])
 
+    _recipe_entries(entries, keys, abs_of, refusal, local, with_root)
     dos_folders = {folder_of(abs_of[key_of(e)]) for e in entries if e["source_kind"] in ENG_FONT_KINDS}
     for i, entry in enumerate(entries, 1):
         entry["id"] = "f%02d" % i
@@ -1876,6 +1878,73 @@ def scan(sources, local=False):
         else:
             entry["companions"] = []
     return entries
+
+
+RECIPE_LOCAL_ONLY = "converted in local mode only"
+
+
+def _recipe_entries(entries, keys, abs_of, refusal, local, with_root):
+    """Mark the files of a known set (a built-in recipe of `maker/recipes/`, matched by size, then SHA-256): the file the
+    recipe's faces read their Hangul from becomes one `recipe` entry (`known: <title>`, with `recipe` = its id and
+    the bound files as `{file id: [root, path]}`); every other file of the set is labelled as read with it. A set with
+    a file missing labels its files "part of <title>: also needs <names>; pick the folder" and offers nothing; a file
+    whose name and size match but whose hash does not is "looks like <title>, another revision". An upload job only
+    labels a known set (no route: proprietary inputs are converted in local mode only)."""
+    files = []
+    for key in keys:
+        if key in refusal:
+            continue
+        try:
+            files.append((key, abs_of[key], os.path.getsize(abs_of[key])))
+        except OSError:
+            continue
+    first = {}
+    for entry in entries:
+        first.setdefault((entry.get("root", 0), entry["path"]), entry)
+
+    def relabel(key, label, **fields):
+        entry = first.get(key)
+        if entry is None:
+            return
+        new = _entry(key[1], 0, fields.pop("fmt", "rom"), label, fields.pop("source_kind", "other"),
+                     family=fields.pop("family", _stem(key[1])), **fields)
+        if with_root:
+            new["root"] = key[0]
+        entry.clear()
+        entry.update(new)
+
+    for found in recipe.match(files):
+        rec, title = found["recipe"], found["recipe"]["title"]["en"]
+        names = {f["id"]: f["name"] for f in rec["files"]}
+        if found["state"] == "known":
+            host = found["bound"][recipe.host_file(rec)]
+            for fid_, key in found["bound"].items():
+                if key == host:
+                    continue
+                relabel(key, "known: %s: %s, read with %s" % (title, names[fid_], names[recipe.host_file(rec)]))
+            if not local:
+                relabel(host, "known: %s: %s" % (title, RECIPE_LOCAL_ONLY))
+                continue
+            h = recipe.item_height(rec)
+            relabel(host, "known: %s" % title, source_kind="recipe", family=title, sizes=[h], sizes_fixed=True)
+            first[host]["recipe"] = {"id": rec["id"],
+                                     "files": {fid_: [key[0], key[1]] for fid_, key in found["bound"].items()},
+                                     # the route labels its faces use (the page's offeredRoutes filters by them)
+                                     "routes": [face["route"] for face in recipe.offered_faces(rec)]}
+        elif found["state"] == "part":
+            other = {names[fid_] for fid_ in found["similar"]}
+            needs = [name for name in found["missing"] if name not in other]
+            why = (["also needs %s; pick the folder" % ", ".join(needs)] if needs else []) + \
+                  (["%s here is another revision (its SHA-256 differs)" % ", ".join(sorted(other))] if other else [])
+            for fid_, key in found["bound"].items():
+                relabel(key, "part of %s: %s" % (title, "; ".join(why)))
+            for fid_, key in found["similar"].items():
+                relabel(key, "looks like %s (%s), another revision: its SHA-256 differs; not converted"
+                        % (title, names[fid_]))
+        else:
+            for fid_, key in found["similar"].items():
+                relabel(key, "looks like %s (%s), another revision: its SHA-256 differs; not converted"
+                        % (title, names[fid_]))
 
 
 def _is_composite(path, face_index, data=None):

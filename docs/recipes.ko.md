@@ -951,6 +951,12 @@ johab-fonts `notes/msx.md`). 다른 한국 MSX ROM(`cpc-300_hangul`, `dpc-200_ha
 자모 폰트는 BIOS의 8x8 문자표다. 88emuplayer ROM 묶음(`88emuplayer-roms.zip`)에는 Roland 음원 모듈 ROM(SC-55, SC-88, SC-8850, CM-300)만 있고 폰트는
 없다. MAME 롬셋은 [MAME 세트의 한글 폰트 ROM](#mame-세트의-한글-폰트-rom)에 있다.
 
+데스크톱 앱은 세 쌍을 크기와 SHA-256으로 알아본다(내장 레시피 `maker/recipes/86box-tgkorvga.json`, `86box-kasan16.json`,
+`86box-atikorvga.json`: 이름, 크기, 해시, 오프셋만 있고 ROM의 바이트는 없다). 두 파일이 든 폴더를 고르면 글꼴 ROM이 한 행이 되어
+페이스 `TGVGA16` / `KASAN16` / `ATIVGA16`(경로 `bdfface`)과 자모 세트 `TGVGA16J` / `KASAN16J` / `ATIVG16J`(`bdfface + from-svf fit`,
+experimental)를 위의 명령으로 만든다. `SVF_MAKER_REAL_86BOX`가 내려받은 파일을 가리키게 하고 실행하면(`maker/test/test_recipe.py`)
+표의 모든 페이스가 바이트 단위로 그 크기가 된다.
+
 ## MAME 세트의 한글 폰트 ROM
 
 한국 가정용 컴퓨터와 한국 아케이드 게임은 한글 폰트를 ROM 칩에 두며, MAME의 롬셋에 그 덤프가 있다. 24x24는 없다: 찾은 폰트는
@@ -974,6 +980,9 @@ ROM 파일들을 MAME 드라이버가 올리는 영역으로 잇는다. `binscan
 | A는 0, B는 1에 `ROM_LOAD16_BYTE` (C, D는 다음 오프셋에) | `region A,B C,D` (`--unit 1`: 번갈아 한 바이트씩) |
 | A는 0, B는 2에 `ROM_LOAD32_WORD`; A, B, C, D를 0, 2, 4, 6에 `ROM_LOAD64_WORD` | `region --unit 2 A,B` / `A,B,C,D` |
 | `ROM_LOAD16_WORD_SWAP` (68000 프로그램) | `region --swap A` |
+
+쉼표가 든 경로(`ROMs, Korean` 같은 폴더)는 `--group`으로 한 파일이 된다: `region --group A B --group C D`(`region A,B C,D`와 같은
+영역. 데스크톱 앱은 늘 이 형식을 쓴다).
 
 타일 배치는 드라이버의 `gfx_layout`(또는 `gfx_WxHxN_packed_lsb` / `_msb` 프리셋)이고, `--gfx`에 `planes=..;x=..;y=..;inc=N`으로
 옮겨 적는다: `STEP8(...)`과 `RGN_FRAC(1,2)`까지 같은 숫자이며, 중괄호와 C 주석은 뺀다.
@@ -1111,6 +1120,16 @@ T + set`. 기호는 `base + 992`부터다. 그러니 폰트는 종성 없는 CV 
 시작한다. 이 배치로는 종성 없는 음절은 바르게 조합되지만, 코드의 모음-종성 세트 대응은 온전한 세 세트와 맞지 않고, ㅜ / ㅠ의 종성은
 어느 세트에서나 CV 타일과 겹친다. 덤프의 스프라이트 플래시와 프로그램의 판이 다르거나, 찾지 못한 변환 단계가 있다. 종성 세트의 자리가
 정해질 때까지 페이스는 만들지 않는다.
+
+데스크톱 앱은 네 세트를 크기와 SHA-256으로(MAME `ROM_LOAD` 줄의 SHA1도) 알아본다. 내장 레시피는 `maker/recipes/mame-spc1500.json`,
+`mame-dquizgo.json`, `mame-xsedae.json`, `mame-quizkofk.json`이다(이름, 크기, 해시, 오프셋, 드라이버의 배치만 있고 ROM의 바이트는
+없다). 세트의 폴더를 고른다(풀어 둔 것: zip은 아직 읽지 않는다). 레시피가 이름 붙인 파일이 한 행이 되고, 세트의 다른 ROM은
+unknown으로 남는다. 페이스와 경로: `SPC1500`(조합한 음절의 `bdfface`)과 `SPC1500J`(경로 `spec`, 정확), `DQUIZGO`와
+`DQUIZGOJ`(`bdfface + from-svf fit`, 16폭 영문 포함), `XSEDA16J`(경로 `dos raw`: 잉크로 바꾼 스프라이트에서 자른 8x4x4 폰트, 위의
+`XSEDAE16J`를 8자 안으로 줄인 이름), `QUIZKOFK`와 `QUIZKOFJ`(8x4x4 fit). 명령은 위와 같고, 타일에서 읽는 영문 폰트나 raw 세트
+앞에는 `rawcarve.py ink --offset O --count N`이 온다(영역 전체를 잉크로 바꾸고 글리프 오프셋에서 자르는 것과 같은 글리프).
+Quiz King of Fighters의 영문 세 구간은 `maker/srcprep.py or-files`로 OR한다(위의 `python3 -c` 줄). `SVF_MAKER_REAL_MAME`이
+`$MAME`을 가리키게 하고 실행하면(`maker/test/test_recipe.py`) 모든 페이스가 위에 적힌 크기가 된다.
 
 ### 폰트가 없거나 풀지 못한 세트
 
@@ -1548,10 +1567,19 @@ maker(`maker/`, [desktop-app.md](desktop-app.ko.md)의 데스크톱 앱, [maker/
 | 자모, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [클래식 Mac 한글 비트맵 폰트](#클래식-mac-한글-비트맵-폰트) |
 | 완성형 또는 자모, `copy` | svf-precomposed, svf-jamo | 업로드된 그대로 쓰면 없음. v2 페이스나 요청한 JSET 변경에는 `svf2to3.py SRC OUT --jset-version V --check` | [기존 SVF](#기존-svf) |
+| 완성형 또는 자모, `svf2ttf` | svf-precomposed, svf-jamo | `copy`가 읽는 페이스를 아래의 내보내기로만 쓴다. SVF는 쓰지 않음 | [SVF 페이스를 다시 TTF 비트맵 폰트로](#svf-페이스를-다시-ttf-비트맵-폰트로) |
+| 완성형, `bdfface`; 자모, `bdfface + from-svf fit` | recipe(`maker/recipes/`의 알려진 ROM 세트, 로컬 모드) | 레시피의 한글 항목과 영문 항목을 `rawcarve.py bdf`로, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`. fit은 그 페이스를 `precomposed.svf`로 만든 뒤 `jamoset.py --layout L --from-svf precomposed.svf --mask-font none [--eng E] --check -o OUT`. 그 앞에 세트 파일들의 `rawcarve.py region --group ...`(경로를 통째로: 폴더 이름의 쉼표도 그대로), 조합 항목은 `rawcarve.py compose`, 타일 속 영문 폰트는 `ink` + `eng` | [한글 VGA 폰트 ROM (86Box)](#한글-vga-폰트-rom-86box) |
+| 자모, `spec` | recipe(SPC-1500) | `rawcarve.py region ...`, `rawcarve.py eng REGION ...`, `jamoset.py --layout spec --spec spc1500 REGION --eng E --check -o OUT` | [삼성 SPC-1500](#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확) |
+| 자모, `dos raw` | recipe(ROM 속 raw 세트: X Se Dae Quiz) | `rawcarve.py region`, `ink`, `cut`(raw 폰트), `ink` + `eng`(영문 폰트), `jamoset.py RAW --layout L --eng E --check -o OUT` | [X Se Dae Quiz](#x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용) |
 | 자모, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]` 다음 `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | [기존 SVF](#기존-svf) |
 
 `L`은 맞춤에서는 `844` 또는 `adaptive`이고, 그 밖에는 원본 종류가 지명하는 레이아웃이다. `[--eng E]`는 페이지가 폰트와 짝지은 영문
 동반 폰트이다.
+
+"also write TTF / BDF"(`options.export`)가 켜져 있으면 모든 페이스 단계 뒤에 형식마다 `export` 단계가 하나 따른다:
+`svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`. `OUT`은 페이스 이름에 `.ttf` / `.bdf`를 붙인 것으로 페이스 옆에 쓰며, `FILE`은
+작업이 그 폰트에 대해 아는 라이선스이다(없으면 svf2ttf.py가 원본 폰트의 라이선스가 적용된다고 적는다). "TTF as composites"는
+자모 세트의 TTF에 `--composite`를 더한다.
 
 일부 원본은 먼저 변환이 필요하다. BUILD.md는 이 단계를 경로의 명령 앞에 나열한다(각 단계는 앞 단계가 쓴 파일을 읽는다).
 

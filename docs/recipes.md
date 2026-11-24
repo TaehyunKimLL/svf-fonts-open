@@ -1029,6 +1029,13 @@ and 1,316 syllables in the machine's own order; johab-fonts `notes/msx.md`); the
 An 88emuplayer ROM pack (`88emuplayer-roms.zip`) holds Roland sound-module ROMs (SC-55, SC-88, SC-8850, CM-300) and no font. The MAME romsets
 are in [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets).
 
+The desktop app knows the three pairs by size and SHA-256 (the built-in recipes `maker/recipes/86box-tgkorvga.json`,
+`86box-kasan16.json`, `86box-atikorvga.json`: names, sizes, hashes and offsets, no byte of the ROMs): pick the folder holding both
+files and the font ROM is one row with the faces `TGVGA16` / `KASAN16` / `ATIVGA16` (route `bdfface`) and the jamo sets
+`TGVGA16J` / `KASAN16J` / `ATIVG16J` (`bdfface + from-svf fit`, experimental), made by the commands above. A run with
+`SVF_MAKER_REAL_86BOX` pointing at the downloaded files (`maker/test/test_recipe.py`) gives every face of the table byte
+for byte its size.
+
 ## Korean font ROMs in MAME sets
 
 Korean home computers and Korean arcade games keep their Hangul fonts in ROM chips, and MAME's romsets hold dumps of
@@ -1056,6 +1063,9 @@ the region is built:
 | `ROM_LOAD16_BYTE` A at 0, B at 1 (and C, D at the next offset) | `region A,B C,D` (`--unit 1`: a byte of each in turn) |
 | `ROM_LOAD32_WORD` A at 0, B at 2; `ROM_LOAD64_WORD` A, B, C, D at 0, 2, 4, 6 | `region --unit 2 A,B` / `A,B,C,D` |
 | `ROM_LOAD16_WORD_SWAP` (a 68000 program) | `region --swap A` |
+
+A path with a comma in it (a folder named `ROMs, Korean`) is one file with `--group`: `region --group A B --group C D`
+(the same region as `region A,B C,D`; the desktop app always writes this form).
 
 The tile layout is the driver's `gfx_layout` (or a `gfx_WxHxN_packed_lsb` / `_msb` preset), copied into `--gfx` as
 `planes=..;x=..;y=..;inc=N`: the same numbers, `STEP8(...)` and `RGN_FRAC(1,2)` included, without the braces and any C
@@ -1203,6 +1213,18 @@ tiles each) and a fourth holds 8 finals, and the symbols start at 5806, not 5832
 without a final compose right; the vowel-to-final-set assignment of the code does not fit the three whole sets, and the
 finals of ㅜ / ㅠ overlap their CV tiles in every set. Either the dump's sprite flash and the program are of different
 revisions, or a translation step was not found; no face is built until the final sets are placed.
+
+The desktop app knows the four sets by size and SHA-256 (and the SHA1 of MAME's `ROM_LOAD` lines), from the built-in
+recipes `maker/recipes/mame-spc1500.json`, `mame-dquizgo.json`, `mame-xsedae.json` and `mame-quizkofk.json` (names, sizes,
+hashes, offsets and the drivers' layouts, no byte of the ROMs). Pick the set's folder (unpacked: a zip is not read yet);
+the files the recipe names are one row, the set's other ROMs stay unknown. The faces and routes: `SPC1500` (`bdfface` of
+the composed syllables) and `SPC1500J` (route `spec`, exact); `DQUIZGO` and `DQUIZGOJ` (`bdfface + from-svf fit`, with
+the 16-wide English); `XSEDA16J` (route `dos raw`: the 8x4x4 font cut from the inked sprites, the doc's `XSEDAE16J`,
+named within 8 characters); `QUIZKOFK` and `QUIZKOFJ` (the 8x4x4 fit). The commands are the ones above, with `rawcarve.py
+ink --offset O --count N` before an English font or a raw set read from tiles (the same glyphs as inking the whole region
+and cutting at the glyph offset), and Quiz King of Fighters' three English runs OR-ed by `maker/srcprep.py or-files`
+(the `python3 -c` line above). With `SVF_MAKER_REAL_MAME` pointing at `$MAME` (`maker/test/test_recipe.py`) every face
+has the size given above.
 
 ### Sets with no font, or with a font not resolved
 
@@ -1688,10 +1710,19 @@ what the route makes; the others are fits and are marked experimental):
 | jamo, `mac fbit 7.1 direct` / `derived` | mac-fbit3 + HTBL 1 | `macfbit_svf.py build FBIT HTBL -o OUT --mode direct\|derived [--latin SUITCASE]` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | precomposed, `mac fbit 7.1 bdf + mkfont` | mac-fbit3 + HTBL 1 | `macfbit3.py bdf FBIT HTBL NAME mac.bdf`, `srcprep.py bdf-pixel-size mac.bdf mac-sized.bdf --size S`, `mkfont.py mac-sized.bdf mkfont.tmp --size S --bpp 1 --unicode ...`, `svf2to3.py ... --profile default` | [Classic Mac Korean bitmap fonts](#classic-mac-korean-bitmap-fonts) |
 | precomposed or jamo, `copy` | svf-precomposed, svf-jamo | none when used as uploaded; `svf2to3.py SRC OUT --jset-version V --check` for a v2 face or a requested JSET change | [An existing SVF](#an-existing-svf) |
+| precomposed or jamo, `svf2ttf` | svf-precomposed, svf-jamo | the face as `copy` reads it, written only as its exports (below): no SVF | [An SVF face back to a TTF bitmap font](#an-svf-face-back-to-a-ttf-bitmap-font) |
+| precomposed, `bdfface`; jamo, `bdfface + from-svf fit` | recipe (a known ROM set of `maker/recipes/`, local mode) | `rawcarve.py bdf` of the recipe's Hangul and English items, `bdfface.py --hangul H --ascii A --cell WxH --chars-from LIST -o OUT`; the fit makes that face as `precomposed.svf`, then `jamoset.py --layout L --from-svf precomposed.svf --mask-font none [--eng E] --check -o OUT`; before them `rawcarve.py region --group ...` of a set's files (each path whole: a comma in a folder name stays), and `rawcarve.py compose` for a composed item or `ink` + `eng` for an English font in tiles | [Korean VGA font ROMs (86Box)](#korean-vga-font-roms-86box), [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets) |
+| jamo, `spec` | recipe (SPC-1500) | `rawcarve.py region ...`, `rawcarve.py eng REGION ...`, `jamoset.py --layout spec --spec spc1500 REGION --eng E --check -o OUT` | [Samsung SPC-1500](#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) |
+| jamo, `dos raw` | recipe (a raw set in a ROM: X Se Dae Quiz) | `rawcarve.py region`, `ink`, `cut` (the raw font), `ink` + `eng` (the English font), `jamoset.py RAW --layout L --eng E --check -o OUT` | [X Se Dae Quiz](#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check) |
 | jamo, `from-svf fit` | svf-precomposed, 1 bpp | `[svf2to3.py ... source-v3.svf]`, then `jamoset.py --layout L --from-svf SRC --check -o OUT [--eng E]` | [An existing SVF](#an-existing-svf) |
 
 `L` is `844` or `adaptive` for the fits and the layout the source kind names otherwise; `[--eng E]` is the English
 companion the page paired with the font.
+
+With "also write TTF / BDF" (`options.export`) every face step is followed by one `export` step a format:
+`svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`, `OUT` the face's name with `.ttf` / `.bdf`, written beside the face;
+`FILE` is the licence the job knows for the font (none: svf2ttf.py says the source font's licence applies); "TTF as
+composites" adds `--composite` to a jamo set's TTF.
 
 Some sources need a conversion first; BUILD.md lists these steps before the route's commands (each reads the file the
 step before it wrote):

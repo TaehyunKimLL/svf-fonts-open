@@ -206,7 +206,8 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
   종류의 폰트에서는 이 칸에 줄표가 표시된다.
 - **override**는 행 아래에 폰트별 패널을 연다. 이 폰트 하나에 대해 일괄 컨트롤(dest, kinds, layout, sizes, bpp, range, preset. 빈 값은
   "(batch)"를 뜻한다)을 반복하고 다음을 더한다: **jamo route**(5절의 경로 중 이 폰트의 jamo 페이스를 만드는 것. "(default)"는 첫
-  번째 기본(native) 경로이며 `vector fit`에는 "minutes per font"라고 표시된다); **experimental**(experimental로 표시된 경로를
+  번째 기본(native) 경로이며 `vector fit`에는 "minutes per font"라고 표시된다); **precomposed route**(SVF 소스에만:
+  `copy` 또는 SVF의 TTF / BDF만 쓰는 `svf2ttf`); **also write**(이 폰트만의 TTF / BDF 선택: "(batch)" 또는 on / off); **experimental**(experimental로 표시된 경로를
   허용한다. 꺼 두면 그것이 필요한 경로는 나열되지만 "needs experimental"이라는 이유로 거부된다); **latin companion**(Latin 글자를
   더해 줄 일괄 안의 BDF 또는 HBF. Mac 7.1 `fbit`에는 그 크기의 strike가 있는 suitcase); **HTBL table**(Mac 7.1 `fbit`의 조합
   표); **instance**(가변 폰트의 이름 붙은 인스턴스); **licence name**과 **note name**; **advanced options**(3.4절의 고급 패널,
@@ -225,6 +226,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 | bpp | 픽셀당 1비트 또는 2비트. 하나 또는 둘 다 체크한다. |
 | range | 포함할 문자 집합. |
 | preset | 이름 붙은 레시피(5절). "plain"은 도구의 기본값을 쓴다. |
+| also write TTF / BDF | 실행이 만드는 모든 페이스를 SVF 옆에 `<NAME>.ttf`(페이스의 픽셀을 아웃라인으로, 비트맵 strike를 내장한 TrueType 폰트)와/또는 `<NAME>.bdf`로도 쓴다. `tools/svf2ttf.py`가 만든다([recipes.ko.md](recipes.ko.md)의 "SVF 페이스를 TTF 비트맵 폰트로"). 기본은 꺼짐이며, 폰트의 override에서 그 폰트만 켜거나 끌 수 있다. **TTF as composites**(기본 꺼짐)는 자모 세트의 TTF를 `--composite`로 쓴다: 조각을 한 번씩 글리프로 두고 모든 음절을 그 조각의 합성 글리프로 만든다(레시피가 설명하듯 더 작다). 완성형 페이스의 TTF는 그대로이다. |
 | advanced panel | 세부 컨트롤: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize(threshold, ridge, mono), Latin ascent, Hangul ascent. 여기의 값이 프리셋의 값보다 우선한다. 경로가 쓸 수 없는 컨트롤은 숨겨지거나 비활성화된다. |
 
 ### 3.5 상단 바의 버튼
@@ -242,7 +244,9 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 ### 3.6 단계 표(아래)
 
 각 작업은 단계(detect, convert, check, preview...)의 목록이다. 열은 id, font, kind, size, bpp, name, state, seconds,
-quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었고 무엇을 출력했는지 볼 수 있다. 명령 자체는 이 표에 없다. 출력 폴더의
+quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었고 무엇을 출력했는지 볼 수 있다. 페이스의 TTF / BDF는 페이스 바로
+뒤의 별도 단계(kind `export`)이다. 그 result 칸은 파일이 담은 글리프 수(다시 읽어 페이스의 문자와 대조한 것)와 쓰인 위치를 보여 주며,
+페이스 단계가 실패하면 그 export는 "face step failed"로 실패한다. 명령 자체는 이 표에 없다. 출력 폴더의
 `build-<id>/BUILD.md`가 무엇을 어떤 명령으로 실행했는지 나열한다([경로 표](recipes.ko.md#데스크톱-앱과-maker-경로)). 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
 볼 수 있다. (캔버스에 잉크가 있다는 것은 저장소의 테스트가 단언하는 것이지 앱이 검사하는 것이 아니다.)
 
@@ -258,7 +262,8 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 | 클래식 Mac HangulTalk 7.1 type-3 `fbit` | 리소스 포크, AppleDouble `._Name`, MacBinary `.bin`, JM 아카이브, 또는 raw `fbit` 리소스에서 읽는다. HTBL 1 표(`InputBackSupport` 또는 `<Name>.htbl1`, 다른 소스로 함께 선택)가 필요하며 Latin suitcase(FOND + NFNT)를 쓸 수도 있다. |
 | 클래식 Mac HangulTalk 1.0 폰트 | `fdef`가 있는 포크. `fdef` 없는 raw 1.0 `fbit`는 무엇이 빠졌는지와 함께 목록에 표시된다. |
 | Hanterm Johab 폰트 | 배치 `hanterm-johab`(Johab BDF). |
-| SVF 파일(`.svf`) | 복사되거나(경로가 허용할 때) jamo fit의 소스로 쓰인다. 업로드한 SVF는 자신의 JSET 블록을 유지한다. |
+| SVF 파일(`.svf`) | 복사되거나(경로가 허용할 때) jamo fit의 소스로 쓰인다. 업로드한 SVF는 자신의 JSET 블록을 유지한다. `svf2ttf` 경로는 SVF를 TTF와/또는 BDF로만 바꾼다("also write TTF" 또는 "BDF"를 체크한다). |
+| 알려진 ROM 세트(로컬 모드) | `maker/recipes/`의 내장 레시피에서 크기와 SHA-256으로 알아보는 글꼴 ROM: 86Box의 한글 VGA 카드 셋, 각각 512 KB KS C 5601 글꼴 ROM과 32 KB VGA BIOS(Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). 두 파일이 든 폴더를 고른다. 글꼴 ROM이 "known: <카드>" 한 행이 되고 BIOS는 그것과 함께 읽힌다고 표시된다. 한 파일만 있으면 행은 "part of <카드>: also needs <파일>; pick the folder"라고 하며 아무것도 제시하지 않는다. 이름과 크기는 맞지만 해시가 다른 파일은 "looks like <카드>, another revision"이며 변환하지 않는다. 페이스는 16 px 완성형 페이스(한글은 ROM에서, 영문은 BIOS의 8x16 글꼴에서)와 experimental인 8x4x4 자모 fit이다([recipes.ko.md](recipes.ko.md)의 "한글 VGA 글꼴 ROM (86Box)"). MAME 세트 넷도 같은 방식이다(풀어 둔 세트의 폴더를 고른다. zip은 읽지 않는다): 삼성 SPC-1500(`ss150fnt.bin` .. `ss153fnt.bin`: 완성형 페이스와 정확한 자모 세트, 경로 `spec`), Date Quiz Go Go(`uor1` .. `uor4`), X Se Dae Quiz(`obj-1.u0811`, `obj-2.u082`: 자모 세트, 경로 `dos raw`), Quiz King of Fighters(한국판)(`vic-080-c1.c1` .. `c4.c4`)([recipes.ko.md](recipes.ko.md)의 "MAME 세트의 한글 폰트 ROM"). 업로드 작업은 표시만 한다. |
 
 독점 폰트, 비트맵, 표는 앱과 함께 배포되지 않는다. 테스트는 합성 입력을 쓴다.
 
@@ -272,8 +277,8 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 
 | 종류 | 경로 |
 |---|---|
-| precomposed | `mkfont`(아웃라인 또는 ISO 10646 비트맵에서 SVF로); `johab844`(DOS raw, 16 px); `bdfface`(KS C 5601 BDF와 Latin 짝); `mac fbit 7.1 bdf + mkfont`; `copy`(SVF를 그대로) |
-| jamo | `composite`(합성 글리프 아웃라인 폰트); `experimental fit`(아웃라인 폰트, 1 또는 2 bpp, 느림, 품질 제약, experimental); `mask fit`(1 bpp, experimental, `freetype-py`, `uharfbuzz`, OpenType 자모 치환이 있는 마스크 폰트 필요, 9절 참조); `vector fit`(experimental, 폰트당 수 분 소요); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct`(native)와 `derived`(experimental); `bdfface + from-svf fit`과 `from-svf fit`(experimental); `copy`(이미 자모 조각이 있는 SVF) |
+| precomposed | `mkfont`(아웃라인 또는 ISO 10646 비트맵에서 SVF로); `johab844`(DOS raw, 16 px); `bdfface`(KS C 5601 BDF와 Latin 짝, 또는 알려진 ROM 세트에서 잘라 낸 한글과 영문); `mac fbit 7.1 bdf + mkfont`; `copy`(SVF를 그대로); `svf2ttf`(SVF를 TTF / BDF로만) |
+| jamo | `spec`(알려진 세트의 정확한 자모 세트: SPC-1500); `composite`(합성 글리프 아웃라인 폰트); `experimental fit`(아웃라인 폰트, 1 또는 2 bpp, 느림, 품질 제약, experimental); `mask fit`(1 bpp, experimental, `freetype-py`, `uharfbuzz`, OpenType 자모 치환이 있는 마스크 폰트 필요, 9절 참조); `vector fit`(experimental, 폰트당 수 분 소요); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct`(native)와 `derived`(experimental); `bdfface + from-svf fit`과 `from-svf fit`(experimental); `copy`(이미 자모 조각이 있는 SVF); `svf2ttf`(자모 SVF를 TTF / BDF로만) |
 
 프리셋은 이름 붙은 출발점이다. 고급 패널이 프리셋을 덮어쓴다.
 
@@ -291,6 +296,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 
     <output>/
       svf/<dest>/<NAME>.SVF          the face
+      svf/<dest>/<NAME>.ttf, .bdf    its TTF / BDF, when "also write" asks for them (the svf2ttf route: these only)
       svf/<dest>/<NAME>.TXT          its note (how it was made, the licence you chose or "not checked")
       svf/<dest>/<licence file>      when a licence text was chosen
       build-<id>/
@@ -300,7 +306,14 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
         FACES.TSV.lines              lines for its faces table
 
 - 작업이 직접 쓰지 않은 이름은 절대 대체되지 않는다. 파일이 이미 있으면 실행은 건너뛰거나 거부하며, 사용자의 파일을
-  덮어쓰지 않는다.
+  덮어쓰지 않는다. `.ttf` / `.bdf`에도 같은 규칙이 적용된다.
+- TTF / BDF는 작업이 그 폰트에 대해 아는 라이선스(사용자가 고른 라이선스 파일과, 그 파일이 이름을 든 `.TXT` 중 사용자가 함께
+  고른 것. CP949 라이선스는 CP949로 읽고, 그 밖의 UTF-8이 아닌 라이선스는 읽을 수 없는 바이트를 바꾸어 담는다. 고르지 않은 파일이나 고른 폴더 밖으로 가는 링크는 읽지 않는다. `svf2ttf`로 바꾸는 SVF에 라이선스를 고르지 않았으면 고른 파일 중
+  그 옆의 노트를 쓴다. 고른 파일만 보므로 저장소의 `svf/` 트리에서 고른 페이스라도 `svf2ttf.py`를 직접 실행할 때처럼 `web/LICENCES.tsv`가
+  지정하는 파일을 받지 않는다. 그 행에서 라이선스 파일을 고른다)를 이름 표나 `COMMENT` 줄에 담는다. 라이선스가
+  없으면 원본 폰트의 라이선스가 적용된다고 적는다. `BUILD.md`에는 나열되지만(`svf2ttf.py` 명령과 "written" 줄) `.lines` 파일의
+  행은 없고 페이스의 노트에도 이름이 오르지 않는다. 그것들은 SVF 페이스를 설명한다. 타임스탬프는 현재 시각이며, 앱을
+  `SOURCE_DATE_EPOCH`를 설정한 채 시작했으면 그 값이다.
 - `.lines` 파일은 사용자가 저장소의 표에 손으로 병합하는 조각이다(저장소의 `web/mkindex.py --check`가 병합된 결과를
   받아들인다).
 - 페이지는 쓰인 모든 페이스를 렌더러로 그려 보여 준다. 저장소 자체의 페이스 검사(`facecheck.py`는 매니페스트와 맵 검사기이다. `web/mkindex.py --check`)는 별개이다. 저장소에
@@ -462,6 +475,11 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
   Windows와 macOS.
 - Windows와 macOS: 빌드하지도 실행하지도 않았다. 서버는 Windows에 대응하지 않는다(프로세스 그룹, 잠금, 파일 링크 호출이
   POSIX이다). macOS 계획(서명, notarisation)은 [maker-desktop.ko.md](maker-desktop.ko.md)에 적혀 있다.
+- TTF / BDF 내보내기: 각 파일을 다시 읽어(TTF는 fontTools로) 페이스의 문자를 정확히 담았는지 확인한다. 왕복 검사(TTF를
+  `mkfont.py`로 다시 구워 비교하는 것, recipes.md)는 실행에 포함되지 않는다. 자모 세트에서는 수 분이 걸린다. 프로그램이 TTF의 2 bpp
+  strike를 단계로 그리는지는 그 렌더러에 달렸다(Windows와 macOS는 테스트하지 않음).
+- 알려진 ROM 세트: 실제 파일과의 대조는 `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME`이 사용자 자신의 사본을 가리킬 때만 한다(모든 페이스가
+  recipes.md에 기록된 크기). 테스트는 OFL 페이스로 그린 합성 ROM을 쓴다.
 - `mask fit` 경로는 작성자의 호스트에서 작업을 한 번도 실행한 적이 없다(그곳에는 라이브러리가 설치되어 있지 않다).
   정체성 검사는 스텁으로만 테스트했다. `vector fit`은 폰트당 수 분이 걸린다.
 - 검증하지 않았으며 실제 데스크톱에서 수동으로 점검해야 한다: 디스플레이가 있는 네이티브 대화상자, 파일 관리자 연동,

@@ -10,6 +10,8 @@ for the two conversions no tool in tools/ has:
     srcprep.py mac-htbl SRC OUT              the HTBL 1 table of a fork or a raw table
     srcprep.py mac-fork-named SRC OUT        the native resource fork of a macOS file (SRC/..namedfork/rsrc)
     srcprep.py bdf-pixel-size SRC OUT --size N   a BDF with PIXEL_SIZE N set (FreeType otherwise derives it from SIZE)
+    srcprep.py or-files OUT A B ...          the bytes of files of one size OR-ed (English fonts kept in several runs
+                                             of a ROM merged into one table: a known set's recipe, maker/recipe.py)
 
 Exit 0 and OUT written; exit 2 with the reason on stderr. Stdlib and fontTools only. It runs under `python3 -P`, which
 drops the script directory from sys.path, so it puts maker/ and tools/ there itself.
@@ -539,9 +541,23 @@ def pcf_to_bdf(data):
 
 # ---- CLI -------------------------------------------------------------------------------------------------------
 
+def or_files(datas):
+    """The byte-wise OR of @p datas (bytes of one length)."""
+    if not datas or len({len(d) for d in datas}) != 1:
+        raise PrepError("or-files needs files of one size")
+    out = bytearray(datas[0])
+    for d in datas[1:]:
+        for i, v in enumerate(d):
+            out[i] |= v
+    return bytes(out)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("or-files")
+    p.add_argument("out")
+    p.add_argument("files", nargs="+")
     p = sub.add_parser("ttc-face")
     p.add_argument("src")
     p.add_argument("out")
@@ -553,6 +569,20 @@ def main(argv=None):
         if name == "bdf-pixel-size":
             p.add_argument("--size", type=int, required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "or-files":
+        try:
+            datas = []
+            for path in a.files:
+                with open(path, "rb") as fh:
+                    datas.append(fh.read(MAX_BYTES + 1))
+            if any(len(d) > MAX_BYTES for d in datas):
+                raise PrepError("too large")
+            with open(a.out, "wb") as fh:
+                fh.write(or_files(datas))
+        except (PrepError, OSError) as e:
+            print("srcprep: %s" % e, file=sys.stderr)
+            return 2
+        return 0
     if a.cmd == "mac-fork-named" and sys.platform != "darwin":
         print("srcprep: mac-fork-named: macOS only", file=sys.stderr)
         return 2

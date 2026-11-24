@@ -1708,6 +1708,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not eff.get("selected"):
                 continue
             wanted = [by_id.get(fid), by_id.get(eff.get("latin_companion")), by_id.get(eff.get("htbl_companion"))]
+            for root, path in ((by_id.get(fid) or {}).get("recipe") or {}).get("files", {}).values():
+                wanted.append(by_key.get((root, path)))          # every file of a known set (a ROM and its BIOS)
             licence = eff.get("licence")
             if isinstance(licence, dict) and licence.get("kind") == "upload":
                 wanted.append(by_key.get((licence.get("root", 0), licence.get("path"))))
@@ -1782,7 +1784,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         for font_id in dict.fromkeys(step.get("font") for step in steps):
             font = by_id.get(font_id) or {}
             mine = [step for step in steps if step.get("font") == font_id]
-            faces = [step for step in mine if step.get("kind") in ("precomposed", "jamo")]
+            faces = [step for step in mine if step.get("kind") in ("precomposed", "jamo") and not step.get("export_only")]
             if not faces:                                    # only a face step is named in a note (a prepare is not)
                 continue
             materialized = [dict(step, argv=jobs.materialized_argv([step], sources, work_dir)) for step in mine]

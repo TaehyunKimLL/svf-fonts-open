@@ -91,7 +91,7 @@ class PresetTest(unittest.TestCase):
             "plain": {"argv": {}, "layout": None, "bpp": None,
                       "sources": ["outline", "outline-composite", "bitmap", "bdf-iso10646", "bdf-iso8859",
                                   "bdf-ksc5601", "bdf-johab", "hbf", "dos-raw", "svf-precomposed", "svf-jamo",
-                                  "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase", "hwp1", "ks-raw", "other"],
+                                  "mac-fbit3", "mac-fbit1", "mac-htbl", "mac-suitcase", "hwp1", "ks-raw", "recipe", "other"],
                       "reproduces": "the tools' defaults"},
             "dos-l-1bpp": {
                 "argv": {"precomposed": ["--cell", "16", "--bpp", "1", "--unicode",
@@ -374,9 +374,10 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(routes.routes(dict(FONT_COMPOSITE, face_index=1)), [])
 
     def test_svf_routes(self):
-        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_PRE)], [("precomposed", "copy"), ("jamo", "from-svf fit")])
+        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_PRE)],
+                         [("precomposed", "copy"), ("jamo", "from-svf fit"), ("precomposed", "svf2ttf")])
         self.assertEqual(routes.routes(FONT_SVF_PRE)[0].commands(FONT_SVF_PRE, 16, 1, None, ("2350", None), P, []), [])
-        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_JAMO)], [("jamo", "copy")])
+        self.assertEqual([(x.kind, x.label) for x in routes.routes(FONT_SVF_JAMO)], [("jamo", "copy"), ("jamo", "svf2ttf")])
         self.assertEqual(routes.routes(FONT_HBF), [])
         self.assertEqual(routes.routes(dict(FONT_KSC, source_kind="bdf-iso8859")), [])
         self.assertEqual(routes.routes(dict(FONT_TTF, source_kind="bitmap", sizes=[], sizes_fixed=True)), [])

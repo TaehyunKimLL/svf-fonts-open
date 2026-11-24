@@ -219,7 +219,8 @@ The columns are: id, use, preview, label, family/style, sizes, coverage, jamo, l
 - **override** opens a per-font panel under the row. It repeats the batch controls for this one font (dest, kinds,
   layout, sizes, bpp, range, preset; an empty value means "(batch)") and adds: **jamo route** (which of the routes
   of section 5 makes this font's jamo face; "(default)" is the first native route, and `vector fit` is marked "minutes per
-  font"); **experimental** (allows the routes marked experimental: with it off, a route that needs it is listed but
+  font"); **precomposed route** (only for an SVF source: `copy` or `svf2ttf`, which writes the SVF's TTF / BDF only);
+  **also write** (this font's own TTF / BDF choice: "(batch)" or on / off); **experimental** (allows the routes marked experimental: with it off, a route that needs it is listed but
   refused, with the reason "needs experimental"); **latin companion** (a BDF or HBF of the batch whose Latin letters are
   added; for a Mac 7.1 `fbit` the suitcases with a strike of its size); **HTBL table** (a Mac 7.1 `fbit`'s composition
   table); **instance** (a variable font's named instance); **licence name** and **note name**; **advanced options** (the
@@ -238,6 +239,7 @@ One set of settings applies to the whole batch; a row can opt out.
 | bpp | 1 bit or 2 bits per pixel; tick one or both. |
 | range | The set of characters to include. |
 | preset | A named recipe (section 5). "plain" uses the tools' defaults. |
+| also write TTF / BDF | Every face the run makes is also written beside its SVF as `<NAME>.ttf` (a TrueType font with the face's pixels as outlines and an embedded bitmap strike) and / or `<NAME>.bdf`, by `tools/svf2ttf.py` ([recipes.md](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font)). Off by default; a font's override can turn it on or off for that font alone. **TTF as composites** (off by default) writes a jamo set's TTF with `--composite`: its pieces once as glyphs and every syllable a composite of them (smaller, as the recipe describes); a precomposed face's TTF is unchanged. |
 | advanced panel | Fine controls: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize (threshold, ridge, mono), Latin ascent, Hangul ascent. A value here wins over the preset's. Controls that a route cannot use are hidden or disabled. |
 
 ### 3.5 Buttons in the top bar
@@ -255,7 +257,10 @@ One set of settings applies to the whole batch; a row can opt out.
 ### 3.6 Steps table (bottom)
 
 Each job is a list of steps (detect, convert, check, preview...). The columns are id, font, kind, size, bpp, name, state,
-seconds, quality, stderr and result, so you can see which step ran for which font and what it printed. The commands
+seconds, quality, stderr and result, so you can see which step ran for which font and what it printed. A face's TTF / BDF
+is a step of its own (kind `export`) right after the face: its result cell says how many glyphs the file holds (read back
+and checked against the face's characters) and where it was written; when the face step fails, its exports fail with
+"face step failed". The commands
 themselves are not in this table: `build-<id>/BUILD.md` in the output folder lists what was run, with which commands (the route table: [recipes.md](recipes.md#desktop-app-and-maker-routes)).
 Every result face is
 drawn on a canvas by the renderer, so you can see what was made. (That the canvas has ink is something the repository's
@@ -273,7 +278,8 @@ tests assert, not something the app checks.)
 | Classic Mac HangulTalk 7.1 type-3 `fbit` | From a resource fork, an AppleDouble `._Name`, a MacBinary `.bin`, a JM archive or a raw `fbit` resource; needs the HTBL 1 table (`InputBackSupport` or `<Name>.htbl1`, picked as another source) and may use a Latin suitcase (FOND + NFNT). |
 | Classic Mac HangulTalk 1.0 fonts | The fork with its `fdef`; a raw 1.0 `fbit` without `fdef` is listed with what is missing. |
 | Hanterm Johab fonts | Layout `hanterm-johab` (a Johab BDF). |
-| SVF files (`.svf`) | Copied (when allowed by the route) or used as the source for a jamo fit; an SVF upload keeps its own JSET block. |
+| SVF files (`.svf`) | Copied (when allowed by the route) or used as the source for a jamo fit; an SVF upload keeps its own JSET block. The `svf2ttf` route turns the SVF into a TTF and / or a BDF only (tick "also write TTF" or "BDF"). |
+| Known ROM sets (local mode) | Font ROMs recognised by their size and SHA-256 from the built-in recipes of `maker/recipes/`: the three 86Box Korean VGA cards, each a 512 KB KS C 5601 font ROM with its 32 KB VGA BIOS (Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). Pick the folder that holds both files: the font ROM is one row, "known: <card>", and the BIOS is labelled as read with it. With one file only the row says "part of <card>: also needs <file>; pick the folder" and offers nothing; a file with the right name and size but another hash is "looks like <card>, another revision" and is not converted. The faces are a 16 px precomposed face (Hangul from the ROM, English from the BIOS's 8x16 font) and, experimental, its 8x4x4 jamo fit ([recipes.md](recipes.md#korean-vga-font-roms-86box)). Four MAME sets the same way (pick the unpacked set's folder; a zip is not read): Samsung SPC-1500 (`ss150fnt.bin` .. `ss153fnt.bin`: a precomposed face and an exact jamo set, route `spec`), Date Quiz Go Go (`uor1` .. `uor4`), X Se Dae Quiz (`obj-1.u0811`, `obj-2.u082`: a jamo set, route `dos raw`) and Quiz King of Fighters (Korea) (`vic-080-c1.c1` .. `c4.c4`) ([recipes.md](recipes.md#korean-font-roms-in-mame-sets)). An upload job only labels them. |
 
 No proprietary font, bitmap or table is distributed with the app. The tests use synthetic inputs.
 
@@ -287,8 +293,8 @@ routes marked (experimental) are usable only when the font's **experimental** bo
 
 | Kind | Routes |
 |---|---|
-| precomposed | `mkfont` (outline or ISO 10646 bitmap to SVF); `johab844` (DOS raw, 16 px); `bdfface` (KS C 5601 BDF plus a Latin companion); `mac fbit 7.1 bdf + mkfont`; `copy` (an SVF as is) |
-| jamo | `composite` (a composite-glyph outline font); `experimental fit` (outline fonts; 1 or 2 bpp, slow, quality-bound; experimental); `mask fit` (1 bpp, experimental; needs `freetype-py`, `uharfbuzz` and a mask font with OpenType jamo substitution, see section 9); `vector fit` (experimental; takes minutes per font); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct` (native) and `derived` (experimental); `bdfface + from-svf fit` and `from-svf fit` (experimental); `copy` (an SVF that already has jamo pieces) |
+| precomposed | `mkfont` (outline or ISO 10646 bitmap to SVF); `johab844` (DOS raw, 16 px); `bdfface` (KS C 5601 BDF plus a Latin companion, or a known ROM set's carved Hangul and English); `mac fbit 7.1 bdf + mkfont`; `copy` (an SVF as is); `svf2ttf` (an SVF written as its TTF / BDF only) |
+| jamo | `spec` (a known set's exact jamo set: SPC-1500); `composite` (a composite-glyph outline font); `experimental fit` (outline fonts; 1 or 2 bpp, slow, quality-bound; experimental); `mask fit` (1 bpp, experimental; needs `freetype-py`, `uharfbuzz` and a mask font with OpenType jamo substitution, see section 9); `vector fit` (experimental; takes minutes per font); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct` (native) and `derived` (experimental); `bdfface + from-svf fit` and `from-svf fit` (experimental); `copy` (an SVF that already has jamo pieces); `svf2ttf` (a jamo SVF written as its TTF / BDF only) |
 
 Presets are named starting points. The advanced panel overrides them.
 
@@ -306,6 +312,7 @@ Inside the output folder, and nothing else:
 
     <output>/
       svf/<dest>/<NAME>.SVF          the face
+      svf/<dest>/<NAME>.ttf, .bdf    its TTF / BDF, when "also write" asks for them (the svf2ttf route: these only)
       svf/<dest>/<NAME>.TXT          its note (how it was made, the licence you chose or "not checked")
       svf/<dest>/<licence file>      when a licence text was chosen
       build-<id>/
@@ -315,7 +322,16 @@ Inside the output folder, and nothing else:
         FACES.TSV.lines              lines for its faces table
 
 - A name the job did not write itself is never replaced. If a file is already there the run skips or refuses; it does not
-  overwrite your files.
+  overwrite your files. The same rule holds for a `.ttf` / `.bdf`.
+- A TTF / BDF carries the licence the job knows for its font (the licence file you chose, and the `.TXT` files it names
+  that you picked too, in its name table or its `COMMENT` lines; a licence in CP949 is read as CP949, one in any other
+  encoding than UTF-8 is embedded with its unreadable bytes replaced); without one it says that the licence of the font it was made from applies (for an SVF
+  converted by `svf2ttf`, the note picked beside it: only the picked files are consulted, so a face picked from a
+  repository's `svf/` tree with no licence chosen does not get the files `web/LICENCES.tsv` names, as `svf2ttf.py` run by
+  hand would; choose its licence file in the row). A file a licence names that you did not pick, or a link out of the
+  folder you picked, is never read. It is listed in `BUILD.md`
+  (its `svf2ttf.py` command and a "written" line) but has no row in the `.lines` files and is not named in the face's
+  note: those describe SVF faces. Its timestamps are now, or `SOURCE_DATE_EPOCH` when the app was started with it set.
 - The `.lines` files are fragments that you merge into the repository's tables by hand (the repository's
   `web/mkindex.py --check` accepts the merged result).
 - The page draws every written face with the renderer so you can look at it. The repository's own checks of a face
@@ -484,6 +500,11 @@ The faces already written in your output folders are yours and stay.
   not verified: a real desktop with a window manager and a GPU, and Windows and macOS.
 - Windows and macOS: not built, not run. The server is not Windows-ready (process-group, lock and file-link calls are
   POSIX). The macOS plan (signing, notarisation) is written in [maker-desktop.md](maker-desktop.md).
+- TTF / BDF export: each file is read back (fontTools for a TTF) and must hold exactly the face's characters; the
+  round trip (baking the TTF back with `mkfont.py` and comparing, recipes.md) is not part of a run, it takes minutes for a
+  jamo set. Whether a program draws a TTF's 2 bpp strike as levels is up to its renderer (Windows and macOS not tested).
+- Known ROM sets: checked against the real files only where `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME` names your own
+  copy (every face the size recipes.md records); the tests use synthetic ROMs drawn from an OFL face.
 - The `mask fit` route has never run a job on the author's host (the libraries are not installed there); the identity
   check has only been tested with a stub; `vector fit` takes minutes per font.
 - Not verified, pending manual checks on a real desktop: native dialogs with a display, the file manager integration,

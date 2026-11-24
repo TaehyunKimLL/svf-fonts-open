@@ -68,27 +68,30 @@ deadlock them.
 |---|---|
 | Sidecar one-dir | 47 MB; build 8-9 s (about 30 s with the frozen test); startup port line well under 2 s |
 | AppImage | 140 MB (133.9 MiB, commit 3d40de8, 2026-11-22; 149.7 MB before the static runtime and zstd); `linux-unpacked` 335 MB; electron-builder about 50 s; the whole script 1 min 26 s with warm caches |
-| Frozen test | 26 tests, 0 skipped: byte-equal to the pinned wheels under `env -i`, frozen jobs and notes equal source mode |
+| Frozen test | 28 tests, 0 skipped: byte-equal to the pinned wheels under `env -i` (svf2ttf and rawcarve too), the 7 bundled recipes, frozen jobs and notes equal source mode |
 | Electron task counts (`--no-sandbox --disable-gpu` under xvfb) | one instance 87, second-instance case 114 (planning measurements, with the GPU 143 and 170); the lifecycle test's peak was 79-80 |
 | Debian Pillow comparison | equal |
-| `sample set` e2e step | dev 10.4 s, packaged 15.0 s (14 steps, 10 faces; whole e2e 48 s with no lock wait) |
+| `sample set` e2e step | dev 12.6 s, packaged 14.9 s (17 steps: 10 faces and 3 TTF / BDF exports; 2026-11-24, commit 8c10dc1); before the exports dev 10.4 s, packaged 15.0 s (14 steps) |
 
 ### Sample set (e2e, t_30b843b8)
 
 `desktop/test/e2e.js` has one step per pass, `sample set`, that converts a fixed sample **through the page** in local mode
 (inputs read in place, faces written into the chosen output folder), in the dev pass and in the packaged pass. The sample is
 defined by `maker/test/uisample.py` (it builds the synthetic inputs at test time and owns the per-font settings table, the
-expected 33-file tree and the checks): four OFL fonts of `ttf/` read in place (neodgm, NanumGothic-Bold, GowunBatang-Bold with
+expected 36-file tree and the checks): four OFL fonts of `ttf/` read in place (neodgm, NanumGothic-Bold, GowunBatang-Bold with
 the `dos-u-2bpp` preset, Caveat-VF at its Bold instance), and synthetic files from the repository's fixture builders: a Mac 7.1
 fbit with its HTBL table and suitcase, a HangulTalk 1.0 font, a Mac dfont, an HWP DOS 844 font with `ASCII.PFT` (`HANGUL24.PFT`
-shown as not read), and KSC / johab BDFs. The step picks the 9 roots and the output folder with the stubbed dialogs, changes only
+shown as not read), and KSC / johab BDFs; the KSC face is also written as `KSC16.ttf` and `KSC16.bdf` and the johab jamo set
+as `JOHA16J.ttf` with `--composite` (their overrides' "also write" selects, t_97acecf9). The step picks the 9 roots and the output folder with the stubbed dialogs, changes only
 enabled controls (the rows with no route stay disabled and unchecked, asserted), saves, reads the saved settings back, runs, and
 then `uisample.py check` verifies: exactly the expected files and no others (no leftover `.svf-maker-*`), `facecheck.py` and
-`web/mkindex.py --check` on the written tree, every face draws ink, `GOWUN17A.SVF` byte-equal to `svf/dos/GBATB17.SVF`, and the
-inputs unchanged. Only then are the 10 result canvases counted (`data-drawn="1"`, `Number(dataset.ink) > 0`). In the packaged
+`web/mkindex.py --check` on the written tree, every face draws ink, `GOWUN17A.SVF` byte-equal to `svf/dos/GBATB17.SVF`, each
+export holding exactly its face's characters (`quality.export_facts`), and the inputs unchanged. Only then are the 10 result canvases counted (`data-drawn="1"`, `Number(dataset.ink) > 0`). In the packaged
 pass `--same-as` compares the faces with the dev pass: byte equality is required for the pure-Python faces (SEOU12J, HAN224J,
 JOHA16J, KSC16, MUNJ16J); a difference in an outline face (NEODU16, NANUM17A, GOWUN17A, CAVEA16, SYNTH16) is printed as an
 `E2E NOTE` (the dev pass renders with the host's Pillow/FreeType, the packaged one with the pinned wheels), not a failure.
+`KSC16.bdf` must be byte-equal and `KSC16.ttf` and `JOHA16J.ttf` equal once its `head` timestamps are set equal (svf2ttf.py stamps the time
+of the run).
 `maker/test/test_uisample.py` runs the same table through the HTTP API and proves each check fails on a mutation.
 
 ## The sandbox

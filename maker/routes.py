@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass
 
 import detect
+import recipe
 import toolrun
 
 # The 16x16 1 bpp base face johab844.py redraws the Hangul of (relative to the checkout's svf/).
@@ -83,6 +84,7 @@ class Route:
     reference: object
     prepare: object
     commands: object
+    export_only: bool = False          # the face is the source itself, read for its TTF/BDF only (route `svf2ttf`)
 
     def prepare_commands(self, font, layout, paths):
         """The commands to run once per font and layout before any size; `[]` for every route but composite."""
@@ -393,6 +395,46 @@ def _from_svf_commands(font, size, bpp, layout, range_spec, paths, extra):
     return _with_extra(commands, extra)         # --jset-version reaches the writer too: it writes that block version
 
 
+def _recipe_commands(rec, face_name):
+    """The commands of a known set's face (`recipe.face_commands`): its regions and items carved with `rawcarve.py`, then
+    its route (`bdfface.py`, a `jamoset.py --from-svf` fit at the step's layout, `jamoset.py --layout spec` or a raw
+    layout). The panel's flags land on the last commands as for the routes of the same labels."""
+    def commands(font, size, bpp, layout, range_spec, paths, extra):
+        files = paths.get("recipe_files") or {}
+        chars = range_spec[1] if range_spec[0] == "file" else paths.get("range_file")
+        if not chars:
+            raise ValueError("bdfface needs a range file")
+        face = next(f for f in rec["faces"] if f["name"] == face_name)
+        fit_layout = layout if face["route"] == "bdfface + from-svf fit" and layout else None
+        argvs, roles = recipe.face_plan(rec, face_name, files, paths, chars, paths["tools"], layout=fit_layout)
+        extra = list(extra or [])
+        # the panel's fragments by role, never by position: one fragment is the face writer's; the fit's two are
+        # bdfface.py's (the face it reads) and the fit's
+        targets = [roles["writer"]] if len(extra) < 2 else [roles["bdfface"], roles["writer"]]
+        for index, fragment in zip(targets, extra[-len(targets):] if extra else []):
+            if fragment and index is not None:
+                argvs[index] = apply_flags(argvs[index], fragment)
+        return argvs
+    return commands
+
+
+def recipe_routes(font):
+    """The routes of a `recipe` entry (a known set): one per offered face of its recipe (the first of each kind), each
+    labelled with the face's route. A fit (`bdfface + from-svf fit`) is experimental and scored against the face it
+    reads; `bdfface`, `spec` and `dos raw` are native (`spec` and `dos raw` take the set's own layout)."""
+    rec = recipe.get((font.get("recipe") or {}).get("id"))
+    if rec is None:
+        return []
+    h = recipe.item_height(rec)
+    out = []
+    for face in recipe.offered_faces(rec):
+        fit = face["route"] == "bdfface + from-svf fit"
+        out.append(Route(face["kind"], face["route"], recipe.NATIVE[face["route"]],
+                         list(recipe.FIT_LAYOUTS) if fit else [], [1], [h], REFERENCE_STEP_SVF if fit else None,
+                         None, _recipe_commands(rec, face["name"])))
+    return out
+
+
 def svf_commands(font, paths, extra=()):
     """An SVF source's own face as v3: [] when it is used as uploaded (the caller copies paths["src"] to paths["out"]),
     else the `svf2to3.py --jset-version V --check` command: for a v2 face, or a v3 face whose JSET version @p extra
@@ -406,6 +448,37 @@ def svf_commands(font, paths, extra=()):
 
 def _copy_commands(font, size, bpp, layout, range_spec, paths, extra):
     return svf_commands(font, paths, _flat(extra))     # [] = the worker copies paths["src"] to paths["out"]
+
+
+# ---- SVF -> TTF / BDF (tools/svf2ttf.py) ---------------------------------------------------------------------------
+
+# The formats a produced face can also be written as, beside its SVF: `<STEM>.ttf` and `<STEM>.bdf`.
+EXPORT_FORMATS = ("ttf", "bdf")
+
+# The svf2ttf.py flags every export of a format gets after the face, the output and the licence (none today).
+EXPORT_FLAGS = {"ttf": [], "bdf": []}
+
+
+def export_name(face_name, fmt):
+    """The name a face's @p fmt export takes: the face's stem and `.ttf` / `.bdf` (`NANUM16.SVF` -> `NANUM16.ttf`)."""
+    if fmt not in EXPORT_FORMATS:
+        raise ValueError("unknown export format %r" % (fmt,))
+    stem = face_name[:-4] if face_name.upper().endswith(".SVF") else face_name
+    return "%s.%s" % (stem, fmt)
+
+
+def export_commands(fmt, face, out, tools_dir, licence=None, composite=False):
+    """`svf2ttf.py ttf|bdf FACE OUT [--licence FILE] [--composite]`: the face @p face (the SVF a step wrote) as a
+    TrueType bitmap font or a BDF. @p licence is the licence file the job knows for the face's font; without one
+    svf2ttf.py looks beside the face (nothing there for a face the job made: its name table then says the source font's
+    licence applies). @p composite (a jamo set's TTF, settings `options.export.composite`): its pieces once as glyphs
+    and every syllable a glyf composite of them (card t_baf48b58)."""
+    argv = toolrun.tool("svf2ttf", tools_dir) + [fmt, face, out]
+    if licence:
+        argv += ["--licence", licence]
+    if composite and fmt == "ttf":
+        argv.append("--composite")
+    return [argv + list(EXPORT_FLAGS[fmt])]
 
 
 def fmt_num(value):
@@ -526,29 +599,37 @@ def routes(font):
         out.append(Route("precomposed", "bdfface", True, [], [1], sizes, None, None, _bdfface_commands))
         out.append(Route("jamo", "bdfface + from-svf fit", False, ["844", "adaptive"], [1], sizes, None, None,
                          _bdfface_fit_commands))
+    elif kind == "recipe":
+        out += recipe_routes(font)
     elif kind in ("svf-precomposed", "svf-jamo"):
         bpp = (font.get("svf") or {}).get("bpp") if isinstance(font.get("svf"), dict) else None
         if bpp not in (1, 2) or _svf_version(font) not in (2, 3):   # a malformed SVF entry offers no route
             return []
+        # `svf2ttf`: the face as it is (v3), written only as its TTF / BDF export (settings `options.export`)
         if kind == "svf-jamo":
             out.append(Route("jamo", "copy", True, [], [bpp], sizes, None, None, _copy_commands))
+            out.append(Route("jamo", "svf2ttf", True, [], [bpp], sizes, None, None, _copy_commands, export_only=True))
         else:
             out.append(Route("precomposed", "copy", True, [], [bpp], sizes, None, None, _copy_commands))
             if bpp == 1:
                 out.append(Route("jamo", "from-svf fit", False, ["844", "adaptive"], [1], sizes, "svf", None,
                                  _from_svf_commands))
+            out.append(Route("precomposed", "svf2ttf", True, [], [bpp], sizes, None, None, _copy_commands,
+                             export_only=True))
     return out
 
 
-def route_for(font, kind, experimental, jamo_route=None):
+def route_for(font, kind, experimental, jamo_route=None, precomposed_route=None):
     """The route of @p kind to use: the first native one, else (when @p experimental) the first non-native one.
 
     A @p jamo_route label picks the jamo route of that label instead, when the font offers it and it is native or
-    @p experimental is set (else None); it never changes a precomposed choice."""
+    @p experimental is set (else None); @p precomposed_route does the same for the precomposed kind (an SVF source's
+    `svf2ttf`). Neither changes the other kind's choice."""
     found = [r for r in routes(font) if r.kind == kind]
-    if kind == "jamo" and jamo_route:
+    label = jamo_route if kind == "jamo" else precomposed_route
+    if label:
         for route in found:
-            if route.label == jamo_route and (route.native or experimental):
+            if route.label == label and (route.native or experimental):
                 return route
         return None
     for route in found:

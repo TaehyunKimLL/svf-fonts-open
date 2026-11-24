@@ -270,6 +270,8 @@ async function pass(name, opts) {
         if (ui.htbl) choose(q('select[data-field=htbl_companion]', 'htbl'), companion(ui.htbl), 'htbl ' + fid);
         if (ui.latin) choose(q('select[aria-label^="latin companion for "]', 'latin'), companion(ui.latin), 'latin ' + fid);
         if (ui.dos_layout) choose(tr.querySelector('select.dos-layout'), ui.dos_layout, 'dos layout ' + fid);
+        for (const [fmt, on] of Object.entries(ui.export || {}))
+          choose(q('select[data-export=' + fmt + ']', 'also write ' + fmt), on ? 'on' : 'off', 'export ' + fmt + ' ' + fid);
       }
       // 4. save, then read back what the page wrote
       const intended = (j) => {
@@ -284,6 +286,8 @@ async function pass(name, opts) {
           const root = j.fonts.find((f) => f.id === fid).root;
           if (ui.htbl) cmp('htbl_companion', fidOf(root, ui.htbl), per.htbl_companion);
           if (ui.latin) cmp('latin_companion', fidOf(root, ui.latin), per.latin_companion);
+          const sorted = (o) => Object.fromEntries(Object.entries(o || {}).sort());   // the server stores keys sorted
+          if (ui.export) cmp('options.export', sorted(ui.export), sorted((per.options || {}).export));
         }
         return bad;
       };

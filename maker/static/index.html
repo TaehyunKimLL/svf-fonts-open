@@ -104,6 +104,12 @@
         </fieldset>
         <label class="label">range <select id="range"></select></label>
         <label class="label">preset <select id="preset"></select></label>
+        <fieldset id="export" class="kind" title="every face also written beside its SVF as &lt;NAME&gt;.ttf / &lt;NAME&gt;.bdf (tools/svf2ttf.py)">
+          <legend>also write</legend>
+          <label><input id="export-ttf" type="checkbox" value="ttf"> TTF</label>
+          <label><input id="export-bdf" type="checkbox" value="bdf"> BDF</label>
+          <label title="a jamo set's TTF with its pieces once and every syllable a composite of them (svf2ttf.py --composite)"><input id="export-composite" type="checkbox" value="composite"> TTF as composites</label>
+        </fieldset>
       </div>
       <details id="advanced">
         <summary>advanced panel</summary>

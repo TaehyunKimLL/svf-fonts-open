@@ -17,8 +17,9 @@ MAKER_DIR = os.path.dirname(os.path.abspath(__file__))
 MAKER_SCRIPTS = ("srcprep", "recog_score")
 MODULE_NAMES = {"fontTools.varLib.instancer": "instancer"}
 
-# Environment keys a tool may see besides PATH, HOME and LANG (spec 7.4; JAMOSET_MASK_FONT: design issue 25).
-FORWARD_KEYS = ("JAMOSET_PYLIB", "JAMOSET_MASK_FONT")
+# Environment keys a tool may see besides PATH, HOME and LANG (spec 7.4; JAMOSET_MASK_FONT: design issue 25;
+# SOURCE_DATE_EPOCH: svf2ttf.py's TTF timestamps, so a build that sets it exports the same bytes twice).
+FORWARD_KEYS = ("JAMOSET_PYLIB", "JAMOSET_MASK_FONT", "SOURCE_DATE_EPOCH")
 # Test-only knob, forwarded only as "1" (design issue 17).
 TEST_KEYS = ("SVF_MAKER_NO_PDEATHSIG",)
 # The frozen sidecar's own pid, for the tools it starts: `run-tool` compares its parent with it after the prctl (a parent

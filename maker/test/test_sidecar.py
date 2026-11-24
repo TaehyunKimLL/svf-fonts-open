@@ -40,14 +40,15 @@ class SidecarTest(unittest.TestCase):
 
     def test_table_is_the_spec_table(self):
         self.assertEqual(sorted(sidecar.TOOLS), ["bdfface", "hwpfont", "instancer", "jamoset", "jamovec", "johab844",
-                                                 "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "srcprep", "svf2to3",
-                                                 "svfdy", "svfline"])
+                                                 "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "rawcarve", "srcprep",
+                                                 "svf2to3", "svf2ttf", "svfdy", "svfline"])
         self.assertEqual(sidecar.TOOLS["instancer"], ("module", "args"))
         self.assertEqual(sidecar.TOOLS["srcprep"], ("maker", "exit"))
-        self.assertEqual({sidecar.TOOLS[n] for n in ("jamoset", "jamovec", "mkfont", "bdfface", "johab844", "hwpfont")},
+        self.assertEqual({sidecar.TOOLS[n] for n in ("jamoset", "jamovec", "mkfont", "bdfface", "johab844", "hwpfont",
+                                                    "rawcarve")},
                          {("tools", "bare")})
         self.assertEqual({sidecar.TOOLS[n] for n in ("macfbit_svf", "macfbit3", "macsfnt", "svf2to3", "svfdy",
-                                                    "svfline")}, {("tools", "exit")})
+                                                    "svfline", "svf2ttf")}, {("tools", "exit")})
 
     def test_every_tool_smoke(self):
         for name, (args, code, stream, prefix) in sorted(sidecar.SMOKE.items()):
@@ -85,6 +86,7 @@ class SidecarTest(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         info = json.loads(out.stdout)
         self.assertIs(info["frozen"], False)
+        self.assertEqual(len(info["recipes"]), 7)
         self.assertEqual(info["tools"], sorted(sidecar.TOOLS))
         self.assertEqual(set(info["modules"]), set(sidecar.GRAPH_MODULES))
         self.assertEqual([v for v in info["modules"].values() if v is not None], [])

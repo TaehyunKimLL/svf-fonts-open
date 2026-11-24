@@ -105,6 +105,9 @@ class FrozenSelfcheckTest(Needs):
         self.assertEqual(info["tools"], sorted(sidecar.TOOLS))
         self.assertEqual(set(info["modules"]), set(sidecar.GRAPH_MODULES))
         self.assertEqual({k: v for k, v in info["modules"].items() if v is not None}, {})
+        import recipe
+        self.assertEqual(info["recipes"], sorted(recipe.library()))        # bundled as <_internal>/recipes
+        self.assertEqual(len(info["recipes"]), 7)
         self.assertEqual(info["budget"], {"startup_cleanup_s": server.STARTUP_CLEANUP_S, "stop_timeout_s": 30,
                                           "stop_sweep_s": jobs.STOP_SWEEP_TOTAL_S, "reap_total_s": toolreg.REAP_TOTAL_S,
                                           "recog_probe_s": caps.RECOG_PROBE_S})
@@ -222,6 +225,21 @@ class FrozenByteEqualTest(Needs):
                 da, db = f.read(), g.read()
             self.assertEqual(hashlib.sha256(da).hexdigest(), hashlib.sha256(db).hexdigest(), (name, out, len(da), len(db)))
         return len(da)
+
+    def test_svf2ttf_bdf(self):
+        face = os.path.join(REPO_DIR, "svf", "dos", "NEODG16G.SVF")
+        n = self.same("svf2ttf", lambda t: ["bdf", face, self.path(t, "out"), "--licence", "none"])
+        self.assertGreater(n, 100000)
+
+    def test_rawcarve_region_and_bdf(self):
+        a, b = self.path("in", "a,1.bin"), self.path("in", "b.bin")          # a comma in a name: --group
+        os.makedirs(os.path.dirname(a), exist_ok=True)
+        with open(a, "wb") as f:
+            f.write(bytes(range(256)) * 64)
+        with open(b, "wb") as f:
+            f.write(bytes(reversed(range(256))) * 64)
+        self.same("rawcarve", lambda t: ["region", "--group", a, b, "-o", self.path(t, "out")])
+        self.same("rawcarve", lambda t: ["bdf", a, "--glyph", "8x16", "--chars", "ascii", "-o", self.path(t, "out")])
 
     def test_mkfont_neodgm_16_1(self):
         src = os.path.join(REPO_DIR, "ttf", "neodgm", "neodgm.ttf")

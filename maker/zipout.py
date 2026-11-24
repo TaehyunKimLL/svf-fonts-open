@@ -362,6 +362,11 @@ def _check_face_name(name):
         raise ValueError("zipout: refusing face name %r" % (name,))
 
 
+def _check_export_name(name):
+    if not isinstance(name, str) or not naming.EXPORT_RE.match(name):
+        raise ValueError("zipout: refusing export name %r" % (name,))
+
+
 def _check_text_name(name):
     if not isinstance(name, str) or not naming.TXT_RE.match(name):
         raise ValueError("zipout: refusing text name %r" % (name,))
@@ -456,6 +461,8 @@ def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None, rep
         src = os.path.basename(path) if path else "<src>"
     commands = []
     for step in steps:
+        if step.get("kind") == "export":                 # a face's TTF / BDF is not a face: BUILD.md lists its command
+            continue
         for argv in step.get("argv") or []:
             try:
                 prefix, rest = toolrun.split_prefix(argv)
@@ -596,6 +603,8 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
     for step in steps:
         if step.get("state") != "done" or step.get("kind") not in ("precomposed", "jamo"):
             continue                                     # a prepare step's master.json is never a face
+        if step.get("export_only"):
+            continue                                     # route svf2ttf: the face is read for its exports, not written
         font_id = step.get("font")
         font = fonts_by_id.get(font_id) or {}
         eff = effective(font_id)
@@ -633,6 +642,34 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
         written.append("svf/" + rel)
         faces.append({"step": step, "font": font, "font_id": font_id, "eff": eff, "dest": dest, "name": name,
                       "row_path": rel, "identical_to": None})
+
+    # The exports (`<STEM>.ttf` / `<STEM>.bdf`) beside their faces: the same no-replace rule as a face, no rows.
+    exports = []
+    for step in steps:
+        if step.get("state") != "done" or step.get("kind") != "export":
+            continue
+        eff = effective(step.get("font"))
+        dest, name = eff.get("dest"), step.get("name")
+        _check_dest(dest)
+        _check_export_name(name)
+        data = _read(os.path.join(files_dir, step.get("output") or ""))
+        if data is None:
+            raise ValueError("zipout: step %s is done but its export %r cannot be read" % (step.get("id"), step.get("output")))
+        status, rel = index.check_face(dest, name, data)
+        if status == "clash" and rel in own_earlier:
+            status = "ok"
+        if status == "clash":
+            raise NameClash(step.get("id"), "%s/%s" % (dest, name))
+        if status == "identical":
+            touched.append((step, step.get("identical_to")))
+            step["identical_to"] = rel
+            skipped.append({"name": "svf/%s/%s" % (dest, name), "identical_to": rel})
+            exports.append({"step": step, "row_path": rel, "identical_to": rel})
+            continue
+        rel = "%s/%s" % (dest, name)
+        _add_entry(entries, "svf/" + rel, data, step.get("id"))
+        written.append("svf/" + rel)
+        exports.append({"step": step, "row_path": rel, "identical_to": None})
 
     # Per font with at least one written or identical face: the licence and the note.
     refs = {}                                            # font id -> {"licence_name", "licence", "note"}
@@ -715,7 +752,7 @@ def collect(job, job_dir, files_dir, index, fonts_by_id, effective, repo_dir, so
                ("FACES.TSV.lines", _lines_bytes(faces_rows)),
                ("LICENCES.tsv.lines", _lines_bytes(licences)),
                ("FAMILIES.tsv.lines", _lines_bytes(families))]
-    return entries, sidecar, result, faces
+    return entries, sidecar, result, faces + exports
 
 
 def _archive(job_dir, job_id, entries, sidecar, result):

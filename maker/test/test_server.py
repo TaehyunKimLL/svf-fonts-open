@@ -115,7 +115,8 @@ def canonical_fonts():
     present, so a route that needs one is offered; the SVF kinds get their 1 and 2 bpp variants.
     """
     base = {"face_index": 0, "sizes": [16], "bdf": {"box": [16, 16]}, "dos": {"candidates": ["844"]},
-            "svf": {"bpp": 1}, "dos_bytes": 11520, "mac": {"generation": 3}}
+            "svf": {"bpp": 1}, "dos_bytes": 11520, "mac": {"generation": 3},
+            "recipe": {"id": "86box-tgkorvga", "files": {}, "routes": ["bdfface", "bdfface + from-svf fit"]}}
     fonts = [dict(base, source_kind=kind) for kind in presets.ALL_SOURCES]
     fonts += [dict(base, source_kind=kind, svf={"bpp": 2})
               for kind in ("svf-precomposed", "svf-jamo")]
@@ -132,7 +133,9 @@ def canonical_fonts():
               dict(base, source_kind="bitmap", face_index=1),
               dict(base, source_kind="bitmap", face_index=1, prep=prep),
               dict(base, source_kind="bdf-ksc5601", bdf={}),
-              dict(base, source_kind="ks-raw", hwp={"family": "hwp3", "jamo844": True})]   # an HWP 3.0 HAN16
+              dict(base, source_kind="ks-raw", hwp={"family": "hwp3", "jamo844": True}),   # an HWP 3.0 HAN16
+              dict(base, source_kind="recipe", recipe={"id": "mame-spc1500", "files": {}, "routes": ["bdfface", "spec"]}),
+              dict(base, source_kind="recipe", recipe={"id": "mame-xsedae", "files": {}, "routes": ["dos raw"]})]
     return fonts
 
 

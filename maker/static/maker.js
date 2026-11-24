@@ -57,20 +57,32 @@ const ROUTES = {
   "dos-raw": [{"kind": "precomposed", "label": "johab844", "native": true, "bpps": [1]},
               {"kind": "jamo", "label": "dos raw", "native": true, "bpps": [1]}],
   "svf-precomposed": [{"kind": "precomposed", "label": "copy", "native": true, "bpps": [1, 2]},
-                      {"kind": "jamo", "label": "from-svf fit", "native": false, "bpps": [1]}],
-  "svf-jamo": [{"kind": "jamo", "label": "copy", "native": true, "bpps": [1, 2]}],
+                      {"kind": "jamo", "label": "from-svf fit", "native": false, "bpps": [1]},
+                      {"kind": "precomposed", "label": "svf2ttf", "native": true, "bpps": [1, 2]}],
+  "svf-jamo": [{"kind": "jamo", "label": "copy", "native": true, "bpps": [1, 2]},
+               {"kind": "jamo", "label": "svf2ttf", "native": true, "bpps": [1, 2]}],
   "mac-fbit1": [{"kind": "jamo", "label": "mac fbit 1.0", "native": true, "bpps": [1]}],
   "hwp1": [{"kind": "jamo", "label": "hwp1", "native": true, "bpps": [1]},
            {"kind": "precomposed", "label": "hwp bdf + mkfont", "native": true, "bpps": [1]}],
   "ks-raw": [{"kind": "precomposed", "label": "hwp bdf + mkfont", "native": true, "bpps": [1]},
              {"kind": "jamo", "label": "hwp3 844", "native": true, "bpps": [1]},
              {"kind": "jamo", "label": "hwp bdf + from-svf fit", "native": false, "bpps": [1]}],
+  "recipe": [{"kind": "precomposed", "label": "bdfface", "native": true, "bpps": [1]},
+             {"kind": "jamo", "label": "bdfface + from-svf fit", "native": false, "bpps": [1]},
+             {"kind": "jamo", "label": "spec", "native": true, "bpps": [1]},
+             {"kind": "jamo", "label": "dos raw", "native": true, "bpps": [1]}],
   "mac-fbit3": [{"kind": "jamo", "label": "mac fbit 7.1 direct", "native": true, "bpps": [1]},
                 {"kind": "jamo", "label": "mac fbit 7.1 derived", "native": false, "bpps": [1]},
                 {"kind": "precomposed", "label": "mac fbit 7.1 bdf + mkfont", "native": true, "bpps": [1]}]
 };
 
 const KINDS = ["precomposed", "jamo"];
+// settings.DEFAULT_OPTIONS["export"] / routes.EXPORT_FORMATS: every face also written as <NAME>.ttf / <NAME>.bdf
+const EXPORT_FORMATS = ["ttf", "bdf"];
+// The export's own flags beside the formats: "composite" writes a jamo set's TTF as composites of its pieces.
+const EXPORT_KEYS = EXPORT_FORMATS.concat(["composite"]);
+// The per-kind route choice of a font (settings FONT_ONLY_KEYS): kind -> its key.
+const ROUTE_KEYS = {"jamo": "jamo_route", "precomposed": "precomposed_route"};
 const LAYOUTS = ["844", "adaptive", "hanterm-johab", "mac-htbl1", "mac-fbit-45sets", "hwp1", "844-hwp3"];
 const DEST_FIXED = ["dos", "jamo-extra"];
 
@@ -121,6 +133,7 @@ const OPTION_VISIBLE = {
   "vector fit": {"1": ["symbols", "jset_version", "fit_baseline", "binarize"],
                  "2": ["symbols", "jset_version", "fit_baseline"]},
   "copy": {"1": ["jset_version"], "2": ["jset_version"]},
+  "svf2ttf": {"1": [], "2": []},
   "from-svf fit": {"1": ["jset_version"]},
   "bdfface": {"1": ["latin_ascent", "hangul_ascent"]},
   "bdfface + from-svf fit": {"1": ["jset_version", "latin_ascent", "hangul_ascent"]},
@@ -131,7 +144,8 @@ const OPTION_VISIBLE = {
   "hwp1": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
   "hwp3 844": {"1": ["embolden", "symbols", "jset_version", "jamo_ascent"]},
   "hwp bdf + mkfont": {"1": ["cell", "ascent", "width", "space_advance"]},
-  "hwp bdf + from-svf fit": {"1": ["jset_version"]}
+  "hwp bdf + from-svf fit": {"1": ["jset_version"]},
+  "spec": {"1": []}
 };
 
 // Mirrors server._make_source_preview: how the page gets a source preview, per source kind. "draw": the server draws
@@ -142,7 +156,8 @@ const PREVIEW_KINDS = {
   "outline": "draw", "outline-composite": "draw", "bitmap": "draw", "bdf-iso10646": "draw",
   "bdf-iso8859": "none", "bdf-ksc5601": "none", "bdf-johab": "none", "hbf": "none",
   "dos-raw": "bake", "svf-precomposed": "bake", "svf-jamo": "bake", "mac-fbit3": "bake", "mac-fbit1": "bake", "mac-htbl": "none",
-  "mac-suitcase": "none", "hwp1": "bake", "ks-raw": "bake", "other": "none"
+  "mac-suitcase": "none", "hwp1": "bake", "ks-raw": "bake", "recipe": "none",
+  "other": "none"
 };
 
 // settings._SOURCE_WORDS / _SOURCE_ARTICLES: the phrase the validator uses in its reasons. Strict JSON.
@@ -150,7 +165,7 @@ const SOURCE_WORDS = {
   "dos-raw": "DOS raw", "outline": "outline", "outline-composite": "outline", "bitmap": "bitmap",
   "bdf-iso10646": "bitmap", "bdf-iso8859": "bitmap", "bdf-ksc5601": "bitmap", "bdf-johab": "bitmap", "hbf": "bitmap",
   "svf-precomposed": "SVF", "svf-jamo": "SVF", "mac-fbit3": "Mac fbit", "mac-fbit1": "Mac fbit", "mac-htbl": "Mac table",
-  "mac-suitcase": "Mac suitcase", "hwp1": "HWP", "ks-raw": "KS raw"
+  "mac-suitcase": "Mac suitcase", "hwp1": "HWP", "ks-raw": "KS raw", "recipe": "known ROM"
 };
 const SOURCE_ARTICLES = {
   "outline": "an", "SVF": "an"
@@ -403,8 +418,16 @@ function readPerPanel(box, per) {
   return {options, bad};
 }
 
+// @p options without the "also write" group (`export`): what the advanced panel itself holds.
+function withoutExport(options) {
+  const out = Object.assign({}, options || {});
+  delete out.export;
+  return out;
+}
+
 function optionsAreEmpty(options) {
-  for (const group of Object.values(options || {})) {
+  for (const [name, group] of Object.entries(options || {})) {
+    if (name === "export" && Object.keys(group || {}).length) return false;   // "off" overrides a batch "on"
     for (const [key, value] of Object.entries(group)) {
       if (value === null) continue;
       if (value === false && !FLAG_DEFAULT_ON.has(key)) continue;     // "off" is a value for a default-on flag
@@ -441,7 +464,8 @@ function visibleOptions(fonts, kindsOf, bppOf, inherits) {
     const bpps = bppOf(font, per);
     for (const route of usableRoutes(font, !!per.experimental)) {
       if (!kinds.includes(route.kind)) continue;
-      if (route.kind === "jamo" && per.jamo_route && route.label !== per.jamo_route) continue;   // the chosen route
+      const chosen = per[ROUTE_KEYS[route.kind]];
+      if (chosen && route.label !== chosen) continue;   // the chosen route
       for (const bpp of route.bpps) {
         if (!bpps.includes(bpp)) continue;
         for (const opt of ADVANCED) {
@@ -600,6 +624,7 @@ function offeredRoutes(font) {
     if (entry.label === "mask fit" && !(font.gsub_jamo && font.mask_ok)) continue;   // GSUB jamo and the libraries
     if (entry.label === "johab844" && !(font.dos_bytes === 11520 && ((font.dos || {}).candidates || []).includes("844"))) continue;
     if (entry.label === "hwp3 844" && !(font.hwp || {}).jamo844) continue;   // only an HWP 3.0 HAN16 has its own 8x4x4 set
+    if (kind === "recipe" && !((font.recipe || {}).routes || []).includes(entry.label)) continue;   // the set's own faces
     const bpps = (kind === "svf-precomposed" || kind === "svf-jamo") ? [svfBpp] : entry.bpps.slice();
     if (bpps.some((bpp) => bpp !== 1 && bpp !== 2)) continue;
     out.push({kind: entry.kind, label: entry.label, native: entry.native, bpps});
@@ -818,6 +843,8 @@ function renderBatchForm() {
   fillSelect(presetEl, presetOptions(batch.preset), batch.preset === undefined ? "plain" : batch.preset);
   presetEl.title = presetTitle(presetEl.value);          // Q2: the long `reproduces` text lives in the tooltip
   fillOptions($("advanced-fields"), batch.options || {});
+  const exported = (batch.options || {}).export || {};
+  for (const key of EXPORT_KEYS) $("export-" + key).checked = exported[key] === true;
 }
 
 // Q3/m1: the batch panel shows an option when any font that inherits the batch's value could use it, at that font's
@@ -890,6 +917,8 @@ function readBatch() {
     return false;
   }
   batch.options = read.options;
+  batch.options.export = {};
+  for (const key of EXPORT_KEYS) batch.options.export[key] = $("export-" + key).checked;
   return true;
 }
 
@@ -1233,7 +1262,7 @@ function namesField(font) {
 // never stored as null or false and never drops the batch's other values.
 function advancedFieldset(per, font) {
   const toggle = el("input", {type: "checkbox", class: "ov-advanced-toggle"});
-  toggle.checked = !!(per.options && !optionsAreEmpty(per.options));
+  toggle.checked = !!(per.options && !optionsAreEmpty(withoutExport(per.options)));   // "also write" has its own selects
   toggle.setAttribute("aria-label", "advanced options for " + fontName(font));
   const box = el("div", {class: "override-grid advanced-grid"});
   const nodes = [];
@@ -1284,7 +1313,12 @@ function advancedFieldset(per, font) {
   // would show next time belong to the batch again.
   toggle.onchange = () => {
     box.hidden = !toggle.checked;
-    if (!toggle.checked) { delete per.options; for (const node of box.querySelectorAll("[data-option]")) node.value = ""; }
+    if (!toggle.checked) {                              // the panel's own keys go; the font's "also write" stays
+      const kept = (per.options || {}).export;
+      delete per.options;
+      if (kept && Object.keys(kept).length) per.options = {export: kept};
+      for (const node of box.querySelectorAll("[data-option]")) node.value = "";
+    }
     markDirty();
   };
   const refresh = () => {
@@ -1491,30 +1525,60 @@ function clippingPanel(font, per, optionBox) {
   return details;
 }
 
-// The jamo route this font's jamo faces use (`jamo_route`): the routes it offers, the default being the first native
-// one, else (with experimental) the first non-native. `vector fit` says it takes minutes per font.
-function jamoRouteSelect(per, font, refresh) {
-  const label = el("label", {class: "label"}, el("span", {text: "jamo route "}));
-  const select = el("select", {"aria-label": "jamo route for " + fontName(font)});
+// The route this font's faces of @p kind use (`jamo_route` / `precomposed_route`): the routes it offers, the default
+// being the first native one, else (with experimental) the first non-native. `vector fit` says it takes minutes per
+// font; `svf2ttf` (an SVF source) writes the face's TTF / BDF only.
+function routeSelect(per, font, refresh, kind) {
+  const key = ROUTE_KEYS[kind];
+  const label = el("label", {class: "label"}, el("span", {text: kind + " route "}));
+  const select = el("select", {"aria-label": kind + " route for " + fontName(font)});
   const fill = () => {
     const options = [["", "(default)"]];
     for (const route of offeredRoutes(font)) {
-      if (route.kind !== "jamo") continue;
-      const text = route.label + (route.label === "vector fit" ? " (minutes per font)" : "") + (route.native ? "" : " (experimental)");
+      if (route.kind !== kind) continue;
+      const text = route.label + (route.label === "vector fit" ? " (minutes per font)" : "") +
+        (route.label === "svf2ttf" ? " (TTF / BDF only)" : "") + (route.native ? "" : " (experimental)");
       options.push([route.label, text, !route.native && !per.experimental ? ["needs experimental"] : null]);
     }
-    fillSelect(select, options, per.jamo_route || "");
+    fillSelect(select, options, per[key] || "");
   };
   fill();
   select.onchange = () => {
-    if (select.value === "") delete per.jamo_route;
-    else per.jamo_route = select.value;
+    if (select.value === "") delete per[key];
+    else per[key] = select.value;
     markDirty();
     for (const run of refresh) run();                       // the options this route uses are shown
   };
   refresh.push(fill);
   label.append(select);
   return label;
+}
+
+// The font's own "also write TTF / BDF" (`options.export`): "(batch)" inherits the batch's tick, on / off overrides it.
+function perFontExport(per, font) {
+  const box = el("span", {class: "export-own"});
+  for (const fmt of EXPORT_KEYS) {
+    const select = el("select", {"aria-label": (fmt === "composite" ? "TTF as composites" : "also write " +
+                                                fmt.toUpperCase()) + " for " + fontName(font),
+                                 dataset: {export: fmt}});
+    const batch = ((settings.batch.options || {}).export || {})[fmt] === true;
+    const own = ((per.options || {}).export || {})[fmt];
+    fillSelect(select, [["", "(batch: " + (batch ? "on" : "off") + ")"], ["on", "on"], ["off", "off"]],
+               own === true ? "on" : own === false ? "off" : "");
+    select.onchange = () => {
+      const options = per.options || {};
+      const exported = Object.assign({}, options.export || {});
+      if (select.value === "") delete exported[fmt];
+      else exported[fmt] = select.value === "on";
+      if (Object.keys(exported).length) options.export = exported;
+      else delete options.export;
+      if (Object.keys(options).length) per.options = options;
+      else delete per.options;
+      markDirty();
+    };
+    box.append(el("span", {text: " " + (fmt === "composite" ? "composites" : fmt.toUpperCase()) + " "}), select);
+  }
+  return box;
 }
 
 function overridePanel(font, per) {
@@ -1550,7 +1614,11 @@ function overridePanel(font, per) {
     perFontRange(per, font)));
   grid.append(el("label", {class: "label"}, el("span", {text: "preset "}),
     perFontSelect(per, "preset", presetOptions(per.preset), settings.batch.preset, font)));
-  grid.append(jamoRouteSelect(per, font, refresh));
+  grid.append(routeSelect(per, font, refresh, "jamo"));
+  if (offeredRoutes(font).filter((route) => route.kind === "precomposed").length > 1) {
+    grid.append(routeSelect(per, font, refresh, "precomposed"));   // an SVF source: copy or svf2ttf
+  }
+  grid.append(el("label", {class: "label"}, el("span", {text: "also write "}), perFontExport(per, font)));
   grid.append(el("label", {class: "label"}, experimental, el("span", {text: " experimental"})));
   grid.append(el("label", {class: "label"}, el("span", {text: "latin companion "}), perFontCompanion(per, font)));
   if (font.source_kind === "mac-fbit3") {
@@ -2136,7 +2204,15 @@ function stepRow(step) {
 
   const result = el("td", {});
   let redraw = null;
-  if (job && step.state === "done" && (step.kind === "precomposed" || step.kind === "jamo")) {
+  if (step.kind === "export" && step.state === "done" && step.facts) {      // the read-back of a TTF / BDF
+    result.append(el("span", {class: "sub", dataset: {export: step.format || ""},
+      text: String(step.format || "").toUpperCase() + ": " + Number(step.facts.glyphs).toLocaleString("en-US") +
+        " glyphs, " + Number(step.facts.bytes).toLocaleString("en-US") + " bytes" +
+        (step.written ? ", written " + escapeControls(step.written) : "")}));
+  }
+  if (step.export_only && step.state === "done") {    // route svf2ttf: the face was read for its exports, not written
+    result.append(el("span", {class: "sub", text: "read for its TTF / BDF only"}));
+  } else if (job && step.state === "done" && (step.kind === "precomposed" || step.kind === "jamo")) {
     const cell = previewCell(step);
     result.append(cell.node);
     redraw = cell.redraw;
@@ -2604,6 +2680,13 @@ function wire() {
   cancelEl.onclick = cancel;
   destEl.onchange = () => { destNewEl.disabled = destEl.value !== "__new"; markDirty(); };
   presetEl.onchange = () => { presetEl.title = presetTitle(presetEl.value); };   // Q2: the short label keeps the tooltip
+  for (const key of EXPORT_KEYS) {                     // the fonts' "(batch: on/off)" follows the batch's tick
+    $("export-" + key).addEventListener("change", () => {
+      for (const select of document.querySelectorAll("select[data-export=" + key + "]")) {
+        select.options[0].textContent = "(batch: " + ($("export-" + key).checked ? "on" : "off") + ")";
+      }
+    });
+  }
   const count = () => {
     const chosen = (filesEl.files || []).length + (folderEl.files || []).length;
     countEl.textContent = chosen ? chosen + " file(s) chosen" : "";
