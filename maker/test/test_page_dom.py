@@ -362,9 +362,9 @@ return 1;
                   file=sys.stderr)
         self.font = font
         out = self.drive(job, """
-const row = document.querySelector('tr[data-font="FONTID"]');
+const row = await waitFor(() => document.querySelector('tr[data-font="FONTID"] input.override') && document.querySelector('tr[data-font="FONTID"]'));
 row.querySelector('input.override').click();
-const panel = document.querySelector('tr.override[data-for="FONTID"]');
+const panel = await waitFor(() => document.querySelector('tr.override[data-for="FONTID"]'));
 const details = panel.querySelector('details.clipping');
 details.open = true; details.dispatchEvent(new Event('toggle'));
 await waitFor(() => panel.querySelector('.clip-counts').textContent.includes('glyphs cut'));
@@ -458,7 +458,7 @@ return {asked, message: window.__message, state: document.getElementById('state'
 
     def panel_counts(self, job):
         return self.drive(job, """
-const panel = (document.querySelector('tr.override[data-for="FONTID"]'));
+const panel = await waitFor(() => document.querySelector('tr.override[data-for="FONTID"]'));   // the table is rendered
 document.querySelector('tr[data-font="FONTID"] input.override').click();
 const details = panel.querySelector('details.clipping');
 details.open = true; details.dispatchEvent(new Event('toggle'));
@@ -556,8 +556,8 @@ return document.querySelector('.svf-preview .sub').textContent;
         self.api("PUT", "/api/jobs/%s/settings" % job, s)
         self.font = font
         out = self.drive(job, """
-document.querySelector('tr[data-font="FONTID"] input.override').click();
-const panel = document.querySelector('tr.override[data-for="FONTID"]');
+(await waitFor(() => document.querySelector('tr[data-font="FONTID"] input.override'))).click();
+const panel = await waitFor(() => document.querySelector('tr.override[data-for="FONTID"]'));
 const details = panel.querySelector('details.clipping');
 details.open = true; details.dispatchEvent(new Event('toggle'));
 await waitFor(() => /glyphs cut/.test(panel.querySelector('.clip-counts').textContent));
