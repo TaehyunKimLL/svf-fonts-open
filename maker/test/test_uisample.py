@@ -402,13 +402,14 @@ class UiSampleTest(wincompat.SlashEqual, unittest.TestCase):
                 self.assertEqual(r.returncode, 1, r.stdout)
                 self.assertTrue(any("JOHA16J.SVF" in ln for ln in body["failures"]), body)
                 shutil.copyfile(os.path.join(self.out, rel), path)
-        # the refusal: a directory under /tmp, nothing created
+        # the refusal: a directory under /tmp, nothing created (the TMP_DIR rule of the POSIX hosts; Windows has no /tmp)
         refused = "/tmp/uisample-refused-%d" % os.getpid()
-        self.assertFalse(os.path.exists(refused))
-        r = subprocess.run(py + ["make", refused], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("refusing a directory under /tmp", r.stderr)
-        self.assertFalse(os.path.exists(refused))
+        if not wincompat.WIN:
+            self.assertFalse(os.path.exists(refused))
+            r = subprocess.run(py + ["make", refused], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("refusing a directory under /tmp", r.stderr)
+            self.assertFalse(os.path.exists(refused))
         # nothing written outside DIR by the subprocesses (no `__pycache__` either)
         after = _snapshot(os.path.join(repo, "maker"), os.path.join(repo, "tools"), os.path.join(repo, "web"),
                           os.path.join(repo, "ttf"))

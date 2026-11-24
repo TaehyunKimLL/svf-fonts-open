@@ -805,13 +805,15 @@ class LocalPageTest(localfx.LocalBase):
         paths = json.dumps("\n".join(self.roots))
         out = self.drive("""
       const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
-      await waitFor(() => visible(document.getElementById('sources-panel')));
+      // the open job's sources are restored first (a slower host shows the panel before the job has loaded)
+      await waitFor(() => visible(document.getElementById('sources-panel')) && document.getElementById('source-paths').value);
       document.getElementById('source-paths').value = %s;
       document.getElementById('output-dir').value = %s;
       document.getElementById('detect-local').click();
       await waitFor(() => visible(document.getElementById('ack')));
       document.getElementById('ack-ok').click();
       await waitFor(() => document.getElementById('state').textContent.includes('detected'));
+      await waitFor(() => visible(document.getElementById('run')) && !document.getElementById('run').disabled);
       document.getElementById('run').click();
       await waitFor(() => document.getElementById('state').textContent.includes('written to'));
       return {id: new URLSearchParams(location.search).get('job'), state: document.getElementById('state').textContent};
@@ -824,7 +826,8 @@ class LocalPageTest(localfx.LocalBase):
 
     DETECT_AGAIN = """
       const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
-      await waitFor(() => visible(document.getElementById('sources-panel')));
+      // the open job's sources are restored first (a slower host shows the panel before the job has loaded)
+      await waitFor(() => visible(document.getElementById('sources-panel')) && document.getElementById('source-paths').value);
       const restored = {paths: document.getElementById('source-paths').value, output: document.getElementById('output-dir').value};
       document.getElementById('source-paths').value = %s;
       document.getElementById('output-dir').value = %s;
@@ -841,7 +844,7 @@ class LocalPageTest(localfx.LocalBase):
         jid = self.done_job()
         before = self.srv.store.load(jid)["owned"]
         link = os.path.join(self.tmp, "link")
-        os.symlink(os.path.dirname(self.out), link)
+        os.symlink(os.path.dirname(self.out), link, target_is_directory=True)   # Windows: a directory symlink
         paths = json.dumps("\n".join(self.roots))
         for spelling in (self.out + "/", os.path.join(link, os.path.basename(self.out))):
             out = self.drive(self.DETECT_AGAIN % (paths, json.dumps(spelling)), query="?job=" + jid)
