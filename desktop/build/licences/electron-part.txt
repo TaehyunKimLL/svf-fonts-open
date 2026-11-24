@@ -1,0 +1,2 @@
+This file is part of the Electron distribution itself (not a separate library). Electron's licence (MIT) is printed above,
+under "Electron and Chromium", from the LICENSE file of the Electron distribution this package was built with.

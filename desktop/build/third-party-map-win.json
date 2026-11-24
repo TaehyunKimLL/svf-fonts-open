@@ -173,6 +173,15 @@
   "note": "the app-local Universal CRT the python.org CPython build ships for Windows versions without it; Windows 10 and later use their own"
  },
  {
+  "match": "electron_wer.dll",
+  "component": "Electron (Windows Error Reporting module)",
+  "licence": "MIT",
+  "source_url": "https://github.com/electron/electron",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "electron-part.txt"
+ },
+ {
   "match": "ffmpeg.dll",
   "component": "ffmpeg (Chromium build, in Electron)",
   "licence": "LGPL-2.1-or-later",
