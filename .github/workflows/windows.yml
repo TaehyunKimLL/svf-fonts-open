@@ -200,4 +200,5 @@ jobs:
         if: steps.e2e.outcome != 'success'
         run: |
           echo "desktop e2e: ${{ steps.e2e.outcome }}"
+          Get-ChildItem -Recurse (Join-Path $env:RUNNER_TEMP "e2e") -Filter shell.log -ErrorAction SilentlyContinue | ForEach-Object { "==== " + $_.FullName; Get-Content $_.FullName -Tail 80 }
           exit 1

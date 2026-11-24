@@ -70,8 +70,10 @@ const cleanupSamples = () => { try { fs.rmSync(path.join(TMP, 'dev', 'sample'), 
 // stays after that is named (relative paths only), so a handle the sidecar keeps open shows up as a failure with its file.
 function removeTree(dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch (e) { if (!WIN) throw e; }
-  const until = Date.now() + 3000;
-  while (Date.now() < until) { /* a short busy wait: the step's cleanup is synchronous */ }
+  // Windows: git writes its objects read-only (the check's facecheck repository), and rmSync does not clear that bit
+  const writable = (d) => { for (const n of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, n.name);
+    if (n.isDirectory()) writable(p); else { try { fs.chmodSync(p, 0o666); } catch (e2) { /* gone */ } } } };
+  try { writable(dir); } catch (e) { /* gone meanwhile */ }
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {
     const left = [];
     const walk = (d) => { for (const n of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, n.name); left.push(path.relative(dir, p)); if (n.isDirectory()) walk(p); } };
