@@ -305,7 +305,7 @@ def _remove_preview(store, job, font_id):
             shutil.rmtree(path, ignore_errors=True)
         else:
             try:
-                os.remove(path)
+                oscompat.retry_sharing(os.remove, path)   # Windows: a request still sending it holds it open a moment
             except OSError:
                 pass
 
