@@ -1597,7 +1597,10 @@ def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), exp
         for name in _NAMED_TXT.findall(text):
             sibling = os.path.realpath(os.path.join(os.path.dirname(main_path), name))
             if name != os.path.basename(main_path) and os.path.isfile(sibling) and inside(sibling):
-                stage(name, _read_text_replace(sibling))
+                try:
+                    stage(name, _read_text_replace(sibling))
+                except OSError:
+                    pass                               # a named file that cannot be read is left out, as svf2ttf.py does
         return main
 
     if kind == "upload" and isinstance(licence.get("path"), str):
@@ -1623,13 +1626,20 @@ def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), exp
         beside = sorted(p for p in entries if os.path.dirname(p) == here and os.path.isfile(p))
         base = os.path.basename(src).upper()
         for path in (p for p in beside if p.lower().endswith(".txt")):
-            first = (_read_text_replace(path).splitlines() or [""])[0]
+            try:                                       # an unreadable text of the batch is skipped, as svf2ttf.py does
+                first = (_read_text_replace(path).splitlines() or [""])[0]
+            except OSError:
+                continue
             if any(fnmatch.fnmatchcase(base, pattern.upper()) for pattern in svf2ttf._title_patterns(first)):
                 return stage_with_named(path, lambda real: real in entries)
         tsv = os.path.join(here, "FACES.TSV")
-        if tsv in entries:
+        try:
+            tsv_text = _read_text_replace(tsv) if tsv in entries else ""
+        except OSError:
+            tsv_text = ""
+        if tsv_text:
             head = None
-            for line in _read_text_replace(tsv).splitlines():
+            for line in tsv_text.splitlines():
                 if line.startswith("#") or not line.strip():
                     continue
                 cols = line.split("\t")

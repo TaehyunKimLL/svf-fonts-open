@@ -312,6 +312,31 @@ class ExportLicenceStagingTest(unittest.TestCase):
         self.assertEqual((os.path.basename(staged), names), ("B_NOTE.TXT", ["B_NOTE.TXT", "OFL.TXT"]))
         self.assertNotIn(os.path.realpath(outside), self.opened)
 
+    def test_an_unreadable_batch_text_is_skipped(self):
+        """A picked .TXT that cannot be read (sorting first) does not stop the lookup: the readable note that names the face
+        is staged, as svf2ttf.py's own lookup skips read errors."""
+        d = os.path.join(self.tmp, "svfin3")
+        os.makedirs(d)
+        shutil.copyfile(NEODG16, os.path.join(d, "NEODG16.SVF"))
+        for name in ("A_NOTE.TXT", "B_NOTE.TXT"):
+            with open(os.path.join(d, name), "w") as f:
+                f.write("Neo faces (NEODG*.SVF)\n\n%s\n" % name)
+        roots = [os.path.join(d, n) for n in ("NEODG16.SVF", "A_NOTE.TXT", "B_NOTE.TXT")]
+        from sources import Sources
+        fonts = detect.scan(Sources("local", roots), local=True)           # detected while readable
+        os.chmod(os.path.join(d, "A_NOTE.TXT"), 0)
+        self.addCleanup(os.chmod, os.path.join(d, "A_NOTE.TXT"), 0o644)
+        s = settings.defaults(fonts, local=True)
+        fid = next(f["id"] for f in fonts if f["path"] == "NEODG16.SVF")
+        s["fonts"][fid].update(selected=True, licence=None, precomposed_route="svf2ttf", options={"export": {"ttf": True}})
+        jd = tempfile.mkdtemp(prefix="svf-export-lic-job-", dir=self.tmp)
+        steps = settings.plan_steps({"fonts": fonts, "settings": s}, jd, os.path.join(REPO_DIR, "tools"),
+                                    Sources("local", roots))
+        argv = steps[1]["argv"][0]
+        staged = argv[argv.index("--licence") + 1]
+        self.assertEqual((os.path.basename(staged), sorted(os.listdir(os.path.dirname(staged)))),
+                         ("B_NOTE.TXT", ["B_NOTE.TXT"]))
+
     def test_svf2ttf_route_takes_the_sources_note(self):
         """An SVF read only for its exports, no licence chosen: the note beside it (and the OFL it names), as svf2ttf.py
         would find them beside the source, staged through the batch."""

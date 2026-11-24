@@ -326,7 +326,9 @@ Inside the output folder, and nothing else:
 - A TTF / BDF carries the licence the job knows for its font (the licence file you chose, and the `.TXT` files it names
   that you picked too, in its name table or its `COMMENT` lines; a licence in CP949 is read as CP949, one in any other
   encoding than UTF-8 is embedded with its unreadable bytes replaced); without one it says that the licence of the font it was made from applies (for an SVF
-  converted by `svf2ttf`, the note picked beside it). A file a licence names that you did not pick, or a link out of the
+  converted by `svf2ttf`, the note picked beside it: only the picked files are consulted, so a face picked from a
+  repository's `svf/` tree with no licence chosen does not get the files `web/LICENCES.tsv` names, as `svf2ttf.py` run by
+  hand would; choose its licence file in the row). A file a licence names that you did not pick, or a link out of the
   folder you picked, is never read. It is listed in `BUILD.md`
   (its `svf2ttf.py` command and a "written" line) but has no row in the `.lines` files and is not named in the face's
   note: those describe SVF faces. Its timestamps are now, or `SOURCE_DATE_EPOCH` when the app was started with it set.
