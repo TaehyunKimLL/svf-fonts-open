@@ -39,6 +39,9 @@ CJK 조회가 -1을 반환하고 엔진은 이미 "Support for CJK is disabled"�
 크기)을 지정하고, `createSvfnSource()`가 이를 위한 `JamoGlyphSource`를 반환하므로, 맵은 다른 페이스와 똑같이 파일을
 지정한다(`ui=data:DOTTJ0.SVF`). 오래된 리더는 이 비트와 블록을 무시하고 일반 폰트로 본다.
 
+함께 보기: [docs/jamo-sets.ko.md](../docs/jamo-sets.ko.md). 배경(문자 집합으로서의 조합형과 글꼴 기법으로서의 조합형,
+DOS의 벌 체계), 실제 페이스로 따라가는 예, 형태별 MCU 제약을 설명한다.
+
 - 조각은 코드 포인트 U+F0000 + 조각 번호(평면 15, 사용자 정의 영역)의 글리프이다. 번호는 폰트 고유이며 JSET 테이블이
   그것을 지명한다.
 - 그 밖의 글리프(ASCII, 기호, 통째로 저장된 호환 자모)는 다른 SVFN과 같이 조회한다.

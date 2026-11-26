@@ -914,6 +914,27 @@ advance, dy, 결합 표시와 함께 한 베이스라인에 셀을 그리고, �
 **import하는 저장소 모듈.** `svfline.py`(그리고 그것을 통해 `jamoset.py`). **서드파티.** 없음. **테스트.**
 `tools/test_c_renderer.py`(`TestVesaLines`). `c/ports/dos/vesa-shots.sh`가 쓴다.
 
+### `tools/doc_figures_jamo.py`
+
+**목적.** [jamo-sets.ko.md](jamo-sets.ko.md)의 픽셀 그림(piece와 조합, 한 자모의 벌들, 완성형과 조합형의 비교, 한 음절의
+JSET 버전 1 조회)을 그린다.
+
+**상태.** 특수 목적(문서).
+
+**입력.** OFL 페이스 `svf/dos/NEODG16A.SVF`(8x4x4 자모 세트)와 `svf/dos/NEODG16.SVF`(완성형)만 읽는다. 다른 경로는
+거부하므로 Apple 데이터나 ROM 데이터가 공개 그림에 들어갈 수 없다.
+
+**출력.** `docs/images/jamo-sets/`의 `compose.png`, `sets.png`, `precomposed.png`, `lookup.png`(인덱스 PNG, 고정 팔레트:
+실행할 때마다 같은 바이트)와, 두 페이스를 KS X 1001 음절 2,350자에서 비교한 한 줄.
+
+**개요(Synopsis).**
+
+    python3 -I tools/doc_figures_jamo.py [--out DIR] [--check]
+
+`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르면 종료 코드 1).
+
+**import하는 저장소 모듈.** `jamoset.py`. **서드파티.** Pillow. **테스트.** `--check`.
+
 ## 빌드 스크립트
 
 ### `tools/build/build_faces.py`

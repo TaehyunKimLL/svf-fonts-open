@@ -978,6 +978,27 @@ together.
 **Repository modules imported.** `svfline.py` (and through it `jamoset.py`). **Third-party.** None. **Test.**
 `tools/test_c_renderer.py` (`TestVesaLines`); used by `c/ports/dos/vesa-shots.sh`.
 
+### `tools/doc_figures_jamo.py`
+
+**Purpose.** Draws the pixel figures of [jamo-sets.md](jamo-sets.md) (pieces and composition, the sets of one jamo,
+precomposed against jamo set, the JSET version 1 lookup of one syllable).
+
+**Status.** Special-purpose (documentation).
+
+**Inputs.** Only the OFL faces `svf/dos/NEODG16A.SVF` (8x4x4 jamo set) and `svf/dos/NEODG16.SVF` (precomposed); it
+refuses any other path, so no Apple or ROM data can reach a published figure.
+
+**Outputs.** `compose.png`, `sets.png`, `precomposed.png`, `lookup.png` in `docs/images/jamo-sets/` (indexed PNG, fixed
+palette: the same bytes on every run), and one line comparing the two faces over the 2,350 KS X 1001 syllables.
+
+**Synopsis.**
+
+    python3 -I tools/doc_figures_jamo.py [--out DIR] [--check]
+
+`--check` renders in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference).
+
+**Repository modules imported.** `jamoset.py`. **Third-party.** Pillow. **Test.** `--check`.
+
 ## Build scripts
 
 ### `tools/build/build_faces.py`

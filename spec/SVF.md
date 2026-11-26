@@ -45,6 +45,9 @@ is such a font: the header names a **JSET** block (offset and size), and `create
 names the file like any face (`ui=data:DOTTJ0.SVF`). An older reader ignores
 the bit and the block and sees a plain font.
 
+See also [docs/jamo-sets.md](../docs/jamo-sets.md): the background (johab as a character set and as a font technique,
+the DOS set systems), a worked example through a real face, and the MCU constraints of each form.
+
 - The pieces are glyphs at code point U+F0000 + piece number (plane 15, private
   use). The numbers are the font's own; the JSET tables name them.
 - Any other glyph (ASCII, symbols, compatibility jamo stored whole) is looked
