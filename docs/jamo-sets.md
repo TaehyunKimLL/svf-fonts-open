@@ -23,8 +23,9 @@ This document covers, in order:
 **Sources.** Every number comes from a file that was read, with its path and section. A few measurements from outside
 the files (the Seoul12 comparison, the QEMU measurement of 2026-11-25) are values recorded on this document's work card
 t_6c1f4069 and are marked so. Historical background that no file confirms is marked "as is generally known". The research
-notes live outside this repository, in the johab-fonts research tree (`notes/*.md`); they state that no original program
-was run, only bytes and static disassembly read. Apple data and ROM data are never shown as images here, only as tables
+notes live outside this repository, in the johab-fonts research tree (`notes/*.md`); most of them state that no original
+program was run, only bytes and static disassembly read. The exception is `notes/msx.md`, where some results come from
+running the Korean MSX ROMs in the openMSX 19.1 emulator. Apple data and ROM data are never shown as images here, only as tables
 and numbers.
 
 **Figure faces.** Every pixel figure is drawn from `svf/dos/NEODG16A.SVF` (Neo Dunggeunmo, 16x16 1 bpp, an 8x4x4 jamo set,
@@ -222,7 +223,8 @@ johab font is **360 pieces x 32 bytes = 11,520 bytes** (`notes/dos.md` "Format f
 
 The piece file sizes are in `notes/dos.md`; the precomposed columns are syllables x cell bytes. SVF shows the same thing:
 for Neo Dunggeunmo at 16 px the precomposed `NEODG16.SVF` is 133,720 bytes (2,905 glyphs: 95 ASCII, 2,803 KS X 1001
-characters, and 7 syllables outside KS, 갷 닏 떄 섥 슺 텊 햝), and the 8x4x4 jamo set `NEODG16A.SVF` is **16,408 bytes** (440 glyphs, 344 of them pieces) and
+characters, and 7 syllables outside KS, 갷 닏 떄 섥 슺 텊 햝; the KS characters include U+212B Å of KS row A1, which the
+source TTF lacks: `tools/build/faces.tsv`), and the 8x4x4 jamo set `NEODG16A.SVF` is **16,408 bytes** (440 glyphs, 344 of them pieces) and
 draws all 11,172 (read with `jamoset.parse_svfn`, as `tools/doc_figures_jamo.py` does).
 
 ### 2.2 Sets: a jamo's shape depends on where it sits
@@ -262,7 +264,9 @@ One set is 640 bytes of initials (20 x 32), 704 of medials (22 x 32), 896 of fin
 
 *Figure 1. Pieces and composition in NEODG16A. "벌 n #p" is the piece's set and its SVF piece number (chapter 4). The ㄱ of
 가 and 각 (sets 0 and 5) and of 고 and 곡 (sets 1 and 6) changes with the final; the ㅗ of 고 and 곡 is a different piece
-too (medial sets 0 and 2: without and with a final).*
+too (medial sets 0 and 2: without and with a final). The medial piece 233 of 흙 is empty: fitting this face put ㅡ's stroke
+into the initial piece 132 (section 4.3). Column headings: 초성 = initial, 중성 = medial, 종성 = final, 조합 (색) =
+composed (in colour), 조합 = composed; "벌 n" = set n, "(종성 없음)" = no final.*
 
 One 16x16 cell split into its pieces (NEODG16A's 한: `I` initial piece 113, `M` medial piece 215, `F` final piece 239,
 `.` blank; no pixel is shared):
@@ -363,7 +367,8 @@ while drawing figure 2, that each example syllable really uses that set in NEODG
 
 *Figure 2. NEODG16A's sets. The initial ㄱ differs in every set. The medial ㅏ is shorter with a final (sets 2, 3); in this
 font ㅏ has the same bitmap after ㄱ/ㅋ (sets 0, 2) as after the others (1, 3), and ㅗ does not. The final ㄱ has the same
-bitmap in sets 1 and 3. Equal bitmaps still have their own piece numbers: of the 344 pieces, 270 bitmaps are distinct
+bitmap in sets 1 and 3. Labels: 초성 = initial, 중성 = medial, 종성 = final, 벌 = set. Equal bitmaps still have their own
+piece numbers: of the 344 pieces, 270 bitmaps are distinct
 (compared through `jamoset.unpack`).*
 
 Inside the 8x4x4 file (`notes/hanme-dokkaebi.md` section 2, `docs/recipes.md` "Other DOS-era Korean fonts"): 360 slots,
@@ -386,7 +391,7 @@ initial = s x 20 + L + 1     medial = 160 + s x 22 + V + 1     final = 248 + s x
 | 6x2x1 (Apple II era) | 6 / 2 / 1 | 192 | 6,144 | initial: 3 vowel kinds (vertical, horizontal, compound) x final; medial: final; one final set | `notes/apple2.md`, `jamoset.py` `_621` |
 | hanterm johab | 10 / (3 or 4) / 4 | 529 glyphs | BDF | three tail classes (none, ㄴ, other) | `docs/recipes.md` "hanterm", `jamoset.py` `_hanterm` |
 | Dokkaebi printer 16/24 px | 7 / 2 / 2 | 240 (one face) | 15,360 (two faces) | initial: vowel x final | `notes/hanme-dokkaebi.md` 3 |
-| Dokkaebi printer 40/48 px | 12 / 4 / 4 | 440 (one face) | 176,000 (40 px) | | the same |
+| Dokkaebi printer 40/48 px | 12 / 4 / 4 | 440 (one face) | 176,000 (40 px, two faces) | | the same |
 | Hanme Hangul 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (one face) | initial: 5 vowel kinds; medial: final; final: 3 vowel kinds | `notes/hanme-dokkaebi.md` 1 |
 | Kyrandia `MK15.BIT` | 10 / 4 / 4 (jamo-major order) | 385 | 11,550 (15x15) | the 8x4x4 rule, initial set = 2 x vowel kind + final | `docs/recipes.md` `kyra-lok`, `jamoset.py` `_kyra` |
 | HWP 1.x `HANGUL.SFT` | 10/4/4, 7/2/2, 6/2/2 (per face) | 1,193 (three faces) | | initial class (ㄱㅋ / other), final, 15 vowel shape classes | `notes/hwp1.md` |
@@ -608,7 +613,10 @@ The fin rows of the no-final classes (tc0) are all 0 and never read, so they are
 of section 2.3 written out.
 
 **The piece tables** are simple in this face: initial set s, jamo L is piece `19s + L` (0..151); medial `152 + 21s + V`
-(152..235); final `236 + 27s + T - 1` (236..343). All 344 pieces are drawn, none is blank. compatPiece names the first set,
+(152..235); final `236 + 27s + T - 1` (236..343). None of the 344 piece-table slots is the blank
+sentinel 0xFFFF, but the four pieces of the medial ㅡ (170, 191, 212, 233) are empty bitmaps: the face is a fit to the
+precomposed one (`--from-svf`, section 4.4), and the fit put ㅡ's stroke into the initial piece (흙 in figure 1). So the
+compatibility jamo ㅡ (U+3161), whose compatPiece is 170, draws blank as well (`docs/recipes.md` "An existing SVF"). compatPiece names the first set,
 e.g. ㄱ -> 0, ㄳ -> 238 (final set 0), ㅏ -> 152.
 
 **Following 한 (U+D55C):**
@@ -625,7 +633,8 @@ e.g. ㄱ -> 0, ㄳ -> 238 (final set 0), ㅏ -> 152.
 
 ![the JSET version 1 lookup of 한: class tables, cell 43 of the three set tables, the three pieces and their OR](images/jamo-sets/lookup.png)
 
-*Figure 3. Looking up 한 in NEODG16A. The yellow cells are the ones read.*
+*Figure 3. Looking up 한 in NEODG16A. The yellow cells are the ones read. Labels: 초성 = initial, 중성 = medial, 종성 = final,
+셀 = cell; the first line reads "initial ㅎ = 18, medial ㅏ = 0, final ㄴ = 4".*
 
 **쀍 (U+C00D, not in KS):** L = 8 (ㅃ), V = 15 (ㅞ), T = 9 (ㄺ); lc = 1, tc = 1; cell = (21 + 15) x 2 + 1 = 73; sets 7, 3, 2;
 pieces `initPiece[7 x 19 + 8 = 141]` = 141, `medPiece[3 x 21 + 15 = 78]` = 230, `finPiece[2 x 27 + 9 - 1 = 62]` = 298. The
@@ -668,7 +677,8 @@ font is not: NanumGothic Bold at 16 px fitted to 8x4x4 gave IoU 0.795 and 126 ex
 ![the same syllables: precomposed NEODG16, 8x4x4 NEODG16A, and their difference](images/jamo-sets/precomposed.png)
 
 *Figure 4. Top: precomposed. Middle: composed from the jamo set. Bottom: difference (grey = both, orange = precomposed
-only, sky blue = jamo set only); 0 pixels for every syllable of this font.*
+only, sky blue = jamo set only); 0 pixels for every syllable of this font. Labels: 완성형 = precomposed, 조합형 = jamo set,
+차이 = difference; legend 둘 다 = both, 완성형에만 = precomposed only, 조합형에만 = jamo set only.*
 
 ### 4.5 Validation
 
@@ -1134,7 +1144,8 @@ bytes on the ATmega2560 (Mega) (`c/ports/arduino/README.md` "Mega 2560").
 
 The C renderer refuses up front a region longer than the largest block the build can read: `SVF__JSET_LOAD_MAX` is
 65,534 with `SVF_JMAP`, 47,373 with `SVF_JSET_V1` and BIG, 12,321 with the version 1 reader (`c/src/svf_internal.h`
-lines 57-64). A streamed face therefore never loads more than its region.
+lines 33, 50-51, 58-66; a version 2-only build, without the version 1 reader, takes the largest version 2 block, 9,246, or
+45,068 with BIG). A streamed face therefore never loads more than its region.
 
 ### 7.4 Streaming and the syllable cache
 
