@@ -378,7 +378,7 @@ flowchart TD
 | 6x2x1 (Apple II 시대) | 6 / 2 / 1 | 192 | 6,144 | 초성: 모음 3종(세로, 가로, 섞임) x 받침; 중성: 받침; 종성 1벌 | `notes/apple2.md`, `jamoset.py` `_621` |
 | hanterm johab | 10 / (3 또는 4) / 4 | 529 glyph | BDF | 종성 클래스 셋(없음, ㄴ, 그 밖) | `docs/recipes.ko.md` "hanterm", `jamoset.py` `_hanterm` |
 | Dokkaebi 프린터 16/24 px | 7 / 2 / 2 | 240 (한 글자체) | 15,360 (두 글자체) | 초성: 모음 x 받침 | `notes/hanme-dokkaebi.md` 3절 |
-| Dokkaebi 프린터 40/48 px | 12 / 4 / 4 | 440 (한 글자체) | 176,000 (40 px, 두 글자체) | | 같은 곳 |
+| Dokkaebi 프린터 40/48 px | 12 / 4 / 4 | 440 (한 글자체) | 176,000 (40 px), 253,440 (48 px), 파일마다 두 글자체 | | 같은 곳 |
 | 한메 한글 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (한 글자체) | 초성: 모음 5종; 중성: 받침; 종성: 모음 3종 | `notes/hanme-dokkaebi.md` 1절 |
 | Kyrandia `MK15.BIT` | 10 / 4 / 4 (자모 순 배치) | 385 | 11,550 (15x15) | 8x4x4 규칙, 초성 벌 = 2 x 모음 종류 + 받침 | `docs/recipes.ko.md` `kyra-lok`, `jamoset.py` `_kyra` |
 | HWP 1.x `HANGUL.SFT` | 10/4/4, 7/2/2, 6/2/2 (글자체별) | 1,193 (세 글자체) | | 초성 클래스(ㄱㅋ/그 밖), 받침, 모음 모양 15종 | `notes/hwp1.md` |
@@ -869,7 +869,7 @@ Mac의 여러 plane짜리 호환 자모처럼 piece 하나로 그릴 수 없는 
 그 형태를 읽는 빌드(dense와 SPARSE는 `SVF_JMAP`, LIST는 거기에 `SVF_JMAP_LIST`)에서는 JMAP의 규칙(R1-R8, LIST는 R1', L2, L3,
 R4, L5-L7)을 하나라도 어기면 블록 전체가 `SVF_FACE_JMAP_BAD`이고 페이스는 평범하게 열린다("한 블록에 한 판정"). 읽지 않는 빌드는
 검사를 줄인다. `SVF_JMAP_LIST=0`은 LIST의 머리 규칙(R1', L2, L3, R4)만 보므로, 키가 정렬되지 않은 LIST도 `JMAP_UNREAD`가 되고 대체
-JSET이 쓰인다. `SVF_JMAP_RECOG` 빌드는 플래그와 NS만 보고 `JMAP_UNREAD`를 세우며, 대체 블록의 판정은 `JSET_BAD`나 `JSET_UNREAD`로
+JSET이 쓰인다. `SVF_JMAP_RECOG` 빌드는 머리 규칙(플래그와 NS, 대체 블록의 advance, 정확히 65,535바이트인 영역; 7.1 참고)만 보고 `JMAP_UNREAD`를 세우며, 대체 블록의 판정은 `JSET_BAD`나 `JSET_UNREAD`로
 따로 나온다. `SVF_JSET_TRUSTED`이면 R5-R8(LIST는 L5-L7)도 건너뛴다(`spec/SVF.ko.md` "리더 상태"와 그 표). 상태 비트는 다음과 같다
 (`spec/SVF.ko.md` "리더 상태", `c/include/svf.h` 75-86행).
 

@@ -391,7 +391,7 @@ initial = s x 20 + L + 1     medial = 160 + s x 22 + V + 1     final = 248 + s x
 | 6x2x1 (Apple II era) | 6 / 2 / 1 | 192 | 6,144 | initial: 3 vowel kinds (vertical, horizontal, compound) x final; medial: final; one final set | `notes/apple2.md`, `jamoset.py` `_621` |
 | hanterm johab | 10 / (3 or 4) / 4 | 529 glyphs | BDF | three tail classes (none, ㄴ, other) | `docs/recipes.md` "hanterm", `jamoset.py` `_hanterm` |
 | Dokkaebi printer 16/24 px | 7 / 2 / 2 | 240 (one face) | 15,360 (two faces) | initial: vowel x final | `notes/hanme-dokkaebi.md` 3 |
-| Dokkaebi printer 40/48 px | 12 / 4 / 4 | 440 (one face) | 176,000 (40 px, two faces) | | the same |
+| Dokkaebi printer 40/48 px | 12 / 4 / 4 | 440 (one face) | 176,000 (40 px) and 253,440 (48 px), each file two faces | | the same |
 | Hanme Hangul 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (one face) | initial: 5 vowel kinds; medial: final; final: 3 vowel kinds | `notes/hanme-dokkaebi.md` 1 |
 | Kyrandia `MK15.BIT` | 10 / 4 / 4 (jamo-major order) | 385 | 11,550 (15x15) | the 8x4x4 rule, initial set = 2 x vowel kind + final | `docs/recipes.md` `kyra-lok`, `jamoset.py` `_kyra` |
 | HWP 1.x `HANGUL.SFT` | 10/4/4, 7/2/2, 6/2/2 (per face) | 1,193 (three faces) | | initial class (ㄱㅋ / other), final, 15 vowel shape classes | `notes/hwp1.md` |
@@ -905,7 +905,7 @@ In a build that reads the form (`SVF_JMAP` for dense and SPARSE, and `SVF_JMAP_L
 any of its rules (R1-R8; for LIST R1', L2, L3, R4, L5-L7) is `SVF_FACE_JMAP_BAD` as a whole and the face opens plain ("one
 block, one verdict"). A build that does not read it checks less. `SVF_JMAP_LIST=0` applies only the LIST header rules
 (R1', L2, L3, R4), so a LIST with unsorted keys is `JMAP_UNREAD` there and its fallback JSET is used. A `SVF_JMAP_RECOG`
-build looks only at the flags and NS and sets `JMAP_UNREAD`, the fallback getting its own `JSET_BAD` or `JSET_UNREAD`
+build checks only the header rules (flags and NS, the fallback's advance, a region of exactly 65,535 bytes; see 7.1) and sets `JMAP_UNREAD`, the fallback getting its own `JSET_BAD` or `JSET_UNREAD`
 verdict. `SVF_JSET_TRUSTED` skips R5-R8 (L5-L7 for a LIST) too (`spec/SVF.md` "Reader statuses" and its table). The
 status bits (`spec/SVF.md` "Reader statuses", `c/include/svf.h` lines 75-86):
 
