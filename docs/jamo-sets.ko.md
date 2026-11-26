@@ -57,10 +57,12 @@ KS X 1001(옛 이름 KS C 5601)의 완성형은 그중 **2,350자**에만 코드
 | KS X 1001 완성형 (EUC-KR) | 2,350 | 2바이트, 각 0xA1-0xFE | 가나다 순, 0xB0A1(가)부터 0xC8FE(힝)까지 | `euc_kr`, `ksx1001-hangul` |
 | 조합형 (KS X 1001 annex 3, CP1361) | 11,172 | 16비트, 최상위 비트 1 | 초성, 중성, 종성 필드 순 | `johab` |
 | 유니코드 한글 음절 | 11,172 | U+AC00..U+D7A3 | (초성 x 21 + 중성) x 28 + 종성 | `hangul`, `cp949-hangul` |
-| CP949 (통합 완성형, UHC) | 11,172 | 2바이트 | KS 2,350자는 완성형 자리, 나머지 8,822자는 앞쪽 확장 영역 | `cp949` |
+| CP949 (통합 완성형, UHC) | 11,172 | 2바이트 | KS 2,350자는 완성형 자리, 나머지 8,822자는 확장 코드(완성형 행 사이와 앞) | `cp949` |
 
 CP949 행의 숫자는 Python 코덱으로 쟀다. 11,172자가 모두 2바이트로 부호화된다. KS 2,350자는 완성형과 같은 바이트이고,
-나머지 **8,822자**는 첫 바이트 0x81..0xC6, 범위 0x8141..0xC652에 놓인다.
+나머지 **8,822자**는 첫 바이트 0x81..0xC6, 범위 0x8141..0xC652에 놓인다. 그중 5,696자는 첫 바이트 0x81..0xA0(둘째 바이트
+0x41..0xFE)이고, 3,126자는 첫 바이트 0xA1..0xC6에서 둘째 바이트 0x41..0xA0을 쓴다. 그래서 확장 코드는 완성형 행의 앞에만 있는
+것이 아니라 완성형 음절과 같은 첫 바이트(0xB0..0xC6)의 아래쪽 둘째 바이트에도 끼어 있다.
 
 네 방식의 관계(음절 수와 변환 방법; 날짜는 1.4절):
 
@@ -154,7 +156,7 @@ flowchart LR
   A --> U["U+D55C 한"]
 ```
 
-두 번째 보기 **쀍**(KS에 없는 음절)은 U+C00D, s = 5,133 = (8 x 21 + 15) x 28 + 9이다(ㅃ 8, ㅞ 15, ㄼ 9). 조합형으로는 0xAACA
+두 번째 보기 **쀍**(KS에 없는 음절)은 U+C00D, s = 5,133 = (8 x 21 + 15) x 28 + 9이다(ㅃ 8, ㅞ 15, ㄺ 9). 조합형으로는 0xAACA
 (초성 10, 중성 22, 종성 10)이고, CP949로는 확장 영역의 0x97CD이다. 완성형(EUC-KR)으로는 쓸 수 없다.
 
 조합형과 유니코드는 **같은 순서**이다. 11,172자를 유니코드 순서로 조합형 부호화하면 코드가 단조 증가한다(0x8861 = 가부터
@@ -168,8 +170,9 @@ flowchart LR
 기본으로 삼았고, 표준 밖 8,822자는 Microsoft의 확장 완성형(UHC, 코드 페이지 949)이 기존 완성형 바이트를 그대로 둔 채 빈
 영역에 추가했다. 그 결과 EUC-KR 호환을 깨지 않고 11,172자를 쓸 수 있게 되었다. 이 저장소에서 확인되는 것은 이 결과뿐이다.
 CP949는 11,172자를 모두 담고 KS 2,350자는 EUC-KR과 바이트가 같다(1.1절 표, Python 코덱). 상용 조합형(삼보 KSSM 등)의 명칭과
-역사는 연구 노트에 문서로 남아 있지 않다. 노트에는 "삼보 조합형 한글 세트"(`docs/recipes.ko.md` "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR"), KSSM 이름의
-프린터 드라이버와 게임 글꼴 파일(`notes/printer.md`, `notes/games.md`)만 나온다.
+역사는 연구 노트에 문서로 남아 있지 않다. 이 저장소의 레시피에 "삼보 조합형 한글 세트"라는 말이 한 번 나오고(`docs/recipes.ko.md`
+"NKP: 조각을 잘라 저장한 허큘리스 한글 TSR"), 노트에는 KSSM 이름의 프린터 드라이버와 게임 글꼴 파일(`notes/printer.md`,
+`notes/games.md`)만 나온다.
 
 파일로 날짜를 확인할 수 있는 것만 시간 순서로 놓으면 다음과 같다. 표준의 연도는 표준 이름에 든 것이다. CP949와 유니코드
 음절 블록은 출처에 날짜가 없어 줄 밖에 따로 두었다.
@@ -209,7 +212,8 @@ flowchart LR
 | 48x48 | 103,680 | 676,800 | 3,217,536 |
 
 조각 파일 크기는 `notes/dos.md`에 있고, 완성형 열은 "음절 수 x 셀 바이트"로 계산했다. SVF에서도 같은 일이 일어난다. 같은
-Neo둥근모 16 px에서 완성형 `NEODG16.SVF`는 133,720바이트(2,905 glyph: ASCII와 KS X 1001의 한자 아닌 문자)이고, 8x4x4 자모 세트
+Neo둥근모 16 px에서 완성형 `NEODG16.SVF`는 133,720바이트(2,905 glyph: ASCII 95자, KS X 1001 문자 2,803자, KS 밖 음절
+7자 갷 닏 떄 섥 슺 텊 햝)이고, 8x4x4 자모 세트
 `NEODG16A.SVF`는 **16,408바이트**(440 glyph 중 piece 344개)로 11,172자를 모두 그린다(`tools/doc_figures_jamo.py`와 같은 방식으로
 `jamoset.parse_svfn`에서 읽은 값).
 
@@ -606,9 +610,9 @@ tailClass  없음=0, 그 밖의 27가지 = 1
 
 *그림 3. NEODG16A에서 "한"을 조회하는 과정. 노란 칸이 읽는 자리이다.*
 
-**"쀍"(U+C00D, KS 밖):** L = 8 (ㅃ), V = 15 (ㅞ), T = 9 (ㄼ); lc = 1, tc = 1; cell = (21 + 15) x 2 + 1 = 73; 벌 7, 3, 2;
+**"쀍"(U+C00D, KS 밖):** L = 8 (ㅃ), V = 15 (ㅞ), T = 9 (ㄺ); lc = 1, tc = 1; cell = (21 + 15) x 2 + 1 = 73; 벌 7, 3, 2;
 piece `initPiece[7 x 19 + 8 = 141]` = 141, `medPiece[3 x 21 + 15 = 78]` = 230, `finPiece[2 x 27 + 9 - 1 = 62]` = 298. 완성형 코드에는
-없는 음절이지만 조합형 글꼴은 같은 여섯 번의 표 읽기로 그린다.
+없는 음절이지만 조합형 글꼴은 "한"과 같은 표 읽기 여덟 번(클래스 2, 벌 3, piece 3; 받침이 없으면 여섯 번)으로 그린다.
 
 버전 1 조회를 색인 공식과 함께 순서도로 그리면 다음과 같다(`c/src/svf_jamo.c`의 `pieces_v1`, 호환 자모 분기 포함). 버전 2
 리더도 함께 컴파일된 빌드에서는 나눗셈 대신 곱셈과 shift 두 번(`s x 14267 >> 23`, `tail x 2341 >> 16`)으로 같은 L, V, T를 얻는다.
@@ -649,12 +653,14 @@ NEODG16A는 Neo둥근모 TTF를 16 px로 래스터화한 뒤 8x4x4로 맞춘 것
 
 ### 4.5 검증
 
-블록이 다음 중 하나라도 어기면 페이스는 오류가 아니라 **평범한 페이스**로 열린다. 한글은 조합하지 않으며, C 렌더러는
-`SVF_FACE_JSET_BAD`를 세운다(`spec/SVF.ko.md` "자모 세트 폰트", "검증").
+위치 검사 두 가지(첫 두 행)는 파일 전체의 문제이므로 열기가 실패한다(`c/src/svf_face.c` 124-131행). 블록 내용 검사(나머지 행)를
+어기면 페이스는 오류가 아니라 **평범한 페이스**로 열린다. 한글은 조합하지 않으며, C 렌더러는 `SVF_FACE_JSET_BAD`를 세운다
+(`spec/SVF.ko.md` "자모 세트 폰트", "검증").
 
 | 검사 | 어기면 |
 |---|---|
-| 오프셋이 표 단위의 배수, 바이트 48 이상, 파일 안 | 범위 밖이면 `SVF_E_RANGE`(열기 실패) |
+| 영역이 바이트 48 이상이고 파일 안 | `SVF_E_RANGE`(열기 실패) |
+| 오프셋이 표 단위(2^TAB)의 배수 | `SVF_E_LAYOUT`(열기 실패) |
 | 크기가 개수에서 나온 공식 값과 같음, 0이 아님 | `JSET_BAD`, 평범한 페이스 |
 | 개수가 빌드의 한도 안(표준 또는 BIG) | `JSET_BAD` |
 | 클래스 < LC, TC; 벌 < NI, NM, NF(종성 벌은 받침 있는 클래스에서만) | `JSET_BAD` |
@@ -684,7 +690,7 @@ NEODG16A는 Neo둥근모 TTF를 16 px로 래스터화한 뒤 8x4x4로 맞춘 것
 | 8 / 4 / 4, 2 x 2 클래스 | 1,101 | 272 |
 | 32 / 24 / 12, 8 x 8 클래스 | 7,065 | 2,818 |
 | 24 / 16 / 16, 12 x 12 클래스 | 11,681 | 5,324 + alias |
-| 표준 최대(모든 슬롯 alias) | 12,321 | 9,246 |
+| 표준 최대 | 12,321 | 5,782(NA 0), 9,246(모든 슬롯 alias) |
 | BIG 최대 | 47,373 | 29,708(NA 0), 45,068(모든 슬롯 alias) |
 
 버전 2로 piece 하나를 푸는 과정(`c/src/svf_jamo.c`의 `pieces_v2`, `cell_set`, `slot_piece`; `spec/SVF.ko.md` "JSET 블록 버전 2"):
@@ -692,8 +698,9 @@ NEODG16A는 Neo둥근모 TTF를 16 px로 래스터화한 뒤 8x4x4로 맞춘 것
 ```mermaid
 flowchart TD
   A["cell = (leadClass x 21 + V) x TC + tailClass<br/>(버전 1과 같음)"] --> B["비트 위치 c x W<br/>W = WI + WM + WF"]
-  B --> C["2바이트를 읽어 shift, mask<br/>초성 벌 = 아래 WI비트<br/>중성 벌 = 다음 WM비트<br/>종성 벌 = 위 WF비트"]
-  C --> D["벌 s의 행 = rows + s x R<br/>(R: NA = 0이면 5 / 5 / 6바이트)"]
+  B --> C["필드마다 따로 읽음:<br/>초성 c x W, 중성 c x W + WI,<br/>종성 c x W + WI + WM 비트에서"]
+  C --> C2["그 바이트에서 2바이트를 읽어<br/>shift (비트 & 7), mask (필드 폭)"]
+  C2 --> D["벌 s의 행 = rows + s x R<br/>(R: NA = 0이면 5 / 5 / 6바이트)"]
   D --> E{"presence 비트 j?"}
   E -->|0| X["빈 조각 0xFFFF"]
   E -->|1| F{"alias 비트 j?<br/>(NA > 0일 때만)"}
@@ -701,12 +708,15 @@ flowchart TD
   F -->|0| H["base + popcount((presence & ~alias) & below(j))"]
 ```
 
-j는 초성 0..18, 중성 0..20, 종성 `T - 1`이다.
+j는 초성 0..18, 중성 0..20, 종성 `T - 1`이다. 한 칸은 최대 14비트(BIG 20비트)이고 바이트 중간에서 시작할 수 있으므로, 칸 전체를
+한 번에 읽지 않고 필드 하나마다 2바이트를 읽는다(필드는 최대 5비트, BIG 7비트라 2바이트에 들어간다; `cell_set`).
 
 **왜 느린가.** 버전 1은 칸 하나를 바이트 하나로 읽고 piece를 u16 하나로 읽는다. 버전 2는 벌 번호마다 2바이트를 가져와 shift와
 mask를 하고, piece마다 presence 비트의 popcount를 센다(`popcount(presenceBits & ~aliasBits & below(j))`). Pico에서 잰 비용은
-5.3절에 있다. 지금 `svf/`의 페이스 95개를 모두 버전 2로 바꾸면 JSET 바이트가 652,431에서 310,160이 된다. `--jset-version auto`는
-1,024바이트 이상 줄 때만 버전 2를 쓰며, 그러면 58개 페이스가 바뀌고 337,695가 된다(`spec/SVF.ko.md` "버전 2를 쓸 때").
+5.3절에 있다. 이 공개 저장소의 `svf/`에 있는 자모 페이스 66개(모두 버전 1)를 모두 버전 2로 바꾸면 JSET 바이트가 621,312에서
+301,767이 된다. `--jset-version auto`는 1,024바이트 이상 줄 때만 버전 2를 쓰며(`jamoset.choose_jset_version`), 그러면 57개
+페이스가 바뀌고 308,871이 된다(2026-11-26에 `jamoset.unpack`과 `pack_jset`으로 메모리에서 잼). `spec/SVF.ko.md` "버전 2를 쓸 때"의
+95개 / 652,431 / 310,160 / 58개 / 337,695는 원본 저장소의 페이스 95개로 잰 값이다.
 
 ### 5.2 BIG: 한도만 넓힌다
 
@@ -725,11 +735,15 @@ main의 버전 1 리더이고, "v1 face"는 현재 빌드의 버전 1 페이스,
 (6x2x1, 공개판에 없음)이다. 8x4x4 NEODG16A를 버전 2로 바꾸면 JSET이 1,101에서 272바이트로, 파일이 16,408에서 15,576바이트로
 준다(`docs/recipes.ko.md` "기존 SVF").
 
-| 경우 | BASE | v1 face | v2 copy | v2 vs BASE |
-|---|---:|---:|---:|---:|
-| `syl_ga` (가, 조각 2개) | 6,143 | 6,091 | 6,458 | +5.1 % |
-| `syl_bwelk` (뷁, 조각 3개) | 7,500 | 7,321 | 8,027 | +7.0 % |
-| `screen32` (한 화면) | 194,583 | 188,251 | 206,545 | +6.1 % |
+| 경우 | BASE | v1 face | v2 copy | v2 vs BASE | v2 vs v1 face |
+|---|---:|---:|---:|---:|---:|
+| `syl_ga` (가, 조각 2개) | 6,143 | 6,091 | 6,458 | +5.1 % | +6.0 % |
+| `syl_bwelk` (뷁, 조각 3개) | 7,500 | 7,321 | 8,027 | +7.0 % | +9.6 % |
+| `screen32` (한 화면) | 194,583 | 188,251 | 206,545 | +6.1 % | +9.7 % |
+
+spec이 말하는 "5-7 %"는 BASE에 대한 값이다. 같은 빌드에서 버전 1 페이스와 비교하면 버전 2 사본은 6-10 % 느리다(마지막 열,
+표의 숫자로 계산). 이 표는 2026-10-26의 측정이다. 그 뒤 2026-10-27에 `svf_is_jamo`가 바뀌어 버전 1 페이스의 `syl_ga`는 6,049,
+`syl_bwelk`는 7,279 사이클이 되었다(`c/bench/MEASUREMENTS.md` 125-129행). 버전 2 사본은 그때 다시 재지 않았다.
 
 ## 6. 버전 3: JMAP, LIST, 그리고 규칙형과 표형의 비교
 
@@ -848,8 +862,12 @@ Mac의 여러 plane짜리 호환 자모처럼 piece 하나로 그릴 수 없는 
 
 ### 6.2 검증과 상태 비트
 
-JMAP의 규칙(R1-R8, LIST는 R1', L2, L3, R4, L5-L7)을 하나라도 어기면 블록 전체가 `SVF_FACE_JMAP_BAD`이고 페이스는 평범하게 열린다
-("한 블록에 한 판정"). 상태 비트는 다음과 같다(`spec/SVF.ko.md` "리더 상태", `c/include/svf.h` 75-86행).
+그 형태를 읽는 빌드(dense와 SPARSE는 `SVF_JMAP`, LIST는 거기에 `SVF_JMAP_LIST`)에서는 JMAP의 규칙(R1-R8, LIST는 R1', L2, L3,
+R4, L5-L7)을 하나라도 어기면 블록 전체가 `SVF_FACE_JMAP_BAD`이고 페이스는 평범하게 열린다("한 블록에 한 판정"). 읽지 않는 빌드는
+검사를 줄인다. `SVF_JMAP_LIST=0`은 LIST의 머리 규칙(R1', L2, L3, R4)만 보므로, 키가 정렬되지 않은 LIST도 `JMAP_UNREAD`가 되고 대체
+JSET이 쓰인다. `SVF_JMAP_RECOG` 빌드는 플래그와 NS만 보고 `JMAP_UNREAD`를 세우며, 대체 블록의 판정은 `JSET_BAD`나 `JSET_UNREAD`로
+따로 나온다. `SVF_JSET_TRUSTED`이면 R5-R8(LIST는 L5-L7)도 건너뛴다(`spec/SVF.ko.md` "리더 상태"와 그 표). 상태 비트는 다음과 같다
+(`spec/SVF.ko.md` "리더 상태", `c/include/svf.h` 75-86행).
 
 | 비트 | 값 | 뜻 |
 |---|---|---|
@@ -865,9 +883,9 @@ JMAP의 규칙(R1-R8, LIST는 R1', L2, L3, R4, L5-L7)을 하나라도 어기면 
 | 담는 것 | 클래스, 벌 표, piece 표 | 음절마다 piece 세 개 | 예외 ≤ 255개 + 규칙 |
 | 덮는 음절 | 11,172 모두 | 항목이 있는 음절(SPARSE는 일부) | 11,172(대체가 있으면) |
 | 쓰지 않은 음절 | 규칙으로 저절로 그림 | 그리지 않음(대체가 없으면) | 규칙으로 그림 |
-| 표 크기 | 653 ~ 12,321(BIG 47,373) | 8,654(KS 2,350) ~ 44,806 | 118 + 8 NS + 대체 |
-| 조회 비용 | 표 읽기 6번 | dense: 1번; SPARSE: popcount | 이진 탐색 + (miss면) 규칙 |
-| 리더 코드 | 모든 빌드(v1) | 데스크톱 기본; MCU 기본 꺼짐 | 데스크톱 기본; MCU 기본 꺼짐 |
+| 표 크기 | 653 ~ 12,321(BIG 47,373) | 8,654(SPARSE 3B, KS 2,350) ~ 46,292(SPARSE 4B, 11,172), 대체 포함 영역 ≤ 65,534 | 118 + 8 NS + 대체 |
+| 조회 비용 | 표 읽기 8번(받침 없으면 6번) | dense: 1번; SPARSE: popcount | 이진 탐색 + (miss면) 규칙 |
+| 리더 코드 | v1은 모든 기본 빌드(KS 전용 빌드 `SVF_JSET_V1=0`만 제외) | 데스크톱 기본; MCU 기본 꺼짐 | 데스크톱 기본; MCU 기본 꺼짐 |
 | 맞는 글꼴 | DOS 글꼴, ROM, 픽셀 글꼴 | 규칙이 없는 글꼴(Mac 7.1.x) | 거의 맞는 규칙 + 몇 자의 손질 |
 
 ### 6.4 Seoul12: 같은 글꼴, 두 구조
@@ -876,22 +894,31 @@ Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방�
 이 저장소에는 그 바이트가 없고, 그림도 싣지 않는다. 아래 숫자는 작업 카드 t_6c1f4069에 기록된 측정값과 `docs/recipes.ko.md` "클래식 Mac
 한글 비트맵 폰트", 원본(비공개) 저장소의 `c/ports/arduino/presets/seoul12.manifest`에서 왔다.
 
-| 항목 | 원본 구조 (표형) | SEOUL12J (규칙형) |
+**이름 주의.** 이 절의 "SEOUL12J"는 원본 저장소의 manifest와 Uno 프리셋이 쓰는 이름으로, **derived** 모드(규칙형, Latin 포함,
+12,624바이트) 페이스를 가리킨다. `docs/recipes.ko.md` "클래식 Mac 한글 비트맵 폰트"의 명령 예는 같은 이름 `SEOUL12J.SVF`를
+**direct** 출력(JMAP)에, `SEOUL12D.SVF`를 derived 출력에 붙인다. 아래 표는 "원본 구조"(direct)와 "SEOUL12J"(derived)로 나누어
+부르며, 크기는 Latin 유무를 맞추어 비교한다.
+
+| 항목 | 원본 구조 (direct, 표형) | SEOUL12J (derived, 규칙형) |
 |---|---|---|
 | 블록 | JMAP SPARSE 3B, NS 2,350, 대체 없음 | JSET 버전 1 |
 | 클래스 | (없음) | lead 8 x tail 4 |
 | 벌 | (없음) | 초성 9, 중성 6, 종성 3 |
 | piece | 90 / 64 / 53 = 207 (Mac plane 그대로) | 219 (다시 계산) |
 | JSET 바이트 | 8,654 | 2,933 |
-| 파일 바이트 | 15,016 | 12,624 |
+| 파일 바이트, Latin 없이 | 15,016 | 9,716 |
+| 파일 바이트, Latin(`--latin`) 포함 | 17,924 | 12,624 |
 | 조합하는 음절 | KS 2,350자만 | 11,172자: KS 2,350 정확 + 4,630 regular + 4,192 추정(guessed) |
-| Latin | 없음 | 95자 |
-| 만드는 도구 | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived --latin ...` |
+| 만드는 도구 | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
+
+Latin 없는 두 크기와 Latin 포함 두 크기(15,016 / 9,716 / 17,924 / 12,624)는 `docs/recipes.ko.md` "클래식 Mac 한글 비트맵 폰트"의 실행
+결과이다. 구조 항목(블록 형태, 클래스, 벌, piece 수, JSET 바이트, regular / guessed 수)은 작업 카드 t_6c1f4069의 기록이다.
 
 **왜 규칙형으로 Mac 조각을 그대로 쓸 수 없었나.** Mac 표는 중성(과 종성 ㄱ ㄹ ㅇ)을 초성에 따라 아주 잘게 고른다. Mac 슬롯 하나하나를
 piece로 삼으면, 같은 중성과 받침에서 다른 중성 또는 종성 glyph를 쓰는 초성 쌍은 같은 lead 클래스에 들 수 없다. 초성 쌍은 모두
-171개이다(`tools/macfbit_svf.py`의 `slot_conflicts` docstring). 그중 **130쌍**이 이렇게 충돌해서 lead 클래스 12개 한도 안에서는
-나눌 수 없었다. 그래서 `derived` 모드는 piece를 다시 계산한다(`tools/macfbit_svf.py` 머리 docstring).
+171개이다(`tools/macfbit_svf.py`의 `slot_conflicts` docstring). Seoul12에서는 그중 **130쌍**이 이렇게 충돌해서 lead 클래스
+12개 한도 안에서는 나눌 수 없었다(130은 작업 카드 t_6c1f4069의 기록이다. `macfbit_svf.py analyse`가 출력하는
+`slot_conflict_pairs`가 이 값이며, 이 저장소에는 Apple 입력이 없어 다시 재지 않았다). 그래서 `derived` 모드는 piece를 다시 계산한다(`tools/macfbit_svf.py` 머리 docstring).
 
 - 칸의 중성 piece = 그 칸에 드는 KS 음절들의 Mac 중성 glyph의 **AND**
 - 칸의 종성 piece = 같은 방식의 **AND**
@@ -933,9 +960,13 @@ flowchart LR
   R1 --> S5["S5K 5,548<br/>(더 줄일 수 없어 멈춘 지점)"]
 ```
 
-(원본 저장소 `c/ports/arduino/README.md` "Seoul presets"의 `regen` 단계. 두 번째 merge 하나가 S7K, S6K, S5K를 모두 쓴다.)
+(원본 저장소 `c/ports/arduino/README.md` "Seoul presets"와 `presets/seoul12.manifest`의 값이다. 두 번째 merge 하나가 S7K, S6K,
+S5K를 모두 쓴다. 이 저장소의 계획 문서 `docs/superpowers/plans/2026-10-26-jset-v3-jmap-big.md`는 그보다 앞선 계획이어서
+S8K = 8,136(rec1/SM8K)과 두 번째 merge `--soft --points 7168 6144`를 적고 있다. README는 원래 실행의 로그에 맞춰 이를
+`--start-soft --points 7168 6144 4096`으로 고쳤고, 8,136바이트 페이스는 S8K0으로 남기고 merge 42번을 되돌린 8,160바이트 페이스를
+S8K로 삼았다.)
 
-| 프리셋 | 바이트 | Uno flash (원본 저장소 README가 옮긴 `c/cross/SIZES.md` "Uno presets") |
+| 프리셋 | 바이트 | Uno flash (원본 저장소의 `c/cross/SIZES.md` "Uno presets"; 이 저장소의 SIZES.md에는 없다) |
 |---|---:|---:|
 | S8K | 8,160 | 21,730 |
 | S7K | 7,012 | 20,582 |
@@ -955,7 +986,7 @@ Apple 데이터에서 나온 페이스이므로 **git에 들어가지 않는다.
 | 스위치 | 기본값 | 끄거나 켜면 |
 |---|---|---|
 | `SVF_JSET_V1` | 1 | 0이면 버전 1 페이스가 `JSET_UNREAD` |
-| `SVF_JSET_V2` | 1, **AVR은 0** | 0이면 버전 2 페이스가 `JSET_UNREAD` |
+| `SVF_JSET_V2` | 1, **AVR은 0**(CH582 포트도 0으로 고정: 버전 1 페이스를 담음) | 0이면 버전 2 페이스가 `JSET_UNREAD` |
 | `SVF_JSET_BIG` | 데스크톱, DOS, WASM(`__unix__ _WIN32 __APPLE__ __DJGPP__ __EMSCRIPTEN__`)에서 1, **모든 MCU에서 0**, `SVF_SMALL`이면 0 | 0이면 표준 한도를 넘는 블록이 `JSET_BAD` |
 | `SVF_JMAP` | BIG과 같은 목록에서 1, **모든 MCU에서 0** | 0이면 버전 3이 `JSET_BAD`(RECOG가 없을 때) |
 | `SVF_JMAP_LIST` | `SVF_JMAP`의 값 | 0이면 LIST 블록이 `JMAP_UNREAD`, 대체 JSET을 읽음 |
@@ -983,13 +1014,15 @@ flowchart TD
 `SVF_JSET_V1`, `SVF_JSET_V2`, `SVF_JMAP`이 모두 0이면 `#error`이다. `SVF_JMAP`은 `svf_face`의 크기를 바꾸는(AVR +9 B, Cortex-M
 +12 B) 유일한 스위치이므로, 모든 번역 단위가 같은 값으로 빌드되어야 한다.
 
-결과로 나오는 매트릭스(`c/README.ko.md` "자모 세트: 각 빌드가 읽는 것"):
+결과로 나오는 매트릭스(`c/README.ko.md` "자모 세트: 각 빌드가 읽는 것"; v2 초과 행은 `c/src/svf_jamo.c`의 `jset_part`로 나누었다.
+리더가 없는 버전은 개수를 검사하기 전에 `JSET_UNREAD`가 된다):
 
 | 페이스가 담은 것 | 기본 host / DOS / WASM / SDL | AVR 기본 | 그 밖의 MCU 기본 |
 |---|---|---|---|
 | v1, 표준 한도 | 조합 | 조합 | 조합 |
 | v2, 표준 한도 | 조합 | 평범, `JSET_UNREAD` | 조합 |
-| v1 또는 v2, 표준 한도 초과 | 조합(BIG) | 평범, `JSET_BAD` | 평범, `JSET_BAD` |
+| v1, 표준 한도 초과 | 조합(BIG) | 평범, `JSET_BAD` | 평범, `JSET_BAD` |
+| v2, 표준 한도 초과 | 조합(BIG) | 평범, `JSET_UNREAD`(v2 리더가 없어 개수를 보지 않음) | 평범, `JSET_BAD` |
 | v3 JMAP dense 또는 SPARSE | 조합 | 평범, `JSET_BAD`(모르는 버전) | 평범, `JSET_BAD` |
 | v3 JMAP LIST | 조합 | 평범, `JSET_BAD` | 평범, `JSET_BAD` |
 
@@ -998,7 +1031,9 @@ flowchart TD
   O["svf_open_*: 헤더 플래그 비트 1"] --> V{"JSET 버전"}
   V -->|1| A{"SVF_JSET_V1?"}
   A -->|예| A2{"개수가 빌드 한도 안?<br/>(BIG 여부)"}
-  A2 -->|예| OK["자모 페이스: 조합"]
+  A2 -->|예| A3{"표 내용 검증 통과?"}
+  A3 -->|예| OK["자모 페이스: 조합"]
+  A3 -->|아니오| BAD
   A2 -->|아니오| BAD["평범: JSET_BAD"]
   A -->|아니오| UN["평범: JSET_UNREAD"]
   V -->|2| B{"SVF_JSET_V2?"}
@@ -1006,13 +1041,20 @@ flowchart TD
   B -->|아니오| UN
   V -->|3| C{"SVF_JMAP?"}
   C -->|예| C2{"LIST이고 SVF_JMAP_LIST=0?"}
-  C2 -->|아니오| OK2["JMAP으로 조합<br/>(miss는 대체 JSET)"]
-  C2 -->|예| UNR["JMAP_UNREAD:<br/>대체 JSET만"]
+  C2 -->|아니오| C3{"R1-R8 또는<br/>R1', L2, L3, R4, L5-L7 통과?"}
+  C3 -->|예| OK2["JMAP으로 조합<br/>(miss는 대체 JSET)"]
+  C3 -->|아니오| JB["평범: JMAP_BAD"]
+  C2 -->|예| H{"머리 규칙 통과?"}
   C -->|아니오| D{"SVF_JMAP_RECOG?"}
-  D -->|예| UNR
+  D -->|예| H
   D -->|아니오| BAD
+  H -->|예| UNR["JMAP_UNREAD:<br/>대체 JSET이 있으면 그것을<br/>위의 버전 1/2 경로로 판정"]
+  H -->|아니오| JB
   V -->|0 또는 4 이상| BAD
 ```
+
+RECOG 빌드의 "머리 규칙"은 플래그와 NS(R1 또는 R1', R3 또는 L3), 대체 블록의 advance 비교, 정확히 65,535바이트인 영역 검사뿐이다
+(`spec/SVF.ko.md`의 표). `SVF_JMAP_LIST=0` 빌드는 R1', L2, L3, R4를 본다.
 
 빌드가 읽지 못하는 블록이 있어도 **열기는 실패하지 않는다.** 페이스는 평범한 페이스로 열려 ASCII 같은 다른 glyph는 그리고 한글만
 조합하지 않으며, 상태 비트가 그 이유를 알려 준다. 응용은 열 때 `svf_status`를 확인해야 한다(`docs/c-renderer-guide.ko.md` 10.1).
@@ -1032,7 +1074,7 @@ flowchart TD
 | 둘 다, `SVF_JSET_TRUSTED=1` | 6,764 (+570) | 12,354 (-560, v1만) | 같은 곳 |
 | `SVF_JSET_POP4` 표 | +28 | (AVR은 0) | `svf.h` |
 | BIG | v1: -4, v1+v2: -12 | v1: +26, v1+v2: +72 | SIZES.md Task 17, `svf.h` |
-| `SVF_JMAP_RECOG` | 약 +164 | 약 +280 | `svf.h` |
+| `SVF_JMAP_RECOG` (`minimal+RECOG`) | 6,358 (+196) | 13,238 (+308) | `docs/STATUS.md`, SIZES.md 기능 게이트 (`svf.h` 주석의 추정 +164 / +280은 이전 값) |
 | `minimal` (Uno flag) → `minimal+JMAP` (LIST 포함) | 6,162 → 7,646 | 12,930 → 15,370 | `docs/STATUS.md` 크기 표 |
 | `ksonly` (JMAP만, v1/v2 없음) | 6,822 | 13,460 | 같은 곳 |
 
@@ -1046,7 +1088,7 @@ SIZES.md는 측정 시점마다 표를 다시 쟀으므로 행에 따라 기준�
 | 블록 | 크기 공식 또는 값 | 최대 |
 |---|---|---:|
 | JSET v1 | `59 + 63 x LC x TC + 2 x (19 NI + 21 NM + 27 NF + 51)` | 12,321 (BIG 47,373) |
-| JSET v2 | `63 + S + NI x RI + NM x RM + NF x RF + 2 NA + 51` | 9,246 (BIG 29,708 / 45,068) |
+| JSET v2 | `63 + S + NI x RI + NM x RM + NF x RF + 2 NA + 51` | NA 0: 5,782 (BIG 29,708); 모든 슬롯 alias: 9,246 (BIG 45,068) |
 | JMAP SPARSE 3B, KS 2,350자 | 8,654 | |
 | JMAP dense 3B / 4B | 33,634 / 44,806 | |
 | JMAP LIST | 118 + 8 NS | 2,158 + 대체 블록 |
@@ -1125,9 +1167,10 @@ sequenceDiagram
 
 ### 7.5 조합 속도
 
-Pico(RP2040, rp2040js 125 MHz) MONO_PAGE `-Os`에서 가(조각 2개)는 6,091 사이클, 뷁(조각 3개)은 7,321 사이클이다(버전 1 페이스).
-버전 2 사본은 5-7 % 더 걸린다(5.3절). 시간 예산과 비교한 값은 `docs/STATUS.md`에 있다. `syl_ga` 48.39 µs는 50 µs 예산을 충족하고,
-`syl_bwelk` 58.23 µs는 `-Os`에서 미달하지만 `-O2`(47.18 µs)에서는 충족한다. 이 측정들의 페이스는 공개판에 없는 HGKEY6J(6x2x1)이며
+Pico(RP2040, rp2040js 125 MHz) MONO_PAGE `-Os`에서 버전 1 페이스로 가(조각 2개)는 6,049 사이클, 뷁(조각 3개)은 7,279 사이클이다
+(2026-10-27 재측정, `c/bench/MEASUREMENTS.md` 125-129행). 시간으로는 `syl_ga` 48.39 µs, `syl_bwelk` 58.23 µs이며, `docs/STATUS.md`에
+따르면 앞은 50 µs 예산을 충족하고, 뒤는 `-Os`에서 미달하지만 `-O2`(47.18 µs)에서는 충족한다. 버전 2 사본은 그보다 앞선
+2026-10-26 측정에서 같은 빌드의 버전 1 페이스보다 6-10 % 더 걸렸다(5.3절의 6,091 / 7,321 사이클과 비교). 이 측정들의 페이스는 공개판에 없는 HGKEY6J(6x2x1)이며
 NEODG16G로 다시 재지 않았다(`docs/STATUS.md`). 이 측정은 에뮬레이터 값이고, 실제 하드웨어의 XIP 캐시는 모델링하지 않았다
 (`docs/c-renderer-guide.ko.md` 13.5).
 
@@ -1143,7 +1186,7 @@ qemu-pico의 `raspi-pico2`(Pico 2, Arm)에서 mono 예제(SSD1306 128x64) 펌웨
 
 같은 기록에 따르면 이 측정에서 잰 여섯 페이스가 모두 호스트 렌더러와 픽셀이 같았다(위 표는 그중 크기가 기록된 셋이다).
 원본 구조의 펌웨어는 SEOUL12J보다 2,608바이트 크다. 이 차이에는 JMAP 리더 코드와 페이스 크기의 차이가 함께 들어 있는데, 둘을 나눈
-측정은 없다. 게다가 원본 구조는 KS 2,350자만 그린다.
+측정은 없다. 기록에는 원본 구조 페이스가 Latin을 담은 변형(17,924)인지 아닌 변형(15,016)인지도 적혀 있지 않다. 게다가 원본 구조는 KS 2,350자만 그린다.
 
 ### 7.7 MCU 빌드에서 리더를 켜는 법
 
@@ -1169,10 +1212,10 @@ qemu-pico의 `raspi-pico2`(Pico 2, Arm)에서 mono 예제(SSD1306 128x64) 펌웨
 |---|---|---|---|
 | 약 6-11 KB, RAM 2 KB (Uno급) | 작은 벌의 JSET v1(6x2x1, 또는 축소한 8x4x4) | v1만(AVR 기본) | `NEODG16G` 6x2x1: 파일 10,684, `mcu-strict` 10,124, Uno 이미지 23,676 text (`c/ports/arduino/README.md`); Seoul S5K-S8K 5,548-8,160 |
 | 약 16-20 KB | 8x4x4 JSET v1 | v1 | `NEODG16A` 16,408. DOS 원시 글꼴, ROM, OS/2에서 만든 16 px 8x4x4는 15,556-18,576 (`docs/recipes.ko.md`) |
-| 표가 큰 페이스(12 x 12 클래스)를 flash/RAM에 | 같은 페이스의 JSET v2 | v2 (+535 B M0+) | 11,681 → 5,324 + alias; 조합 5-7 % 느림 |
+| 표가 큰 페이스(12 x 12 클래스)를 flash/RAM에 | 같은 페이스의 JSET v2 | v2 (+535 B M0+) | 11,681 → 5,324 + alias; 조합 6-10 % 느림(5.3절) |
 | 스트리밍(SD 등), RAM이 빠듯함 | v2 + 음절 캐시 | v2 | JSET 영역이 tables 버퍼에 들어감 |
 | 큰 MCU(수백 KB flash) | 적응형(adaptive) JSET v1, 필요하면 BIG | v1 (+BIG) | `svf/jamo-extra/GOTHA16.SVF` 60,992 |
-| 규칙이 없는 글꼴(Mac 7.1.x), KS만 필요 | JMAP SPARSE | `SVF_JMAP=1` 명시 | Seoul12 원본 15,016; 펌웨어 +2,608 B (7.6절) |
+| 규칙이 없는 글꼴(Mac 7.1.x), KS만 필요 | JMAP SPARSE | `SVF_JMAP=1` 명시 | Seoul12 원본 구조 15,016(Latin 없이); 펌웨어 +2,608 B (7.6절) |
 | 거의 맞는 규칙 + 몇 자 손질 | 8x4x4 + LIST 예외 | `SVF_JMAP=1` (LIST 포함) | LIST 118 + 8 NS |
 | 품질이 먼저, 메모리 여유 | 완성형 | (자모 리더 불필요) | `NEODG16` 133,720 |
 
@@ -1192,7 +1235,7 @@ flowchart TD
   V1 --> F{"RAM이나 flash가 빠듯하고<br/>표가 큼?"}
   V1b --> F
   E --> F
-  F -->|예| V2["같은 표를 JSET v2로<br/>(+535 B 리더, 5-7 % 느림)"]
+  F -->|예| V2["같은 표를 JSET v2로<br/>(+535 B 리더, 6-10 % 느림)"]
   F -->|아니오| K["그대로"]
   K --> G{"예산을 넘나?"}
   V2 --> G

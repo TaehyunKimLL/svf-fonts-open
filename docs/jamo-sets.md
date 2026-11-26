@@ -62,10 +62,13 @@ Windows code page 1361; in Python `codecs.lookup('cp1361')` returns the `johab` 
 | KS X 1001 precomposed (EUC-KR) | 2,350 | 2 bytes, each 0xA1-0xFE | dictionary order, 0xB0A1 (가) to 0xC8FE (힝) | `euc_kr`, `ksx1001-hangul` |
 | Johab (KS X 1001 annex 3, CP1361) | 11,172 | 16 bits, top bit 1 | by initial, medial, final field | `johab` |
 | Unicode Hangul syllables | 11,172 | U+AC00..U+D7A3 | (initial x 21 + medial) x 28 + final | `hangul`, `cp949-hangul` |
-| CP949 (Unified Hangul Code, UHC) | 11,172 | 2 bytes | the KS 2,350 at their precomposed codes, the other 8,822 in an extension area before them | `cp949` |
+| CP949 (Unified Hangul Code, UHC) | 11,172 | 2 bytes | the KS 2,350 at their precomposed codes, the other 8,822 at extension codes (before and between the precomposed rows) | `cp949` |
 
 The CP949 figures were measured with the Python codec: all 11,172 encode to two bytes, the KS 2,350 to the same bytes as
-EUC-KR, and the other **8,822** fall in 0x8141..0xC652 (first byte 0x81..0xC6).
+EUC-KR, and the other **8,822** fall in 0x8141..0xC652 (first byte 0x81..0xC6). Of those, 5,696 have a first byte
+0x81..0xA0 (second byte 0x41..0xFE) and 3,126 a first byte 0xA1..0xC6 with a second byte 0x41..0xA0. So the extension codes
+are not only before the precomposed rows: they are interleaved with them, in the low second bytes of the same first bytes
+(0xB0..0xC6) as the precomposed syllables.
 
 How the four forms relate (syllable counts and how to convert; dates in 1.4):
 
@@ -160,7 +163,7 @@ flowchart LR
   A --> U["U+D55C 한"]
 ```
 
-A second example, **쀍** (not in KS): U+C00D, s = 5,133 = (8 x 21 + 15) x 28 + 9 (ㅃ 8, ㅞ 15, ㄼ 9); johab 0xAACA
+A second example, **쀍** (not in KS): U+C00D, s = 5,133 = (8 x 21 + 15) x 28 + 9 (ㅃ 8, ㅞ 15, ㄺ 9); johab 0xAACA
 (initial 10, medial 22, final 10); CP949 0x97CD in the extension area; no EUC-KR code.
 
 Johab and Unicode have **the same order**: encoding the 11,172 syllables in Unicode order gives increasing johab codes
@@ -176,8 +179,9 @@ extended precomposed code (UHC, code page 949) added the 8,822 syllables outside
 keeping the precomposed bytes, so 11,172 syllables could be written without breaking EUC-KR. What the repository does
 confirm is only the result: CP949 holds all 11,172 and its KS 2,350 equal EUC-KR byte for byte (the table of 1.1, Python
 codec). The names and history of the commercial johab codes (Sambo's KSSM and others) are not documented in the research
-notes, which mention only "삼보 조합형 한글 sets" (`docs/recipes.md` "NKP: a Hercules Hangul TSR with cropped pieces") and
-printer drivers and game font files named KSSM (`notes/printer.md`, `notes/games.md`).
+notes. This repository's recipes mention "삼보 조합형 한글 sets" once (`docs/recipes.md` "NKP: a Hercules Hangul TSR with
+cropped pieces"), and the notes only printer drivers and game font files named KSSM (`notes/printer.md`,
+`notes/games.md`).
 
 Only what a file dates, in order. The year of a standard is the one in its name. CP949 and the Unicode syllable block have
 no date in the sources and stand apart.
@@ -217,8 +221,8 @@ johab font is **360 pieces x 32 bytes = 11,520 bytes** (`notes/dos.md` "Format f
 | 48x48 | 103,680 | 676,800 | 3,217,536 |
 
 The piece file sizes are in `notes/dos.md`; the precomposed columns are syllables x cell bytes. SVF shows the same thing:
-for Neo Dunggeunmo at 16 px the precomposed `NEODG16.SVF` is 133,720 bytes (2,905 glyphs: ASCII and the non-Hanja
-characters of KS X 1001), and the 8x4x4 jamo set `NEODG16A.SVF` is **16,408 bytes** (440 glyphs, 344 of them pieces) and
+for Neo Dunggeunmo at 16 px the precomposed `NEODG16.SVF` is 133,720 bytes (2,905 glyphs: 95 ASCII, 2,803 KS X 1001
+characters, and 7 syllables outside KS, 갷 닏 떄 섥 슺 텊 햝), and the 8x4x4 jamo set `NEODG16A.SVF` is **16,408 bytes** (440 glyphs, 344 of them pieces) and
 draws all 11,172 (read with `jamoset.parse_svfn`, as `tools/doc_figures_jamo.py` does).
 
 ### 2.2 Sets: a jamo's shape depends on where it sits
@@ -623,9 +627,10 @@ e.g. ㄱ -> 0, ㄳ -> 238 (final set 0), ㅏ -> 152.
 
 *Figure 3. Looking up 한 in NEODG16A. The yellow cells are the ones read.*
 
-**쀍 (U+C00D, not in KS):** L = 8 (ㅃ), V = 15 (ㅞ), T = 9 (ㄼ); lc = 1, tc = 1; cell = (21 + 15) x 2 + 1 = 73; sets 7, 3, 2;
+**쀍 (U+C00D, not in KS):** L = 8 (ㅃ), V = 15 (ㅞ), T = 9 (ㄺ); lc = 1, tc = 1; cell = (21 + 15) x 2 + 1 = 73; sets 7, 3, 2;
 pieces `initPiece[7 x 19 + 8 = 141]` = 141, `medPiece[3 x 21 + 15 = 78]` = 230, `finPiece[2 x 27 + 9 - 1 = 62]` = 298. The
-precomposed code has no such syllable; the johab font draws it with the same six table reads.
+precomposed code has no such syllable; the johab font draws it with the same eight table reads as 한 (2 class, 3 set,
+3 piece reads; six without a final).
 
 The version 1 lookup as a flowchart with its index formulas (`pieces_v1` in `c/src/svf_jamo.c`, compat branch included).
 In a build that also compiles the version 2 reader, two multiply-shifts (`s x 14267 >> 23`, `tail x 2341 >> 16`) give the
@@ -667,12 +672,14 @@ only, sky blue = jamo set only); 0 pixels for every syllable of this font.*
 
 ### 4.5 Validation
 
-A block that breaks any of these does not fail the open: the face opens as a **plain face** that composes no Hangul, and
-the C renderer sets `SVF_FACE_JSET_BAD` (`spec/SVF.md` "Jamo-set fonts", "Validation").
+The two placement checks (the first two rows) concern the whole file and fail the open (`c/src/svf_face.c` lines
+124-131). A block that breaks a content check (the other rows) does not fail the open: the face opens as a **plain face**
+that composes no Hangul, and the C renderer sets `SVF_FACE_JSET_BAD` (`spec/SVF.md` "Jamo-set fonts", "Validation").
 
 | Check | When it fails |
 |---|---|
-| offset a multiple of the table unit, at or after byte 48, inside the file | outside: `SVF_E_RANGE` (the open fails) |
+| the region at or after byte 48 and inside the file | `SVF_E_RANGE` (the open fails) |
+| the offset a multiple of the table unit (2^TAB) | `SVF_E_LAYOUT` (the open fails) |
 | size equal to the formula of the counts, not 0 | `JSET_BAD`, plain face |
 | counts within the build's limits (standard or BIG) | `JSET_BAD` |
 | classes < LC, TC; sets < NI, NM, NF (final sets only in classes with a final) | `JSET_BAD` |
@@ -702,7 +709,7 @@ An 8x4x4 cell (NI 8, NM 4, NF 4) is 3 + 2 + 2 = 7 bits, where version 1 spends 3
 | 8 / 4 / 4, 2 x 2 classes | 1,101 | 272 |
 | 32 / 24 / 12, 8 x 8 classes | 7,065 | 2,818 |
 | 24 / 16 / 16, 12 x 12 classes | 11,681 | 5,324 + aliases |
-| standard maximum (every slot an alias) | 12,321 | 9,246 |
+| standard maximum | 12,321 | 5,782 (NA 0), 9,246 (every slot an alias) |
 | BIG maximum | 47,373 | 29,708 (NA 0), 45,068 (every slot an alias) |
 
 Decoding one piece from version 2 (`pieces_v2`, `cell_set`, `slot_piece` in `c/src/svf_jamo.c`; `spec/SVF.md` "JSET block
@@ -711,8 +718,9 @@ version 2"):
 ```mermaid
 flowchart TD
   A["cell = (leadClass x 21 + V) x TC + tailClass<br/>(as in version 1)"] --> B["bit offset c x W<br/>W = WI + WM + WF"]
-  B --> C["fetch 2 bytes, shift, mask<br/>initial set = low WI bits<br/>medial set = next WM bits<br/>final set = top WF bits"]
-  C --> D["row of set s = rows + s x R<br/>(R with NA = 0: 5 / 5 / 6 bytes)"]
+  B --> C["each field read on its own:<br/>initial at bit c x W, medial at c x W + WI,<br/>final at c x W + WI + WM"]
+  C --> C2["fetch 2 bytes at that byte,<br/>shift by bit & 7, mask to the field width"]
+  C2 --> D["row of set s = rows + s x R<br/>(R with NA = 0: 5 / 5 / 6 bytes)"]
   D --> E{"presence bit j?"}
   E -->|0| X["blank piece 0xFFFF"]
   E -->|1| F{"alias bit j?<br/>(only with NA > 0)"}
@@ -720,13 +728,17 @@ flowchart TD
   F -->|0| H["base + popcount((presence & ~alias) & below(j))"]
 ```
 
-j is 0..18 for an initial, 0..20 for a medial, `T - 1` for a final.
+j is 0..18 for an initial, 0..20 for a medial, `T - 1` for a final. A cell is up to 14 bits (BIG 20) and may start inside
+a byte, so it is not read in one go: each field gets its own two-byte fetch (a field is at most 5 bits, BIG 7, which two
+bytes always hold; `cell_set`).
 
 **Why it is slower.** Version 1 reads a cell as a byte and a piece as a u16. Version 2 fetches two bytes, shifts and masks
 for each set number, and counts the presence bits below a slot for each piece (`popcount(presenceBits & ~aliasBits &
-below(j))`); the Pico cost is in 5.3. All 95 jamo faces of `svf/` in version 2 would take the JSET bytes from 652,431 to
-310,160; `--jset-version auto`, which writes version 2 only when it saves at least 1,024 bytes, changes 58 faces and gives
-337,695 (`spec/SVF.md` "When to use version 2").
+below(j))`); the Pico cost is in 5.3. The 66 jamo faces of this open repository's `svf/` (all version 1) in version 2
+would take the JSET bytes from 621,312 to 301,767; `--jset-version auto`, which writes version 2 only when it saves at least
+1,024 bytes (`jamoset.choose_jset_version`), changes 57 faces and gives 308,871 (measured in memory with `jamoset.unpack`
+and `pack_jset` on 2026-11-26). The 95 faces / 652,431 / 310,160 / 58 faces / 337,695 of `spec/SVF.md` "When to use
+version 2" were measured on the original repository's 95 faces.
 
 ### 5.2 BIG: only the limits
 
@@ -747,11 +759,16 @@ iteration. BASE is the version 1 reader of main before the change, "v1 face" the
 NEODG16A to version 2 takes its JSET from 1,101 to 272 bytes and the file from 16,408 to 15,576 bytes (`docs/recipes.md`
 "An existing SVF").
 
-| Case | BASE | v1 face | v2 copy | v2 vs BASE |
-|---|---:|---:|---:|---:|
-| `syl_ga` (가, 2 pieces) | 6,143 | 6,091 | 6,458 | +5.1 % |
-| `syl_bwelk` (뷁, 3 pieces) | 7,500 | 7,321 | 8,027 | +7.0 % |
-| `screen32` (one screen) | 194,583 | 188,251 | 206,545 | +6.1 % |
+| Case | BASE | v1 face | v2 copy | v2 vs BASE | v2 vs v1 face |
+|---|---:|---:|---:|---:|---:|
+| `syl_ga` (가, 2 pieces) | 6,143 | 6,091 | 6,458 | +5.1 % | +6.0 % |
+| `syl_bwelk` (뷁, 3 pieces) | 7,500 | 7,321 | 8,027 | +7.0 % | +9.6 % |
+| `screen32` (one screen) | 194,583 | 188,251 | 206,545 | +6.1 % | +9.7 % |
+
+The spec's "5-7 %" is against BASE. Against the version 1 face of the same build, the version 2 copy is 6-10 % slower (the
+last column, computed from the table). This table is the 2026-10-26 run; on 2026-10-27 a change to `svf_is_jamo` brought the
+version 1 face to 6,049 (`syl_ga`) and 7,279 (`syl_bwelk`) cycles (`c/bench/MEASUREMENTS.md` lines 125-129). The version 2
+copy was not re-measured then.
 
 ## 6. Version 3: JMAP, LIST, and rules against tables
 
@@ -874,8 +891,13 @@ JMAP compat entry.
 
 ### 6.2 Validation and status bits
 
-A JMAP that breaks any of its rules (R1-R8; for LIST R1', L2, L3, R4, L5-L7) is `SVF_FACE_JMAP_BAD` as a whole and the face
-opens plain ("one block, one verdict"). The status bits (`spec/SVF.md` "Reader statuses", `c/include/svf.h` lines 75-86):
+In a build that reads the form (`SVF_JMAP` for dense and SPARSE, and `SVF_JMAP_LIST` too for LIST), a JMAP that breaks
+any of its rules (R1-R8; for LIST R1', L2, L3, R4, L5-L7) is `SVF_FACE_JMAP_BAD` as a whole and the face opens plain ("one
+block, one verdict"). A build that does not read it checks less. `SVF_JMAP_LIST=0` applies only the LIST header rules
+(R1', L2, L3, R4), so a LIST with unsorted keys is `JMAP_UNREAD` there and its fallback JSET is used. A `SVF_JMAP_RECOG`
+build looks only at the flags and NS and sets `JMAP_UNREAD`, the fallback getting its own `JSET_BAD` or `JSET_UNREAD`
+verdict. `SVF_JSET_TRUSTED` skips R5-R8 (L5-L7 for a LIST) too (`spec/SVF.md` "Reader statuses" and its table). The
+status bits (`spec/SVF.md` "Reader statuses", `c/include/svf.h` lines 75-86):
 
 | Bit | Value | Meaning |
 |---|---|---|
@@ -891,9 +913,9 @@ opens plain ("one block, one verdict"). The status bits (`spec/SVF.md` "Reader s
 | Holds | classes, set tables, piece tables | three pieces per syllable | <= 255 exceptions + a rule |
 | Syllables covered | all 11,172 | those with an entry (SPARSE: some) | 11,172 (with a fallback) |
 | Syllables never seen | drawn by the rule | not drawn (without a fallback) | drawn by the rule |
-| Table bytes | 653 to 12,321 (BIG 47,373) | 8,654 (KS 2,350) to 44,806 | 118 + 8 NS + fallback |
-| Lookup cost | six table reads | dense: one; SPARSE: popcounts | binary search + the rule on a miss |
-| Reader code | every build (v1) | desktop default; off by default on MCUs | desktop default; off by default on MCUs |
+| Table bytes | 653 to 12,321 (BIG 47,373) | 8,654 (SPARSE 3B, KS 2,350) to 46,292 (SPARSE 4B, 11,172); a region with a fallback up to 65,534 | 118 + 8 NS + fallback |
+| Lookup cost | eight table reads (six without a final) | dense: one; SPARSE: popcounts | binary search + the rule on a miss |
+| Reader code | v1 in every default build (only the KS-only build sets `SVF_JSET_V1=0`) | desktop default; off by default on MCUs | desktop default; off by default on MCUs |
 | Suits | DOS fonts, ROMs, pixel fonts | fonts without a rule (Mac 7.1.x) | a rule that nearly fits + a few fixes |
 
 ### 6.4 Seoul12: one font, two structures
@@ -903,22 +925,33 @@ no byte of it is in this repository and no image of it is shown here. The number
 work card t_6c1f4069, `docs/recipes.md` "Classic Mac Korean bitmap fonts", and `c/ports/arduino/presets/seoul12.manifest`
 of the original (private) repository.
 
-| Item | Original structure (table form) | SEOUL12J (rule form) |
+**A note on the name.** "SEOUL12J" here is the name the original repository's manifest and Uno presets use: the
+**derived** face (rule form, with Latin, 12,624 bytes). The command examples of `docs/recipes.md` "Classic Mac Korean bitmap
+fonts" give the same name `SEOUL12J.SVF` to the **direct** output (JMAP) and `SEOUL12D.SVF` to the derived one. The table
+calls them "original structure" (direct) and "SEOUL12J" (derived), and compares sizes with and without Latin alike.
+
+| Item | Original structure (direct, table form) | SEOUL12J (derived, rule form) |
 |---|---|---|
 | Block | JMAP SPARSE 3B, NS 2,350, no fallback | JSET version 1 |
 | Classes | (none) | 8 lead x 4 tail |
 | Sets | (none) | 9 initial, 6 medial, 3 final |
 | Pieces | 90 / 64 / 53 = 207 (the Mac planes as they are) | 219 (recomputed) |
 | JSET bytes | 8,654 | 2,933 |
-| File bytes | 15,016 | 12,624 |
+| File bytes, no Latin | 15,016 | 9,716 |
+| File bytes, with Latin (`--latin`) | 17,924 | 12,624 |
 | Syllables composed | the KS 2,350 only | 11,172: KS 2,350 exact + 4,630 regular + 4,192 guessed |
-| Latin | none | 95 |
-| Tool | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived --latin ...` |
+| Tool | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
+
+The four file sizes (15,016 / 9,716 / 17,924 / 12,624) are the runs of `docs/recipes.md` "Classic Mac Korean bitmap fonts".
+The structure rows (block form, classes, sets, pieces, JSET bytes, regular / guessed counts) are recorded on work card
+t_6c1f4069.
 
 **Why the rule form could not use the Mac pieces as they are.** The Mac table picks the medial (and the finals ㄱ ㄹ ㅇ)
 very finely by initial. With every Mac slot a piece, two initials that use a different medial or final glyph with the same
 medial and final cannot share a lead class. Of the 171 initial pairs (the `slot_conflicts` docstring of
-`tools/macfbit_svf.py`), **130** conflict that way, which no 12 lead classes can separate. So the `derived` mode recomputes
+`tools/macfbit_svf.py`), Seoul12 has **130** that conflict that way, which no 12 lead classes can separate (130 is
+recorded on work card t_6c1f4069; it is the `slot_conflict_pairs` that `macfbit_svf.py analyse` prints, not re-measured here
+because this repository has no Apple input). So the `derived` mode recomputes
 the pieces (the module docstring of `tools/macfbit_svf.py`):
 
 - medial piece of a cell = **AND** of the Mac medial glyphs of the cell's KS syllables;
@@ -963,10 +996,13 @@ flowchart LR
   R1 --> S5["S5K 5,548<br/>(where no move was left)"]
 ```
 
-(The `regen` steps of `c/ports/arduino/README.md` "Seoul presets" in the original repository; the one second merge writes
-S7K, S6K and S5K.)
+(The values of `c/ports/arduino/README.md` "Seoul presets" and `presets/seoul12.manifest` in the original repository; the
+one second merge writes S7K, S6K and S5K. This repository's plan `docs/superpowers/plans/2026-10-26-jset-v3-jmap-big.md`
+predates them and gives S8K = 8,136 (rec1/SM8K) and a second merge `--soft --points 7168 6144`; the README corrected the
+second merge to `--start-soft --points 7168 6144 4096` after the original run's logs, kept the 8,136-byte face as S8K0 and
+made the 8,160-byte face with merge 42 reverted the S8K.)
 
-| Preset | Bytes | Uno flash (`c/cross/SIZES.md` "Uno presets", as the original repository's README quotes it) |
+| Preset | Bytes | Uno flash (`c/cross/SIZES.md` "Uno presets" of the original repository; not in this repository's SIZES.md) |
 |---|---:|---:|
 | S8K | 8,160 | 21,730 |
 | S7K | 7,012 | 20,582 |
@@ -986,7 +1022,7 @@ The readers are compiled in or out by switches (`c/include/svf.h` "Size switches
 | Switch | Default | Off or on |
 |---|---|---|
 | `SVF_JSET_V1` | 1 | 0: a version 1 face is `JSET_UNREAD` |
-| `SVF_JSET_V2` | 1, **0 on AVR** | 0: a version 2 face is `JSET_UNREAD` |
+| `SVF_JSET_V2` | 1, **0 on AVR** (the CH582 port pins it to 0 too: it embeds a version 1 face) | 0: a version 2 face is `JSET_UNREAD` |
 | `SVF_JSET_BIG` | 1 on desktop, DOS, WASM (`__unix__ _WIN32 __APPLE__ __DJGPP__ __EMSCRIPTEN__`), **0 on every MCU**, 0 under `SVF_SMALL` | 0: a block over the standard limits is `JSET_BAD` |
 | `SVF_JMAP` | 1 on the same list as BIG, **0 on every MCU** | 0: version 3 is `JSET_BAD` (without RECOG) |
 | `SVF_JMAP_LIST` | the value of `SVF_JMAP` | 0: a LIST block is `JMAP_UNREAD` and its fallback JSET is read |
@@ -1014,13 +1050,15 @@ build with `SVF_JMAP=1` does not compile RECOG (it has no use there).
 `SVF_JSET_V1`, `SVF_JSET_V2` and `SVF_JMAP` all 0 is an `#error`. `SVF_JMAP` is the one switch that changes the size of
 `svf_face` (+9 B on AVR, +12 B on Cortex-M), so every translation unit must be built with the same value.
 
-The resulting matrix (`c/README.md` "Jamo sets: what each build reads"):
+The resulting matrix (`c/README.md` "Jamo sets: what each build reads"; the over-limits row split by version after
+`jset_part` in `c/src/svf_jamo.c`: a version without its reader is `JSET_UNREAD` before its counts are checked):
 
 | Face carries | default host / DOS / WASM / SDL | AVR default | other MCU default |
 |---|---|---|---|
 | v1, standard limits | composed | composed | composed |
 | v2, standard limits | composed | plain, `JSET_UNREAD` | composed |
-| v1 or v2 over the standard limits | composed (BIG) | plain, `JSET_BAD` | plain, `JSET_BAD` |
+| v1 over the standard limits | composed (BIG) | plain, `JSET_BAD` | plain, `JSET_BAD` |
+| v2 over the standard limits | composed (BIG) | plain, `JSET_UNREAD` (no v2 reader, counts not checked) | plain, `JSET_BAD` |
 | v3 JMAP, dense or SPARSE | composed | plain, `JSET_BAD` (unknown version) | plain, `JSET_BAD` |
 | v3 JMAP LIST | composed | plain, `JSET_BAD` | plain, `JSET_BAD` |
 
@@ -1029,7 +1067,9 @@ flowchart TD
   O["svf_open_*: header flag bit 1"] --> V{"JSET version"}
   V -->|1| A{"SVF_JSET_V1?"}
   A -->|yes| A2{"counts within the build's limits?<br/>(BIG or not)"}
-  A2 -->|yes| OK["jamo face: composed"]
+  A2 -->|yes| A3{"table contents valid?"}
+  A3 -->|yes| OK["jamo face: composed"]
+  A3 -->|no| BAD
   A2 -->|no| BAD["plain: JSET_BAD"]
   A -->|no| UN["plain: JSET_UNREAD"]
   V -->|2| B{"SVF_JSET_V2?"}
@@ -1037,13 +1077,21 @@ flowchart TD
   B -->|no| UN
   V -->|3| C{"SVF_JMAP?"}
   C -->|yes| C2{"LIST and SVF_JMAP_LIST=0?"}
-  C2 -->|no| OK2["composed by the JMAP<br/>(a miss: fallback JSET)"]
-  C2 -->|yes| UNR["JMAP_UNREAD:<br/>fallback JSET only"]
+  C2 -->|no| C3{"R1-R8, or<br/>R1', L2, L3, R4, L5-L7 pass?"}
+  C3 -->|yes| OK2["composed by the JMAP<br/>(a miss: fallback JSET)"]
+  C3 -->|no| JB["plain: JMAP_BAD"]
+  C2 -->|yes| H{"header rules pass?"}
   C -->|no| D{"SVF_JMAP_RECOG?"}
-  D -->|yes| UNR
+  D -->|yes| H
   D -->|no| BAD
+  H -->|yes| UNR["JMAP_UNREAD:<br/>a fallback JSET, if any, judged<br/>by the version 1/2 path above"]
+  H -->|no| JB
   V -->|0 or 4 and up| BAD
 ```
+
+The "header rules" of a RECOG build are only the flags and NS (R1 or R1', R3 or L3), the fallback's advance comparison
+and the check for a region of exactly 65,535 bytes (the table of `spec/SVF.md`); a `SVF_JMAP_LIST=0` build applies R1', L2,
+L3 and R4.
 
 A block the build cannot read **never fails the open**. The face opens plain: it draws its other glyphs (ASCII and so
 on) but composes no Hangul, and the status bits say why. Check `svf_status` at open (`docs/c-renderer-guide.md` 10.1).
@@ -1063,7 +1111,7 @@ sections, and the comments of `c/include/svf.h`):
 | both, `SVF_JSET_TRUSTED=1` | 6,764 (+570) | 12,354 (-560, v1 only) | the same |
 | the `SVF_JSET_POP4` table | +28 | (0 on AVR) | `svf.h` |
 | BIG | v1: -4, v1+v2: -12 | v1: +26, v1+v2: +72 | SIZES.md Task 17, `svf.h` |
-| `SVF_JMAP_RECOG` | about +164 | about +280 | `svf.h` |
+| `SVF_JMAP_RECOG` (`minimal+RECOG`) | 6,358 (+196) | 13,238 (+308) | `docs/STATUS.md`, the SIZES.md feature gate (the `svf.h` comment's estimate +164 / +280 is older) |
 | `minimal` (Uno flags) -> `minimal+JMAP` (LIST included) | 6,162 -> 7,646 | 12,930 -> 15,370 | the size table of `docs/STATUS.md` |
 | `ksonly` (JMAP only, no v1/v2) | 6,822 | 13,460 | the same |
 
@@ -1078,7 +1126,7 @@ bytes on the ATmega2560 (Mega) (`c/ports/arduino/README.md` "Mega 2560").
 | Block | Formula or value | Maximum |
 |---|---|---:|
 | JSET v1 | `59 + 63 x LC x TC + 2 x (19 NI + 21 NM + 27 NF + 51)` | 12,321 (BIG 47,373) |
-| JSET v2 | `63 + S + NI x RI + NM x RM + NF x RF + 2 NA + 51` | 9,246 (BIG 29,708 / 45,068) |
+| JSET v2 | `63 + S + NI x RI + NM x RM + NF x RF + 2 NA + 51` | NA 0: 5,782 (BIG 29,708); every slot an alias: 9,246 (BIG 45,068) |
 | JMAP SPARSE 3B, KS 2,350 | 8,654 | |
 | JMAP dense 3B / 4B | 33,634 / 44,806 | |
 | JMAP LIST | 118 + 8 NS | 2,158 + the fallback block |
@@ -1161,9 +1209,11 @@ the cached redraw none. The cache is round robin with a linear lookup, so tens o
 
 ### 7.5 Composition speed
 
-On the Pico (RP2040, rp2040js at 125 MHz), MONO_PAGE `-Os`, 가 (2 pieces) takes 6,091 cycles and 뷁 (3 pieces) 7,321 with a
-version 1 face; a version 2 copy takes 5-7 % more (5.3). Against the time budgets (`docs/STATUS.md`): `syl_ga` 48.39 µs
-meets its 50 µs budget, `syl_bwelk` 58.23 µs misses it at `-Os` and meets it at `-O2` (47.18 µs). The face of these
+On the Pico (RP2040, rp2040js at 125 MHz), MONO_PAGE `-Os`, a version 1 face takes 6,049 cycles for 가 (2 pieces) and
+7,279 for 뷁 (3 pieces) (re-measured 2026-10-27, `c/bench/MEASUREMENTS.md` lines 125-129). In time that is `syl_ga`
+48.39 µs and `syl_bwelk` 58.23 µs; by `docs/STATUS.md` the first meets its 50 µs budget, the second misses it at `-Os` and
+meets it at `-O2` (47.18 µs). A version 2 copy took 6-10 % more than the version 1 face of the same build in the earlier
+2026-10-26 run (against 5.3's 6,091 / 7,321 cycles). The face of these
 measurements is HGKEY6J (6x2x1), which the open repository does not carry, not re-measured with NEODG16G (`docs/STATUS.md`).
 These are emulated figures; the hardware's XIP cache is not modelled (`docs/c-renderer-guide.md` 13.5).
 
@@ -1180,7 +1230,8 @@ measurement is recorded on work card t_6c1f4069 and is not yet in the repository
 
 By the same record, all six faces measured in that run drew pixel-identical to the host renderer (the table has the
 three whose sizes were recorded). The original structure's firmware is 2,608 bytes larger than SEOUL12J's; the difference
-holds both the JMAP reader code and the difference of the faces, and no measurement separates the two. And the original
+holds both the JMAP reader code and the difference of the faces, and no measurement separates the two; the record does not
+say either whether the original-structure face was the variant with Latin (17,924) or without (15,016). And the original
 structure draws only the KS 2,350.
 
 ### 7.7 Turning readers on in an MCU build
@@ -1207,10 +1258,10 @@ structure draws only the KS 2,350.
 |---|---|---|---|
 | about 6-11 KB, 2 KB of RAM (Uno class) | a JSET v1 with few sets (6x2x1, or a shrunk 8x4x4) | v1 only (the AVR default) | `NEODG16G` 6x2x1: file 10,684, 10,124 in `mcu-strict`, Uno image 23,676 text (`c/ports/arduino/README.md`); Seoul S5K-S8K 5,548-8,160 |
 | about 16-20 KB | 8x4x4 JSET v1 | v1 | `NEODG16A` 16,408; 16 px 8x4x4 sets made from DOS raw fonts, ROMs and OS/2: 15,556-18,576 (`docs/recipes.md`) |
-| a face with big tables (12 x 12 classes) in flash or RAM | the same face as JSET v2 | v2 (+535 B on M0+) | 11,681 -> 5,324 + aliases; composition 5-7 % slower |
+| a face with big tables (12 x 12 classes) in flash or RAM | the same face as JSET v2 | v2 (+535 B on M0+) | 11,681 -> 5,324 + aliases; composition 6-10 % slower (5.3) |
 | streaming (SD and the like), tight RAM | v2 + a syllable cache | v2 | the JSET region sits in the tables buffer |
 | a large MCU (hundreds of KB of flash) | an adaptive JSET v1, BIG if needed | v1 (+BIG) | `svf/jamo-extra/GOTHA16.SVF` 60,992 |
-| a font without a rule (Mac 7.1.x), KS only | JMAP SPARSE | `SVF_JMAP=1` explicitly | Seoul12 original 15,016; firmware +2,608 B (7.6) |
+| a font without a rule (Mac 7.1.x), KS only | JMAP SPARSE | `SVF_JMAP=1` explicitly | Seoul12 original structure 15,016 (no Latin); firmware +2,608 B (7.6) |
 | a rule that nearly fits + a few fixes | 8x4x4 + LIST exceptions | `SVF_JMAP=1` (LIST included) | LIST 118 + 8 NS |
 | quality first, memory to spare | precomposed | (no jamo reader needed) | `NEODG16` 133,720 |
 
@@ -1230,7 +1281,7 @@ flowchart TD
   V1 --> F{"tight RAM or flash<br/>and big tables?"}
   V1b --> F
   E --> F
-  F -->|yes| V2["the same tables as JSET v2<br/>(+535 B reader, 5-7 % slower)"]
+  F -->|yes| V2["the same tables as JSET v2<br/>(+535 B reader, 6-10 % slower)"]
   F -->|no| K["keep"]
   K --> G{"over the budget?"}
   V2 --> G
