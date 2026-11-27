@@ -1,68 +1,177 @@
 **English** | [한국어](maker-desktop.ko.md)
 
-# SVF maker desktop app
+# SVF maker desktop implementation and packaging
 
-An Electron shell (`desktop/`) around the maker server, and a build that packages it with a frozen Python sidecar as a
-Linux AppImage. Cards t_f04f1355 (shell) and t_e64a56a7 (packaging). Design: `docs/superpowers/specs/2026-11-05-maker-desktop-design.md`;
-plan: `docs/superpowers/plans/2026-11-05-maker-desktop.md`. The package is private until the owner flips the repository.
+SVF maker consists of an Electron shell, a Python HTTP server (sidecar), and a page served by that server.
+It builds a Linux x86_64 AppImage. See the [desktop app](desktop-app.md) for installation and use,
+the [maker guide](../maker/README.md) for the server and HTTP API, and the [capability audit](maker-audit.md)
+for conversion features. The [design](superpowers/specs/2026-11-05-maker-desktop-design.md) and
+[implementation plan](superpowers/plans/2026-11-05-maker-desktop.md) describe the architecture.
 
-## What it is
+## 1. Runtime structure
 
-- `desktop/main.js` spawns `svf-maker-sidecar serve --exit-with-parent=<pid>` (a PyInstaller one-dir bundle of the server
-  and every tool) with a new per-launch token and `127.0.0.1:0`, reads the port line, loads `http://127.0.0.1:<port>/`,
-  adds `X-Maker-Token` to `/api/` requests itself, gives the page `window.svfMaker` and stops the sidecar on quit.
-  Every request that is not the sidecar's own origin is cancelled, navigation and new windows are refused, no download is
-  saved, no permission is granted. No network connection is made. Nothing is updated automatically.
-- The sidecar runs each tool as `svf-maker-sidecar run-tool <name> ...` in its own session, registers it in
-  `<data root>/tools.pids`, and a start reaps what a dead run left (`maker/toolreg.py`). One server per data root
-  (`instance.lock`). The data root is `~/.config/svf-maker/maker` (`<userData>/maker`); development runs use
-  `<userData>/maker-dev`.
-- Optional pieces stay outside: the identity check runs under `SVF_RECOG_PYTHON` with `SVF_RECOG_DIR`; the mask-fit
-  libraries come from `JAMOSET_PYLIB`. The package carries `maker/*.py` and `tools/*.py` as source for that interpreter.
+| Component | Behaviour | Implementation |
+|---|---|---|
+| Electron shell | Single-instance lock, window, menus, native dialogs, sidecar lifecycle | `desktop/main.js`, `desktop/preload.js`, `desktop/lib/` |
+| Sidecar | PyInstaller one-dir bundle started with `serve --exit-with-parent=<pid>` | `maker/sidecar.py`, `maker/sidecar.spec` |
+| Tool launch | `python3 -P tools/<name>.py` in source mode; `svf-maker-sidecar run-tool <name>` when frozen | `maker/toolrun.py` |
+| Preview | C renderer compiled to WebAssembly and run in the page | `maker/build-wasm.sh`, `maker/static/svfview.js`, `c/ports/web/` |
 
-## Build (Linux)
+The shell creates a fresh 16-byte random token encoded as 32 hexadecimal characters and starts the server on
+`127.0.0.1:0`. It waits up to 75 seconds for `svf-maker listening on 127.0.0.1:<port>`.
+After 2 seconds without readiness it displays a starting page. Once the port is known it loads the loopback HTTP
+page and adds `X-Maker-Token` to `/api/` requests. The token is not passed to the page.
 
-The user-facing version of this (what to install, where the AppImage lands, the first run) is the Quick start of
-[desktop-app.md](desktop-app.md); this section is the record.
+![The starting page, "starting the maker..."](images/maker/starting.png)
 
-Prerequisites on the build host: a git checkout (the scripts read `git log` and `git describe`), emsdk (`$EMSDK`, default
-`~/opt/emsdk`; `maker/build-wasm.sh` compiles the preview module itself; emcc 6.0.13 last used; install with
-`sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`), Python 3.12.3 with pip (the wheels are cp312; `python3 -m venv`
-does not work on Ubuntu without `python3-venv`; the build uses `pip install --target` and `python3 -S`) and, for the
-system `python3` that runs the frozen tests and the development run, Pillow and fontTools (`python3-pil`,
-`python3-fonttools` from apt; apt's fontTools 4.46.0 is older than the pinned 4.66.1, see desktop-app.md), node 22.12 or
-newer (apt has 18: NodeSource or nvm) and npm 12 (22.23.4 and 12.0.2 last used), `xvfb-run` and `flock` for the release check's smoke run (without `xvfb-run` the
-`smoke` check fails and the script exits 1, but the AppImage is already in `desktop/dist/`), `~/work/tmp` (the browser lock
-file lives there), network access once for the pinned wheels, Electron and the AppImage toolset.
+*`desktop/starting.html`, shown while the sidecar is not ready after 2 seconds.*
 
-    # in the checkout root
-    cd desktop && npm ci && node node_modules/electron/install.js && cd ..   # npm 12 blocks install scripts (Electron's download)
-    bash desktop/build/build-appimage.sh [--release]                         # any directory; it changes to the root itself
+![The shell window with the native menu bar File, View, Help above the page served by the sidecar](images/maker/window.png)
 
-`npm ci` prints a warning about blocked install scripts (`electron-winstaller`'s `select-7z-arch.js`); it is harmless for a
-Linux build. `~/.local/bin/heavy` is the author's resource guard, not a requirement: the build runs without it (the author
-runs `~/.local/bin/heavy bash desktop/build/build-appimage.sh`). The AppImage is `desktop/dist/svf-maker-<version>.AppImage`.
+*The shell's window: the native menu (File, View, Help) belongs to the shell; everything below it is the sidecar's page.
+Captured under Xvfb without a window manager (section 5.2).*
 
-Versions last used (all pinned: `desktop/build/requirements.lock` with hashes, `desktop/package-lock.json`):
-PyInstaller 6.22.3, Pillow 10.2.0, fontTools 4.66.1, Electron 45.2.3, electron-builder 26.18.0.
+The page's `window.svfMaker` exposes `pickFiles()`, `pickFolder()`, `pickOutputDir()`,
+`openOutputFolder()` and `platform`. The last function takes no argument. The shell looks up the current job's
+output folder and checks it against the last 32 real paths chosen through its dialog before showing it in the file manager.
 
-Scratch: the scripts take `SVF_DESKTOP_TMP` (default `$HOME/work/tmp/svf-desktop-build`: pip download, PyInstaller work
-directory, the pruned toolset, extractions); tests take `TMP_DIR` (keep it short: under about 40 characters past `$HOME`,
-Chrome's socket path is limited to 107 bytes). Never `/tmp`. Every run that starts Chrome or Electron takes
-`flock $HOME/work/tmp/svf-browser.lock` and runs under `~/.local/bin/heavy`.
+Data lives in `maker/` under Electron's `userData`, or `maker-dev/` for development runs.
+The Linux default is `~/.config/svf-maker/`; `--user-data-dir` can override it.
+The server's `instance.lock` prevents concurrent use of one data folder.
+Each tool runs in a separate session registered in `tools.pids`. Normal shutdown stops it; after an abnormal exit,
+the next start reaps identifiable leftovers. The shell allows 45 seconds for shutdown, then 5 seconds after a forced kill.
 
-`build-appimage.sh` runs `maker/build-sidecar.sh` (the frozen test included, no skip allowed), writes `THIRD-PARTY.txt`
-(fails on an unattributed library or a GPL one), builds the AppImage and runs `desktop/build/release-check.sh`, which
-prints one `CHECK <name> ok|FAIL` line each: size, extract, size-sidecar, layout, apprun, runtime (the AppImage's runtime is static: no loader, no needed library, no `libfuse.so.2` string; `desktop/build/check-runtime.mjs`, tested by `desktop/test/check-runtime.test.js`; and `--appimage-version` exits 0 with its version line under `env -i`), desktop-entry, frozen
-(`test_frozen.py` against the extracted sidecar, 0 skipped), wasm (`cmp` with a fresh build), licences (the generator over
-the extraction), notices and sources (the bundled `THIRD-PARTY.txt` equals the regenerated one; `resources/repo/{maker,tools}/*.py` and `resources/repo/web/mkindex.py` equal the checkout by sha256: `desktop/build/verify-extraction.sh`, run through `verify-report.sh`/`run-verify.sh`, which fail closed on a non-zero exit, a missing or duplicate result line or any other output, stderr included), smoke (the extracted `AppRun` under xvfb), sources (`--release` only) and contents (a file list record in
-`desktop/build/out/release-<build id>-<AppImage sha256 prefix>.txt`, one per AppImage).
+## 2. Linux build
 
-`build-appimage.sh` and `release-check.sh` take the browser lock themselves for the smoke run (they wait for it as long as it
-takes, then allow 90 s for the Electron run): start them under `~/.local/bin/heavy`, **never under `flock`**, which would
-deadlock them.
+Follow the Quick start's [prerequisites and installation commands](desktop-app.md#0-quick-start) first.
+The requirements are a git checkout, Python 3.12 with pip, Pillow and fontTools for the system Python,
+Node.js 22.12 or newer with npm, emsdk, `xvfb-run` and `flock`.
+The pinned wheels target Linux x86_64 CPython 3.12. emsdk defaults to `~/opt/emsdk`, overridden by `$EMSDK`.
 
-### Measured (this host, Ubuntu 24.04 x86_64, glibc 2.39)
+Run from the checkout root:
+
+```sh
+mkdir -p "$HOME/work/tmp"
+cd desktop
+npm ci
+node node_modules/electron/install.js
+cd ..
+bash desktop/build/build-appimage.sh
+```
+
+Running Electron's installation script explicitly fetches the binary even when npm blocks install scripts.
+Versions are pinned in `desktop/package-lock.json` and `desktop/build/requirements.lock`.
+
+| Component | Pinned version |
+|---|---|
+| Electron | 45.2.3 |
+| electron-builder | 26.18.0 |
+| PyInstaller | 6.22.3 |
+| Pillow | 10.2.0 |
+| fontTools | 4.66.1 |
+| AppImage toolset | appimage@1.0.3 |
+
+`maker/build-sidecar.sh` builds WASM, installs hash-checked wheels with `pip --target`, runs PyInstaller,
+and performs an `env -i` self-check and frozen tests. `build-appimage.sh` does not skip the frozen tests.
+After generating notices, electron-builder creates `desktop/dist/svf-maker-0.1.0.AppImage`.
+The version comes from `desktop/package.json`.
+
+Scratch lives under `$SVF_DESKTOP_TMP` (default `$HOME/work/tmp/svf-desktop-build`).
+The build and release-check scripts acquire `$HOME/work/tmp/svf-browser.lock` themselves for the smoke test.
+Wrapping either in `flock` on that same lock deadlocks. `desktop/test/run-e2e.sh` does not acquire the lock itself;
+its caller manages the lock when running it separately. That test takes a short scratch path through `TMP_DIR`
+and forwards it as `TMPDIR`.
+
+### 2.1. Release checks
+
+`desktop/build/release-check.sh APPIMAGE [--release]` checks the following:
+
+| Check | Condition |
+|---|---|
+| `size`, `size-sidecar` | AppImage ≤ 170 MiB; sidecar `du -sm` result ≤ 60 |
+| `extract`, `layout` | Successful extraction, required resources present, no tests or caches in staged sources |
+| `apprun`, `desktop-entry` | `unshare` probe and `--no-sandbox` branch present; entry uses `AppRun` |
+| `runtime` | No ELF interpreter, dynamic dependencies or `libfuse.so.2` string; version output and exit status checked with only HOME and PATH in the environment |
+| `frozen` | Extracted sidecar passes frozen tests with no skips |
+| `wasm` | Byte-equal to a fresh WASM build |
+| `licences`, `notices`, `sources` | Licence mapping, regenerated notices and bundled Python sources verified |
+| `smoke` | Extracted `AppRun` starts under Xvfb, API responds, normal exit and process termination checked |
+| `sources` (`--release`) | LGPL corresponding-source archive gate satisfied |
+| `contents` | File inventory saved per build identifier and AppImage hash |
+
+Without `--release`, the corresponding-source gate prints `CHECK sources skipped`.
+Both source checks use the name `sources`; read their details to distinguish them.
+Any failure produces exit status 1. The smoke test allows 90 seconds for Electron after acquiring the lock.
+It tests extracted execution, so it does not also prove FUSE mounting works.
+
+## 3. AppImage runtime and sandbox
+
+`desktop/build/appimage-toolset.json` pins the SHA-256 hashes of the toolset archive, runtime and removed libraries.
+The selected runtime is type2-runtime 20251108 with statically linked FUSE 3 code.
+It does not need the host's `libfuse.so.2`, but does need `fusermount` or `fusermount3` and permission to mount.
+When mounting is unavailable, use `--appimage-extract` and run the extracted `AppRun`.
+
+`AppRun` adds `--no-sandbox` if `unshare -Ur true` fails.
+Ubuntu's user-namespace restrictions depend on system policy; the distribution name alone does not establish sandbox status.
+The shell requests `sandbox: true`, `contextIsolation: true` and `nodeIntegration: false`, but these do not enable
+Chromium's process sandbox when running with `--no-sandbox`.
+The shell log and Help > About show the detected state.
+
+![The About dialog with the line "renderer sandbox: off (--no-sandbox; user namespaces unavailable)"](images/maker/about.png)
+
+*Help > About on a host that denies user namespaces: the last line is the detected sandbox state.*
+
+The shell blocks remote requests, new windows, downloads and permission requests. The page and sidecar communicate
+over loopback HTTP. These controls do not provide operating-system network isolation for subprocesses such as an
+optional recogniser. See Electron's security guide and Ubuntu's user-namespace notes in section 7.
+
+## 4. Licences and corresponding sources
+
+`desktop/build/third-party.mjs` generates `THIRD-PARTY.txt`. Shared libraries must match
+`third-party-map.json`; sidecar libraries must match their build provenance.
+Ordinary GPL libraries are rejected. The PyInstaller bootloader is classified separately as GPL with its bootloader exception.
+LGPL components need a distribution record, and `svf/` may contain only allow-listed OFL faces.
+
+`prune-appimage-toolset.py` removes the toolset's GPL-3.0 `libindicator` and its dependent `libappindicator`.
+The app has no tray icon. Licence texts for the runtime's embedded components are in
+`desktop/build/licences/appimage-runtime.txt`.
+
+For a public release, prepare `desktop/build/out/sources/MANIFEST.json` and corresponding-source archives, then run
+`bash desktop/build/build-appimage.sh --release`. Each LGPL component requires a `source` entry whose
+`component` and `version` match the map; the AppImage runtime also requires a `recipe` entry.
+Every entry needs `archive` and `sha256`. For example:
+
+```json
+[
+  {"component": "appimage-runtime", "version": "20251108", "kind": "source", "archive": "runtime-src.tar.gz", "sha256": "<hex>"},
+  {"component": "appimage-runtime", "version": "20251108", "kind": "recipe", "archive": "runtime-recipe.txt", "sha256": "<hex>"}
+]
+```
+
+This example shows only runtime entries. Other mapped LGPL components, including Electron's ffmpeg, are also required.
+The generator must print `corresponding sources archived: YES` to pass the release source check.
+
+## 5. Automated checks and recorded runs
+
+`npm test --prefix desktop` runs Node tests for shell utilities, notice generation, extraction verification and the
+runtime checker without an Electron window. `maker/test/test_frozen.py` needs a built sidecar.
+`desktop/test/run-e2e.sh` needs Xvfb and Electron; it stubs dialogs and disables the GPU.
+Its second pass against the packaged layout needs `SVF_MAKER_SIDECAR` and `SVF_MAKER_STAGED_REPO`.
+
+`maker/test/uisample.py` defines the sample conversion's inputs and expected outputs.
+It uses four OFL fonts and synthetic Mac, HWP and BDF inputs to check 10 faces and 3 TTF/BDF exports.
+It checks the expected file tree, unchanged inputs, face validation and actual drawing, and equality between
+development and packaged results for pure-Python routes. Some outline byte differences are allowed because the
+host and pinned wheels may use different FreeType versions. TTF comparisons normalise `head` timestamps.
+`maker/test/test_uisample.py` exercises the checks in detail.
+
+A recorded run on 2026-11-22 built a 140,426,554-byte AppImage from commit `3d40de8` on Ubuntu 24.04 x86_64.
+The window and a local conversion also worked under Xvfb on a clean Ubuntu 24.04.5 host.
+These measurements do not guarantee the size or time of a current build.
+
+### 5.1. Linux host measurements (2026-11-09–24)
+
+Recorded on Ubuntu 24.04 x86_64 with glibc 2.39. The size/build run on November 22 and sample run on November 24 retain their dates and commits below; the other observations have no separate execution date. These are historical measurements, not current test counts or timing guarantees.
 
 | Item | Value |
 |---|---|
@@ -73,7 +182,157 @@ deadlock them.
 | Debian Pillow comparison | equal |
 | `sample set` e2e step | dev 12.6 s, packaged 14.9 s (17 steps: 10 faces and 3 TTF / BDF exports; 2026-11-24, commit 8c10dc1); before the exports dev 10.4 s, packaged 15.0 s (14 steps) |
 
-### Sample set (e2e, t_30b843b8)
+### 5.2. Documentation screenshots
+
+`desktop/test/doc-shots.js` takes the screenshots in [desktop-app.md](desktop-app.md) and this page and writes them to
+`docs/images/maker/`. Like the e2e driver it runs the real `main.js` with stubbed dialogs and a fresh user-data folder,
+then drives the page through three jobs:
+
+| Job | Inputs | Pictures |
+|---|---|---|
+| 1 | The `maker/test/uisample.py` sample (four OFL font folders of `ttf/`, synthetic Mac, HWP, BDF and dfont inputs) with its per-font settings | start, acknowledgement, sources, fonts table, batch and advanced settings, override panels, licence picker, running, done, previews, exports, glyph grid, jobs list, window, View menu, About |
+| 2 | Two OFL SVF files from `svf/`, the synthetic DOS raw font of `maker/test/fixtures.py`, the synthetic 86Box Trigem ROM pair of `maker/test/test_recipe.py` (drawn from `NEODG16.SVF`) and an unknown file | other kinds, DOS layout, `svf2ttf` route, 2 bpp jamo set, known ROM face |
+| 3 | `ttf/neodgm` | a refused dest, a failed step (`fit cell` with a 6 px cell) |
+
+The sidecar is started with the built-in 86Box recipe set to the synthetic pair's hashes, as `test_recipe.py` does
+in-process; no ROM or Apple data is used. The page has no language switch, so every picture shows its English labels.
+Before each capture the driver replaces the scratch and checkout paths (`/home/user/svf-shots`, `/home/user/svf-fonts`),
+the job ids (`0000000000a1`...) and the step seconds (`·.· s`) in the page, and it captures at a fixed window size
+(1200 x 800, scale factor 1) on a 1280 x 1024 Xvfb screen. At the end it reduces every PNG to 256 colours with Pillow.
+
+From the checkout root, with `desktop/node_modules` installed and `maker/static/wasm/` built (`bash maker/build-wasm.sh`):
+
+```sh
+bash desktop/test/run-doc-shots.sh
+# the same, by hand:
+xvfb-run -a -s "-screen 0 1280x1024x24" desktop/node_modules/.bin/electron --no-sandbox --disable-gpu desktop/test/doc-shots.js
+```
+
+`TMP_DIR` names the scratch folder (default `~/work/tmp/svf-doc-shots`; not under `/tmp`, which `uisample.py` refuses),
+`SHOT_DIR` another output folder. It prints `SHOT <name> <width>x<height>` per picture and
+`SHOTS DONE <n> files, <bytes> bytes`, and exits 1 if a picture failed. A run takes a few minutes.
+
+## 6. Support and remaining verification
+
+Packaging in this checkout targets Linux x86_64. Section 6.5 describes the separate Windows branch.
+
+### 6.1. glibc floor
+
+The recorded Linux package uses glibc 2.39 (Ubuntu 24.04), the build host's version, as its supported floor.
+PyInstaller bundles collected system libraries but does not ship glibc. No exact minimum required-symbol audit
+was recorded, so compatibility with older glibc is not promised. Rebuilding in an Ubuntu 22.04 (glibc 2.35)
+container to widen compatibility was a plan, not a completed build.
+
+### 6.2. Manual checks for a human on a real desktop
+
+- Open native file, folder and output-folder dialogs on a real display; check selection and cancellation. Automated tests stub them.
+- Check that **open folder** shows the selected output folder in the desktop file manager.
+- Run `./svf-maker-0.1.0.AppImage` in a session with a window manager to check FUSE mounting and window display together.
+- Run with the GPU enabled; automated checks use `--disable-gpu`.
+- On a host allowing user namespaces, verify sandboxed execution and the detected state in Help > About.
+
+### 6.3. Clean-machine start record (2026-11-20)
+
+Host `pc` ran Ubuntu 24.04.5 without `libfuse2t64` or `libfuse.so.2`; `fusermount` and `fusermount3` were present.
+There was no display and no package was installed for the test. The then-current AppImage (about 133 MB,
+zstd squashfs) was copied to `~/work/tmp/svf-clean` and run with `env -i HOME="$HOME" PATH=/usr/bin:/bin`.
+
+```text
+$ ./svf-maker-0.1.0.AppImage --appimage-version
+AppImage runtime version: https://github.com/AppImage/type2-runtime/commit/dd6cebe
+# exit 0
+$ ./svf-maker-0.1.0.AppImage
+ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY
+# exit 1
+$ ./svf-maker-0.1.0.AppImage --appimage-mount
+# squashfs mounted, including AppRun, chrome_100_percent.pak, ...
+```
+
+The old runtime's `dlopen(): error loading libfuse.so.2` failure was gone. Electron started from the mounted
+image and exited for lack of a display. This run did not verify a window.
+
+### 6.4. Xvfb window record (2026-11-22)
+
+On the same `pc` host, the AppImage from commit `3d40de8` started under Xvfb: the window rendered and a local-mode
+conversion ran through the packaged sidecar. A clean checkout of that commit built following the Quick start in
+1 minute 26 seconds with warm caches, producing a 140,426,554-byte AppImage; all `CHECK` results in that run succeeded.
+Both the extracted `AppRun` and the AppImage printed `svf-maker smoke ok SVF maker` under Xvfb.
+The development launch `node_modules/.bin/electron --no-sandbox .` from `desktop/`, also under Xvfb, logged
+`sidecar start mode=dev` and the port line. These results do not establish real window-manager or GPU behaviour.
+
+### 6.5. Windows and macOS (status on 2026-11-27)
+
+**Windows:** branch `windows-build` has an x64 NSIS installer and portable executable build.
+[GitHub Actions run 45350084767](https://github.com/TaehyunKimLL/svf-fonts-open/actions/runs/45350084767)
+succeeded on 2026-11-24 at commit `edd8a6d`. As of 2026-11-27 it has not merged into main.
+The branch's `desktop/package.json` selects `nsis` and `portable`; `.github/workflows/windows.yml` runs Windows
+suites, frozen-sidecar build, packaging, e2e and smoke checks. This success does not establish Windows support in
+current main. Earlier porting work concerning main's POSIX locks, process groups and file-link calls is retained
+in the historical records below.
+
+**macOS:** no package has been built or run. The plan was separate arm64/x86_64 PyInstaller one-dir builds and
+`dmg`/`zip` packages; universal2 would need universal wheels. The Linux cp312 wheel lock cannot be reused unchanged.
+Developer ID signing, hardened runtime/entitlements, individual sidecar binary signing, `notarytool` notarisation
+and stapling remain plans, not a verified build procedure. Process identity using `ps -o lstart=` and native
+resource forks have not been verified on macOS either.
+
+### 6.6. Other unverified items
+
+- An external recogniser's real model is unverified. Optional libraries are not bundled.
+- Bit-for-bit AppImage reproducibility is not guaranteed, and there is no automatic update.
+
+See the [C renderer](c-renderer-guide.md), [web renderer](web-renderer-guide.md) and
+[renderer design](../spec/renderer-design.md) to use the output faces.
+
+## 7. 참고 문헌 / References
+
+- Electron: security recommendations — <https://www.electronjs.org/docs/latest/tutorial/security>
+- Electron: process sandbox — <https://www.electronjs.org/docs/latest/tutorial/sandbox>
+- Ubuntu 24.04: unprivileged user-namespace restrictions — <https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890>
+- AppImage type2-runtime 20251108 — <https://github.com/AppImage/type2-runtime/releases/tag/20251108>
+- AppImage runtime licence — <https://github.com/AppImage/type2-runtime/blob/20251108/LICENSE>
+- PyInstaller bootloader exception — <https://pyinstaller.org/en/stable/license.html>
+- GNU LGPL 2.1 — <https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>
+- Windows build, 2026-11-24 — <https://github.com/TaehyunKimLL/svf-fonts-open/actions/runs/45350084767>
+
+## 8. 기록 / Records
+
+### 8.1. Earlier platform plan and verification limits (2026-11-22–24)
+
+The following is the historical record. Its Windows “not built” status is superseded by section 6.5.
+Porting/signing commands and external platform descriptions below remain the plan as recorded, not successful execution evidence.
+
+> ### Windows and macOS (UNVERIFIED)
+>
+> Nothing below was run. It is the plan a builder on those hosts follows, and what blocks it. Not built or verified.
+>
+> - **macOS.** PyInstaller one-dir builds the same spec on macOS (arm64 and x86_64 are separate builds; a universal2
+>   build needs universal wheels of Pillow and fontTools; `desktop/build/requirements.lock` pins Linux cp312 wheels only).
+>   The server already runs on macOS (POSIX), but the registry's macOS start time (`ps -o lstart=`) is untested. electron-builder
+>   target `dmg` + `zip`; `extraResources` the same; the AppImage's `--no-sandbox` question does not exist. Signing: a
+>   Developer ID Application certificate, `mac.hardenedRuntime: true`, an entitlements file allowing nothing beyond
+>   `com.apple.security.cs.allow-unsigned-executable-memory` (Chromium) - and every binary under `resources/sidecar/` must be
+>   signed too (`codesign --deep` does not reach `_internal/*.so` reliably; sign them individually with `--options runtime`),
+>   then `notarytool submit` and `stapler`. Without signing, Gatekeeper blocks the app on first run (right-click Open works).
+> - **Windows.** The **server is not Windows-ready** (`os.killpg`, `start_new_session`, `signal.SIGTERM` to a group,
+>   `os.umask(0o077)` semantics, `os.link` for the no-replace write, `fcntl` locks in the registry and the data-root lock): a
+>   port needs Job Objects (or `CREATE_NEW_PROCESS_GROUP` + `GenerateConsoleCtrlEvent`) for the group kill, `CreateProcess`
+>   flags in `run_command`/`run_bounded`, and a review of every `realpath`/inode rule of the local-mode design on NTFS. That is
+>   a card of its own; until it is done the Windows build is not attempted. Then: the same PyInstaller spec (keep
+>   `console=True` and the shell's `windowsHide`), electron-builder target `nsis` or `portable`, the Electron spawn with a Job
+>   Object, signing with a code-signing certificate.
+>
+> ### Not verified here
+>
+> Windows and macOS entirely; an AppImage start on a real desktop (window manager, GPU; the Xvfb window run above is done); a sandboxed renderer; glibc older than 2.39; `JAMOSET_PYLIB` with
+> 3.12 wheels in the frozen process and any real recogniser (the tests use a stub interpreter); native dialogs with a display;
+> the composition of the AppImage runtime beyond what its binary states (its embedded licence list and version strings: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2, libzstd 1.5.6, zlib 1.3.1; musl's own version is not embedded, so its COPYRIGHT is taken from v1.2.5);
+> `SOURCE_DATE_EPOCH` determinism of the AppImage (the sidecar is not bit-reproducible: `base_library.zip` member order
+> changes per build); a FreeType other than 2.13.2 in a future Pillow wheel; the exact URLs of the recorded sources
+> (recorded, not fetched).
+
+### 8.2. Sample-conversion verification details (2026-11-20–24)
+
 
 `desktop/test/e2e.js` has one step per pass, `sample set`, that converts a fixed sample **through the page** in local mode
 (inputs read in place, faces written into the chosen output folder), in the dev pass and in the packaged pass. The sample is
@@ -93,123 +352,3 @@ JOHA16J, KSC16, MUNJ16J); a difference in an outline face (NEODU16, NANUM17A, GO
 `KSC16.bdf` must be byte-equal and `KSC16.ttf` and `JOHA16J.ttf` equal once its `head` timestamps are set equal (svf2ttf.py stamps the time
 of the run).
 `maker/test/test_uisample.py` runs the same table through the HTTP API and proves each check fails on a mutation.
-
-## The sandbox
-
-An AppImage cannot carry Chromium's SUID sandbox helper (FUSE mounts are `nosuid`), so the only sandbox it can have is
-the user-namespace one, and Ubuntu 24.04 denies unprivileged user namespaces. electron-builder's `AppRun` probes
-`unshare -Ur true` and adds `--no-sandbox` when that fails; the AppImage's `.desktop` entry reads
-`Exec=AppRun %U` (the entry is the same with or without user namespaces; `AppRun` adds the flag by itself, see below). So on this host and on every Ubuntu 24.04-class system the renderer runs **without** a
-sandbox (the shell logs and About shows "renderer sandbox: off (--no-sandbox; user namespaces unavailable)"); on a system
-with user namespaces it would run sandboxed (not verified). The renderer only ever loads the app's own page from a
-loopback server with a strict CSP, plus files the user picked; no remote content is loaded (D7, spec section 17). A `.deb`
-with an AppArmor profile would restore the sandbox on Ubuntu 24.04: a later card (D13), not done here.
-
-## The AppImage toolset, the runtime and the tray icon
-
-**Runtime (t_ea7dcc8e).** The AppImage built with electron-builder's default (legacy `appimage-12.0.1`) toolset carries
-the old type-2 runtime, which `dlopen()`s `libfuse.so.2`: on a clean Ubuntu 24.04.5 (no `libfuse2t64`) it stopped with
-"dlopen(): error loading libfuse.so.2 ... AppImages require FUSE to run". `desktop/package.json` therefore sets
-`"toolsets": {"appimage": "1.0.3"}` (electron-builder 26.18.0's own switch): the runtime is then the static-pie
-type2 runtime of AppImage/type2-runtime **release 20251108** (`runtimes/runtime-x64`, sha256 `2fca8b44...260d`, taken from
-the electron-builder-binaries release `appimage@1.0.3`, archive `appimage-tools-runtime-20251108.tar.gz` sha256 `84021a78...7665`,
-both pinned in `desktop/build/appimage-toolset.json` and in electron-builder). It mounts through its own statically linked
-libfuse3 and needs only a `fusermount`/`fusermount3` on the machine (present on Ubuntu 24.04). Other differences of the
-newer tool path: squashfs compression is zstd (the legacy path used gzip), and the generated `.desktop` entry reads
-`Exec=AppRun %U` (the `--no-sandbox` flag is added by `AppRun` itself when `unshare -Ur true` fails, as before). The release
-check `runtime` keeps this from regressing. The runtime's sources (type2-runtime 20251108 with libfuse3 and squashfuse) are
-the D8 component `appimage-runtime` version `20251108` (LGPL component to archive: libfuse 3.15.0; recipe: the type2-runtime release). THIRD-PARTY.txt carries the texts of all six embedded components (`desktop/build/licences/appimage-runtime.txt`, each from its upstream source at the matching version, source URLs recorded) and prints the runtime's sha256 beside the toolset record.
-
-**Tray icon.** electron-builder copies six old libraries into the AppImage's `usr/lib` (appindicator3, gconf, indicator3,
-notify, Xss, Xtst). `libindicator` is **GPL-3.0**, and the packaging rule forbids GPL in the package; the legacy toolset and
-the 1.0.x ones all carry it. The build therefore points electron-builder (`APPIMAGE_TOOLS_PATH`) at a copy of the toolset
-from which `libindicator` and `libappindicator` are removed (`desktop/build/prune-appimage-toolset.py`, driven by
-`desktop/build/appimage-toolset.json`: the downloaded archive's sha256, the runtime's sha256 and the sha256 of each removed
-file are checked and printed in THIRD-PARTY.txt; no binary is stored in the repository). **Tray-icon support
-(libappindicator) is not shipped**: it cannot load without `libindicator`, and the app has no tray icon, so nothing is lost.
-The release check proves the pruned AppImage still starts (extracted `AppRun` smoke) and that no GPL library remains.
-
-## Licences and the release gate
-
-`THIRD-PARTY.txt` is generated from the bundle. Rules: every shared object in the sidecar, in Electron's directory and in
-`usr/lib` must match an entry of `desktop/build/third-party-map.json` (fail closed); the sha256 of every Electron and `usr/lib` library is printed beside it; a sidecar library must match its
-build-time provenance (`sidecar-provenance.py`, from PyInstaller's table of contents); class `gpl` is forbidden; class
-`lgpl` needs a distribution record; `svf/` may hold only OFL-listed faces. The copyleft components today: ffmpeg
-(`libffmpeg.so` of Electron, LGPL-2.1), the AppImage runtime (libfuse linked statically, LGPL-2.1) and the PyInstaller
-bootloader (GPL with the bootloader exception).
-
-**D8, a release gate (not a gate of a private build):** before the first public release the corresponding source archives
-are placed in `desktop/build/out/sources/` with a `MANIFEST.json`:
-
-    [{"component": "ffmpeg (Chromium build, in Electron)", "version": "Electron 45.2.3", "kind": "source",
-      "archive": "ffmpeg-....tar.xz", "sha256": "<hex>"},
-     {"component": "appimage-runtime", "version": "20251108", "kind": "source", "archive": "runtime-src.tar.gz", "sha256": "<hex>"},
-     {"component": "appimage-runtime", "version": "20251108", "kind": "recipe", "archive": "runtime-recipe.txt", "sha256": "<hex>"}]
-
-(one `source` entry per LGPL component whose component and version equal the map's, plus a `recipe` for the AppImage
-runtime). `build-appimage.sh --release` then fails unless the generator prints "corresponding sources archived: YES".
-
-## glibc floor
-
-The sidecar bundles the system libraries PyInstaller finds except glibc, so the package needs glibc at least the build
-host's (2.39, Ubuntu 24.04). A container build on Ubuntu 22.04 (glibc 2.35) would widen it (D9; not done).
-
-## Manual checks (a human with a real desktop)
-
-Native file and folder dialogs (the tests stub them), "open folder" in the desktop's file manager, starting the AppImage
-through FUSE with a window on a real desktop with a window manager (`./svf-maker-0.1.0.AppImage`; the mount and a window
-under Xvfb were shown on the clean host, see below), the GPU path (the tests use `--disable-gpu`), a sandboxed renderer on a host with user namespaces.
-
-## Clean-machine start (t_ea7dcc8e, 2026-11-20)
-
-Host `pc`: Ubuntu 24.04.5, no `libfuse2t64` (`libfuse.so.2` absent), `fusermount`/`fusermount3` present, no display, nothing
-installed for the test. The AppImage built from this branch (133 MB, zstd squashfs) was copied to `~/work/tmp/svf-clean` and run
-with `env -i HOME=$HOME PATH=/usr/bin:/bin`:
-
-    $ ./svf-maker-0.1.0.AppImage --appimage-version
-    AppImage runtime version: https://github.com/AppImage/type2-runtime/commit/dd6cebe          (exit 0)
-    $ ./svf-maker-0.1.0.AppImage
-    ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY          (exit 1)
-    $ ./svf-maker-0.1.0.AppImage --appimage-mount     # the squashfs is mounted: AppRun, chrome_100_percent.pak, ... listed
-
-The libfuse error is gone; the run now fails only for the missing display, after the FUSE mount (Electron started from the
-mounted image).
-
-### The window under Xvfb (t_9b9e0bd8 record, 2026-11-22)
-
-On the same host `pc` (Ubuntu 24.04.5, no `libfuse2t64`) the AppImage built from commit 3d40de8 started under Xvfb: the
-window rendered, and a conversion in local mode ran through the packaged sidecar. Not verified: a real desktop with a
-window manager and a GPU, and Windows and macOS. In this documentation task the same commit was built from a clean
-checkout following the Quick start (1 min 26 s with warm caches, every `CHECK` line ok, AppImage 140,426,554 bytes), the
-extracted `AppRun` and the AppImage itself printed the smoke line `svf-maker smoke ok SVF maker` under Xvfb, and the
-development run (`node_modules/.bin/electron --no-sandbox .` in `desktop/`, under Xvfb) logged `sidecar start mode=dev`
-and the sidecar's port line.
-
-## Windows and macOS (UNVERIFIED)
-
-Nothing below was run. It is the plan a builder on those hosts follows, and what blocks it. Not built or verified.
-
-- **macOS.** PyInstaller one-dir builds the same spec on macOS (arm64 and x86_64 are separate builds; a universal2
-  build needs universal wheels of Pillow and fontTools; `desktop/build/requirements.lock` pins Linux cp312 wheels only).
-  The server already runs on macOS (POSIX), but the registry's macOS start time (`ps -o lstart=`) is untested. electron-builder
-  target `dmg` + `zip`; `extraResources` the same; the AppImage's `--no-sandbox` question does not exist. Signing: a
-  Developer ID Application certificate, `mac.hardenedRuntime: true`, an entitlements file allowing nothing beyond
-  `com.apple.security.cs.allow-unsigned-executable-memory` (Chromium) - and every binary under `resources/sidecar/` must be
-  signed too (`codesign --deep` does not reach `_internal/*.so` reliably; sign them individually with `--options runtime`),
-  then `notarytool submit` and `stapler`. Without signing, Gatekeeper blocks the app on first run (right-click Open works).
-- **Windows.** The **server is not Windows-ready** (`os.killpg`, `start_new_session`, `signal.SIGTERM` to a group,
-  `os.umask(0o077)` semantics, `os.link` for the no-replace write, `fcntl` locks in the registry and the data-root lock): a
-  port needs Job Objects (or `CREATE_NEW_PROCESS_GROUP` + `GenerateConsoleCtrlEvent`) for the group kill, `CreateProcess`
-  flags in `run_command`/`run_bounded`, and a review of every `realpath`/inode rule of the local-mode design on NTFS. That is
-  a card of its own; until it is done the Windows build is not attempted. Then: the same PyInstaller spec (keep
-  `console=True` and the shell's `windowsHide`), electron-builder target `nsis` or `portable`, the Electron spawn with a Job
-  Object, signing with a code-signing certificate.
-
-## Not verified here
-
-Windows and macOS entirely; an AppImage start on a real desktop (window manager, GPU; the Xvfb window run above is done); a sandboxed renderer; glibc older than 2.39; `JAMOSET_PYLIB` with
-3.12 wheels in the frozen process and any real recogniser (the tests use a stub interpreter); native dialogs with a display;
-the composition of the AppImage runtime beyond what its binary states (its embedded licence list and version strings: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2, libzstd 1.5.6, zlib 1.3.1; musl's own version is not embedded, so its COPYRIGHT is taken from v1.2.5);
-`SOURCE_DATE_EPOCH` determinism of the AppImage (the sidecar is not bit-reproducible: `base_library.zip` member order
-changes per build); a FreeType other than 2.13.2 in a future Pillow wheel; the exact URLs of the recorded sources
-(recorded, not fetched).
