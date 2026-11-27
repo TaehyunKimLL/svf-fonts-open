@@ -4,18 +4,24 @@
 
 The SVF maker desktop app turns your own fonts into SVF faces on your own computer. You pick fonts (outline fonts, bitmap
 fonts, classic Mac Hangul fonts, DOS Johab fonts, existing SVF files) and an output folder; the app detects what each file
-is, offers the conversion routes that fit, runs the repository's font tools, shows every result drawn by the same C
-renderer the games use, and writes the faces into the output folder. Nothing is uploaded and nothing is sent anywhere.
+is, offers the conversion routes that fit, runs the repository's font tools, shows every result drawn by the portable C
+renderer, and writes the faces into the output folder. The desktop app reads sources locally and does not upload fonts.
 
 This page describes what the app is and how to use it. How it is built and packaged (AppImage, licences, release check) is
 in [maker-desktop.md](maker-desktop.md); the server and its HTTP API are in [../maker/README.md](../maker/README.md); the
-design is `docs/superpowers/specs/2026-11-05-maker-desktop-design.md`.
+design is [Maker desktop design](superpowers/specs/2026-11-05-maker-desktop-design.md).
+For face structure and metrics, see the [SVF specification](../spec/SVF.md),
+[jamo sets](jamo-sets.md) and [anti-aliasing](anti-aliasing.md). To use the output, see the
+[C renderer guide](c-renderer-guide.md), [web renderer guide](web-renderer-guide.md) and
+[tool reference](tools.md). The [project overview](../README.md) lists the other documents.
 
-Status: the Linux AppImage is built and tested on the author's host (Ubuntu 24.04, x86_64) and was started on a second,
-clean Ubuntu 24.04.5 host (section 13). Windows and macOS packages are **not built and not verified** (see the last
+Status: a Linux AppImage build on Ubuntu 24.04 x86_64 and an Xvfb run on a second,
+clean Ubuntu 24.04.5 host are recorded (section 13). Windows and macOS packages are **not built and not verified** (see the last
 section). The package is not signed and has no auto-update.
 
-## Quick start
+<a id="quick-start"></a>
+
+## 0. Quick start
 
 There is no download: the app is built from a git checkout of this repository, on Linux (x86_64). Windows and macOS are not
 supported yet (see section 13).
@@ -26,24 +32,21 @@ supported yet (see section 13).
 |---|---|
 | A git checkout | The build reads `git log` and `git describe`; a plain source archive does not work. |
 | Python 3.12 with pip | `python3 --version` must say 3.12 and `python3 -m pip` must work: the sidecar's pinned wheels are cp312 (3.12.3 last used). `python3-venv` is not needed. |
-| Pillow and fontTools for the system `python3` | A stock Ubuntu 24.04 has neither. The build's frozen tests and the development run (below) import the maker's own Python code with the system `python3`, and that code imports `PIL` and `fontTools` (`maker/detect.py`). The packaged app does not need them (it carries pinned wheels: Pillow 10.2.0, fontTools 4.66.1). Install them with apt (below). Nothing else is imported at start-up: numpy, torch, freetype-py, uharfbuzz and pathops are optional and only used by routes that say so. |
-| node 22 and npm | node 22.12 or newer (`desktop/package-lock.json` requires it); Ubuntu 24.04's apt has node 18, which is too old: use NodeSource or nvm. npm 12 with node 22.23.4 was used (npm 10, which node 22 bundles, was not tried). |
+| Pillow and fontTools for the system `python3` | The build's frozen tests and the development run (below) import the maker's own Python code with the system `python3`, and that code imports `PIL` and `fontTools` (`maker/detect.py`). The packaged app does not need them (it carries pinned wheels: Pillow 10.2.0, fontTools 4.66.1). Install them with apt (below). numpy, torch, freetype-py, uharfbuzz and pathops are optional; capability detection may probe for them at start-up. |
+| node 22 and npm | Node.js 22.12 or newer (required by dependencies in `desktop/package-lock.json`) and npm. npm 12 is a recorded build environment, not a required version. |
 | emsdk | The build compiles the preview module (WebAssembly) itself. It looks for `emcc` in `$EMSDK/upstream/emscripten/emcc`; `$EMSDK` defaults to `~/opt/emsdk`. Without one: `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk` (emcc 6.0.13 last used). |
 | `xvfb-run` and `flock` | The last build step starts the new AppImage once under a virtual display (a smoke check). Without `xvfb-run` that check fails and the script exits 1, but the AppImage already exists (see below); it is only unchecked. `flock` is from util-linux. |
 | Network, first build only | pip downloads the pinned wheels (hash-checked), npm and Electron download their packages, electron-builder downloads its AppImage toolset. Later builds reuse the caches. |
 | Disk | A few GB: `desktop/node_modules`, the scratch directory and `desktop/dist` (the unpacked tree is about 335 MB). |
 
-On a fresh Ubuntu 24.04 the packages are (`flock` is in util-linux, always present; `libpython3.12-dev` is not needed on a
-host that has `libpython3.12t64`, which `python3` pulls in; a host without it was not tried):
+For an Ubuntu 24.04 build host, install the following packages. Also ensure `flock` (util-linux),
+`fusermount3` (fuse3) and the Python shared library `libpython3.12t64` are available:
 
     sudo apt install git curl xz-utils python3-pip python3-pil python3-fonttools xvfb
 
-`python3-pil` is Pillow 10.2.0, the pinned version. `python3-fonttools` is 4.46.0, older than the pinned 4.66.1: the maker's
-detect, route, local-mode and end-to-end test files (`maker/test/test_detect.py`, `test_routes.py`, `test_local.py`,
-`test_e2e.py`) pass with it; the frozen test itself was not run with it (the author's host has fontTools 4.66.1
-from pip). If you want the pinned one: `python3 -m pip install --user --break-system-packages fonttools==4.66.1`. `curl`,
-`xz-utils` and `git` are what `install-toolchains.sh` needs to fetch emsdk. node 22 is installed separately (see the node
-row).
+The packaged dependencies are pinned independently in `desktop/build/requirements.lock`; system apt packages
+can have different versions. `curl`, `xz-utils` and `git` are needed by `install-toolchains.sh` to fetch emsdk.
+Install Node.js 22.12 or newer separately.
 
 **Build** (the working directory is written in front of each command; the commands are run once, in this order)
 
@@ -52,17 +55,16 @@ row).
     cd desktop && npm ci && node node_modules/electron/install.js && cd ..
     bash desktop/build/build-appimage.sh
 
-- `npm ci` prints a warning that npm 12 blocked install scripts (for instance `electron-winstaller ... select-7z-arch.js`);
-  it is harmless here, because the app is packaged for Linux only. The same blocking is why Electron's own binary is
-  fetched by `node node_modules/electron/install.js`.
-- `build-appimage.sh` changes into the checkout root by itself, so it can be started from anywhere, but all other
+- npm settings may block install scripts. Run `node node_modules/electron/install.js` explicitly
+  to ensure the Electron binary is fetched.
+- `build-appimage.sh` changes into the checkout root by itself; use its absolute path when starting elsewhere. All other
   commands here start in the checkout root. It builds the WebAssembly module, the frozen sidecar (with its tests), the
-  notices file and the AppImage, then prints one `CHECK <name> ok` line per release check. A failing check ends the script with exit
+  notices file and the AppImage, then prints `CHECK <name> ok` lines for successful checks and `CHECK sources skipped` without `--release`. A failing check ends the script with exit
   status 1.
 - The build keeps its scratch (pip downloads, PyInstaller work directory, extractions) in `$SVF_DESKTOP_TMP`, by default
   `~/work/tmp/svf-desktop-build`; set the variable to another folder if you like. Delete it when no build is running.
-- `~/.local/bin/heavy` is the author's resource guard (it limits memory and tasks on a shared host). You do not need it:
-  start the build as shown. With the caches warm it took 1.5 minutes here; a first build takes longer (downloads).
+- The build and release-check scripts acquire `$HOME/work/tmp/svf-browser.lock` for the smoke test. Do not wrap
+  either in a `flock` on that same file: it would deadlock.
 
 **Where the AppImage lands**: `desktop/dist/svf-maker-0.1.0.AppImage` (the version is `desktop/package.json`'s), about
 133 to 134 MiB (140 MB). Measure your own build; the number depends on the toolchain. Copy it anywhere; it is one
@@ -103,8 +105,7 @@ system `python3`, which must import Pillow and fontTools):
     node_modules/.bin/electron --no-sandbox .    # still in desktop/
 
 The shell finds no packaged sidecar, so it starts `python3 -P maker/server.py` from the checkout (data folder
-`~/.config/svf-maker/maker-dev`). `--no-sandbox` is for hosts that deny user namespaces (Ubuntu 24.04); leave it out
-elsewhere. Logs go to `~/.config/svf-maker/logs/shell.log` (`SVF_MAKER_SHELL_LOG=stderr` also prints them).
+`~/.config/svf-maker/maker-dev`). `--no-sandbox` is for hosts that deny user namespaces; omit it on hosts where they are available. Logs go to `~/.config/svf-maker/logs/shell.log` (`SVF_MAKER_SHELL_LOG=stderr` also prints them).
 
 **Remove it**: delete the AppImage and `~/.config/svf-maker/` (section 12).
 
@@ -125,6 +126,7 @@ Quick start (above)
 11. Messages you may see
 12. Recovery, desktop integration and uninstall
 13. Limits and what has not been verified
+14. References
 
 ## 1. What the app is made of
 
@@ -148,18 +150,18 @@ On Linux the package is one file, `svf-maker-<version>.AppImage` (about 133 to 1
 
 - The AppImage mounts itself with its own statically linked FUSE 3 code; it needs only `fusermount` or `fusermount3` on
   the machine (present on Ubuntu 24.04), not `libfuse.so.2`.
-- It needs glibc 2.39 or newer (the build host's version; nothing older is tested).
+- The recorded build used glibc 2.39; older glibc versions have not been verified. The required symbol versions depend on the libraries collected on the build host.
 - `/tmp` must allow execution: the image is mounted under `/tmp/.mount_*` (section 12).
 - A graphical session is required. Without `$DISPLAY` the app stops with Electron's "Missing X server" message.
 - The AppImage installs nothing: no menu entry, no icon theme entry. Section 12 says how to add one.
 - Only one app per user runs at a time. Starting it again focuses the existing window (and its second process quits
   before it spawns anything). Two servers can never share one data folder (`instance.lock`).
-- On systems that forbid unprivileged user namespaces (Ubuntu 24.04 does) the launcher adds `--no-sandbox`, and the
+- On systems where the launcher's user-namespace probe fails the launcher adds `--no-sandbox`, and the
   renderer runs without Chromium's sandbox (automatically; you need not pass anything); Help > About says so. See section 8.
 
-Start-up sequence, for the curious: the shell takes the single-instance lock, opens its log, starts the sidecar with a
-fresh random token and `127.0.0.1:0`, waits for the line `svf-maker listening on 127.0.0.1:<port>` (up to 75 s; a normal
-start prints it well within 2 s), opens the window and loads the page. The page asks `/api/caps` once to learn whether
+Start-up sequence: the shell takes the single-instance lock, opens its log, starts the sidecar with a
+fresh random token and `127.0.0.1:0`, waits for the line `svf-maker listening on 127.0.0.1:<port>` (up to 75 s; recorded normal
+starts printed it within 2 s), opens the window and loads the page. The page asks `/api/caps` once to learn whether
 it runs in local mode and which optional parts exist.
 
 ## 3. The window, step by step
@@ -233,7 +235,7 @@ One set of settings applies to the whole batch; a row can opt out.
 | Control | Meaning |
 |---|---|
 | dest | The sub-folder of the output's `svf/` tree the faces go to. Only these forms are accepted: `dos`, `jamo-extra`, `games/<name>` or `new/<name>`, where `<name>` is lower-case letters, digits and `-` (for example `new/my-set`). Pick one from the list, or "new..." and type `new/<name>`. A name such as `my/set` is refused. |
-| kinds | **precomposed**: one variable-width glyph per syllable (SVF v3). **jamo**: a face that carries jamo pieces and composes syllables at draw time (JSET block). Tick one or both. |
+| kinds | **precomposed**: a stored glyph for each included character (SVF v3; advance may be fixed or variable). **jamo**: a face that carries jamo pieces and composes syllables at draw time (JSET block). Tick one or both. |
 | layout | For jamo: the piece layout (for example `844`, `adaptive`, `621`, or a Mac or Hanterm layout when the source needs it). |
 | sizes | Pixel sizes to produce, such as `16, 20`. Bitmap fonts offer only the sizes they contain. |
 | bpp | 1 bit or 2 bits per pixel; tick one or both. |
@@ -278,7 +280,7 @@ tests assert, not something the app checks.)
 | Classic Mac HangulTalk 7.1 type-3 `fbit` | From a resource fork, an AppleDouble `._Name`, a MacBinary `.bin`, a JM archive or a raw `fbit` resource; needs the HTBL 1 table (`InputBackSupport` or `<Name>.htbl1`, picked as another source) and may use a Latin suitcase (FOND + NFNT). |
 | Classic Mac HangulTalk 1.0 fonts | The fork with its `fdef`; a raw 1.0 `fbit` without `fdef` is listed with what is missing. |
 | Hanterm Johab fonts | Layout `hanterm-johab` (a Johab BDF). |
-| SVF files (`.svf`) | Copied (when allowed by the route) or used as the source for a jamo fit; an SVF upload keeps its own JSET block. The `svf2ttf` route turns the SVF into a TTF and / or a BDF only (tick "also write TTF" or "BDF"). |
+| SVF files (`.svf`, v2/v3, 1 or 2 bpp) | Copied (when allowed by the route) or used as the source for a jamo fit; v3 keeps its JSET block unless a block-version change is requested; v2 is converted to v3. The `svf2ttf` route turns the SVF into a TTF and / or a BDF only (tick "also write TTF" or "BDF"). |
 | Known ROM sets (local mode) | Font ROMs recognised by their size and SHA-256 from the built-in recipes of `maker/recipes/`: the three 86Box Korean VGA cards, each a 512 KB KS C 5601 font ROM with its 32 KB VGA BIOS (Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). Pick the folder that holds both files: the font ROM is one row, "known: <card>", and the BIOS is labelled as read with it. With one file only the row says "part of <card>: also needs <file>; pick the folder" and offers nothing; a file with the right name and size but another hash is "looks like <card>, another revision" and is not converted. The faces are a 16 px precomposed face (Hangul from the ROM, English from the BIOS's 8x16 font) and, experimental, its 8x4x4 jamo fit ([recipes.md](recipes.md#korean-vga-font-roms-86box)). Four MAME sets the same way (pick the unpacked set's folder; a zip is not read): Samsung SPC-1500 (`ss150fnt.bin` .. `ss153fnt.bin`: a precomposed face and an exact jamo set, route `spec`), Date Quiz Go Go (`uor1` .. `uor4`), X Se Dae Quiz (`obj-1.u0811`, `obj-2.u082`: a jamo set, route `dos raw`) and Quiz King of Fighters (Korea) (`vic-080-c1.c1` .. `c4.c4`) ([recipes.md](recipes.md#korean-font-roms-in-mame-sets)). An upload job only labels them. |
 
 No proprietary font, bitmap or table is distributed with the app. The tests use synthetic inputs.
@@ -289,31 +291,32 @@ licence you choose in the face's note; it never decides on its own that a font i
 ## 5. Routes and presets
 
 For each font the maker offers the routes that fit its kind. A route is a fixed sequence of the repository's tools. The
-routes marked (experimental) are usable only when the font's **experimental** box is ticked; the rest are native.
+routes marked (experimental) are usable only when the font's **experimental** box is ticked; the rest are native. Native classifies the route; it does not promise lossless preservation of the entire source.
 
 | Kind | Routes |
 |---|---|
-| precomposed | `mkfont` (outline or ISO 10646 bitmap to SVF); `johab844` (DOS raw, 16 px); `bdfface` (KS C 5601 BDF plus a Latin companion, or a known ROM set's carved Hangul and English); `mac fbit 7.1 bdf + mkfont`; `copy` (an SVF as is); `svf2ttf` (an SVF written as its TTF / BDF only) |
-| jamo | `spec` (a known set's exact jamo set: SPC-1500); `composite` (a composite-glyph outline font); `experimental fit` (outline fonts; 1 or 2 bpp, slow, quality-bound; experimental); `mask fit` (1 bpp, experimental; needs `freetype-py`, `uharfbuzz` and a mask font with OpenType jamo substitution, see section 9); `vector fit` (experimental; takes minutes per font); `dos raw`; `hanterm`; `mac fbit 1.0`; `mac fbit 7.1 direct` (native) and `derived` (experimental); `bdfface + from-svf fit` and `from-svf fit` (experimental); `copy` (an SVF that already has jamo pieces); `svf2ttf` (a jamo SVF written as its TTF / BDF only) |
+| precomposed | `mkfont` (outline or ISO 10646 bitmap to SVF); `johab844` (DOS raw, 16 px); `bdfface` (KS C 5601 BDF plus a Latin companion, or a known ROM set's carved Hangul and English); `mac fbit 7.1 bdf + mkfont`; `hwp bdf + mkfont` (HWP/KS raw); `copy` (copy v3 or convert v2 to v3); `svf2ttf` (an SVF written as its TTF / BDF only) |
+| jamo | `spec` (a known set's exact jamo set: SPC-1500); `composite` (a composite-glyph outline font); `experimental fit` (outline fonts; 1 or 2 bpp, slow, quality-bound; experimental); `mask fit` (1 bpp, experimental; needs `freetype-py`, `uharfbuzz` and a mask font with OpenType jamo substitution, see section 9); `vector fit` (experimental; takes minutes per font); `dos raw`; `hanterm`; `hwp1`; `hwp3 844` (16 px); `hwp bdf + from-svf fit` (experimental); `mac fbit 1.0`; `mac fbit 7.1 direct` (native) and `derived` (experimental); `bdfface + from-svf fit` and `from-svf fit` (experimental); `copy` (an SVF that already has jamo pieces); `svf2ttf` (a jamo SVF written as its TTF / BDF only) |
 
 Presets are named starting points. The advanced panel overrides them.
 
 | Preset | Recipe | Reproduces |
 |---|---|---|
 | `plain` | the tools' defaults | |
-| `dos-l-1bpp` | cell 16, 1 bpp, ASCII + KS X 1001 without hanja + 8 extras | `svf/dos/NEODG16.SVF` (one glyph fewer than the shipped file) |
+| `dos-l-1bpp` | cell 16, 1 bpp, ASCII + KS X 1001 without hanja + 7 extras | `svf/dos/NEODG16.SVF` (one glyph fewer than the shipped file) |
 | `dos-u-2bpp` | cell 16, 2 bpp, clip cell, ascent size-2 | `svf/dos/GBATB17.SVF` (byte-identical at size 17), `NGOTB16.SVF` (one glyph fewer) |
 | `latin-18cell-2bpp` | cell 18, width 18, 2 bpp, listed characters only | `svf/dos/PAPLG16.SVF` |
 | `jamo-844`, `jamo-844-symbols`, `jamo-844-hbios24`, `jamo-621` | jamo layouts from DOS raw fonts | the layouts named in `maker/presets.py` |
 
 ## 6. What a run writes
 
-Inside the output folder, and nothing else:
+Conversion results are written under the output folder as follows. Job metadata, shell state and logs are
+kept separately in the app data folder (section 9).
 
     <output>/
       svf/<dest>/<NAME>.SVF          the face
       svf/<dest>/<NAME>.ttf, .bdf    its TTF / BDF, when "also write" asks for them (the svf2ttf route: these only)
-      svf/<dest>/<NAME>.TXT          its note (how it was made, the licence you chose or "not checked")
+      svf/<dest>/<NOTE>.TXT          its note (how it was made, the licence you chose or "not checked")
       svf/<dest>/<licence file>      when a licence text was chosen
       build-<id>/
         BUILD.md                     what was converted, with which commands
@@ -331,7 +334,7 @@ Inside the output folder, and nothing else:
   hand would; choose its licence file in the row). A file a licence names that you did not pick, or a link out of the
   folder you picked, is never read. It is listed in `BUILD.md`
   (its `svf2ttf.py` command and a "written" line) but has no row in the `.lines` files and is not named in the face's
-  note: those describe SVF faces. Its timestamps are now, or `SOURCE_DATE_EPOCH` when the app was started with it set.
+  note: those describe SVF faces. TTF timestamps use the current time in desktop mode: the shell does not forward `SOURCE_DATE_EPOCH`. A server started directly or `svf2ttf.py` run directly can use that variable.
 - The `.lines` files are fragments that you merge into the repository's tables by hand (the repository's
   `web/mkindex.py --check` accepts the merged result).
 - The page draws every written face with the renderer so you can look at it. The repository's own checks of a face
@@ -351,9 +354,10 @@ folder"). It stores no token and no input path.
 
 ## 8. Privacy and security
 
-- **No network.** The page's Content-Security-Policy allows only its own origin; the shell cancels every request that is not
-  to the sidecar (new windows, navigation, downloads, device and permission requests are all refused); the maker's own code
-  imports no network library. There is no telemetry, no crash upload and no update check.
+- **Local communication.** The page talks to the sidecar over loopback HTTP. The CSP restricts connections to
+  the page's origin, and the shell blocks remote requests, new windows, downloads and permission requests. There
+  is no telemetry, crash upload or update check. Optional interpreters and recogniser code run as subprocesses;
+  these controls do not provide operating-system network isolation for those subprocesses.
 - **Token.** The sidecar is started with a new random token on every launch. The shell adds it as `X-Maker-Token` to the
   page's `/api/` requests; the page itself never sees it. Every request must also carry this server's `Host`; the server
   binds to loopback only and refuses anything else.
@@ -361,15 +365,17 @@ folder"). It stores no token and no input path.
   `openOutputFolder()` (and the read-only `platform`). The shell answers only a frame of the maker's own origin. Paths are
   absolute; a cancelled dialog returns an empty list or `null`.
 - **Files.** Fonts are read in place and never modified. Output is written only under the folder you chose.
-- **Sandbox.** The page runs with context isolation, no Node integration and a sandboxed preload. Chromium's own process
+- **Sandbox.** The page runs with context isolation and no Node integration. It requests a sandboxed preload, but Chromium's process
   sandbox is **off** where the system denies user namespaces (an AppImage cannot carry the SUID helper); the renderer then
   loads only the app's own page from loopback.
-- **Processes.** Each tool runs in its own session and is recorded in `tools.pids`; quitting the app, or a crash, leaves
-  no tool running (the next start reaps leftovers).
-- **Third-party code.** `THIRD-PARTY.txt` lists every bundled library with its licence; a build fails on an unattributed
-  or GPL library.
+- **Processes.** Each tool runs in its own session and is recorded in `tools.pids`; normal shutdown stops the tools. A crash can leave
+  processes behind; the next start checks the registry and reaps identifiable leftovers.
+- **Third-party code.** `THIRD-PARTY.txt` lists every bundled library with its licence; a build fails on an unmapped
+  or ordinary GPL library. The PyInstaller bootloader is classified separately under its GPL bootloader exception.
 
 ## 9. Where files live, logs, and environment variables
+
+These are the default Linux `userData` paths; Electron's `--user-data-dir` option can override the base folder.
 
 | What | Where |
 |---|---|
@@ -386,7 +392,7 @@ Optional environment variables (set them before starting the app):
 | `JAMOSET_MASK_FONT` | The font file with OpenType jamo substitution (`ljmo`, `vjmo`, `tjmo`) that `mask fit` uses to confine the pieces. Without it the tool looks for NotoSansKR beside the ScummVM tree, which a packaged app does not have, so set it when you use `mask fit`. |
 | `SVF_MAKER_ROOTS` | Colon-separated absolute folders. Every source **and the output folder** must be inside one of them (a path outside is refused with "outside SVF_MAKER_ROOTS"). Example with separate roots: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. Unset: no restriction beyond the rules in section 3.2. |
 | `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | An interpreter (absolute path, with numpy, torch, PIL, fontTools) and a folder with your own `recog.py` for the piece identity check. Scoring only; nothing is shipped. Without them the page says the check is unavailable. |
-| `SVF_MAKER_DEV=1` | Development mode: run `python3 maker/server.py` from a checkout instead of the frozen sidecar. `SVF_MAKER_DEV_REPO` names the checkout. |
+| `SVF_MAKER_DEV=1` | Development mode: run `python3 -P maker/server.py` from a checkout instead of the frozen sidecar. `SVF_MAKER_DEV_REPO` names the checkout. |
 | `SVF_MAKER_DEVTOOLS=1` | Enables the developer tools and a View > Toggle DevTools item. |
 | `SVF_MAKER_SHELL_LOG=stderr` | The shell log also goes to standard error. |
 | `SVF_MAKER_SMOKE=1` | Start, check `/api/caps`, print one line and quit (used by the release check). |
@@ -395,9 +401,9 @@ Optional environment variables (set them before starting the app):
 
 - **The server fails to start** (error dialog, then the app quits): the dialog shows the last lines of the server's
   output. If another maker is still shutting down, wait a moment and start again.
-- **The server stops while the app runs**: a dialog offers Restart or Quit. Restarts are limited; too many in a short time
+- **The server stops while the app runs**: a dialog offers Restart or Quit. At most three restarts are allowed in five minutes; reaching the limit
   ends the app.
-- **The window crashes**: the app reloads the same page once; a second crash shows a message and quits.
+- **The window crashes**: the app reloads the same page. If it crashes again before a successful page load, a message is shown and the app quits.
 - **Quitting**: the shell asks the sidecar to stop (up to 45 s), cancels the running job and kills its tool processes. A
   job that was queued or running at that moment is marked failed (`interrupted`), because its working files go with the
   process; faces already written in the output folder remain.
@@ -490,7 +496,7 @@ Inside the image, `Exec=AppRun %U` is the entry and `AppRun` adds `--no-sandbox`
 
 **Uninstall.** Delete the AppImage file. The app's data is under `~/.config/svf-maker/`: the jobs and work files
 (`maker/`, `maker-dev/`), `shell-state.json`, `logs/shell.log`, and Chromium's own profile data (cache, local storage and
-so on) that the Electron shell keeps in the same folder. Delete `~/.config/svf-maker/` as well to remove every trace.
+so on) that the Electron shell keeps in the same folder. Delete `~/.config/svf-maker/` as well to remove the app data stored there.
 The faces already written in your output folders are yours and stay.
 
 ## 13. Limits and what has not been verified
@@ -505,11 +511,21 @@ The faces already written in your output folders are yours and stay.
   jamo set. Whether a program draws a TTF's 2 bpp strike as levels is up to its renderer (Windows and macOS not tested).
 - Known ROM sets: checked against the real files only where `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME` names your own
   copy (every face the size recipes.md records); the tests use synthetic ROMs drawn from an OFL face.
-- The `mask fit` route has never run a job on the author's host (the libraries are not installed there); the identity
-  check has only been tested with a stub; `vector fit` takes minutes per font.
+- The mask-fit command-line recipe has a recorded run (see [recipes](recipes.md)); an end-to-end maker
+  `mask fit` run is not established by that record. The identity check has only been tested with a stub;
+  `vector fit` can take minutes per font.
 - Not verified, pending manual checks on a real desktop: native dialogs with a display, the file manager integration,
   starting through a real FUSE mount with a window manager, the GPU path and a sandboxed renderer. What has been run is the
   Xvfb start above; the automated tests stub the dialogs and run with the GPU off.
 - Real Mac, HWP and Johab files are tested only where an environment variable points at your own copy; the repository's
   tests use synthetic inputs.
 - The AppImage is not bit-reproducible, and there is no automatic update; a new version is a new file.
+
+## 14. 참고 문헌 / References
+
+- Electron security — <https://www.electronjs.org/docs/latest/tutorial/security>
+- Electron sandbox — <https://www.electronjs.org/docs/latest/tutorial/sandbox>
+- Ubuntu 24.04 release notes — <https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890>
+- AppImage runtime — <https://github.com/AppImage/type2-runtime/releases/tag/20251108>
+- Desktop Entry Specification — <https://specifications.freedesktop.org/desktop-entry-spec/latest/>
+- OpenType Hangul shaping — <https://learn.microsoft.com/en-us/typography/script-development/hangul>
