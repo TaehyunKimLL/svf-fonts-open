@@ -16,14 +16,13 @@ SVF maker 데스크톱 앱은 사용자가 가진 폰트를 자신의 컴퓨터�
 다른 문서는 [프로젝트 개요](../README.ko.md)에 나열되어 있다.
 
 상태: Linux AppImage의 Ubuntu 24.04 x86_64 빌드와 두 번째 깨끗한 Ubuntu 24.04.5
-호스트의 Xvfb 실행이 기록되어 있다(13절). Windows와 macOS 패키지는 **빌드되지 않았고 검증되지 않았다**(마지막 절 참조). 패키지는 서명되지 않았고 자동 업데이트가 없다.
+호스트의 Xvfb 실행이 기록되어 있다(13절). Windows NSIS·portable 빌드는 별도 `windows-build` 브랜치에서 Actions를 통과했으며 main에는 아직 병합되지 않았다. macOS 패키지는 빌드하지 않았다(13절). 패키지는 서명되지 않았고 자동 업데이트가 없다.
 
 <a id="빠른-시작"></a>
 
 ## 0. 빠른 시작
 
-내려받을 파일은 없다. 앱은 이 저장소의 git 체크아웃에서 Linux(x86_64)용으로 빌드한다. Windows와 macOS는 아직 지원하지
-않는다(13절 참조).
+내려받을 파일은 없다. 앱은 이 저장소의 git 체크아웃에서 Linux(x86_64)용으로 빌드한다. 현재 main의 빌드는 Linux용이며, 별도 Windows 브랜치 상태는 13절을 참고한다.
 
 **필요한 것**
 
@@ -477,10 +476,8 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 ## 13. 한계와 검증되지 않은 것
 
 - 2026-11-22에 검증함: 커밋 3d40de8로 빌드한 AppImage가 깨끗한 호스트(Ubuntu 24.04.5, `libfuse2` 없음)에서 Xvfb 아래에서 시작되었고,
-  창이 그려졌으며 로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 아직 검증하지 않음: 창 관리자와 GPU가 있는 실제 데스크톱,
-  Windows와 macOS.
-- Windows와 macOS: 빌드하지도 실행하지도 않았다. 서버는 Windows에 대응하지 않는다(프로세스 그룹, 잠금, 파일 링크 호출이
-  POSIX이다). macOS 계획(서명, notarisation)은 [maker-desktop.ko.md](maker-desktop.ko.md)에 적혀 있다.
+  창이 그려졌으며 로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 당시 미검증 범위는 창 관리자와 GPU가 있는 실제 데스크톱 및 Windows·macOS였다. Windows의 이후 상태는 다음 항목을 참고한다.
+- Windows NSIS·portable 빌드는 `windows-build` 브랜치에서 Actions를 통과했으며 main에는 아직 병합되지 않았다. macOS는 빌드하지 않았다. [플랫폼 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 참고한다.
 - TTF / BDF 내보내기: 각 파일을 다시 읽어(TTF는 fontTools로) 페이스의 문자를 정확히 담았는지 확인한다. 왕복 검사(TTF를
   `mkfont.py`로 다시 구워 비교하는 것, recipes.ko.md)는 실행에 포함되지 않는다. 자모 세트에서는 수 분이 걸린다. 프로그램이 TTF의 2 bpp
   strike를 단계로 그리는지는 그 렌더러에 달렸다(Windows와 macOS는 테스트하지 않음).
@@ -501,5 +498,5 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 - Electron sandbox — <https://www.electronjs.org/docs/latest/tutorial/sandbox>
 - Ubuntu 24.04 release notes — <https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890>
 - AppImage runtime — <https://github.com/AppImage/type2-runtime/releases/tag/20251108>
-- Desktop Entry Specification — <https://specifications.freedesktop.org/desktop-entry-spec/latest/>
+- Desktop Entry Specification — <https://specifications.freedesktop.org/desktop-entry/latest/>
 - OpenType Hangul shaping — <https://learn.microsoft.com/en-us/typography/script-development/hangul>

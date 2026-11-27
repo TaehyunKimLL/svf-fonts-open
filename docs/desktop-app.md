@@ -16,15 +16,13 @@ For face structure and metrics, see the [SVF specification](../spec/SVF.md),
 [tool reference](tools.md). The [project overview](../README.md) lists the other documents.
 
 Status: a Linux AppImage build on Ubuntu 24.04 x86_64 and an Xvfb run on a second,
-clean Ubuntu 24.04.5 host are recorded (section 13). Windows and macOS packages are **not built and not verified** (see the last
-section). The package is not signed and has no auto-update.
+clean Ubuntu 24.04.5 host are recorded (section 13). Windows NSIS/portable builds passed Actions on the separate `windows-build` branch, not yet merged into main. macOS packages have not been built (section 13). The package is not signed and has no auto-update.
 
 <a id="quick-start"></a>
 
 ## 0. Quick start
 
-There is no download: the app is built from a git checkout of this repository, on Linux (x86_64). Windows and macOS are not
-supported yet (see section 13).
+There is no download: the app is built from a git checkout of this repository, on Linux (x86_64). The current main build targets Linux; see section 13 for the separate Windows branch.
 
 **You need**
 
@@ -502,10 +500,8 @@ The faces already written in your output folders are yours and stay.
 ## 13. Limits and what has not been verified
 
 - Verified on 2026-11-22: the AppImage built from commit 3d40de8 was started on a clean host (Ubuntu 24.04.5, no
-  `libfuse2`) under Xvfb; the window rendered and a conversion in local mode ran through the packaged sidecar. Still
-  not verified: a real desktop with a window manager and a GPU, and Windows and macOS.
-- Windows and macOS: not built, not run. The server is not Windows-ready (process-group, lock and file-link calls are
-  POSIX). The macOS plan (signing, notarisation) is written in [maker-desktop.md](maker-desktop.md).
+  `libfuse2`) under Xvfb; the window rendered and a conversion in local mode ran through the packaged sidecar. Unverified in that run: a real desktop with a window manager and GPU, and Windows/macOS. The next item gives the later Windows status.
+- Windows NSIS/portable builds passed Actions on `windows-build`, not yet merged into main. macOS has not been built. See [platform status](maker-desktop.md#65-windows-and-macos-status-on-2026-11-27).
 - TTF / BDF export: each file is read back (fontTools for a TTF) and must hold exactly the face's characters; the
   round trip (baking the TTF back with `mkfont.py` and comparing, recipes.md) is not part of a run, it takes minutes for a
   jamo set. Whether a program draws a TTF's 2 bpp strike as levels is up to its renderer (Windows and macOS not tested).
@@ -527,5 +523,5 @@ The faces already written in your output folders are yours and stay.
 - Electron sandbox — <https://www.electronjs.org/docs/latest/tutorial/sandbox>
 - Ubuntu 24.04 release notes — <https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890>
 - AppImage runtime — <https://github.com/AppImage/type2-runtime/releases/tag/20251108>
-- Desktop Entry Specification — <https://specifications.freedesktop.org/desktop-entry-spec/latest/>
+- Desktop Entry Specification — <https://specifications.freedesktop.org/desktop-entry/latest/>
 - OpenType Hangul shaping — <https://learn.microsoft.com/en-us/typography/script-development/hangul>

@@ -154,14 +154,84 @@ TTF 비교는 `head` 타임스탬프를 맞춘다. 자세한 검증은 `maker/te
 140,426,554바이트였으며, 깨끗한 Ubuntu 24.04.5 호스트에서도 Xvfb 아래 창과 로컬 변환이 동작했다.
 이 값은 현재 빌드의 크기나 실행 시간을 보장하지 않는다.
 
+### 5.1. Linux 호스트 측정 기록 (2026-11-09~24)
+
+Ubuntu 24.04 x86_64, glibc 2.39 호스트에서 기록한 값이다. 11-22 크기·빌드 시간과 11-24 샘플 실행은 아래에 날짜와 커밋을 명시했다. 나머지는 해당 기간의 기록이며 개별 실행일은 남아 있지 않다. 현재 테스트 개수·시간의 기준으로 사용하지 않는다.
+
+| 항목 | 값 |
+|---|---|
+| 사이드카 one-dir | 47 MB; 빌드 8-9 초(동결 테스트 포함 약 30 초); 시작 후 포트 줄까지 2 초 훨씬 미만 |
+| AppImage | 140 MB (133.9 MiB, 커밋 3d40de8, 2026-11-22. 정적 runtime과 zstd 이전에는 149.7 MB); `linux-unpacked` 335 MB; electron-builder 약 50 초; 캐시가 따뜻할 때 스크립트 전체 1분 26초 |
+| 동결 테스트 | 테스트 28개, 건너뜀 0: `env -i`에서 고정된 wheel과 바이트 단위로 같음(svf2ttf와 rawcarve도), 번들된 레시피 7개, 동결된 작업과 노트가 소스 모드와 같음 |
+| Electron 태스크 수 (xvfb 아래 `--no-sandbox --disable-gpu`) | 인스턴스 하나 87, 두 번째 인스턴스 경우 114 (계획 단계 측정, GPU 포함 143과 170); 수명 주기 테스트의 최대값은 79-80 |
+| Debian Pillow 비교 | 같음 |
+| `sample set` e2e 단계 | dev 12.6 초, 패키지 14.9 초 (17단계: 페이스 10개와 TTF / BDF 내보내기 3개; 2026-11-24, 커밋 8c10dc1); 내보내기 이전 dev 10.4 초, 패키지 15.0 초 (14단계) |
+
 ## 6. 지원 범위와 남은 검증
 
-- Linux x86_64 빌드를 제공한다. Windows와 macOS 패키지는 빌드·실행하지 않았다.
-- Windows 이식에는 `fcntl`, 프로세스 그룹 종료, 파일 잠금·링크 및 경로 검증을 바꾸거나 확인해야 한다.
-  macOS도 별도 wheel·서명·공증과 프로세스 식별 검증이 필요하다. 현재의 Linux wheel 잠금을 그대로 쓸 수 없다.
-- 기록된 빌드 호스트의 glibc는 2.39이다. 오래된 glibc와의 호환성은 검증하지 않았으며,
-  실제 요구 심벌 버전은 수집한 바이너리에 따라 달라진다.
-- 실제 창 관리자·GPU, 네이티브 대화상자, 파일 관리자 연동, 샌드박스된 렌더러는 별도 수동 검증이 필요하다.
+현재 체크아웃의 패키징은 Linux x86_64를 대상으로 한다. Windows의 별도 브랜치 상태는 6.5절을 참고한다.
+
+### 6.1. glibc 하한
+
+기록된 Linux 패키지의 지원 하한은 빌드 호스트와 같은 glibc 2.39(Ubuntu 24.04)로 잡았다.
+PyInstaller는 수집한 시스템 라이브러리를 담지만 glibc를 함께 배포하지 않는다. 정확한 최소 심벌 버전을
+산출한 기록은 없으므로 2.39보다 오래된 시스템에서 동작한다고 보장하지 않는다.
+Ubuntu 22.04(glibc 2.35) 컨테이너에서 다시 빌드하여 지원 범위를 넓히는 방안은 당시 계획이며 실행하지 않았다.
+
+### 6.2. 사람이 실제 데스크톱에서 확인할 항목
+
+- 실제 화면에서 네이티브 파일·폴더·출력 폴더 대화상자를 열고 취소와 선택을 확인한다. 자동 테스트는 이를 스텁으로 바꾼다.
+- **open folder**가 선택한 출력 폴더를 파일 관리자에 표시하는지 확인한다.
+- 창 관리자가 있는 세션에서 `./svf-maker-0.1.0.AppImage`로 FUSE 마운트와 창 표시를 함께 확인한다.
+- GPU를 끄지 않은 실행을 확인한다. 자동 검사는 `--disable-gpu`를 사용한다.
+- 사용자 네임스페이스가 허용된 호스트에서 샌드박스 실행과 Help > About의 감지 결과를 확인한다.
+
+### 6.3. 깨끗한 머신 시작 기록 (2026-11-20)
+
+호스트 `pc`는 Ubuntu 24.04.5이며 `libfuse2t64`와 `libfuse.so.2`가 없고,
+`fusermount`·`fusermount3`는 있었다. 디스플레이는 없었으며 검사를 위해 추가 패키지를 설치하지 않았다.
+당시 AppImage(약 133 MB, zstd squashfs)를 `~/work/tmp/svf-clean`에 복사하여
+`env -i HOME="$HOME" PATH=/usr/bin:/bin` 환경에서 실행했다.
+
+```text
+$ ./svf-maker-0.1.0.AppImage --appimage-version
+AppImage runtime version: https://github.com/AppImage/type2-runtime/commit/dd6cebe
+# exit 0
+$ ./svf-maker-0.1.0.AppImage
+ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY
+# exit 1
+$ ./svf-maker-0.1.0.AppImage --appimage-mount
+# AppRun, chrome_100_percent.pak 등을 포함한 squashfs 마운트 확인
+```
+
+이전 런타임의 `dlopen(): error loading libfuse.so.2` 오류는 사라졌고,
+마운트된 이미지에서 Electron이 시작하여 디스플레이 부재로 종료했다. 창 표시는 이 실행에서 검증하지 않았다.
+
+### 6.4. Xvfb 창 실행 기록 (2026-11-22)
+
+같은 `pc` 호스트에서 커밋 `3d40de8`의 AppImage를 Xvfb 아래 시작했다. 창이 그려졌고 로컬 모드 변환이
+패키지된 사이드카를 통해 실행되었다. 같은 커밋의 깨끗한 체크아웃에서 빠른 시작대로 빌드한 기록은
+따뜻한 캐시에서 1분 26초, AppImage 140,426,554바이트이며 당시 모든 `CHECK`가 성공했다.
+추출한 `AppRun`과 AppImage 자체가 Xvfb 아래 `svf-maker smoke ok SVF maker`를 출력했다.
+`desktop/`의 개발 실행 `node_modules/.bin/electron --no-sandbox .`도 Xvfb에서
+`sidecar start mode=dev`와 포트 줄을 기록했다. 실제 창 관리자와 GPU의 검증으로 확대 해석하지 않는다.
+
+### 6.5. Windows와 macOS (2026-11-27 상태)
+
+**Windows:** `windows-build` 브랜치에 x64 NSIS 설치 프로그램과 portable 실행 파일 빌드가 있다.
+[GitHub Actions 실행 45350084767](https://github.com/TaehyunKimLL/svf-fonts-open/actions/runs/45350084767)은
+2026-11-24 커밋 `edd8a6d`에서 성공했다. 2026-11-27 현재 main에 병합되지 않았다.
+브랜치의 `desktop/package.json`은 `nsis`·`portable` 타깃을 지정하며 `.github/workflows/windows.yml`은
+Windows 테스트, 동결 사이드카, 패키징·e2e·스모크 검사를 실행한다. 이 성공을 현재 main의 Windows 지원으로 해석하면 안 된다.
+main의 POSIX 잠금·프로세스 그룹·파일 링크 호출에 관한 이전 이식 과제는 아래의 과거 기록에 남아 있다.
+
+**macOS:** 패키지는 아직 빌드하거나 실행하지 않았다. 당시 계획은 arm64·x86_64별 PyInstaller one-dir와
+`dmg`·`zip` 패키지였으며 universal2에는 범용 wheel이 필요하다. 현재 Linux cp312 wheel 잠금은 그대로 쓸 수 없다.
+Developer ID 서명, hardened runtime·entitlements, 사이드카의 개별 바이너리 서명, `notarytool` 공증·stapling은
+계획이며 검증된 빌드 절차가 아니다. `ps -o lstart=` 기반 프로세스 식별과 실제 리소스 포크도 macOS에서 검증하지 않았다.
+
+### 6.6. 나머지 미검증 항목
+
 - 외부 인식기의 실제 모델은 검증되지 않았다. 선택적 라이브러리는 번들에 포함하지 않는다.
 - AppImage의 비트 단위 재현성은 보장하지 않으며 자동 업데이트는 없다.
 
@@ -177,3 +247,58 @@ TTF 비교는 `head` 타임스탬프를 맞춘다. 자세한 검증은 `maker/te
 - AppImage 런타임 라이선스 — <https://github.com/AppImage/type2-runtime/blob/20251108/LICENSE>
 - PyInstaller 부트로더 예외 — <https://pyinstaller.org/en/stable/license.html>
 - GNU LGPL 2.1 — <https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html>
+- Windows build, 2026-11-24 — <https://github.com/TaehyunKimLL/svf-fonts-open/actions/runs/45350084767>
+
+## 8. 기록 / Records
+
+### 8.1. 이전 플랫폼 계획과 미검증 범위 (2026-11-22~24)
+
+다음은 당시 기록이다. Windows의 “미빌드” 상태는 6.5절의 2026-11-27 상태로 대체되었다.
+아래의 이식·서명 명령과 외부 동작 설명은 당시 계획 그대로이며 실행 성공을 뜻하지 않는다.
+
+> ### Windows와 macOS (UNVERIFIED)
+>
+> 아래의 어느 것도 실행하지 않았다. 이 호스트들의 빌더가 따를 계획과 그것을 막는 것이다. 빌드도 검증도 하지 않았다.
+>
+> - **macOS.** PyInstaller one-dir은 macOS에서 같은 spec을 빌드한다(arm64와 x86_64는 별개의 빌드이고, universal2 빌드에는 Pillow와
+>   fontTools의 universal wheel이 필요하다. `desktop/build/requirements.lock`은 Linux cp312 wheel만 고정한다). 서버는 이미 macOS
+>   (POSIX)에서 동작하지만, 레지스트리의 macOS 시작 시각(`ps -o lstart=`)은 테스트하지 않았다. electron-builder 대상은 `dmg` + `zip`이고,
+>   `extraResources`는 같으며, AppImage의 `--no-sandbox` 문제는 없다. 서명: Developer ID Application 인증서, `mac.hardenedRuntime:
+>   true`, `com.apple.security.cs.allow-unsigned-executable-memory`(Chromium) 외에는 아무것도 허용하지 않는 entitlements 파일 - 그리고
+>   `resources/sidecar/` 아래의 모든 바이너리도 서명해야 한다(`codesign --deep`은 `_internal/*.so`에 확실히 닿지 않는다. 각각
+>   `--options runtime`으로 개별 서명한다). 그다음 `notarytool submit`과 `stapler`. 서명하지 않으면 Gatekeeper가 첫 실행에서 앱을
+>   막는다(오른쪽 클릭으로 열기는 된다).
+> - **Windows.** **서버는 Windows용이 아니다**(`os.killpg`, `start_new_session`, 그룹에 대한 `signal.SIGTERM`, `os.umask(0o077)`의
+>   의미, 덮어쓰기 없는 쓰기를 위한 `os.link`, 레지스트리와 데이터 루트 락의 `fcntl` 락). 포팅에는 그룹 kill을 위한 Job Objects(또는
+>   `CREATE_NEW_PROCESS_GROUP` + `GenerateConsoleCtrlEvent`), `run_command`/`run_bounded`의 `CreateProcess` 플래그, NTFS에서 로컬 모드
+>   설계의 모든 `realpath`/inode 규칙에 대한 검토가 필요하다. 이는 별도의 카드이며, 이것이 끝나기 전에는 Windows 빌드를 시도하지
+>   않는다. 그다음: 같은 PyInstaller spec(`console=True`와 셸의 `windowsHide`를 유지), electron-builder 대상 `nsis` 또는 `portable`,
+>   Job Object를 쓰는 Electron spawn, 코드 서명 인증서로 서명.
+>
+> ### 여기서 검증하지 않은 것
+>
+> Windows와 macOS 전체; 실제 데스크톱(창 관리자, GPU)에서의 AppImage 시작(위의 Xvfb 창 실행은 했음); 샌드박스된 렌더러; 2.39보다 오래된 glibc; 동결된 프로세스에서 3.12
+> wheel을 쓰는 `JAMOSET_PYLIB`과 실제 인식기(테스트는 스텁 인터프리터를 쓴다); 디스플레이가 있는 네이티브 대화상자; AppImage runtime의
+> 바이너리가 밝히는 것 이상의 구성(내장된 라이선스 목록과 버전 문자열: type2-runtime, musl libc, libfuse 3.15.0, squashfuse 0.5.2,
+> libzstd 1.5.6, zlib 1.3.1; musl 자체의 버전은 내장되어 있지 않으므로 그 COPYRIGHT는 v1.2.5의 것을 가져왔다); AppImage의
+> `SOURCE_DATE_EPOCH` 결정성(사이드카는 비트 단위로 재현되지 않는다: `base_library.zip` 멤버 순서가 빌드마다 바뀐다); 향후 Pillow
+> wheel의 2.13.2가 아닌 FreeType; 기록된 소스의 정확한 URL(기록만 했고 가져오지 않았다).
+
+### 8.2. 샘플 변환 검증 세부 기록 (2026-11-20~24)
+
+
+`desktop/test/e2e.js`에는 단계가 하나 있다. 패스마다 `sample set`이라는 단계로, 고정된 샘플을 로컬 모드에서 **페이지를 통해**
+변환한다(입력은 제자리에서 읽고 페이스는 고른 출력 폴더에 씀). dev 패스와 패키지 패스에서 모두 한다. 샘플은
+`maker/test/uisample.py`가 정의한다(테스트 시점에 합성 입력을 만들고, 폰트별 설정 표, 기대하는 36개 파일 트리, 점검을 소유한다).
+`ttf/`의 OFL 폰트 넷을 제자리에서 읽고(neodgm, NanumGothic-Bold, `dos-u-2bpp` preset을 쓰는 GowunBatang-Bold, Bold 인스턴스의
+Caveat-VF), 저장소의 fixture 빌더가 만든 합성 파일을 쓴다: HTBL 표와 suitcase가 있는 Mac 7.1 fbit, HangulTalk 1.0 폰트, Mac
+dfont, `ASCII.PFT`가 있는 HWP DOS 844 폰트(`HANGUL24.PFT`는 읽지 않음으로 표시), KSC / johab BDF. KSC 페이스는 `KSC16.ttf`와 `KSC16.bdf`로도, johab 자모 세트는 `--composite`로 `JOHA16J.ttf`로도 쓴다(각 override의 "also write" 선택, t_97acecf9). 이 단계는 스텁 대화상자로 루트 9개와
+출력 폴더를 고르고, 활성화된 컨트롤만 바꾸고(경로가 없는 행은 비활성에 체크 해제로 남으며 이를 assert한다), 저장하고, 저장된 설정을
+다시 읽고, 실행한 다음 `uisample.py check`가 검증한다: 기대한 파일만 정확히 있고 다른 것은 없음(남은 `.svf-maker-*` 없음), 쓰인
+트리에 대한 `facecheck.py`와 `web/mkindex.py --check`, 모든 페이스가 잉크를 그림, `GOWUN17A.SVF`가 `svf/dos/GBATB17.SVF`와 바이트
+단위로 같음, 각 내보낸 파일이 그 페이스의 문자를 정확히 담음(`quality.export_facts`), 입력이 바뀌지 않음. 그런 다음에야 결과 캔버스 10개를 센다(`data-drawn="1"`, `Number(dataset.ink) > 0`). 패키지
+패스에서는 `--same-as`가 페이스를 dev 패스와 비교한다. 순수 Python 페이스(SEOU12J, HAN224J, JOHA16J, KSC16, MUNJ16J)는 바이트
+동일이 필요하다. 윤곽선 페이스(NEODU16, NANUM17A, GOWUN17A, CAVEA16, SYNTH16)의 차이는 실패가 아니라 `E2E NOTE`로 출력된다(dev
+패스는 호스트의 Pillow/FreeType으로, 패키지 패스는 고정된 wheel로 렌더하기 때문). `KSC16.bdf`는 바이트 동일, `KSC16.ttf`와 `JOHA16J.ttf`는 `head`의
+타임스탬프를 같게 맞췄을 때 동일해야 한다(svf2ttf.py는 실행 시각을 찍는다). `maker/test/test_uisample.py`는 같은 표를 HTTP
+API로 실행하고 각 점검이 변이에서 실패함을 증명한다.
