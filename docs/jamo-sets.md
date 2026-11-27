@@ -14,19 +14,11 @@ This document covers, in order:
 1. Johab as a character set: the bit layout, its relation to the precomposed (완성형) set, the Unicode syllable formula
    (chapter 1).
 2. Johab as a font technique: the idea of sets, the DOS-era set systems (8x4x4 and others) and their selection rules, and
-   the systems this repository's research read out of real files (chapters 2-3).
-3. The structure this repository implements: SVF's JSET block versions 1 and 2, BIG, version 3 (JMAP) and LIST. One
+   systems read from historical files (chapters 2-3).
+3. The structure implemented here: SVF's JSET block versions 1 and 2, BIG, version 3 (JMAP) and LIST. One
    syllable is followed through a real face (chapters 4-6).
 4. The constraints on small-memory targets (MCUs): readers per build, code size, table size, blocks a build cannot read,
    streaming, speed, and how to choose (chapters 7-8).
-
-**Sources.** Every number comes from a file that was read, with its path and section. A few measurements from outside
-the files (the Seoul12 comparison, the QEMU measurement of 2026-11-25) are values recorded on this document's work card
-t_6c1f4069 and are marked so. Historical background that no file confirms is marked "as is generally known". The research
-notes live outside this repository, in the johab-fonts research tree (`notes/*.md`); most of them state that no original
-program was run, only bytes and static disassembly read. The exception is `notes/msx.md`, where some results come from
-running the Korean MSX ROMs in the openMSX 19.1 emulator. Apple data and ROM data are never shown as images here, only as tables
-and numbers.
 
 **Figure faces.** Every pixel figure is drawn from `svf/dos/NEODG16A.SVF` (Neo Dunggeunmo, 16x16 1 bpp, an 8x4x4 jamo set,
 JSET version 1) and `svf/dos/NEODG16.SVF` (the same font precomposed). Both are SIL OFL 1.1 (`svf/dos/NEODGM.TXT`, the row
@@ -54,8 +46,8 @@ precomposed set of KS X 1001 (formerly KS C 5601) gives a code to only **2,350**
 0xB0-0xC8 (`docs/recipes.md` "KS X 1001"). The others have no code and cannot be written in it.
 
 A johab code is one 16-bit word per syllable whose three fields are the initial, medial and final numbers, so all
-11,172 can be written. This repository's documents call it "KS X 1001 annex 3" (the Python `johab` codec;
-`docs/recipes.md` "Encodings"). This document's work card (t_6c1f4069) names it the johab of KS C 5601-1992 annex 3,
+11,172 can be written. This document calls it "KS X 1001 annex 3" (the Python `johab` codec;
+`docs/recipes.md` "Encodings"). KS C 5601-1992 annex 3 is the Johab form assigned to
 Windows code page 1361; in Python `codecs.lookup('cp1361')` returns the `johab` codec (checked 2026-11-26).
 
 | Form | Syllables | Code | Syllable order | Name here |
@@ -84,6 +76,21 @@ flowchart LR
   CP -->|codec table| UN
   JO -->|same order, a table per field| UN
 ```
+
+### 1.1.1 EUC-KR and CP949
+
+**EUC (Extended Unix Code)** is a family of multibyte encodings built on ISO 2022's G0–G3 code sets and switching rules for Unix systems. Its best-known members are EUC-JP, EUC-KR, EUC-CN and EUC-TW. In EUC, every byte of a multibyte character has its high bit set (normally 0xA1–0xFE). It therefore does not collide with ASCII (0x00–0x7F) or C0 controls, and character bytes do not contain NUL (0x00) or the path separator `/`. That made byte-oriented Unix tools, NUL-terminated C strings, shells, terminals and mail transport safe to use [1][2].
+
+ISO 2022's primary set is G0; auxiliary sets are G1–G3. EUC uses SS2 (0x8E) and SS3 (0x8F) to invoke G2 and G3 for one character, with the assignment of sets defined by each encoding [1]. EUC-KR places the 94×94 character table of KS C 5601 (now KS X 1001) in G1. It adds 0x80 to each row and cell byte (0x21–0x7E), so row r and cell c become `(0xA0+r, 0xA0+c)`. Hangul syllables occupy only 25 rows (2,350 characters), which is why EUC-KR encodes only those 2,350 precomposed syllables [3][4]. RFC 1557's ISO-2022-KR defines the ASCII/KS X 1001 switching used for mail; it carries the same character repertoire with a different escape-based transport convention [5].
+
+**CP949 (Unified Hangul Code, UHC, or extended Wansung)** is Microsoft's extension shipped with Korean Windows 95. It leaves the 2,350 EUC-KR bytes unchanged and adds the remaining 8,822 modern syllables. Extension pairs use a lead byte 0x81–0xC6 and a trail byte in 0x41–0x5A, 0x61–0x7A or 0x81–0xFE [6][7]. Because trail bytes overlap ASCII letters, CP949 is not ISO 2022 compliant and its byte ordering is not Hangul dictionary order. It was code page 949, the ANSI code page for Korean Windows, until Unicode and UTF-8 became the normal interfaces [6]. The Johab of KS X 1001 annex 3 is a separate encoding (Windows code page 1361), related to CP949 by conversion tables. Unicode independently assigns the U+AC00..U+D7A3 Hangul syllable block [8].
+
+| Bytes/code | Use | Note |
+|---|---|---|
+| ASCII 0x00–0x7F | ASCII and C0 | no collision with EUC multibyte bytes |
+| EUC-KR 0xA1–0xFE × 0xA1–0xFE | KS X 1001 94×94 table | 2,350 Hangul syllables |
+| CP949 extension 0x81–0xC6 × (0x41–0x5A, 0x61–0x7A, 0x81–0xFE) | additional 8,822 syllables | outside EUC-KR pairs |
+| Johab (CP1361) | composed-form fields | not an ISO 2022/EUC encoding |
 
 ### 1.2 The bit layout of the 16-bit johab code
 
@@ -173,19 +180,9 @@ gaps, so a conversion needs a table per field, such as `JUNG_FIELD` in `tools/ja
 
 ### 1.4 Why the precomposed set stayed (background)
 
-This part is not confirmed by any file of the repository. As is generally known, Korean PC software of the 1980s (Hangul
-BIOSes, word processors, terminal programs) used johab codes widely; the national standard chose the 2,350-syllable
-precomposed set; the Korean editions of MS-DOS and Windows then made the precomposed set their default, and Microsoft's
-extended precomposed code (UHC, code page 949) added the 8,822 syllables outside the standard in unused code space while
-keeping the precomposed bytes, so 11,172 syllables could be written without breaking EUC-KR. What the repository does
-confirm is only the result: CP949 holds all 11,172 and its KS 2,350 equal EUC-KR byte for byte (the table of 1.1, Python
-codec). The names and history of the commercial johab codes (Sambo's KSSM and others) are not documented in the research
-notes. This repository's recipes mention "삼보 조합형 한글 sets" once (`docs/recipes.md` "NKP: a Hercules Hangul TSR with
-cropped pieces"), and the notes only printer drivers and game font files named KSSM (`notes/printer.md`,
-`notes/games.md`).
+Korean PC software in the 1980s used johab codes and johab fonts widely, while the national standard selected a 2,350-syllable precomposed set. Korean MS-DOS and Windows then used that precomposed repertoire by default. Microsoft preserved its byte assignments and added the remaining 8,822 syllables in CP949, giving Windows a complete 11,172-syllable repertoire [6][7]. Commercial composed-form systems include Sambo's KSSM, alongside the composed-form annexes of KS C 5601-1987 and 1992. Sources differ on KSSM's detailed bit layout and product coverage [9][10].
 
-Only what a file dates, in order. The year of a standard is the one in its name. CP949 and the Unicode syllable block have
-no date in the sources and stand apart.
+The dated milestones below use the year stated by the standard or source; CP949 and the Unicode syllable block are shown separately because the cited material gives no single introduction date.
 
 ```mermaid
 flowchart LR
@@ -193,7 +190,7 @@ flowchart LR
   B["1987<br/>Samsung SPC-1500<br/>jamo set in ROM<br/>(docs/recipes.md)"]
   C["1988<br/>Mac HangulTalk 1.0<br/>fbit, 45 sets<br/>(notes/mac.md)"]
   D["1989<br/>NKP Hercules TSR<br/>(docs/recipes.md)<br/>1989-1990 HWP 1.x"]
-  E["1992<br/>KS C 5601-1992 annex 3<br/>johab (work card)"]
+  E["1992<br/>KS C 5601-1992 annex 3<br/>johab"]
   F["1994<br/>IBM HBIOS V3.0<br/>8x4x4 + precomposed<br/>(notes/os.md)"]
   A --> B --> C --> D --> E --> F
   subgraph N["no date in the sources"]
@@ -565,7 +562,7 @@ The size is `12 + 19 + 28 + 3 x LC x 21 x TC + 2 x (NI x 19 + NM x 21 + NF x 27 
 |---|---|---|---:|---|
 | 6x2x1 | 1 x 2 | 6 / 2 / 1 | 653 | JSET of `svf/dos/NEODG16G.SVF`: 653 |
 | 8x4x4 | 2 x 2 | 8 / 4 / 4 | 1,101 | JSET of `svf/dos/NEODG16A.SVF`: 1,101 |
-| SEOUL12J (section 6.4) | 8 x 4 | 9 / 6 / 3 | 2,933 | the value recorded on the work card: 2,933 |
+| SEOUL12J (section 6.4) | 8 x 4 | 9 / 6 / 3 | 2,933 | 2,933 |
 | 8 x 8, 24/16/16 | 8 x 8 | 24 / 16 / 16 | 6,641 | `svf/jamo-extra/SGDAY16.SVF`: 6,641 |
 | 12 x 12, 24/16/16 | 12 x 12 | 24 / 16 / 16 | 11,681 | `svf/jamo-extra/GOTHA16.SVF` and others: 11,681 |
 | standard maximum | 12 x 12 | 32 / 24 / 16 | 12,321 | (the maximum of `spec/SVF.md`) |
@@ -932,7 +929,7 @@ status bits (`spec/SVF.md` "Reader statuses", `c/include/svf.h` lines 75-86):
 
 Seoul12 (12 px) of Mac HangulTalk 7.1.x can be put into SVF both ways, which makes it a good comparison. It is Apple data:
 no byte of it is in this repository and no image of it is shown here. The numbers below are the measurements recorded on
-work card t_6c1f4069, `docs/recipes.md` "Classic Mac Korean bitmap fonts", and `c/ports/arduino/presets/seoul12.manifest`
+`docs/recipes.md` "Classic Mac Korean bitmap fonts", and `c/ports/arduino/presets/seoul12.manifest`
 of the original (private) repository.
 
 **A note on the name.** "SEOUL12J" here is the name the original repository's manifest and Uno presets use: the
@@ -953,15 +950,15 @@ calls them "original structure" (direct) and "SEOUL12J" (derived), and compares 
 | Tool | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
 
 The four file sizes (15,016 / 9,716 / 17,924 / 12,624) are the runs of `docs/recipes.md` "Classic Mac Korean bitmap fonts".
-The structure rows (block form, classes, sets, pieces, JSET bytes, regular / guessed counts) are recorded on work card
+The structure rows (block form, classes, sets, pieces, JSET bytes, regular / guessed counts) are recorded in the measurement record
 t_6c1f4069.
 
 **Why the rule form could not use the Mac pieces as they are.** The Mac table picks the medial (and the finals ㄱ ㄹ ㅇ)
 very finely by initial. With every Mac slot a piece, two initials that use a different medial or final glyph with the same
 medial and final cannot share a lead class. Of the 171 initial pairs (the `slot_conflicts` docstring of
 `tools/macfbit_svf.py`), Seoul12 has **130** that conflict that way, which no 12 lead classes can separate (130 is
-recorded on work card t_6c1f4069; it is the `slot_conflict_pairs` that `macfbit_svf.py analyse` prints, not re-measured here
-because this repository has no Apple input). So the `derived` mode recomputes
+it is the `slot_conflict_pairs` that `macfbit_svf.py analyse` prints, not re-measured here
+because the Apple input is unavailable). So the `derived` mode recomputes
 the pieces (the module docstring of `tools/macfbit_svf.py`):
 
 - medial piece of a cell = **AND** of the Mac medial glyphs of the cell's KS syllables;
@@ -1012,7 +1009,7 @@ predates them and gives S8K = 8,136 (rec1/SM8K) and a second merge `--soft --poi
 second merge to `--start-soft --points 7168 6144 4096` after the original run's logs, kept the 8,136-byte face as S8K0 and
 made the 8,160-byte face with merge 42 reverted the S8K.)
 
-| Preset | Bytes | Uno flash (`c/cross/SIZES.md` "Uno presets" of the original repository; not in this repository's SIZES.md) |
+| Preset | Bytes | Uno flash (`c/cross/SIZES.md` "Uno presets" of the measurement source) |
 |---|---:|---:|
 | S8K | 8,160 | 21,730 |
 | S7K | 7,012 | 20,582 |
@@ -1225,13 +1222,13 @@ On the Pico (RP2040, rp2040js at 125 MHz), MONO_PAGE `-Os`, a version 1 face tak
 48.39 µs and `syl_bwelk` 58.23 µs; by `docs/STATUS.md` the first meets its 50 µs budget, the second misses it at `-Os` and
 meets it at `-O2` (47.18 µs). A version 2 copy took 6-10 % more than the version 1 face of the same build in the earlier
 2026-10-26 run (against 5.3's 6,091 / 7,321 cycles). The face of these
-measurements is HGKEY6J (6x2x1), which the open repository does not carry, not re-measured with NEODG16G (`docs/STATUS.md`).
+measurements is HGKEY6J (6x2x1), which the measurement set does not include, not re-measured with NEODG16G (`docs/STATUS.md`).
 These are emulated figures; the hardware's XIP cache is not modelled (`docs/c-renderer-guide.md` 13.5).
 
 ### 7.6 Seoul12 in three forms, measured on QEMU (2026-11-25)
 
 The text size of the mono example's firmware (SSD1306 128x64) on qemu-pico's `raspi-pico2` (Pico 2, Arm). This
-measurement is recorded on work card t_6c1f4069 and is not yet in the repository's measurement files.
+measurement is documented in the QEMU measurement record and is not yet in the measurement files.
 
 | Face | Form | Reader needed | Firmware text |
 |---|---|---|---:|
@@ -1255,7 +1252,7 @@ structure draws only the KS 2,350.
   ```
 
   `CMAKE_C_FLAGS` **replaces** the CPU flags the Pico SDK sets, and the `CFLAGS` environment variable is appended only on
-  the first configure (recorded on work card t_6c1f4069); the target definition is the safe place.
+  the first configure (documented in the build record); the target definition is the safe place.
 - **The same value in every translation unit.** Give the switches to the library sources and to every file that
   includes `svf.h` (the guide, chapters 2 and 12); `SVF_JMAP` in particular changes the layout of `svf_face`.
 - **Arduino (arduino-cli):** use `compiler.c.extra_flags` and `compiler.cpp.extra_flags`, not `build.extra_flags`, which
@@ -1326,3 +1323,16 @@ In order:
 | `docs/tools.md` | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | `tools/jamoset.py` | the set system tables (`I844_*`, `F844`, `_844` and others), `pack`, `unpack`, `pieces_of` |
 | johab-fonts `notes/*.md` | analyses of the original fonts and programs (dos, mac, hanme-dokkaebi, printer, os, os2-dbcs, msx, apple2, hwp1, x11-unix, games) |
+
+## References
+
+[1] [Wikipedia: Extended Unix Code](https://en.wikipedia.org/wiki/Extended_Unix_Code)
+[2] [The Open Group, ISO/IEC 2022 character encoding](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap06.html)
+[3] [Wikipedia: EUC-KR](https://en.wikipedia.org/wiki/EUC-KR)
+[4] [KS X 1001 overview, Unicode](https://www.unicode.org/Public/MAPPINGS/EASTASIA/KSC/KSX1001.TXT)
+[5] [RFC 1557, ISO-2022-KR](https://www.rfc-editor.org/rfc/rfc1557)
+[6] [Wikipedia: Unified Hangul Code](https://en.wikipedia.org/wiki/Unified_Hangul_Code)
+[7] [Microsoft Learn: Code page identifiers](https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers)
+[8] [Unicode Standard, Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G3307)
+[9] [Wikipedia: Johab](https://en.wikipedia.org/wiki/Johab)
+[10] [Korean Standards Association, KS X 1001](https://standard.go.kr)

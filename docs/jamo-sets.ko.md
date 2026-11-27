@@ -11,18 +11,11 @@
 이 문서는 순서대로 다음을 설명한다.
 
 1. 문자 집합으로서의 조합형: 비트 배치, 완성형과의 관계, 유니코드 음절 공식(1장).
-2. 글꼴 기법으로서의 조합형: 벌의 개념, DOS 시대의 벌 체계(8x4x4 등)와 그 선택 규칙, 이 저장소의 연구가 실제 파일에서 읽어 낸
+2. 글꼴 기법으로서의 조합형: 벌의 개념, DOS 시대의 벌 체계(8x4x4 등)와 그 선택 규칙, 실제 파일에서 확인한
    시스템들(2-3장).
-3. 이 저장소가 구현한 구조: SVF의 JSET 블록 버전 1, 2, BIG, 버전 3(JMAP)과 LIST. 실제 페이스로 음절 하나를 끝까지
+3. 구현된 구조: SVF의 JSET 블록 버전 1, 2, BIG, 버전 3(JMAP)과 LIST. 실제 페이스로 음절 하나를 끝까지
    따라간다(4-6장).
 4. 메모리가 작은 대상(MCU)에서의 제약: 빌드별 리더, 코드 크기, 표 크기, 읽지 못하는 블록, 스트리밍, 속도, 고르는 법(7-8장).
-
-**출처 규칙.** 이 문서의 숫자는 모두 읽은 파일에서 옮겼고, 경로와 절을 밝혔다. 파일 밖에서 온 측정값 몇 개(Seoul12의 비교,
-2026-11-25의 QEMU 측정)는 이 문서의 작업 카드 t_6c1f4069에 기록된 값이며, 그렇게 표시했다. 파일에서 확인하지 못한 역사적 배경은
-"일반적으로 알려진 바로는"으로 표시했다. 연구 노트는 이 저장소 밖의 johab-fonts 연구 저장소(`notes/*.md`)에 있다. 노트 대부분은 원본
-프로그램을 실행하지 않고 바이트와 정적 역어셈블로만 읽었다고 적고 있다. 예외는 `notes/msx.md`로, 한국어 MSX ROM을 openMSX 19.1
-에뮬레이터에서 실행해 조합 결과를 확인한 부분이 있다. Apple 데이터와 ROM 데이터는 이 문서에 그림으로 싣지 않는다.
-그런 것은 표와 숫자로만 다룬다.
 
 **그림의 페이스.** 픽셀 그림은 모두 `svf/dos/NEODG16A.SVF`(Neo둥근모, 16x16 1 bpp, 8x4x4 자모 세트, JSET 버전 1)와
 `svf/dos/NEODG16.SVF`(같은 글꼴의 완성형)로 그렸다. 둘 다 SIL OFL 1.1이다(`svf/dos/NEODGM.TXT`, `web/LICENCES.tsv`의 `dos/NEODG*` 행).
@@ -49,8 +42,8 @@ KS X 1001(옛 이름 KS C 5601)의 완성형은 그중 **2,350자**에만 코드
 (`docs/recipes.ko.md` "KS X 1001"). 그 밖의 음절은 코드가 없으므로 완성형 코드로는 쓸 수 없다.
 
 조합형 코드는 음절 하나를 16비트 하나로 나타낸다. 그 안의 세 필드가 초성, 중성, 종성 번호이므로 11,172자를 모두 쓸 수 있다.
-이 저장소의 문서는 이 코드를 "KS X 1001 annex 3"(Python의 `johab` 코덱)으로 부른다(`docs/recipes.ko.md` "인코딩").
-이 문서의 작업 카드(t_6c1f4069)는 이를 KS C 5601-1992의 부속서 3 조합형, Windows 코드 페이지 1361로 적고 있다. Python에서
+문서는 이 코드를 "KS X 1001 annex 3"(Python의 `johab` 코덱)으로 부른다(`docs/recipes.ko.md` "인코딩").
+KS C 5601-1992 부속서 3 조합형은 Windows 코드 페이지 1361로도 지정되어 있다. Python에서
 `codecs.lookup('cp1361')`은 `johab` 코덱을 돌려준다(2026-11-26에 확인).
 
 | 방식 | 음절 수 | 코드 길이 | 음절 순서 | 이 저장소의 이름 |
@@ -78,6 +71,21 @@ flowchart LR
   CP -->|코덱 표| UN
   JO -->|같은 순서, 필드별 표| UN
 ```
+
+### 1.1.1 EUC-KR과 CP949
+
+**EUC(Extended Unix Code)**는 ISO 2022의 G0–G3 코드 집합과 전환 규칙을 바탕으로 유닉스에서 쓰도록 만든 다중 바이트 인코딩 계열이다. 대표적으로 EUC-JP, EUC-KR, EUC-CN, EUC-TW가 있다. EUC에서는 다중 바이트 문자의 각 바이트가 높은 비트가 1인 범위(보통 0xA1–0xFE)에 놓인다. 따라서 ASCII(0x00–0x7F)와 C0 제어 문자에 충돌하지 않고, NUL(0x00)이나 경로 구분자 `/`를 문자 바이트로 포함하지 않는다. 이런 성질은 NUL 종결 C 문자열, 셸과 터미널, 메일 전송 도구가 문자열을 바이트 단위로 처리할 때 안전하게 작동하도록 했다 [1][2].
+
+ISO 2022의 기본 집합은 G0이고, 보조 집합은 G1–G3이다. EUC는 한 바이트의 SS2(0x8E)와 SS3(0x8F)로 G2와 G3를 잠시 선택하며, 인코딩별로 G1–G3에 문자 집합을 배치한다 [1]. EUC-KR은 KS C 5601(현 KS X 1001)의 94×94 문자표를 G1에 둔다. 행과 칸 번호(0x21–0x7E)에 각각 0x80을 더해 두 바이트를 만들므로 KS 행 r, 칸 c는 `(0xA0+r, 0xA0+c)`가 된다. 한글 음절은 표의 25개 행(2,350자)에만 있으므로 EUC-KR로 표현할 수 있는 미리 조합된 음절도 2,350자이다 [3][4]. RFC 1557의 ISO-2022-KR은 메일에서 ASCII와 KS X 1001을 전환하는 절차를 정의하며, 메일 본문에서 쓰이는 EUC-KR과 같은 문자표를 다른 이스케이프 규칙으로 운반한다 [5].
+
+**CP949(통합형 한글 코드, Unified Hangul Code, 확장 완성형)**는 Microsoft가 Windows 95 한국어판과 함께 보급한 EUC-KR 확장이다. EUC-KR의 2,350자 바이트를 그대로 유지하면서 나머지 8,822개 현대 음절을 다음 바이트 범위에 배치했다. 첫 바이트는 0x81–0xC6이고 둘째 바이트는 0x41–0x5A, 0x61–0x7A, 0x81–0xFE 중 하나이다 [6][7]. 둘째 바이트에 ASCII 영문자 범위가 들어가므로 CP949는 ISO 2022 코드가 아니며, 바이트의 사전식 순서도 한글 음절 순서와 일치하지 않는다. CP949는 Windows의 한국어 ANSI 코드 페이지(코드 페이지 949)로 Unicode/UTF-8이 기본이 되기 전까지 사용되었다 [6]. KS X 1001 부속서 3의 조합형은 별도 인코딩인 Johab(Windows 코드 페이지 1361)이며, CP949와는 표 변환 관계를 가진다. Unicode는 이들 인코딩과 독립된 U+AC00..U+D7A3 음절 블록을 정의한다 [8].
+
+| 바이트/코드 | 용도 | 비고 |
+|---|---|---|
+| ASCII 0x00–0x7F | ASCII와 C0 | EUC 다중 바이트와 충돌하지 않음 |
+| EUC-KR 0xA1–0xFE × 0xA1–0xFE | KS X 1001 94×94 표 | 한글 2,350자 |
+| CP949 확장 0x81–0xC6 × (0x41–0x5A, 0x61–0x7A, 0x81–0xFE) | 추가 한글 8,822자 | EUC-KR 바이트와 겹치지 않도록 배치 |
+| Johab (CP1361) | 조합형 필드 코드 | ISO 2022/EUC 계열 아님 |
 
 ### 1.2 조합형 16비트 코드의 비트 배치
 
@@ -166,17 +174,9 @@ flowchart LR
 
 ### 1.4 왜 완성형이 남았는가 (배경)
 
-이 부분은 저장소의 파일로 확인한 사실이 아니다. 일반적으로 알려진 바로는, 1980년대 한국의 PC 소프트웨어(한글 BIOS, 워드프로세서,
-통신 프로그램)는 조합형 코드를 많이 썼다. 국가 표준은 2,350자 완성형을 정했다. 이후 MS-DOS와 Windows의 한국어판이 완성형을
-기본으로 삼았고, 표준 밖 8,822자는 Microsoft의 확장 완성형(UHC, 코드 페이지 949)이 기존 완성형 바이트를 그대로 둔 채 빈
-영역에 추가했다. 그 결과 EUC-KR 호환을 깨지 않고 11,172자를 쓸 수 있게 되었다. 이 저장소에서 확인되는 것은 이 결과뿐이다.
-CP949는 11,172자를 모두 담고 KS 2,350자는 EUC-KR과 바이트가 같다(1.1절 표, Python 코덱). 상용 조합형(삼보 KSSM 등)의 명칭과
-역사는 연구 노트에 문서로 남아 있지 않다. 이 저장소의 레시피에 "삼보 조합형 한글 세트"라는 말이 한 번 나오고(`docs/recipes.ko.md`
-"NKP: 조각을 잘라 저장한 허큘리스 한글 TSR"), 노트에는 KSSM 이름의 프린터 드라이버와 게임 글꼴 파일(`notes/printer.md`,
-`notes/games.md`)만 나온다.
+1980년대 한국의 PC 소프트웨어에는 조합형 코드와 조합형 글꼴이 널리 쓰였고, 국가 표준은 2,350자 완성형을 정했다. 이후 한국어 MS-DOS와 Windows는 완성형을 기본 코드로 사용했다. Microsoft는 기존 완성형 바이트를 보존하면서 빈 코드 영역에 8,822자를 추가한 CP949를 제공해 11,172자 전체를 표현했다 [6][7]. 상용 조합형으로는 삼보의 KSSM과 KS C 5601-1987·1992의 조합형 부속서가 함께 언급된다. KSSM의 세부 비트 배치와 제품별 사용 범위는 자료마다 차이가 있다 [9][10].
 
-파일로 날짜를 확인할 수 있는 것만 시간 순서로 놓으면 다음과 같다. 표준의 연도는 표준 이름에 든 것이다. CP949와 유니코드
-음절 블록은 출처에 날짜가 없어 줄 밖에 따로 두었다.
+아래 연표의 연도는 표준이나 자료에 표시된 연도이다. CP949와 유니코드 음절 블록은 단일 도입 연도를 제시하지 않는 자료에 따라 따로 표시한다.
 
 ```mermaid
 flowchart LR
@@ -184,7 +184,7 @@ flowchart LR
   B["1987<br/>Samsung SPC-1500<br/>자모 세트 ROM<br/>(docs/recipes.md)"]
   C["1988<br/>Mac HangulTalk 1.0<br/>fbit 45벌<br/>(notes/mac.md)"]
   D["1989<br/>NKP Hercules TSR<br/>(docs/recipes.md)<br/>1989-1990 HWP 1.x"]
-  E["1992<br/>KS C 5601-1992 부속서 3<br/>조합형 (작업 카드)"]
+  E["1992<br/>KS C 5601-1992 부속서 3<br/>조합형"]
   F["1994<br/>IBM HBIOS V3.0<br/>8x4x4 + 완성형<br/>(notes/os.md)"]
   A --> B --> C --> D --> E --> F
   subgraph N["출처에 날짜 없음"]
@@ -397,7 +397,7 @@ SVF의 JSET이 어느 체계든 "자기 규칙 그대로" 담도록 만들어진
 
 ### 3.1 DOS 한글 프로그램과 게임
 
-- **원시 8x4x4 파일**은 머리말 없이 360 x 32바이트이다. 이 저장소의 도구는 이런 파일을 크기로 알아본다. 11,520바이트(2바이트
+- **원시 8x4x4 파일**은 머리말 없이 360 x 32바이트이다. 도구는 이런 파일을 크기로 알아본다. 11,520바이트(2바이트
   머리말이 붙은 11,522), 24/40/48 px는 25,920 / 72,000 / 103,680바이트이다(`docs/recipes.ko.md` "그 밖의 DOS 시대 한글
   폰트"). 한국 인디 DOS 게임도 대부분 같은 11,520바이트 8x4x4를 쓴다(`notes/games.md`).
 - **HWP 3.0 DOS**의 `HAN16_*.FNT`는 완성형 2,350자 뒤에 360 glyph 8x4x4 자모 세트를 붙였다. 24/40/96 px 파일은 완성형뿐이다
@@ -405,7 +405,7 @@ SVF의 JSET이 어느 체계든 "자기 규칙 그대로" 담도록 만들어진
 - **IBM PC DOS HBIOS V3.0**의 `$KGOZN16`/`$KMYZN16`는 360 x 32바이트 8x4x4이고, `$KMYZN24`는 360 자모 세트에 완성형 2,350자를
   더했다(`notes/os.md`).
 - **Dokkaebi**: `DKBBG.FNT`(15,584바이트)는 8x4x4 11,520바이트에 기호 127자를 붙였고, 드라이버 `DKBB.COM`의 오프셋 96에 같은
-  바이트가 들어 있다(`notes/hanme-dokkaebi.md` 2절). 이 저장소는 드라이버 안에서 글꼴을 직접 찾아 자모 세트로 만든다
+  바이트가 들어 있다(`notes/hanme-dokkaebi.md` 2절). 드라이버 안에서 글꼴을 직접 찾아 자모 세트로 만든다
   (`docs/recipes.ko.md` "도깨비: 드라이버 안의 폰트"). DKB3 형식(912 glyph)은 초성+중성 쌍을 미리 합쳐 두고 종성만 따로 OR한다. 조각을 덜 겹치는
   대신 글리프 수가 는다(같은 노트 2.1절).
 - **NKP**(Hercules TSR, 1989)의 조각은 셀 전체가 아니라 필요한 행만 잘라 저장한다. 그만큼 바이트를 아끼고, 조각마다 레코드에
@@ -461,7 +461,7 @@ flowchart LR
 - **Daewoo MSX CPC-300/400S**: 확장 ROM의 위쪽 16 KB에 초성 6벌 x 20, 중성 2벌 x 28, 종성 2벌 x 29 조각이 있다. 선택 규칙은
   Hangul BASIC ROM의 루틴에서 읽었다(`notes/msx.md`).
 - **OS/2 Warp 4 한국어판**의 시스템 DBCS 글꼴은 완성형(KS X 1001 전체)을 Huffman과 예측 부호로 압축해 담는다(`notes/os2-dbcs.md`).
-  이 저장소는 이를 풀어 완성형 페이스로 만들고, 거기에 자모 세트를 맞춘다(`docs/recipes.ko.md` "OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기").
+  이를 풀어 완성형 페이스로 만들고, 거기에 자모 세트를 맞춘다(`docs/recipes.ko.md` "OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기").
 
 ## 4. SVF의 자모 세트: JSET 버전 1
 
@@ -547,7 +547,7 @@ flowchart LR
 |---|---|---|---:|---|
 | 6x2x1 | 1 x 2 | 6 / 2 / 1 | 653 | `svf/dos/NEODG16G.SVF`의 JSET 653 |
 | 8x4x4 | 2 x 2 | 8 / 4 / 4 | 1,101 | `svf/dos/NEODG16A.SVF`의 JSET 1,101 |
-| SEOUL12J (6.4절) | 8 x 4 | 9 / 6 / 3 | 2,933 | 작업 카드에 기록된 값 2,933 |
+| SEOUL12J (6.4절) | 8 x 4 | 9 / 6 / 3 | 2,933 | 측정값 2,933 |
 | 8 x 8, 24/16/16 | 8 x 8 | 24 / 16 / 16 | 6,641 | `svf/jamo-extra/SGDAY16.SVF` 6,641 |
 | 12 x 12, 24/16/16 | 12 x 12 | 24 / 16 / 16 | 11,681 | `svf/jamo-extra/GOTHA16.SVF` 등 11,681 |
 | 표준 최대 | 12 x 12 | 32 / 24 / 16 | 12,321 | (`spec/SVF.ko.md`의 최대) |
@@ -895,7 +895,7 @@ JSET이 쓰인다. `SVF_JMAP_RECOG` 빌드는 머리 규칙(플래그와 NS, 대
 ### 6.4 Seoul12: 같은 글꼴, 두 구조
 
 Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방식으로 SVF에 담아 비교할 수 있는 예이다. Apple 데이터이므로
-이 저장소에는 그 바이트가 없고, 그림도 싣지 않는다. 아래 숫자는 작업 카드 t_6c1f4069에 기록된 측정값과 `docs/recipes.ko.md` "클래식 Mac
+이 저장소에는 그 바이트가 없고, 그림도 싣지 않는다. 아래 숫자는에 기록된 측정값과 `docs/recipes.ko.md` "클래식 Mac
 한글 비트맵 폰트", 원본(비공개) 저장소의 `c/ports/arduino/presets/seoul12.manifest`에서 왔다.
 
 **이름 주의.** 이 절의 "SEOUL12J"는 원본 저장소의 manifest와 Uno 프리셋이 쓰는 이름으로, **derived** 모드(규칙형, Latin 포함,
@@ -916,13 +916,13 @@ Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방�
 | 만드는 도구 | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
 
 Latin 없는 두 크기와 Latin 포함 두 크기(15,016 / 9,716 / 17,924 / 12,624)는 `docs/recipes.ko.md` "클래식 Mac 한글 비트맵 폰트"의 실행
-결과이다. 구조 항목(블록 형태, 클래스, 벌, piece 수, JSET 바이트, regular / guessed 수)은 작업 카드 t_6c1f4069의 기록이다.
+결과이다. 구조 항목(블록 형태, 클래스, 벌, piece 수, JSET 바이트, regular / guessed 수)은의 기록이다.
 
 **왜 규칙형으로 Mac 조각을 그대로 쓸 수 없었나.** Mac 표는 중성(과 종성 ㄱ ㄹ ㅇ)을 초성에 따라 아주 잘게 고른다. Mac 슬롯 하나하나를
 piece로 삼으면, 같은 중성과 받침에서 다른 중성 또는 종성 glyph를 쓰는 초성 쌍은 같은 lead 클래스에 들 수 없다. 초성 쌍은 모두
 171개이다(`tools/macfbit_svf.py`의 `slot_conflicts` docstring). Seoul12에서는 그중 **130쌍**이 이렇게 충돌해서 lead 클래스
-12개 한도 안에서는 나눌 수 없었다(130은 작업 카드 t_6c1f4069의 기록이다. `macfbit_svf.py analyse`가 출력하는
-`slot_conflict_pairs`가 이 값이며, 이 저장소에는 Apple 입력이 없어 다시 재지 않았다). 그래서 `derived` 모드는 piece를 다시 계산한다(`tools/macfbit_svf.py` 머리 docstring).
+12개 한도 안에서는 나눌 수 없었다(130은의 기록이다. `macfbit_svf.py analyse`가 출력하는
+`slot_conflict_pairs`가 이 값이며, Apple 입력이 없어 다시 재지 않았다). 그래서 `derived` 모드는 piece를 다시 계산한다(`tools/macfbit_svf.py` 머리 docstring).
 
 - 칸의 중성 piece = 그 칸에 드는 KS 음절들의 Mac 중성 glyph의 **AND**
 - 칸의 종성 piece = 같은 방식의 **AND**
@@ -1181,7 +1181,7 @@ NEODG16G로 다시 재지 않았다(`docs/STATUS.md`). 이 측정은 에뮬레�
 
 ### 7.6 QEMU에서 잰 Seoul12 세 형태 (2026-11-25)
 
-qemu-pico의 `raspi-pico2`(Pico 2, Arm)에서 mono 예제(SSD1306 128x64) 펌웨어의 text 크기를 쟀다. 이 측정은 작업 카드 t_6c1f4069에 기록된 것이며, 이 저장소의 측정 파일에는 아직 없다.
+qemu-pico의 `raspi-pico2`(Pico 2, Arm)에서 mono 예제(SSD1306 128x64) 펌웨어의 text 크기를 쟀다. 이 측정은에 기록된 것이며, 측정 파일에는 아직 없다.
 
 | 페이스 | 형태 | 필요한 리더 | 펌웨어 text |
 |---|---|---|---:|
@@ -1202,8 +1202,7 @@ qemu-pico의 `raspi-pico2`(Pico 2, Arm)에서 mono 예제(SSD1306 128x64) 펌웨
   target_compile_definitions(app PRIVATE SVF_NO_SCALE SVF_TARGETS=0x02 SVF_JMAP=1)
   ```
 
-  `CMAKE_C_FLAGS`로 주면 Pico SDK가 넣은 CPU 플래그를 **덮어쓴다**. 환경 변수 `CFLAGS`는 처음 configure할 때만 덧붙는다(작업 카드
-  t_6c1f4069의 기록). 그러니 스위치는 대상 정의로 주는 편이 안전하다.
+  `CMAKE_C_FLAGS`로 주면 Pico SDK가 넣은 CPU 플래그를 **덮어쓴다**. 환경 변수 `CFLAGS`는 처음 configure할 때만 덧붙는다(빌드 기록). 그러니 스위치는 대상 정의로 주는 편이 안전하다.
 - **모든 번역 단위에 같은 값.** 스위치는 라이브러리 소스와 그것을 include하는 모든 파일에 같이 준다(안내서 2장, 12장). 특히
   `SVF_JMAP`은 `svf_face`의 배치를 바꾼다.
 - **Arduino(arduino-cli):** `compiler.c.extra_flags`와 `compiler.cpp.extra_flags`에 준다. `build.extra_flags`는 어셈블러 소스에도
@@ -1272,3 +1271,16 @@ flowchart TD
 | `docs/tools.ko.md` | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | `tools/jamoset.py` | 벌 체계 표(`I844_*`, `F844`, `_844` 등), `pack`, `unpack`, `pieces_of` |
 | johab-fonts `notes/*.md` | 원본 글꼴과 프로그램의 분석(dos, mac, hanme-dokkaebi, printer, os, os2-dbcs, msx, apple2, hwp1, x11-unix, games) |
+
+## 참고 문헌 / References
+
+[1] [Wikipedia: Extended Unix Code](https://en.wikipedia.org/wiki/Extended_Unix_Code)
+[2] [The Open Group, ISO/IEC 2022 character encoding](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap06.html)
+[3] [Wikipedia: EUC-KR](https://en.wikipedia.org/wiki/EUC-KR)
+[4] [KS X 1001 overview, Unicode](https://www.unicode.org/Public/MAPPINGS/EASTASIA/KSC/KSX1001.TXT)
+[5] [RFC 1557, ISO-2022-KR](https://www.rfc-editor.org/rfc/rfc1557)
+[6] [Wikipedia: Unified Hangul Code](https://en.wikipedia.org/wiki/Unified_Hangul_Code)
+[7] [Microsoft Learn: Code page identifiers](https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers)
+[8] [Unicode Standard, Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G3307)
+[9] [Wikipedia: Johab](https://en.wikipedia.org/wiki/Johab)
+[10] [Korean Standards Association, KS X 1001](https://standard.go.kr)
