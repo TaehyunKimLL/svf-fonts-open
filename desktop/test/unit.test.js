@@ -163,9 +163,11 @@ test('resolveLaunch', () => {
   const wpack = resolveLaunch({ ...wbase, exists: (p) => p === 'C:\\res\\sidecar\\svf-maker-sidecar\\svf-maker-sidecar.exe' });
   assert.deepEqual(wpack, { mode: 'packaged', cmd: 'C:\\res\\sidecar\\svf-maker-sidecar\\svf-maker-sidecar.exe',
     args: ['serve', '--exit-with-parent=42', '--stop-on-eof'], repo: 'C:\\res\\repo', data: 'C:\\ud\\maker' });
-  const wdev = resolveLaunch({ ...wbase, exists: () => false });
-  assert.deepEqual(wdev, { mode: 'dev', cmd: 'python', args: ['-P', 'C:\\co\\maker\\server.py', '--exit-with-parent=42', '--stop-on-eof'],
+  const wdev = resolveLaunch({ ...wbase, env: { PATH: 'C:\\Py' }, exists: (p) => p === 'C:\\Py\\python.exe' });
+  assert.deepEqual(wdev, { mode: 'dev', cmd: 'C:\\Py\\python.exe', args: ['-P', 'C:\\co\\maker\\server.py', '--exit-with-parent=42', '--stop-on-eof'],
     repo: 'C:\\co', data: 'C:\\ud\\maker-dev' });
+  // no python.exe on PATH's absolute folders: a clear error, never the bare name
+  assert.throws(() => resolveLaunch({ ...wbase, env: { PATH: '.;py' }, exists: (p) => p.endsWith('python.exe') }), /needs python\.exe in an absolute folder on PATH/);
   // the dev interpreter is the first python.exe in an absolute PATH folder, never one in the working folder
   const wpath = resolveLaunch({ ...wbase, env: { PATH: '.;py;C:\\Py312;C:\\Other' },
     exists: (p) => p === 'C:\\Py312\\python.exe' || p === 'py\\python.exe' || p === 'python.exe' });
