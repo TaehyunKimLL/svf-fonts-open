@@ -1288,6 +1288,54 @@ ceil(w / 8) x h가 아닌 글리프당 바이트, 블록이나 파일을 넘는 
 **내부 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`(자체 부호표를 가진 합성 폰트: 이스케이프 부호 니블, 항등이 아닌 문맥 표, 여러 블록에 걸친 드문 글리프 번호, 잘못된 파일의 거부.
 `JOHAB_FONTS`가 연구 트리를 가리키면 풀어 낸 진짜 `$korZN16.FNT`와 가, 각, 힝의 해시, 그리고 그 노트의 렌더와 가 / 힝 비교).
 
+### `tools/tbmfont.py`
+
+**목적.** 한글 Windows 3.1 / Windows 95의 `.TBM` 비트맵 폰트(`BT16.TBM`, `BT20.TBM`, `GULIM16.TBM`, `GULIM12.TBM`)의 헤더를 읽어
+글리프 블록이 시작하는 곳을 `rawcarve.py bdf`용으로 출력하고, 기호와 한자 블록의 KS X 1001 슬롯 맵을 쓴다. 실행 예:
+[recipes/windows.ko.md](recipes/windows.ko.md).
+
+**상태.** 특수 목적(한 폰트 형식). 파일 배치는 모듈 docstring에 설명되어 있다.
+
+**입력.** TBM 파일(서명 "TTBITMAP VARIABLE-PITCH HANGEUL", 16 MiB를 넘는 파일은 거부): 셀 크기, 범위 레코드, 7 바이트 글리프 표.
+메시지와 함께 거부: 서명이 없는 파일, 두 크기 필드가 다르거나 파일을 넘거나 앞 범위에 이어지지 않는 범위, 온전한 항목으로 나뉘지
+않는 글리프 표, 범위에 들어가지 않거나 앞 글리프에 이어지지 않는 글리프.
+
+**출력.** `info`: 크기, 셀, 범위, 글리프, 데이터의 범위와 그 뒤의 바이트, 크기별로 묶은 글리프, 그리고 128 + 8,366 배치이면 ASCII,
+기호, 음절, 한자 블록의 오프셋. `map`: 지정한 블록(`--blocks symbols,hangul,hanja`, 기본값)에 대한 `rawcarve.py bdf --chars map`용
+"GLYPH U+XXXX" 줄(코드 포인트로 풀리지 않는 슬롯은 뺀다).
+
+**사용법.** `python3 -I tools/tbmfont.py info FILE`, `python3 -I tools/tbmfont.py map [--blocks B,...] -o MAP.txt`. 거부하는
+파일에는 메시지와 함께 종료 코드 1.
+
+**내부 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_tbmfont.py`(합성 12, 16, 20 px TBM 파일: 배치, 거부, 슬롯 맵,
+페이스까지 가는 레시피의 명령, `doc_figures_windows.py --check`).
+
+### `tools/doc_figures_windows.py`
+
+**목적.** [recipes/windows.ko.md](recipes/windows.ko.md)의 샘플 그림을 그린다. 레시피가 만드는 페이스마다 하나: Windows 3.1 TBM
+폰트 BT16과 BT20, Windows 95 TBM 폰트 GULIM16과 GULIM12, Windows 95 `gulim.ttc`의 굴림 16, 12 px 스트라이크, Windows XP 폰트의
+굴림 12 px와 바탕 16 px 스트라이크.
+
+**상태.** 특수 목적(문서).
+
+**입력.** 폰트 파일을 인수로 받는다(`--bt16`, `--bt20`, `--gulim16`, `--gulim12`, `--win95-gulim`, `--xp-gulim`, `--xp-batang`).
+스크립트에는 폰트 경로가 없고, 준 폰트만 그린다. 페이스마다 임시 폴더에서 레시피의 명령(`tbmfont.py`, `rawcarve.py bdf --invert`,
+`bdfface.py`, `mkfont.py`)을 `python3 -I`로 실행해 만든다.
+
+**출력.** `docs/images/recipes/windows/`의 PNG 파일(8비트 회색, 흰 바탕에 검은 글자, 픽셀마다 2배, 메타데이터 없음): 페이스마다
+네 줄(한국어 팬그램 두 줄, 영문 한 줄, ASCII 기호와 KS X 1001 기호 16자), 그리고 그림마다 크기와 페이스에 없는 샘플 글자를 알리는
+한 줄.
+
+**사용법.**
+
+    python3 -I tools/doc_figures_windows.py [--bt16 F] [--bt20 F] [--gulim16 F] [--gulim12 F] [--win95-gulim F] [--xp-gulim F] [--xp-batang F] [--out DIR] [--check]
+
+`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없으면 종료 코드 1). TTC 그림은 Pillow와 그
+FreeType에 따라 달라진다(출력한다). 저장소의 그림은 Pillow 10.2.0과 FreeType 2.13.2로 만들었다.
+
+**내부 모듈.** `tbmfont.py`, `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow(`mkfont.py`를 거쳐).
+**테스트.** `tools/test_tbmfont.py`(합성 BT16), `--check`.
+
 ## 8. 레거시 포맷 리더
 
 ### `tools/macfbit3.py`

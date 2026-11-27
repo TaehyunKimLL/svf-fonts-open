@@ -1392,6 +1392,59 @@ its own code table: escape-coded nibbles, a context table that is not the identi
 blocks, and the bad-file refusals; with `JOHAB_FONTS` naming the research tree, hashes of the decoded real
 `$korZN16.FNT` and of 가, 각, 힝, and 가 / 힝 against the renders in its notes).
 
+### `tools/tbmfont.py`
+
+**Purpose.** Read the header of a Korean Windows 3.1 / Windows 95 `.TBM` bitmap font (`BT16.TBM`, `BT20.TBM`,
+`GULIM16.TBM`, `GULIM12.TBM`) and print where its glyph blocks start, for `rawcarve.py bdf`; write the KS X 1001 slot
+map of its symbol and hanja blocks. Worked example: [recipes/windows.md](recipes/windows.md).
+
+**Status.** Special-purpose (one font format). The module docstring describes the file layout.
+
+**Inputs.** A TBM file (signature "TTBITMAP VARIABLE-PITCH HANGEUL", files over 16 MiB are refused): the cell size,
+the range records and the 7-byte glyph table. Refused with a message: no signature, a range whose two size fields
+differ, that runs past the file or does not follow the one before, a glyph table that is not whole entries, a glyph
+that does not fit its range or does not follow the one before.
+
+**Outputs.** `info`: the size, cell, ranges, glyphs, the data's span and the bytes after it, the glyphs grouped by
+size, and for the 128 + 8,366 layout the offset of the ASCII, symbol, syllable and hanja blocks. `map`: "GLYPH U+XXXX"
+lines for `rawcarve.py bdf --chars map` over the named blocks (`--blocks symbols,hangul,hanja`, the default; slots no
+code point decodes to are left out).
+
+**Synopsis.** `python3 -I tools/tbmfont.py info FILE`, `python3 -I tools/tbmfont.py map [--blocks B,...] -o MAP.txt`.
+Exit 1 with a message for a file it refuses.
+
+**Repository modules imported.** None. **Third-party.** None. **Test.** `tools/test_tbmfont.py` (synthetic 12, 16 and
+20 px TBM files: the layout, the refusals, the slot map, the recipe's commands to a face, and
+`doc_figures_windows.py --check`).
+
+### `tools/doc_figures_windows.py`
+
+**Purpose.** Draws the sample images of [recipes/windows.md](recipes/windows.md): one per face the recipe builds (the
+Windows 3.1 TBM fonts BT16 and BT20, the Windows 95 TBM fonts GULIM16 and GULIM12, Gulim 16 and 12 px strikes of the
+Windows 95 `gulim.ttc`, the Gulim 12 px and Batang 16 px strikes of the Windows XP fonts).
+
+**Status.** Special-purpose (documentation).
+
+**Inputs.** The font files as arguments (`--bt16`, `--bt20`, `--gulim16`, `--gulim12`, `--win95-gulim`, `--xp-gulim`,
+`--xp-batang`); no path to a font is written in the script, and only the fonts given are drawn. Each face is built in
+a temporary directory by the recipe's commands (`tbmfont.py`, `rawcarve.py bdf --invert`, `bdfface.py`, `mkfont.py`),
+run with `python3 -I`.
+
+**Outputs.** PNG files in `docs/images/recipes/windows/` (8-bit grey, black on white, every pixel doubled, no
+metadata): four lines (two Korean pangrams, an English line, ASCII symbols and 16 KS X 1001 symbols) per face, and one
+line per image with its size and any sample character the face lacks.
+
+**Synopsis.**
+
+    python3 -I tools/doc_figures_windows.py [--bt16 F] [--bt20 F] [--gulim16 F] [--gulim12 F] [--win95-gulim F] [--xp-gulim F] [--xp-batang F] [--out DIR] [--check]
+
+`--check` renders in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference or a missing
+file). The TTC images depend on Pillow and its FreeType (printed); the images in the repository were made with Pillow
+10.2.0 and FreeType 2.13.2.
+
+**Repository modules imported.** `tbmfont.py`, `svfline.py`, `binscan.py` (and the tools it runs). **Third-party.**
+Pillow (through `mkfont.py`). **Test.** `tools/test_tbmfont.py` (a synthetic BT16), `--check`.
+
 ## 8. Legacy format readers
 
 ### `tools/macfbit3.py`
