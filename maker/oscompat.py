@@ -9,7 +9,8 @@ and `killpg`, `flock`, `O_NOFOLLOW`, `S_ISLNK`), so POSIX behaviour does not cha
   instruction. "Signal the group" terminates the job: Windows has no SIGTERM for a console-less process, so a tool stop
   on Windows is immediate (no grace period). A job that cannot be created or assigned is refused (the tool is killed and
   `OSError` raised): a tool never runs without its tree kill. When the sidecar dies its job handles close and the kernel
-  kills every tool (the Windows counterpart of PR_SET_PDEATHSIG).
+  kills every tool (the Windows counterpart of PR_SET_PDEATHSIG). The sidecar itself runs in a job of its own
+  (`contain_children`), so a tool killed with it between creation and assignment does not survive it either.
 - **Locks.** `msvcrt.locking` of one byte far past the lock file's end (per handle, like `flock` per open file
   description; past the end, so the file itself stays readable). A sharing conflict on a replace or a read
   (`retry_sharing`) is retried briefly: Windows refuses to replace a file another thread has open.
@@ -194,7 +195,7 @@ def lock(fd, blocking=True):
 
 
 def unlock(fd):
-    """Release @p fd's lock (`flock(LOCK_UN)`; Windows: unlock byte 0)."""
+    """Release @p fd's lock (`flock(LOCK_UN)`; Windows: unlock the byte at `_LOCK_OFFSET`)."""
     if not WINDOWS:
         import fcntl
         fcntl.flock(fd, fcntl.LOCK_UN)
@@ -250,6 +251,7 @@ if WINDOWS:
     _CreateFileW = _proto("CreateFileW", wintypes.HANDLE, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
     _NtResumeProcess = _proto("NtResumeProcess", ctypes.c_long, wintypes.HANDLE, dll=_ntdll)
+    _GetCurrentProcess = _proto("GetCurrentProcess", wintypes.HANDLE)
     class _ProcessEntry(ctypes.Structure):
         _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
                     ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
@@ -419,6 +421,25 @@ def popen_group(argv, **kwargs):
     return proc
 
 
+_self_job = []
+
+
+def contain_children():
+    """Windows: put this process into a Job Object of its own (`KILL_ON_JOB_CLOSE`), held until it exits, so every
+    process it starts is inside a job from its creation: when this process dies, however, the kernel kills them all,
+    a tool still suspended between its creation and `AssignProcessToJobObject` (`popen_group`) included. The tool jobs
+    nest inside it (Windows 8+). `OSError` when the job cannot be made or joined (the caller decides); POSIX: nothing
+    (PR_SET_PDEATHSIG and the tool registry cover it)."""
+    if not WINDOWS or _self_job:
+        return
+    job = _new_job()
+    if not _AssignProcessToJobObject(job, _GetCurrentProcess()):
+        exc = _last_error("AssignProcessToJobObject (self)")
+        _CloseHandle(job)
+        raise exc
+    _self_job.append(job)                                # never closed: it closes when this process ends
+
+
 def signal_group(proc, sig):
     """Send @p sig to the process group @p proc leads (`os.killpg`); `OSError` when it is gone. Windows: the tool's job
     is terminated, whatever @p sig is (no graceful stop exists for a console-less process)."""
@@ -482,12 +503,14 @@ def kill_registered(pid):
         os.killpg(pid, signal.SIGKILL)
         return
     below = _descendants(pid)
-    _terminate(pid)
-    for child in below:
-        try:
-            _terminate(child)
-        except OSError:
-            pass
+    try:
+        _terminate(pid)
+    finally:                                             # the descendants too when the root has just exited
+        for child in below:
+            try:
+                _terminate(child)
+            except OSError:
+                pass
 
 
 def process_alive(pid):
@@ -559,13 +582,15 @@ def wait_stdin_eof(poll_s=0.5):
 
 
 def request_stop():
-    """Ask this process to stop as SIGTERM would: POSIX `kill(getpid(), SIGTERM)`; Windows simulates SIGTERM in the main
-    thread (`os.kill` there would be TerminateProcess, with no cleanup)."""
+    """Ask this process to stop as SIGTERM would: POSIX `kill(getpid(), SIGTERM)`; Windows simulates SIGINT in the main
+    thread (`os.kill` there would be TerminateProcess, with no cleanup). SIGINT, not SIGTERM: only a simulated SIGINT
+    also sets the interrupt event that wakes a main thread blocked in a wait (`time.sleep`); the server binds both
+    signals to the same stop."""
     if not WINDOWS:
         os.kill(os.getpid(), signal.SIGTERM)
         return
     import _thread
-    _thread.interrupt_main(signal.SIGTERM)
+    _thread.interrupt_main(signal.SIGINT)
 
 
 # ---- held directories (Windows) -------------------------------------------------------------------------------------

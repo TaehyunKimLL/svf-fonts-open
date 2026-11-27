@@ -146,6 +146,32 @@ class OsCompatTest(unittest.TestCase):
             self.assertFalse(oscompat.windows_unsafe_name(name), name)
 
 
+@unittest.skipUnless(WIN, "Windows only: Job Objects")
+class WindowsJobTest(unittest.TestCase):
+    def test_a_suspended_child_not_yet_in_its_job_dies_with_a_contained_parent(self):
+        # the boundary of popen_group: the child exists (suspended) but is not yet assigned to its own job when the
+        # parent is killed. With contain_children the parent's own job takes it.
+        tmp = tempfile.mkdtemp(prefix="svf-oscompat-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        pidfile = os.path.join(tmp, "child")
+        code = ("import os, subprocess, sys, time\n"
+                "sys.path.insert(0, sys.argv[2])\n"
+                "import oscompat\n"
+                "oscompat.contain_children()\n"
+                "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], creationflags=0x4)\n"
+                "open(sys.argv[1], 'w').write(str(c.pid))\n"
+                "time.sleep(60)\n")
+        parent = subprocess.Popen([sys.executable, "-c", code, pidfile, MAKER_DIR], stdin=subprocess.DEVNULL)
+        self.addCleanup(parent.wait)
+        self.assertTrue(_wait(lambda: os.path.exists(pidfile) and open(pidfile).read().strip()))
+        with open(pidfile) as f:
+            child = int(f.read())
+        self.assertTrue(toolrun.alive(child))
+        parent.kill()                                          # TerminateProcess: no cleanup runs in the parent
+        parent.wait(10)
+        self.assertTrue(_wait(lambda: not toolrun.alive(child)), "the suspended child outlived its parent")
+
+
 @unittest.skipUnless(WIN, "Windows only: junctions, held directories, device names on disk")
 class WindowsLinksTest(unittest.TestCase):
     def setUp(self):
