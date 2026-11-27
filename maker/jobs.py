@@ -1736,11 +1736,12 @@ class Worker(threading.Thread):
                 self._log_failure(job_id, self._trace_text(job_id))
 
     def _job_env(self, job):
-        """A local job's tool environment: `TMPDIR` inside its files directory, no bytecode beside the tools. None
-        (the default `ENV`) for an upload job."""
+        """A local job's tool environment: `TMPDIR` (Windows also `TEMP`, `TMP`) inside its files directory, no
+        bytecode beside the tools. None (the default `ENV`) for an upload job."""
         if job.get("source") != "local":
             return None
-        return dict(ENV, TMPDIR=os.path.join(self.store.files_dir(job), "work", "tmp"), PYTHONDONTWRITEBYTECODE="1")
+        return dict(ENV, **oscompat.tmp_env(os.path.join(self.store.files_dir(job), "work", "tmp")),
+                    PYTHONDONTWRITEBYTECODE="1")
 
     def _trace_text(self, job_id):
         """The traceback of the exception being handled, as text safe to keep: a local job's has no messages."""

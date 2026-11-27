@@ -46,6 +46,18 @@ def abbr(family):
     return "".join(_ABBR_CHARS.findall(family or ""))[:5].upper() or "FONT"
 
 
+def windows_reserved(name):
+    """True on Windows when the face/text name or destination @p name (`NAME.SVF`, `games/<name>`) has a part
+    Windows cannot hold as a plain file or folder name (a device name: `CON.SVF`, `NUL.TXT`, `new/con`). Always False
+    elsewhere: the names are valid there."""
+    return oscompat.WINDOWS and any(oscompat.windows_unsafe_name(part) for part in name.split("/"))
+
+
+def _unreserved(stem):
+    """@p stem, with a `0` added on Windows when it is a device name there (`CON` -> `CON0`)."""
+    return stem + "0" if windows_reserved(stem) else stem
+
+
 def suggest_face_name(family, px, bpp, kind, svf_stem=None):
     """The suggested `.SVF` name: `svf_stem` kept when an SVF source gives one, else `abbr` + the size.
 
@@ -54,7 +66,7 @@ def suggest_face_name(family, px, bpp, kind, svf_stem=None):
     rejects; the suggestion is still returned, and validation reports it so the owner shortens it.
     """
     if svf_stem:
-        return svf_stem.upper()[:8] + ".SVF"
+        return _unreserved(svf_stem.upper()[:8])[:8] + ".SVF"
     px2 = "%02d" % px
     a = "A" if bpp == 2 else ""
     if kind == "jamo":
@@ -70,7 +82,7 @@ def suggest_licence_name(family, text):
 
 def suggest_note_name(family):
     """The suggested note name: `abbr` + `.TXT`."""
-    return abbr(family) + ".TXT"
+    return _unreserved(abbr(family)) + ".TXT"
 
 
 def _check_note_field(value, field, newlines=False):

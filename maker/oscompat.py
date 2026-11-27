@@ -72,6 +72,15 @@ def islink(path):
         return False
 
 
+def is_under(path, base):
+    """True when the real path @p path is @p base itself or below it (`path.startswith(base + os.sep)`). Windows: a
+    base that ends in a separator (a drive root, `D:\\`) is not doubled, and case is ignored."""
+    if not WINDOWS:
+        return path == base or path.startswith(base + os.sep)
+    path, base = os.path.normcase(path), os.path.normcase(base)
+    return path == base or path.startswith(base.rstrip("\\/") + os.sep)
+
+
 def same_file(a, b):
     """True when the stat results @p a and @p b are the same file (device + inode; volume serial + file index)."""
     return (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
@@ -166,6 +175,16 @@ def windows_unsafe_name(name):
     if name[-1] in ". " or any(c in _FORBIDDEN_CHARS or ord(c) < 32 for c in name):
         return True
     return name.split(".", 1)[0].rstrip(" ").upper() in _DEVICE_NAMES
+
+
+# ---- temp folders ---------------------------------------------------------------------------------------------------
+
+def tmp_env(path):
+    """The environment entries that point a child's temp files at @p path: `TMPDIR`; Windows also `TEMP` and `TMP`
+    (GetTempPath, which native code uses, reads only those)."""
+    if not WINDOWS:
+        return {"TMPDIR": path}
+    return {"TMPDIR": path, "TEMP": path, "TMP": path}
 
 
 # ---- private folders ------------------------------------------------------------------------------------------------

@@ -63,12 +63,18 @@ class LocalJobTest(LocalBase):
     def refused_reasons(self, body):
         return {os.path.basename(item["path"]) or item["path"]: item["reason"] for item in body["refused"]}
 
-    @wincompat.posix_only("a FIFO and a symlink as picked paths (the Windows refusals are test_oscompat)")
     def test_path_rules(self):
+        # Windows too (a junction for the link, a drive root for "/", `;` in SVF_MAKER_ROOTS); only the FIFO is POSIX
         jid = self.new_job()
         a, b = self.roots[0], self.roots[1]
-        os.symlink(a, os.path.join(self.tmp, "ln"))
-        os.mkfifo(os.path.join(self.tmp, "fifo"))
+        if wincompat.WIN:
+            import _winapi
+            _winapi.CreateJunction(a, os.path.join(self.tmp, "ln"))
+            top = os.path.splitdrive(self.tmp)[0] + "\\"
+        else:
+            os.symlink(a, os.path.join(self.tmp, "ln"))
+            os.mkfifo(os.path.join(self.tmp, "fifo"))
+            top = "/"
         sub = os.path.join(self.out, "sub")
         os.makedirs(sub)
         cases = [("in/a", "not an absolute path"),
@@ -77,11 +83,12 @@ class LocalJobTest(LocalBase):
                  (self.tmp, "the data folder cannot be chosen"),
                  (sub, "the output folder must not overlap an input"),
                  (self.out, "the output folder must not overlap an input"),
-                 ("/", "/ cannot be chosen"),
-                 (os.path.join(self.tmp, "nope"), "no such file or folder"),
-                 (os.path.join(self.tmp, "fifo"), "not a regular file or folder"),
-                 ("/" + "x" * 5000, "path too long"),
-                 (a + "\0x", "NUL in path")]
+                 (top, "/ cannot be chosen"),
+                 (os.path.join(self.tmp, "nope"), "no such file or folder")]
+        if not wincompat.WIN:
+            cases.append((os.path.join(self.tmp, "fifo"), "not a regular file or folder"))
+        cases += [(top + "x" * 5000, "path too long"),
+                  (a + "\0x", "NUL in path")]
         for path, reason in cases:
             status, body = self.put_sources(jid, [path])
             self.assertEqual(status, 200, path)
@@ -96,6 +103,10 @@ class LocalJobTest(LocalBase):
             status, body = self.put_sources(jid, [a, b])
             self.assertEqual([r["reason"] for r in body["refused"]], ["outside SVF_MAKER_ROOTS"])
             self.assertEqual([r["path"] for r in body["roots"]], [a])
+        with mock.patch.dict(os.environ, {"SVF_MAKER_ROOTS": os.pathsep.join([a, b])}):     # two entries
+            status, body = self.put_sources(jid, [a, b])
+            self.assertEqual(body["refused"], [])
+            self.assertEqual([r["path"] for r in body["roots"]], [a, b])
             status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": os.path.join(self.tmp, "tree", "in")})
             self.assertEqual((status, body["error"]), (400, "output folder: outside SVF_MAKER_ROOTS"))
         # a bad output folder

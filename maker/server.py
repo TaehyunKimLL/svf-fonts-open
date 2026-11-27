@@ -1100,7 +1100,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         files directory and Python writes no bytecode beside the tools. None (the default environment) for an upload."""
         if job.get("source") != "local":
             return None
-        return dict(preview.ENV, TMPDIR=os.path.join(self.server.store.files_dir(job), "work", "tmp"),
+        return dict(preview.ENV, **oscompat.tmp_env(os.path.join(self.server.store.files_dir(job), "work", "tmp")),
                     PYTHONDONTWRITEBYTECODE="1")
 
     MAX_SOURCE_PATHS = 64

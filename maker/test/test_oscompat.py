@@ -138,6 +138,19 @@ class OsCompatTest(unittest.TestCase):
             proc.wait()
         self.assertTrue(_wait(lambda: not toolrun.alive(proc.pid)))
 
+    def test_windows_device_names_are_refused_and_never_suggested(self):
+        import naming
+        from unittest import mock
+        with mock.patch.object(oscompat, "WINDOWS", True):
+            for name in ("CON.SVF", "NUL.TXT", "AUX.TXT", "COM1.SVF", "new/con", "games/nul"):
+                self.assertTrue(naming.windows_reserved(name), name)
+            for name in ("CONSOLE.SVF", "NEODG16.SVF", "dos", "new/console", "games/com10"):
+                self.assertFalse(naming.windows_reserved(name), name)
+            self.assertEqual(naming.suggest_note_name("Con"), "CON0.TXT")
+            self.assertEqual(naming.suggest_face_name("x", 16, 1, "precomposed", svf_stem="nul"), "NUL0.SVF")
+        self.assertEqual(naming.windows_reserved("CON.SVF"), WIN)        # valid names elsewhere
+        self.assertEqual(naming.suggest_note_name("Con"), "CON0.TXT" if WIN else "CON.TXT")
+
     def test_unsafe_names(self):
         for name in ("CON", "con.svf", "NUL.TXT", "COM1.SVF", "LPT9", "AUX.ttf", "CONIN$", "a.", "a ", "a:b", "a?b",
                      "a\x01b", "", ".."):
@@ -220,6 +233,16 @@ class WindowsLinksTest(unittest.TestCase):
         files, refused = sources.Sources("local", [root]).walk()
         self.assertEqual(files, [])
         self.assertEqual(refused, [(0, "sub", "symlink, skipped")])
+
+    def test_is_under_a_drive_root_and_any_case(self):
+        self.assertTrue(oscompat.is_under("D:\\Fonts\\my.ttf", "D:\\"))
+        self.assertTrue(oscompat.is_under("D:\\", "D:\\"))
+        self.assertTrue(oscompat.is_under("c:\\users\\me\\out", "C:\\Users\\Me"))
+        self.assertFalse(oscompat.is_under("C:\\ab", "C:\\a"))
+        self.assertFalse(oscompat.is_under("E:\\x", "D:\\"))
+        drive_root = os.path.splitdrive(self.tmp)[0] + "\\"
+        real, _kind = sources.check_path(self.real, want="source", data_root=None, allowed=[drive_root])
+        self.assertEqual(real, self.real)
 
     def test_check_path_refusals(self):
         with self.assertRaises(sources.PathRefused) as cm:

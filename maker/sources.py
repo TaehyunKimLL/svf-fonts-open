@@ -278,6 +278,6 @@ def check_path(path, *, want, data_root, allowed):
         raise PathRefused("not a folder")
     if data_root and os.path.exists(data_root) and overlaps(real, data_root):
         raise PathRefused("the data folder cannot be chosen")
-    if allowed is not None and not any(real == base or real.startswith(base + os.sep) for base in allowed):
+    if allowed is not None and not any(oscompat.is_under(real, base) for base in allowed):
         raise PathRefused("outside SVF_MAKER_ROOTS")
     return real, "dir" if is_dir else "file"
