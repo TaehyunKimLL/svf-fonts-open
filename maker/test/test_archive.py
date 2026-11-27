@@ -679,7 +679,7 @@ class UnpackTest(unittest.TestCase):
             z.writestr("a.txt", "x")
         real_open = open
         def failing_open(path, mode="r", *args, **kw):
-            if "w" in mode:
+            if "w" in mode or "x" in mode:                  # Windows opens a member new-only ("xb")
                 raise OSError(36, "File name too long")
             return real_open(path, mode, *args, **kw)
         with mock.patch("builtins.open", failing_open):

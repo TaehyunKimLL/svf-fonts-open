@@ -372,16 +372,26 @@ class WindowsLinksTest(unittest.TestCase):
             return text.value
 
         sid = oscompat._user_sid()
+        # the text form Windows gives back may name a well-known account by its alias (LA for the built-in
+        # Administrator): the expected ACEs go through the same round trip
+        want_sd = ctypes.c_void_p()
+        self.assertTrue(adv.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            "D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;SY)" % sid, 1, ctypes.byref(want_sd), None))
+        want_text = wintypes.LPWSTR()
+        self.assertTrue(adv.ConvertSecurityDescriptorToStringSecurityDescriptorW(want_sd, 1, 4, ctypes.byref(want_text),
+                                                                                None))
+        want_aces = sorted(want_text.value[2:].partition("(")[2].rstrip(")").split(")("))
         top = dacl(path)
         flags, _, aces = top[2:].partition("(")
         self.assertIn("P", flags, top)                          # protected: nothing inherited from the parent
-        self.assertEqual(sorted(("(" + aces).strip("()").split(")(")), sorted(["A;OICI;FA;;;%s" % sid, "A;OICI;FA;;;SY"]),
-                         top)
+        self.assertEqual(sorted(("(" + aces).strip("()").split(")(")), want_aces, top)
+        self.assertEqual(len(want_aces), 2)
         below = dacl(inner)
         self.assertNotIn(";;;BU)", below)                       # no Users, Authenticated Users or Everyone
         self.assertNotIn(";;;AU)", below)
         self.assertNotIn(";;;WD)", below)
-        self.assertIn(sid, below)
+        user = next(ace.rsplit(";", 1)[1] for ace in want_aces if not ace.endswith(";SY"))
+        self.assertIn(";;;%s)" % user, below)
 
     def test_write_tree_refuses_a_device_name(self):
         out = os.path.join(self.tmp, "out")

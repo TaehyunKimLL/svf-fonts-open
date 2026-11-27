@@ -26,6 +26,7 @@ from unittest import mock
 import fixtures
 import jobs
 import localfx
+import oscompat
 import server
 import settings
 import wincompat
@@ -388,11 +389,21 @@ def entries_have(path_pred):
     return lambda entries: any(path_pred(e) for e in entries)
 
 
+def _mkdir_through_os(test):
+    """These tests fail or hang `os.mkdir`; Windows makes a scratch folder with CreateDirectoryW (an owner-only ACL,
+    `oscompat.mkdir_private`), so there it is routed through `os.mkdir` for them (POSIX already is)."""
+    if oscompat.WINDOWS:
+        patcher = mock.patch.object(oscompat, "mkdir_private", lambda path: os.mkdir(path, 0o700))
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 class SweepBoundsTest(localfx.LocalRunBase):
     """Task 2: one deadline through rename, pending records, orphans and retries (H3b)."""
 
     def setUp(self):
         super().setUp()
+        _mkdir_through_os(self)
         self.store = self.srv.store
 
     def hang(self, target, name, real, when):
@@ -1056,6 +1067,7 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
 
     def setUp(self):
         super().setUp()
+        _mkdir_through_os(self)
         self.store = self.srv.store
         self.healthy = os.path.join(self.tmp, "healthy")
         os.mkdir(self.healthy)
