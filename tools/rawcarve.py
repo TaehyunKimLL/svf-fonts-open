@@ -48,7 +48,8 @@ Compose spec (JSON). Jamo are numbered as Unicode numbers them: L 0..18 (ㄱ..�
                                   where the pieces of a set are: piece k at offset + k * stride, drawn width x height at
                                   (x, y) of the cell (a set stored row-cropped or as a half cell is placed back here);
                                   a set may also give "lsb", "invert", or "gfx" (a binscan.py --gfx layout, its tile
-                                  size the set's) and "bg" / "fg" (a pen list)
+                                  size the set's) and "bg" / "fg" (a pen list), and "slots": [ints] (piece k is
+                                  the stored piece slots[k]: a set whose numbering skips stored slots)
    "initial": {"nofinal": [NAME by font vowel], "final": [NAME by font vowel], "novowel": NAME},   piece = L
    "medial":  {"nofinal": [[NAME, k] by font vowel], "final": [[NAME, k] by font vowel],
                "nofinal_kk": ..., "final_kk": ...},  optional *_kk tables: used when L is ㄱ or ㅋ (the 8x4x4 rule)
@@ -246,6 +247,10 @@ class Composer:
                 raise CarveError(f"set {name}: offset must be 0 or more and stride 1 or more")
             if not (1 <= s.get("width", self.w) <= 256 and 1 <= s.get("height", self.h) <= 256):
                 raise CarveError(f"set {name}: width and height are 1..256")
+            slots = s.get("slots")
+            if slots is not None and (not isinstance(slots, list) or
+                                      not all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in slots)):
+                raise CarveError(f"set {name}: slots must be a list of piece numbers 0 or more")
         self._gfx = {}
         for name, s in self.sets.items():
             if s.get("gfx") is not None:
@@ -266,6 +271,10 @@ class Composer:
         key = (name, k)
         if key not in self._cache:
             s = self.sets[name]
+            if "slots" in s:
+                if k >= len(s["slots"]):
+                    raise CarveError(f"set {name}: piece {k} is past its {len(s['slots'])} slots")
+                k = s["slots"][k]
             g = self._gfx.get(name)
             w, h = (g.w, g.h) if g else (s.get("width", self.w), s.get("height", self.h))
             self._cache[key] = (s.get("x", 0), s.get("y", 0),

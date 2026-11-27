@@ -1255,13 +1255,15 @@ refused; `cut`, `eng` and `bdf` read only the bytes they use (through the last g
 `--stride` shorter than a glyph), `compose` reads the whole file (up to 64 MiB). A compose
 spec with a cell outside 1..256, a negative piece, an unknown set or `--eng-top` + `--eng-height` past the cell is
 refused with a message. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
-`x`, `y`, `width`, `height`, `order`, and optionally `lsb`, `invert`, `gfx` with `bg` / `fg`; a top-level `"invert": true`
+`x`, `y`, `width`, `height`, `order`, and optionally `lsb`, `invert`, `gfx` with `bg` / `fg`, and `slots`, a list
+that renumbers the set's pieces when the font's numbering skips stored slots; a top-level `"invert": true`
 or `--invert` inverts every set that does not say `"invert": false`, and the `--eng` font), the initial set per vowel without and with a final, the medial (set, piece) per
 vowel (optionally another table for ㄱ / ㅋ, the 8x4x4 rule), the final set per vowel or one set, and the font's own
 vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). `--spec spc1500` (the name always
 means it; a JSON file of that name is `./spc1500`) is the built-in spec of the Samsung SPC-1500 Hangul ROMs (`spc1500_spec`, from MAME's
-`spc1500.cpp`), for the 32 KB region of `ss150fnt.bin` .. `ss153fnt.bin` one after another; `jamoset.py --layout spec`
-reads the same specs. Exit 1 with a message on
+`spc1500.cpp`), for the 32 KB region of `ss150fnt.bin` .. `ss153fnt.bin` one after another; `tools/specs/msx2-daewoo.json`
+is the spec of the Daewoo MSX2 jamo-set font (the 9,280-byte block cut from a CPC-300 / 400S ext ROM, see the recipes);
+`jamoset.py --layout spec` reads the same specs. Exit 1 with a message on
 a bad offset, spec or empty result.
 
 `region --group FILE...` is a repeatable group input. `bdf --name` defaults to `carved`;
@@ -1269,7 +1271,8 @@ a bad offset, spec or empty result.
 (defaults: glyph byte size, `rows`, off). Writing commands also accept `--output` for `-o`.
 
 **Repository modules imported.** `binscan.py`. **Third-party.** None. **Test.** `tools/test_extract.py` (a carved
-8x4x4 font builds with `jamoset.py`; a KS grid ROM; a compose spec of the 8x4x4 rule equals jamoset's composition);
+8x4x4 font builds with `jamoset.py`; a KS grid ROM; a compose spec of the 8x4x4 rule equals jamoset's composition;
+`tools/specs/msx2-daewoo.json` equals the Daewoo rule written out independently on a synthetic block, `slots`);
 `tools/test_tiles.py` (inverted fonts through `eng`, `ink`, `bdf` and `compose`; `region` interleaves, groups and swaps;
 `ink` and `bdf` of packed and planar tiles; the built-in `spc1500` spec; with `MAME_ROMS` set, the real SPC-1500, Date
 Quiz Go Go and X Se Dae Quiz ROMs by hash).
