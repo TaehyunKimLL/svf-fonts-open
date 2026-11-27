@@ -1036,7 +1036,7 @@ both printed), and one line saying whether the 2 bpp downscale equals the draw-t
 **Purpose.** Rebuild the faces of `svf/` from their upstream fonts with the tools above, as the recipe table
 `tools/build/faces.tsv` says, and compare each result with the face in `svf/`.
 
-**Status.** General-purpose (the provenance check of the shipped faces; [recipes.md](recipes.md) explains every recipe).
+**Status.** General-purpose (the provenance check of the shipped faces; [recipes/svf-faces.md](recipes/svf-faces.md) explains every recipe).
 
 **Inputs.** `tools/build/faces.tsv` (face, method, source, args, codepoints, expect, note; one row for every face of
 `svf/`), the code point lists under `tools/build/cps/`, and the source fonts in `ttf/`. A row whose source is
@@ -1130,7 +1130,7 @@ bytes, licences, hangul, latin_only, subset, family, style, variant). It writes 
 ## 7. Finding and cutting fonts out of files
 
 The worked examples are in [recipes/programs-and-drivers.md](recipes/programs-and-drivers.md#finding-a-font-inside-a-program-or-data-file-with-claude) (a
-DOS TSR, a DOS driver, Korean VGA font ROMs) and [recipes/os2.md](recipes/os2.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)
+DOS TSR, a DOS driver), [recipes/rom-86box.md](recipes/rom-86box.md#korean-vga-font-roms-86box) (Korean VGA font ROMs) and [recipes/os2.md](recipes/os2.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)
 (OS/2). These tools read bytes and never run the file's code; run them with `python3 -I` on downloads.
 
 ### `tools/binscan.py`

@@ -12,8 +12,9 @@ Development status: [docs/STATUS.md](docs/STATUS.md).
 
 The code, the specification and the documentation are MIT ([LICENSE](LICENSE)). The fonts and the faces made from them
 are all under the SIL Open Font License 1.1, each with its licence text beside it; [NOTICE.md](NOTICE.md) lists them
-and how this repository reads their Reserved Font Names. [docs/recipes.md](docs/recipes.md) says how every face is made from its
-upstream font, and how to convert other kinds of Korean fonts (TrueType/OpenType outlines, X11 BDF/PCF, DOS johab, classic
+and how this repository reads their Reserved Font Names. [docs/recipes.md](docs/recipes.md), the recipes index, and its
+per-topic documents in [docs/recipes/](docs/recipes.md#recipe-documents) say how every face is made from its upstream
+font, and how to convert other kinds of Korean fonts (TrueType/OpenType outlines, X11 BDF/PCF, DOS johab, classic
 Mac) to SVF, by input kind.
 
 ## 2. Documents

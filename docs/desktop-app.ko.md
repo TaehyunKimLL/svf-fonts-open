@@ -392,7 +392,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 | 클래식 Mac HangulTalk 1.0 폰트 | `fdef`가 있는 포크. `fdef` 없는 raw 1.0 `fbit`는 무엇이 빠졌는지와 함께 목록에 표시된다. |
 | Hanterm Johab 폰트 | 배치 `hanterm-johab`(Johab BDF). |
 | SVF 파일(`.svf`, v2/v3, 1·2 bpp) | 복사되거나(경로가 허용할 때) jamo fit의 소스로 쓰인다. v3는 JSET 버전을 바꾸지 않으면 블록을 유지하며, v2는 v3로 변환한다. `svf2ttf` 경로는 SVF를 TTF와/또는 BDF로만 바꾼다("also write TTF" 또는 "BDF"를 체크한다). |
-| 알려진 ROM 세트(로컬 모드) | `maker/recipes/`의 내장 레시피에서 크기와 SHA-256으로 알아보는 글꼴 ROM: 86Box의 한글 VGA 카드 셋, 각각 512 KB KS C 5601 글꼴 ROM과 32 KB VGA BIOS(Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). 두 파일이 든 폴더를 고른다. 글꼴 ROM이 "known: <카드>" 한 행이 되고 BIOS는 그것과 함께 읽힌다고 표시된다. 한 파일만 있으면 행은 "part of <카드>: also needs <파일>; pick the folder"라고 하며 아무것도 제시하지 않는다. 이름과 크기는 맞지만 해시가 다른 파일은 "looks like <카드>, another revision"이며 변환하지 않는다. 페이스는 16 px 완성형 페이스(한글은 ROM에서, 영문은 BIOS의 8x16 글꼴에서)와 experimental인 8x4x4 자모 fit이다([recipes.ko.md](recipes.ko.md)의 "한글 VGA 글꼴 ROM (86Box)"). MAME 세트 넷도 같은 방식이다(풀어 둔 세트의 폴더를 고른다. zip은 읽지 않는다): 삼성 SPC-1500(`ss150fnt.bin` .. `ss153fnt.bin`: 완성형 페이스와 정확한 자모 세트, 경로 `spec`), Date Quiz Go Go(`uor1` .. `uor4`), X Se Dae Quiz(`obj-1.u0811`, `obj-2.u082`: 자모 세트, 경로 `dos raw`), Quiz King of Fighters(한국판)(`vic-080-c1.c1` .. `c4.c4`)([recipes.ko.md](recipes.ko.md)의 "MAME 세트의 한글 폰트 ROM"). 업로드 작업은 표시만 한다. |
+| 알려진 ROM 세트(로컬 모드) | `maker/recipes/`의 내장 레시피에서 크기와 SHA-256으로 알아보는 글꼴 ROM: 86Box의 한글 VGA 카드 셋, 각각 512 KB KS C 5601 글꼴 ROM과 32 KB VGA BIOS(Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). 두 파일이 든 폴더를 고른다. 글꼴 ROM이 "known: <카드>" 한 행이 되고 BIOS는 그것과 함께 읽힌다고 표시된다. 한 파일만 있으면 행은 "part of <카드>: also needs <파일>; pick the folder"라고 하며 아무것도 제시하지 않는다. 이름과 크기는 맞지만 해시가 다른 파일은 "looks like <카드>, another revision"이며 변환하지 않는다. 페이스는 16 px 완성형 페이스(한글은 ROM에서, 영문은 BIOS의 8x16 글꼴에서)와 experimental인 8x4x4 자모 fit이다([recipes/rom-86box.ko.md](recipes/rom-86box.ko.md#한글-vga-폰트-rom-86box)의 "한글 VGA 폰트 ROM (86Box)"). MAME 세트 넷도 같은 방식이다(풀어 둔 세트의 폴더를 고른다. zip은 읽지 않는다): 삼성 SPC-1500(`ss150fnt.bin` .. `ss153fnt.bin`: 완성형 페이스와 정확한 자모 세트, 경로 `spec`), Date Quiz Go Go(`uor1` .. `uor4`), X Se Dae Quiz(`obj-1.u0811`, `obj-2.u082`: 자모 세트, 경로 `dos raw`), Quiz King of Fighters(한국판)(`vic-080-c1.c1` .. `c4.c4`)([recipes/rom-mame.ko.md](recipes/rom-mame.ko.md#mame-세트의-한글-폰트-rom)의 "MAME 세트의 한글 폰트 ROM"). 업로드 작업은 표시만 한다. |
 
 독점 폰트, 비트맵, 표는 앱과 함께 배포되지 않는다. 테스트는 합성 입력을 쓴다.
 
@@ -636,7 +636,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
   strike를 단계로 그리는지는 그 렌더러에 달렸다(Windows와 macOS는 테스트하지 않음).
 - 알려진 ROM 세트: 실제 파일과의 대조는 `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME`이 사용자 자신의 사본을 가리킬 때만 한다(모든 페이스가
   recipes/rom-86box.ko.md와 recipes/rom-mame.ko.md에 기록된 크기). 테스트는 OFL 페이스로 그린 합성 ROM을 쓴다.
-- 마스크 맞춤 명령줄 레시피의 실행 기록은 [레시피](recipes.ko.md)에 있다. 이 기록만으로 maker의
+- 마스크 맞춤 명령줄 레시피의 실행 기록은 [recipes/outline-fonts.ko.md](recipes/outline-fonts.ko.md#truetype와-opentype-폰트에서-만드는-자모-세트)(방법 2)에 있다. 이 기록만으로 maker의
   `mask fit` 전체 실행이 검증되는 것은 아니다. 정체성 검사는 스텁으로만 테스트했으며 `vector fit`은 폰트당 수 분이 걸릴 수 있다.
 - 검증하지 않았으며 실제 데스크톱에서 수동으로 점검해야 한다: 디스플레이가 있는 네이티브 대화상자, 파일 관리자 연동,
   창 관리자와 함께 하는 실제 FUSE 마운트 시작, GPU 경로, 샌드박스된 렌더러. 실행한 것은 위의 Xvfb 시작이며, 자동화된

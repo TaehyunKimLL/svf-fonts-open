@@ -459,7 +459,7 @@ initial = s x 20 + L + 1     medial = 160 + s x 22 + V + 1     final = 248 + s x
 The same number of sets does not mean the same rule. NKP splits the with-final initials into 4 vowel shapes where 8x4x4
 has 3, so an NKP font fitted to 8x4x4 reaches IoU 0.998 only ([docs/recipes/programs-and-drivers.md](recipes/programs-and-drivers.md#nkp-a-hercules-hangul-tsr-with-cropped-pieces) "NKP: a Hercules Hangul TSR with cropped
 pieces"). The SPC-1500 splits the no-final initials into 3 vowel shapes where 8x4x4 has 5; its precomposed face fitted to
-8x4x4 reaches IoU 0.987 (the same document, "Samsung SPC-1500"). That is why SVF's JSET is made to hold any of these
+8x4x4 reaches IoU 0.987 ([docs/recipes/rom-mame.md](recipes/rom-mame.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) "Samsung SPC-1500"). That is why SVF's JSET is made to hold any of these
 systems by its own rule (chapter 4).
 
 ## 3. Real systems: what the research read
@@ -1303,7 +1303,7 @@ The derived JSET also extrapolates the other 8,822 syllables.
 | Budget (flash for the face) | Recommended form | Reader | Example |
 |---|---|---|---|
 | about 6-11 KB, 2 KB of RAM (Uno class) | a JSET v1 with few sets (6x2x1, or a shrunk 8x4x4) | v1 only (the AVR default) | `NEODG16G` 6x2x1: file 10,684, 10,124 in `mcu-strict`, Uno image 23,676 text (`c/ports/arduino/README.md`); Seoul S5K-S8K 5,548-8,160 |
-| about 16-20 KB | 8x4x4 JSET v1 | v1 | `SANS8J` 15,740; 16 px 8x4x4 sets made from DOS raw fonts, ROMs and OS/2: 15,556-18,576 ([docs/recipes.md](recipes.md)) |
+| about 16-20 KB | 8x4x4 JSET v1 | v1 | `SANS8J` 15,740; 16 px 8x4x4 sets made from DOS raw fonts, ROMs and OS/2: 15,556-18,576 ([docs/recipes/dos-fonts.md](recipes/dos-fonts.md#other-dos-era-korean-fonts), [rom-86box](recipes/rom-86box.md), [rom-mame](recipes/rom-mame.md), [os2](recipes/os2.md)) |
 | a face with big tables (12 x 12 classes) in flash or RAM | the same face as JSET v2 | v2 (+535 B on M0+) | 11,681 -> 5,324 + aliases; composition 6-10 % slower (5.3) |
 | streaming (SD and the like), tight RAM | v2 + a syllable cache | v2 | the JSET region sits in the tables buffer |
 | a large MCU (hundreds of KB of flash) | an adaptive JSET v1, BIG if needed | v1 (+BIG) | `svf/jamo-extra/GOTHA16.SVF` 60,992 |

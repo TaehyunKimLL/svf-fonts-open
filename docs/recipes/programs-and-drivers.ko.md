@@ -77,12 +77,12 @@ program on the host; disassembly with objdump -D -b binary -m i8086 is fine). Wo
 Report the offsets, the commands and the numbers; say what you could not resolve.
 ```
 
-(프롬프트는 영어 문서와 같은 영문 그대로 둔다. 한국어로 옮겨 줘도 된다.) 아래의 모든 `bdfface.py` 줄이 읽는 음절 목록
+(프롬프트는 영어 문서와 같은 영문 그대로 둔다. 한국어로 옮겨 줘도 된다.) 아래와 ROM, OS/2 레시피의 모든 `bdfface.py` 줄이 읽는 음절 목록
 `$OUT/ks.txt`는 한 번 만들어 둔다:
 
     python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-hangul']()))" $OUT/ks.txt
 
-아래 세 예는 이 프롬프트로 작업했다(2026-11-22).
+아래 두 예와 [한글 VGA 폰트 ROM (86Box)](rom-86box.ko.md)은 이 프롬프트로 작업했다(2026-11-22).
 원본은 별도로 마련한 독점 프로그램과 ROM 덤프이다.
 
 <a id="nkp-조각을-잘라-저장한-허큘리스-한글-tsr"></a>

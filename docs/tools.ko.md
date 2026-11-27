@@ -974,7 +974,7 @@ OR, 윤곽에서 피복도와 단계로, 36 px 페이스의 축소, MONO, GRAY, 
 **목적.** 위 도구로 `svf/`의 페이스를 업스트림 폰트에서 다시 빌드하되, 레시피 표
 `tools/build/faces.tsv`가 정한 대로 하고, 각 결과를 `svf/`의 페이스와 비교한다.
 
-**상태.** 범용(동봉된 페이스의 출처 검사. [recipes.ko.md](recipes.ko.md)가 모든 레시피를 설명한다).
+**상태.** 범용(동봉된 페이스의 출처 검사. [recipes/svf-faces.ko.md](recipes/svf-faces.ko.md)가 모든 레시피를 설명한다).
 
 **입력.** `tools/build/faces.tsv`(face, method, source, args, codepoints, expect, note. `svf/`의 모든 페이스마다 한 행), `tools/build/cps/` 아래의 코드 포인트 목록, `ttf/`의 원본 폰트. source가
 `ext:NAME`인 행은 외부에서 공급할 폰트를 지정한다. `--ext NAME=PATH`가 그것을 공급하며, 없으면 그 행은
@@ -1063,8 +1063,8 @@ bytes, licences, hangul, latin_only, subset, family, style, variant). 폰트는 
 
 ## 7. 파일 안의 폰트를 찾아 잘라 내기
 
-실행 예는 [recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기)(DOS TSR, DOS 드라이버, 한글 VGA 폰트
-ROM)와 [recipes/os2.ko.md](recipes/os2.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)(OS/2)에 있다. 이 도구들은 바이트만 읽고
+실행 예는 [recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기)(DOS TSR, DOS 드라이버),
+[recipes/rom-86box.ko.md](recipes/rom-86box.ko.md#한글-vga-폰트-rom-86box)(한글 VGA 폰트 ROM)와 [recipes/os2.ko.md](recipes/os2.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)(OS/2)에 있다. 이 도구들은 바이트만 읽고
 파일의 코드를 실행하지 않는다. 내려받은 파일에는 `python3 -I`로 실행하라.
 
 ### `tools/binscan.py`

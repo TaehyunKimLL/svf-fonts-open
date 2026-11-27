@@ -57,6 +57,8 @@
 
 <a id="빠른-시작-입력-종류별"></a>
 
+<a id="1-빠른-시작-입력-종류별"></a>
+
 ## 빠른 시작: 입력 종류별
 
 가진 것을 찾아라. 행이 방법과 명령이 있는 절을 알려 준다. "완성형"은 완성형 페이스(음절마다 글리프, 1 또는 2 bpp), "자모"는 자모
@@ -98,11 +100,13 @@
 
 <a id="페이스-점검"></a>
 
+<a id="2-페이스-점검"></a>
+
 ## 페이스 점검
 
 <a id="새-페이스-점검"></a>
 
-아래의 모든 레시피는 같은 점검으로 끝난다. 샘플 줄은 `안녕하세요 ABC 123`이고, 따로 적지 않으면 페이스는 16x16 셀의 16 px이다.
+모든 레시피 문서는 같은 점검으로 끝난다. 샘플 줄은 `안녕하세요 ABC 123`이고, 따로 적지 않으면 페이스는 16x16 셀의 16 px이다.
 
     python3 tools/svfline.py measure "안녕하세요 ABC 123" FACE.SVF       # width=W ascent=A descent=D
     python3 tools/svfline.py line 200 24 0 16 "안녕하세요 ABC 123" FACE.SVF > $OUT/out.gray   # a 200x24 GRAY8 buffer
@@ -119,7 +123,7 @@
   위의 200x24 버퍼와 기준선 16은 16 px 셀에 맞는다. 셀 C가 16이 아닌 페이스(12, 15, 24, 40, 48 px)의 레시피 잉크 수치는
   `line 400 C+8 0 C`로 얻은 것이다(너비 400의 버퍼, 기준선은 셀 높이, C+8행. 버퍼는 잰 너비 이상, 셀 + descent 이상의 높이여야 하며
   아니면 줄이 잘린다): 24 px 페이스라면 `python3 tools/svfline.py line 400 32 0 24 "안녕하세요 ABC 123" FACE.SVF > $OUT/out.gray`.
-  측정 너비가 200(큰 셀 명령 틀에서는 400)을 넘으면 더 넓은 버퍼를 쓴다. 해당 예외는 아래에 따로 적었다.
+  측정 너비가 200(큰 셀 명령 틀에서는 400)을 넘으면 더 넓은 버퍼를 쓴다. 해당 예외는 각 레시피에 따로 적었다.
 - 자모 세트는 `--check`(`jamoset.py`와 `jamovec.py`)로 판정한다. 조각에서 음절 11,172개를 모두 조합하고 표 오류에서 실패한다. 그
   앞의 맞춤 줄은 조각과 원본 음절의 IoU를 출력한다(`fit: 11172 syllables, IoU 0.817`). `--check`는 맞춤이 나쁘다고 실패하지는 않는다.
   IoU를 읽고 결과를 직접 보라(`svfline.py line`, 또는 `web/` 선택기).
@@ -127,13 +131,17 @@
   매니페스트를 만든 뒤 작업 파일을 대조한다. 새 `FACE.SVF`를 검증하는 명령은 아니다.
   `tools/build/build_faces.py`는 `svf/`의 페이스를 다시 빌드한다([svf/의 페이스](recipes/svf-faces.ko.md#svf의-페이스) 참고).
 
-기준 실행(검증), 아래의 16 px NanumGothic Bold: 1 bpp `125,520` 바이트, 글리프 2,446개, `width=146 ascent=14 descent=2`, 잉크 677.
+기준 실행(검증), 16 px NanumGothic Bold([완성형 페이스](recipes/outline-fonts.ko.md#완성형-페이스-mkfontpy)): 1 bpp `125,520` 바이트, 글리프 2,446개, `width=146 ascent=14 descent=2`, 잉크 677.
 
 <a id="참고"></a>
+
+<a id="16-참고"></a>
 
 ## 참고
 
 <a id="ks-x-1001"></a>
+
+<a id="161-ks-x-1001"></a>
 
 ### KS X 1001
 
@@ -152,6 +160,8 @@ U+3131..U+3163), 기호, 한자가 있다. 도구:
 
 <a id="인코딩"></a>
 
+<a id="162-인코딩"></a>
+
 ### 인코딩
 
 EUC-KR / 완성형 바이트 쌍 = GL 코드 + 0x8080 (`가` = B0A1 = GL 3021). Python: `bytes((0xB0,0xA1)).decode("euc_kr")`. 조합형(Python `johab` 코덱): 16비트 코드 `1 iiiii mmmmm fffff`에 채움 값(초성 2 = ㄱ, 중성 3 = ㅏ, 종성 1 = 없음)이 있고 `가` = 8861;
@@ -159,18 +169,22 @@ EUC-KR / 완성형 바이트 쌍 = GL 코드 + 0x8080 (`가` = B0A1 = GL 3021). 
 
 <a id="알려진-한계"></a>
 
+<a id="163-알려진-한계"></a>
+
 ### 알려진 한계
 
 - `jamoset.py`의 기본 `--binarize mono`에는 `freetype-py`가 필요하다(마스크 폰트에는 `uharfbuzz`도 필요하다). 레시피는 `--binarize threshold`를 쓰고, `--mask-font none`은 1 bpp 맞춤이 `$JAMOSET_MASK_FONT`에
   좌우되지 않게 한다. [자모 세트](recipes/outline-fonts.ko.md#truetype와-opentype-폰트에서-만드는-자모-세트)를 참고한다.
 - 실행 시간(이 호스트, 코어 하나): 16 px 아웃라인 폰트의 1 bpp `threshold` 맞춤은 약 12초, 2 bpp는 약 73초, Gowun Batang adaptive 20 px는
-  약 90초이다. 위의 2 bpp 페이스는 같은 1 bpp 페이스의 약 1.5-1.6배, 자모 세트는 약 6분의 1이다.
+  약 90초이다. 2 bpp 페이스는 같은 1 bpp 페이스의 약 1.5-1.6배, 자모 세트는 약 6분의 1이다.
 - `mkfont.py --bpp 2`는 흑백 비트맵을 원래 크기의 2 bpp로 저장할 수 있지만 중간 피복도를 새로 만들지는 않는다. `svfscale.py --bpp 2`는 더 작은 크기의 2 bpp
   페이스를 만들고([고해상도 비트맵 폰트에서 저해상도 페이스 만들기](recipes/bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)), 비트맵에서 2 bpp 자모 세트를 만드는 도구는 없다.
 - `mkfont.py`는 요약을 한국어로 출력한다. 필드 이름을 찾으려고 그 stdout을 파싱하지 말 것.
 - 도구 전반의 알려진 빈틈: [tools.ko.md](tools.ko.md#도구에-남은-빈틈)의 "도구에 남은 빈틈".
 
 <a id="참고-문헌"></a>
+
+<a id="18-참고-문헌"></a>
 
 ## 참고 문헌
 
@@ -197,55 +211,60 @@ EUC-KR / 완성형 바이트 쌍 = GL 코드 + 0x8080 (`가` = B0A1 = GL 3021). 
 
 | docs/recipes.ko.md의 예전 앵커 | 지금 위치 |
 |---|---|
-| <a id="아웃라인-폰트"></a>`#아웃라인-폰트` | [아웃라인 폰트](recipes/outline-fonts.ko.md#아웃라인-폰트) |
-| <a id="완성형-페이스-mkfontpy"></a>`#완성형-페이스-mkfontpy` | [완성형 페이스 (`mkfont.py`)](recipes/outline-fonts.ko.md#완성형-페이스-mkfontpy) |
-| <a id="opentype-cff-otf"></a>`#opentype-cff-otf` | [OpenType CFF (`.otf`)](recipes/outline-fonts.ko.md#opentype-cff-otf) |
-| <a id="truetype와-opentype-폰트에서-만드는-자모-세트"></a>`#truetype와-opentype-폰트에서-만드는-자모-세트` | [TrueType와 OpenType 폰트에서 만드는 자모 세트](recipes/outline-fonts.ko.md#truetype와-opentype-폰트에서-만드는-자모-세트) |
-| <a id="이미-자모를-가진-truetype-폰트"></a>`#이미-자모를-가진-truetype-폰트` | [이미 자모를 가진 TrueType 폰트](recipes/outline-fonts.ko.md#이미-자모를-가진-truetype-폰트) |
-| <a id="truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기"></a><a id="안티에일리어싱된-2-bpp-페이스"></a><a id="안티앨리어싱된-2-bpp-페이스"></a><a id="truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기"></a>`#truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기`, `#안티에일리어싱된-2-bpp-페이스`, `#안티앨리어싱된-2-bpp-페이스`, `#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기` | [TrueType/OpenType 폰트에서 2 bpp 안티앨리어싱 페이스 만들기](recipes/outline-fonts.ko.md#truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기) |
-| <a id="기준선-세로-이동-클리핑"></a>`#기준선-세로-이동-클리핑` | [기준선, 세로 이동, 클리핑](recipes/outline-fonts.ko.md#기준선-세로-이동-클리핑) |
-| <a id="ttc와-otc"></a><a id="opentype-cff-컬렉션-가변-폰트"></a>`#ttc와-otc`, `#opentype-cff-컬렉션-가변-폰트` | [TTC와 OTC](recipes/outline-fonts.ko.md#ttc와-otc) |
-| <a id="가변-폰트"></a>`#가변-폰트` | [가변 폰트](recipes/outline-fonts.ko.md#가변-폰트) |
-| <a id="mac-형식-truetype"></a>`#mac-형식-truetype` | [Mac 형식 TrueType](recipes/outline-fonts.ko.md#mac-형식-truetype) |
-| <a id="비트맵-폰트"></a><a id="x-window-한글-폰트"></a>`#비트맵-폰트`, `#x-window-한글-폰트` | [비트맵 폰트](recipes/bitmap-fonts.ko.md#비트맵-폰트) |
-| <a id="iso-10646-bdf와-pcf"></a>`#iso-10646-bdf와-pcf` | [ISO 10646 BDF와 PCF](recipes/bitmap-fonts.ko.md#iso-10646-bdf와-pcf) |
-| <a id="ks-c-5601-bdf와-pcf"></a>`#ks-c-5601-bdf와-pcf` | [KS C 5601 BDF와 PCF](recipes/bitmap-fonts.ko.md#ks-c-5601-bdf와-pcf) |
-| <a id="hanterm"></a>`#hanterm` | [hanterm](recipes/bitmap-fonts.ko.md#hanterm) |
-| <a id="hbf"></a>`#hbf` | [HBF](recipes/bitmap-fonts.ko.md#hbf) |
-| <a id="windows-fnt와-fon"></a>`#windows-fnt와-fon` | [Windows FNT와 FON](recipes/bitmap-fonts.ko.md#windows-fnt와-fon) |
-| <a id="내장-비트맵-스트라이크"></a>`#내장-비트맵-스트라이크` | [내장 비트맵 스트라이크](recipes/bitmap-fonts.ko.md#내장-비트맵-스트라이크) |
-| <a id="고해상도-비트맵-폰트에서-저해상도-페이스-만들기"></a>`#고해상도-비트맵-폰트에서-저해상도-페이스-만들기` | [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](recipes/bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기) |
-| <a id="dos-시대-원시-폰트"></a>`#dos-시대-원시-폰트` | [DOS 시대 원시 폰트](recipes/dos-fonts.ko.md#dos-시대-원시-폰트) |
-| <a id="그-밖의-dos-시대-한글-폰트"></a>`#그-밖의-dos-시대-한글-폰트` | [그 밖의 DOS 시대 한글 폰트](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) |
-| <a id="hwp-1x와-2x-폰트"></a>`#hwp-1x와-2x-폰트` | [HWP 1.x와 2.x 폰트](recipes/dos-fonts.ko.md#hwp-1x와-2x-폰트) |
-| <a id="hwp-30-fnt-폰트"></a>`#hwp-30-fnt-폰트` | [HWP 3.0 FNT 폰트](recipes/dos-fonts.ko.md#hwp-30-fnt-폰트) |
-| <a id="ks-x-1001-원시-덤프"></a>`#ks-x-1001-원시-덤프` | [KS X 1001 원시 덤프](recipes/dos-fonts.ko.md#ks-x-1001-원시-덤프) |
-| <a id="claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기"></a>`#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기` | [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](recipes/programs-and-drivers.ko.md#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기) |
-| <a id="프롬프트"></a>`#프롬프트` | [프롬프트](recipes/programs-and-drivers.ko.md#프롬프트) |
-| <a id="nkp-조각을-잘라-저장한-허큘리스-한글-tsr"></a>`#nkp-조각을-잘라-저장한-허큘리스-한글-tsr` | [NKP: 조각을 잘라 저장한 허큘리스 한글 TSR](recipes/programs-and-drivers.ko.md#nkp-조각을-잘라-저장한-허큘리스-한글-tsr) |
-| <a id="도깨비-드라이버-안의-폰트"></a>`#도깨비-드라이버-안의-폰트` | [도깨비: 드라이버 안의 폰트](recipes/programs-and-drivers.ko.md#도깨비-드라이버-안의-폰트) |
-| <a id="한글-vga-폰트-rom-86box"></a>`#한글-vga-폰트-rom-86box` | [한글 VGA 폰트 ROM (86Box)](recipes/rom-86box.ko.md#한글-vga-폰트-rom-86box) |
-| <a id="한국-msx-폰트-msx2와-msx1"></a>`#한국-msx-폰트-msx2와-msx1` | [한국 MSX 폰트 (MSX2와 MSX1)](recipes/rom-msx.ko.md#한국-msx-폰트-msx2와-msx1) |
-| <a id="msx-코딩-에이전트로-권장"></a>`#msx-코딩-에이전트로-권장` | [코딩 에이전트로 (권장)](recipes/rom-msx.ko.md#msx-코딩-에이전트로-권장) |
-| <a id="mame-세트의-한글-폰트-rom"></a>`#mame-세트의-한글-폰트-rom` | [MAME 세트의 한글 폰트 ROM](recipes/rom-mame.ko.md#mame-세트의-한글-폰트-rom) |
-| <a id="삼성-spc-1500-반전된-rom-네-개의-자모-세트정확"></a>`#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확` | [삼성 SPC-1500: 반전된 ROM 네 개의 자모 세트(정확)](recipes/rom-mame.ko.md#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확) |
-| <a id="date-quiz-go-go-음절-2350자의-스프라이트-폰트"></a>`#date-quiz-go-go-음절-2350자의-스프라이트-폰트` | [Date Quiz Go Go: 음절 2,350자의 스프라이트 폰트](recipes/rom-mame.ko.md#date-quiz-go-go-음절-2350자의-스프라이트-폰트) |
-| <a id="x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용"></a>`#x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용` | [X Se Dae Quiz: 스프라이트 속의 태백 GOTHIC16(대조용)](recipes/rom-mame.ko.md#x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용) |
-| <a id="quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트"></a>`#quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트` | [Quiz King of Fighters(한국판): 외곽선 펜이 있는 음절 2,350자 폰트](recipes/rom-mame.ko.md#quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트) |
-| <a id="live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음"></a>`#live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음` | [Live Quiz Show: 규칙은 읽었고 조각은 맞지 않는다(만들지 않음)](recipes/rom-mame.ko.md#live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음) |
-| <a id="폰트가-없거나-풀지-못한-세트"></a>`#폰트가-없거나-풀지-못한-세트` | [폰트가 없거나 풀지 못한 세트](recipes/rom-mame.ko.md#폰트가-없거나-풀지-못한-세트) |
-| <a id="os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기"></a><a id="os2-한글-폰트완성형"></a>`#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기`, `#os2-한글-폰트완성형` | [OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기](recipes/os2.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) |
-| <a id="클래식-mac-한글-비트맵-폰트"></a>`#클래식-mac-한글-비트맵-폰트` | [클래식 Mac 한글 비트맵 폰트](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) |
-| <a id="기존-svf"></a>`#기존-svf` | [기존 SVF](recipes/svf-and-ttf.ko.md#기존-svf) |
-| <a id="svf-페이스를-다시-ttf-비트맵-폰트로"></a>`#svf-페이스를-다시-ttf-비트맵-폰트로` | [SVF 페이스를 다시 TTF 비트맵 폰트로](recipes/svf-and-ttf.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로) |
-| <a id="합성-글리프--composite"></a>`#합성-글리프--composite` | [합성 글리프(`--composite`)](recipes/svf-and-ttf.ko.md#합성-글리프--composite) |
-| <a id="세트-수벌-수-정하기"></a><a id="벌-수-정하기"></a><a id="세트-수-정하기"></a>`#세트-수벌-수-정하기`, `#벌-수-정하기`, `#세트-수-정하기` | [벌 수 정하기](recipes/sets.ko.md#세트-수벌-수-정하기) |
-| <a id="데스크톱-앱과-maker-경로"></a>`#데스크톱-앱과-maker-경로` | [데스크톱 앱과 maker 경로](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로) |
-| <a id="svf의-페이스"></a><a id="svf-페이스-다시-빌드하기"></a>`#svf의-페이스`, `#svf-페이스-다시-빌드하기` | [svf/의 페이스](recipes/svf-faces.ko.md#svf의-페이스) |
-| <a id="완성형-글리프-레시피-mkfont-행"></a>`#완성형-글리프-레시피-mkfont-행` | [완성형 글리프 레시피 (`mkfont` 행)](recipes/svf-faces.ko.md#완성형-글리프-레시피-mkfont-행) |
-| <a id="완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행"></a>`#완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행` | [완성형 글리프에서 자모 세트를 만드는 레시피 (`jamoset` 행)](recipes/svf-faces.ko.md#완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행) |
-| <a id="패밀리"></a>`#패밀리` | [패밀리](recipes/svf-faces.ko.md#패밀리) |
-| <a id="레시피-없는-페이스"></a>`#레시피-없는-페이스` | [레시피 없는 페이스](recipes/svf-faces.ko.md#레시피-없는-페이스) |
-| <a id="svf에-페이스-추가하기"></a>`#svf에-페이스-추가하기` | [svf/에 페이스 추가하기](recipes/svf-faces.ko.md#svf에-페이스-추가하기) |
+| <a id="아웃라인-폰트"></a><a id="3-아웃라인-폰트"></a>`#아웃라인-폰트`, `#3-아웃라인-폰트` | [아웃라인 폰트](recipes/outline-fonts.ko.md#아웃라인-폰트) |
+| <a id="완성형-페이스-mkfontpy"></a><a id="31-완성형-페이스-mkfontpy"></a>`#완성형-페이스-mkfontpy`, `#31-완성형-페이스-mkfontpy` | [완성형 페이스 (`mkfont.py`)](recipes/outline-fonts.ko.md#완성형-페이스-mkfontpy) |
+| <a id="opentype-cff-otf"></a><a id="32-opentype-cff-otf"></a>`#opentype-cff-otf`, `#32-opentype-cff-otf` | [OpenType CFF (`.otf`)](recipes/outline-fonts.ko.md#opentype-cff-otf) |
+| <a id="truetype와-opentype-폰트에서-만드는-자모-세트"></a><a id="33-truetype와-opentype-폰트에서-만드는-자모-세트"></a>`#truetype와-opentype-폰트에서-만드는-자모-세트`, `#33-truetype와-opentype-폰트에서-만드는-자모-세트` | [TrueType와 OpenType 폰트에서 만드는 자모 세트](recipes/outline-fonts.ko.md#truetype와-opentype-폰트에서-만드는-자모-세트) |
+| <a id="이미-자모를-가진-truetype-폰트"></a><a id="34-이미-자모를-가진-truetype-폰트"></a>`#이미-자모를-가진-truetype-폰트`, `#34-이미-자모를-가진-truetype-폰트` | [이미 자모를 가진 TrueType 폰트](recipes/outline-fonts.ko.md#이미-자모를-가진-truetype-폰트) |
+| <a id="truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기"></a><a id="안티에일리어싱된-2-bpp-페이스"></a><a id="안티앨리어싱된-2-bpp-페이스"></a><a id="truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기"></a><a id="35-truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기"></a>`#truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기`, `#안티에일리어싱된-2-bpp-페이스`, `#안티앨리어싱된-2-bpp-페이스`, `#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기`, `#35-truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기` | [TrueType/OpenType 폰트에서 2 bpp 안티앨리어싱 페이스 만들기](recipes/outline-fonts.ko.md#truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기) |
+| <a id="기준선-세로-이동-클리핑"></a><a id="36-기준선-세로-이동-클리핑"></a>`#기준선-세로-이동-클리핑`, `#36-기준선-세로-이동-클리핑` | [기준선, 세로 이동, 클리핑](recipes/outline-fonts.ko.md#기준선-세로-이동-클리핑) |
+| <a id="ttc와-otc"></a><a id="opentype-cff-컬렉션-가변-폰트"></a><a id="37-ttc와-otc"></a>`#ttc와-otc`, `#opentype-cff-컬렉션-가변-폰트`, `#37-ttc와-otc` | [TTC와 OTC](recipes/outline-fonts.ko.md#ttc와-otc) |
+| <a id="가변-폰트"></a><a id="38-가변-폰트"></a>`#가변-폰트`, `#38-가변-폰트` | [가변 폰트](recipes/outline-fonts.ko.md#가변-폰트) |
+| <a id="mac-형식-truetype"></a><a id="39-mac-형식-truetype"></a>`#mac-형식-truetype`, `#39-mac-형식-truetype` | [Mac 형식 TrueType](recipes/outline-fonts.ko.md#mac-형식-truetype) |
+| <a id="비트맵-폰트"></a><a id="x-window-한글-폰트"></a><a id="4-비트맵-폰트"></a>`#비트맵-폰트`, `#x-window-한글-폰트`, `#4-비트맵-폰트` | [비트맵 폰트](recipes/bitmap-fonts.ko.md#비트맵-폰트) |
+| <a id="iso-10646-bdf와-pcf"></a><a id="41-iso-10646-bdf와-pcf"></a>`#iso-10646-bdf와-pcf`, `#41-iso-10646-bdf와-pcf` | [ISO 10646 BDF와 PCF](recipes/bitmap-fonts.ko.md#iso-10646-bdf와-pcf) |
+| <a id="ks-c-5601-bdf와-pcf"></a><a id="42-ks-c-5601-bdf와-pcf"></a>`#ks-c-5601-bdf와-pcf`, `#42-ks-c-5601-bdf와-pcf` | [KS C 5601 BDF와 PCF](recipes/bitmap-fonts.ko.md#ks-c-5601-bdf와-pcf) |
+| <a id="hanterm"></a><a id="43-hanterm"></a>`#hanterm`, `#43-hanterm` | [hanterm](recipes/bitmap-fonts.ko.md#hanterm) |
+| <a id="hbf"></a><a id="44-hbf"></a>`#hbf`, `#44-hbf` | [HBF](recipes/bitmap-fonts.ko.md#hbf) |
+| <a id="windows-fnt와-fon"></a><a id="45-windows-fnt와-fon"></a>`#windows-fnt와-fon`, `#45-windows-fnt와-fon` | [Windows FNT와 FON](recipes/bitmap-fonts.ko.md#windows-fnt와-fon) |
+| <a id="내장-비트맵-스트라이크"></a><a id="46-내장-비트맵-스트라이크"></a>`#내장-비트맵-스트라이크`, `#46-내장-비트맵-스트라이크` | [내장 비트맵 스트라이크](recipes/bitmap-fonts.ko.md#내장-비트맵-스트라이크) |
+| <a id="고해상도-비트맵-폰트에서-저해상도-페이스-만들기"></a><a id="9-고해상도-비트맵-폰트에서-저해상도-페이스-만들기"></a>`#고해상도-비트맵-폰트에서-저해상도-페이스-만들기`, `#9-고해상도-비트맵-폰트에서-저해상도-페이스-만들기` | [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](recipes/bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기) |
+| <a id="dos-시대-원시-폰트"></a><a id="5-dos-시대-원시-폰트"></a>`#dos-시대-원시-폰트`, `#5-dos-시대-원시-폰트` | [DOS 시대 원시 폰트](recipes/dos-fonts.ko.md#dos-시대-원시-폰트) |
+| <a id="그-밖의-dos-시대-한글-폰트"></a><a id="51-그-밖의-dos-시대-한글-폰트"></a>`#그-밖의-dos-시대-한글-폰트`, `#51-그-밖의-dos-시대-한글-폰트` | [그 밖의 DOS 시대 한글 폰트](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) |
+| <a id="hwp-1x와-2x-폰트"></a><a id="52-hwp-1x와-2x-폰트"></a>`#hwp-1x와-2x-폰트`, `#52-hwp-1x와-2x-폰트` | [HWP 1.x와 2.x 폰트](recipes/dos-fonts.ko.md#hwp-1x와-2x-폰트) |
+| <a id="hwp-30-fnt-폰트"></a><a id="53-hwp-30-fnt-폰트"></a>`#hwp-30-fnt-폰트`, `#53-hwp-30-fnt-폰트` | [HWP 3.0 FNT 폰트](recipes/dos-fonts.ko.md#hwp-30-fnt-폰트) |
+| <a id="ks-x-1001-원시-덤프"></a><a id="54-ks-x-1001-원시-덤프"></a>`#ks-x-1001-원시-덤프`, `#54-ks-x-1001-원시-덤프` | [KS X 1001 원시 덤프](recipes/dos-fonts.ko.md#ks-x-1001-원시-덤프) |
+| <a id="claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기"></a><a id="6-claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기"></a>`#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기`, `#6-claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기` | [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](recipes/programs-and-drivers.ko.md#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기) |
+| <a id="프롬프트"></a><a id="61-프롬프트"></a>`#프롬프트`, `#61-프롬프트` | [프롬프트](recipes/programs-and-drivers.ko.md#프롬프트) |
+| <a id="nkp-조각을-잘라-저장한-허큘리스-한글-tsr"></a><a id="62-nkp-조각을-잘라-저장한-허큘리스-한글-tsr"></a>`#nkp-조각을-잘라-저장한-허큘리스-한글-tsr`, `#62-nkp-조각을-잘라-저장한-허큘리스-한글-tsr` | [NKP: 조각을 잘라 저장한 허큘리스 한글 TSR](recipes/programs-and-drivers.ko.md#nkp-조각을-잘라-저장한-허큘리스-한글-tsr) |
+| <a id="도깨비-드라이버-안의-폰트"></a><a id="63-도깨비-드라이버-안의-폰트"></a>`#도깨비-드라이버-안의-폰트`, `#63-도깨비-드라이버-안의-폰트` | [도깨비: 드라이버 안의 폰트](recipes/programs-and-drivers.ko.md#도깨비-드라이버-안의-폰트) |
+| <a id="한글-vga-폰트-rom-86box"></a><a id="64-한글-vga-폰트-rom-86box"></a>`#한글-vga-폰트-rom-86box`, `#64-한글-vga-폰트-rom-86box` | [한글 VGA 폰트 ROM (86Box)](recipes/rom-86box.ko.md#한글-vga-폰트-rom-86box) |
+| <a id="한국-msx-폰트-msx2와-msx1"></a><a id="65-한국-msx-폰트-msx2와-msx1"></a>`#한국-msx-폰트-msx2와-msx1`, `#65-한국-msx-폰트-msx2와-msx1` | [한국 MSX 폰트 (MSX2와 MSX1)](recipes/rom-msx.ko.md#한국-msx-폰트-msx2와-msx1) |
+| <a id="msx-코딩-에이전트로-권장"></a><a id="코딩-에이전트로-권장"></a>`#msx-코딩-에이전트로-권장`, `#코딩-에이전트로-권장` | [코딩 에이전트로 (권장)](recipes/rom-msx.ko.md#msx-코딩-에이전트로-권장) |
+| <a id="msx2-대우-자모-세트-폰트정확"></a>`#msx2-대우-자모-세트-폰트정확` | [MSX2: 대우 자모 세트 폰트(정확)](recipes/rom-msx.ko.md#msx2-대우-자모-세트-폰트정확) |
+| <a id="msx2-cpc-400s-완성형-폰트"></a>`#msx2-cpc-400s-완성형-폰트` | [MSX2: CPC-400S 완성형 폰트](recipes/rom-msx.ko.md#msx2-cpc-400s-완성형-폰트) |
+| <a id="msx1-bios의-자모-셀을-기계처럼-배치하기"></a>`#msx1-bios의-자모-셀을-기계처럼-배치하기` | [MSX1: BIOS의 자모 셀을 기계처럼 배치하기](recipes/rom-msx.ko.md#msx1-bios의-자모-셀을-기계처럼-배치하기) |
+| <a id="truetype-파일"></a>`#truetype-파일` | [TrueType 파일](recipes/rom-msx.ko.md#truetype-파일) |
+| <a id="정답으로서의-에뮬레이터"></a>`#정답으로서의-에뮬레이터` | [정답으로서의 에뮬레이터](recipes/rom-msx.ko.md#정답으로서의-에뮬레이터) |
+| <a id="mame-세트의-한글-폰트-rom"></a><a id="7-mame-세트의-한글-폰트-rom"></a>`#mame-세트의-한글-폰트-rom`, `#7-mame-세트의-한글-폰트-rom` | [MAME 세트의 한글 폰트 ROM](recipes/rom-mame.ko.md#mame-세트의-한글-폰트-rom) |
+| <a id="삼성-spc-1500-반전된-rom-네-개의-자모-세트정확"></a><a id="71-삼성-spc-1500-반전된-rom-네-개의-자모-세트정확"></a>`#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확`, `#71-삼성-spc-1500-반전된-rom-네-개의-자모-세트정확` | [삼성 SPC-1500: 반전된 ROM 네 개의 자모 세트(정확)](recipes/rom-mame.ko.md#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확) |
+| <a id="date-quiz-go-go-음절-2350자의-스프라이트-폰트"></a><a id="72-date-quiz-go-go-음절-2350자의-스프라이트-폰트"></a>`#date-quiz-go-go-음절-2350자의-스프라이트-폰트`, `#72-date-quiz-go-go-음절-2350자의-스프라이트-폰트` | [Date Quiz Go Go: 음절 2,350자의 스프라이트 폰트](recipes/rom-mame.ko.md#date-quiz-go-go-음절-2350자의-스프라이트-폰트) |
+| <a id="x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용"></a><a id="73-x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용"></a>`#x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용`, `#73-x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용` | [X Se Dae Quiz: 스프라이트 속의 태백 GOTHIC16(대조용)](recipes/rom-mame.ko.md#x-se-dae-quiz-스프라이트-속의-태백-gothic16대조용) |
+| <a id="quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트"></a><a id="74-quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트"></a>`#quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트`, `#74-quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트` | [Quiz King of Fighters(한국판): 외곽선 펜이 있는 음절 2,350자 폰트](recipes/rom-mame.ko.md#quiz-king-of-fighters한국판-외곽선-펜이-있는-음절-2350자-폰트) |
+| <a id="live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음"></a><a id="75-live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음"></a>`#live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음`, `#75-live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음` | [Live Quiz Show: 규칙은 읽었고 조각은 맞지 않는다(만들지 않음)](recipes/rom-mame.ko.md#live-quiz-show-규칙은-읽었고-조각은-맞지-않는다만들지-않음) |
+| <a id="폰트가-없거나-풀지-못한-세트"></a><a id="76-폰트가-없거나-풀지-못한-세트"></a>`#폰트가-없거나-풀지-못한-세트`, `#76-폰트가-없거나-풀지-못한-세트` | [폰트가 없거나 풀지 못한 세트](recipes/rom-mame.ko.md#폰트가-없거나-풀지-못한-세트) |
+| <a id="os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기"></a><a id="os2-한글-폰트완성형"></a><a id="8-os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기"></a>`#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기`, `#os2-한글-폰트완성형`, `#8-os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기` | [OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기](recipes/os2.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) |
+| <a id="클래식-mac-한글-비트맵-폰트"></a><a id="10-클래식-mac-한글-비트맵-폰트"></a>`#클래식-mac-한글-비트맵-폰트`, `#10-클래식-mac-한글-비트맵-폰트` | [클래식 Mac 한글 비트맵 폰트](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) |
+| <a id="기존-svf"></a><a id="11-기존-svf"></a>`#기존-svf`, `#11-기존-svf` | [기존 SVF](recipes/svf-and-ttf.ko.md#기존-svf) |
+| <a id="svf-페이스를-다시-ttf-비트맵-폰트로"></a><a id="12-svf-페이스를-다시-ttf-비트맵-폰트로"></a>`#svf-페이스를-다시-ttf-비트맵-폰트로`, `#12-svf-페이스를-다시-ttf-비트맵-폰트로` | [SVF 페이스를 다시 TTF 비트맵 폰트로](recipes/svf-and-ttf.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로) |
+| <a id="합성-글리프--composite"></a><a id="121-합성-글리프--composite"></a>`#합성-글리프--composite`, `#121-합성-글리프--composite` | [합성 글리프(`--composite`)](recipes/svf-and-ttf.ko.md#합성-글리프--composite) |
+| <a id="세트-수벌-수-정하기"></a><a id="벌-수-정하기"></a><a id="세트-수-정하기"></a><a id="13-벌-수-정하기"></a>`#세트-수벌-수-정하기`, `#벌-수-정하기`, `#세트-수-정하기`, `#13-벌-수-정하기` | [벌 수 정하기](recipes/sets.ko.md#세트-수벌-수-정하기) |
+| <a id="데스크톱-앱과-maker-경로"></a><a id="14-데스크톱-앱과-maker-경로"></a>`#데스크톱-앱과-maker-경로`, `#14-데스크톱-앱과-maker-경로` | [데스크톱 앱과 maker 경로](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로) |
+| <a id="svf의-페이스"></a><a id="svf-페이스-다시-빌드하기"></a><a id="15-svf의-페이스"></a>`#svf의-페이스`, `#svf-페이스-다시-빌드하기`, `#15-svf의-페이스` | [svf/의 페이스](recipes/svf-faces.ko.md#svf의-페이스) |
+| <a id="완성형-글리프-레시피-mkfont-행"></a><a id="151-완성형-글리프-레시피-mkfont-행"></a>`#완성형-글리프-레시피-mkfont-행`, `#151-완성형-글리프-레시피-mkfont-행` | [완성형 글리프 레시피 (`mkfont` 행)](recipes/svf-faces.ko.md#완성형-글리프-레시피-mkfont-행) |
+| <a id="완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행"></a><a id="152-완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행"></a>`#완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행`, `#152-완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행` | [완성형 글리프에서 자모 세트를 만드는 레시피 (`jamoset` 행)](recipes/svf-faces.ko.md#완성형-글리프에서-자모-세트를-만드는-레시피-jamoset-행) |
+| <a id="패밀리"></a><a id="153-패밀리"></a>`#패밀리`, `#153-패밀리` | [패밀리](recipes/svf-faces.ko.md#패밀리) |
+| <a id="레시피-없는-페이스"></a><a id="154-레시피-없는-페이스"></a>`#레시피-없는-페이스`, `#154-레시피-없는-페이스` | [레시피 없는 페이스](recipes/svf-faces.ko.md#레시피-없는-페이스) |
+| <a id="svf에-페이스-추가하기"></a><a id="17-svf에-페이스-추가하기"></a>`#svf에-페이스-추가하기`, `#17-svf에-페이스-추가하기` | [svf/에 페이스 추가하기](recipes/svf-faces.ko.md#svf에-페이스-추가하기) |
 
 [프로젝트 개요](../README.ko.md) · [도구 설명서](tools.ko.md)

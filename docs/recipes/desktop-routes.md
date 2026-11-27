@@ -16,7 +16,7 @@ For the UI workflow, see [Maker desktop](../maker-desktop.md); for render previe
 
 The maker ([maker desktop](../maker-desktop.md), [desktop app](../desktop-app.md), [maker server](../../maker/README.md))
 detects each file's kind (`maker/detect.py`) and offers the routes of `maker/routes.py` for it; every route is a command
-line made of the tools above. A run writes `svf/<dest>/<NAME>.SVF` and `build-<id>/BUILD.md` in the output folder:
+line made of the tools of the recipe documents. A run writes `svf/<dest>/<NAME>.SVF` and `build-<id>/BUILD.md` in the output folder:
 BUILD.md lists, for every face, the source steps and the commands that were run, with the real paths, so any result can
 be reproduced by hand from this chapter. The routes, by the labels the page shows (`native` = the source is exactly
 what the route makes; the others are fits and are marked experimental):
@@ -71,7 +71,7 @@ step before it wrote):
 Verified: the route labels and kinds of this table were read from `routes.py` and checked by running `detect.scan` and
 `routes.routes` on a folder of copies of fonts of this host: NanumGothic Bold, Caveat-VF and each of the ten faces of Noto Sans CJK Regular (index 0-9) are `outline` and get the route `mkfont` (Caveat, NanumGothic and each Noto CJK face also `experimental fit` and `vector fit`); neodgm.ttf is `outline-composite` with `mkfont`, `composite` (native) and `vector fit`; `wqy_12pt.bdf` (kind `bdf-iso10646`) and `18x18ko.pcf.gz` (`bitmap`, sizes [18]) get `mkfont` only; `hanglm16.pcf.gz` is `bdf-ksc5601` with `bdfface` and `bdfface + from-svf fit`; NEODG16.SVF (`svf-precomposed`) gets `copy` and `from-svf fit`, NEODG16A.SVF (`svf-jamo`) `copy`.
 
-The same check on copies of the proprietary sources of the recipes above (2026-11-22; details in each recipe): raw DOS fonts
+The same check on copies of the proprietary sources of the recipe documents (2026-11-22; details in each recipe): raw DOS fonts
 are `dos-raw` with `dos raw` (11,520-byte ones also `johab844`); `johabm16.bdf` is `bdf-johab` with `hanterm`; `batang24.bdf`
 is `bdf-ksc5601` with `bdfface` and `bdfface + from-svf fit`; Gulim and Mac Seoul with strikes are `outline-composite` / `outline`
 with `mkfont` (the bitmap-only Seoul `bitmap`, `mkfont` only); Windows FONs labelled with no route ("no Unicode character map, mkfont cannot read it");

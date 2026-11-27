@@ -447,7 +447,7 @@ flowchart TD
 
 벌의 수가 같아도 규칙은 시스템마다 다르다. NKP는 받침 있는 초성을 모음 모양 4종으로 나누는데 8x4x4는 3종으로 나눈다. 그래서
 NKP 글꼴을 8x4x4로 맞추면 IoU가 0.998에 그친다([docs/recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#nkp-조각을-잘라-저장한-허큘리스-한글-tsr) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR"). SPC-1500은 받침 없는 초성을 모음 모양 3종으로
-나누는데 8x4x4는 5종으로 나눈다. 그래서 그 완성형을 8x4x4로 맞춘 결과는 IoU 0.987이다(같은 문서 "삼성 SPC-1500").
+나누는데 8x4x4는 5종으로 나눈다. 그래서 그 완성형을 8x4x4로 맞춘 결과는 IoU 0.987이다([docs/recipes/rom-mame.ko.md](recipes/rom-mame.ko.md#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확) "삼성 SPC-1500").
 SVF의 JSET이 어느 체계든 "자기 규칙 그대로" 담도록 만들어진 이유가 이것이다(4장).
 
 ## 3. 실제 시스템들: 연구가 읽어 낸 것
@@ -1258,7 +1258,7 @@ KS 2,350자만 지원한다. 파생 JSET은 나머지 8,822자도 외삽한다.
 | 예산 (페이스에 줄 flash) | 권장 형태 | 리더 | 예 |
 |---|---|---|---|
 | 약 6-11 KB, RAM 2 KB (Uno급) | 작은 벌의 JSET v1(6x2x1, 또는 축소한 8x4x4) | v1만(AVR 기본) | `NEODG16G` 6x2x1: 파일 10,684, `mcu-strict` 10,124, Uno 이미지 23,676 text (`c/ports/arduino/README.md`); Seoul S5K-S8K 5,548-8,160 |
-| 약 16-20 KB | 8x4x4 JSET v1 | v1 | `SANS8J` 15,740. DOS 원시 글꼴, ROM, OS/2에서 만든 16 px 8x4x4는 15,556-18,576 ([docs/recipes.ko.md](recipes.ko.md)) |
+| 약 16-20 KB | 8x4x4 JSET v1 | v1 | `SANS8J` 15,740. DOS 원시 글꼴, ROM, OS/2에서 만든 16 px 8x4x4는 15,556-18,576 ([docs/recipes/dos-fonts.ko.md](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트), [rom-86box](recipes/rom-86box.ko.md), [rom-mame](recipes/rom-mame.ko.md), [os2](recipes/os2.ko.md)) |
 | 표가 큰 페이스(12 x 12 클래스)를 flash/RAM에 | 같은 페이스의 JSET v2 | v2 (+535 B M0+) | 11,681 → 5,324 + alias; 조합 6-10 % 느림(5.3절) |
 | 스트리밍(SD 등), RAM이 빠듯함 | v2 + 음절 캐시 | v2 | JSET 영역이 tables 버퍼에 들어감 |
 | 큰 MCU(수백 KB flash) | 적응형(adaptive) JSET v1, 필요하면 BIG | v1 (+BIG) | `svf/jamo-extra/GOTHA16.SVF` 60,992 |

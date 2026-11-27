@@ -12,7 +12,7 @@ ScummVM 한글 고해상도 텍스트 작업의 폰트 쪽에서 출발했으며
 
 코드, 명세, 문서는 MIT이다([LICENSE](LICENSE)). 폰트와 그로부터 만든 페이스는
 모두 SIL Open Font License 1.1을 따르며, 각각 라이선스 본문이 곁에 있다. [NOTICE.ko.md](NOTICE.ko.md)가 이들의 목록과
-이 저장소가 Reserved Font Name을 어떻게 해석하는지를 설명한다. [docs/recipes.ko.md](docs/recipes.ko.md)는 모든 페이스를 상류(upstream)
+이 저장소가 Reserved Font Name을 어떻게 해석하는지를 설명한다. 레시피 색인 [docs/recipes.ko.md](docs/recipes.ko.md)와 [docs/recipes/](docs/recipes.ko.md#레시피-문서)의 주제별 문서는 모든 페이스를 상류(upstream)
 폰트로부터 어떻게 만드는지, 그리고 다른 종류의 한글 폰트(TrueType/OpenType 아웃라인, X11 BDF/PCF, DOS johab, 클래식
 Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설명한다.
 

@@ -665,7 +665,7 @@ The faces already written in your output folders are yours and stay.
   jamo set. Whether a program draws a TTF's 2 bpp strike as levels is up to its renderer (Windows and macOS not tested).
 - Known ROM sets: checked against the real files only where `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME` names your own
   copy (every face the size recipes/rom-86box.md and recipes/rom-mame.md record); the tests use synthetic ROMs drawn from an OFL face.
-- The mask-fit command-line recipe has a recorded run (see [recipes](recipes.md)); an end-to-end maker
+- The mask-fit command-line recipe has a recorded run (see [recipes/outline-fonts.md](recipes/outline-fonts.md#jamo-sets-from-truetype-and-opentype-fonts), way 2); an end-to-end maker
   `mask fit` run is not established by that record. The identity check has only been tested with a stub;
   `vector fit` can take minutes per font.
 - Not verified, pending manual checks on a real desktop: native dialogs with a display, the file manager integration,

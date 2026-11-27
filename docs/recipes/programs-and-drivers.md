@@ -80,11 +80,11 @@ program on the host; disassembly with objdump -D -b binary -m i8086 is fine). Wo
 Report the offsets, the commands and the numbers; say what you could not resolve.
 ```
 
-`$OUT/ks.txt`, the syllable list every `bdfface.py` line below reads, is written once:
+`$OUT/ks.txt`, the syllable list every `bdfface.py` line below and in the ROM and OS/2 recipes reads, is written once:
 
     python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-hangul']()))" $OUT/ks.txt
 
-The three examples below were worked with this prompt (2026-11-22). They use proprietary programs and ROM dumps supplied separately.
+The two examples below and [Korean VGA font ROMs (86Box)](rom-86box.md) were worked with this prompt (2026-11-22). They use proprietary programs and ROM dumps supplied separately.
 
 <a id="nkp-a-hercules-hangul-tsr-with-cropped-pieces"></a>
 

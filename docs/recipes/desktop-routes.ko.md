@@ -15,7 +15,7 @@ maker의 경로(데스크톱 앱과 서버): maker가 어떤 종류의 파일에
 UI 작업 순서는 [maker 데스크톱](../maker-desktop.ko.md), 렌더 미리보기는 [데스크톱 앱](../desktop-app.ko.md)을 참고한다.
 
 maker(`maker/`, [desktop-app.md](../desktop-app.ko.md)의 데스크톱 앱, [maker/README.md](../../maker/README.ko.md)의 서버)는 각 파일의 종류를
-감지하고(`maker/detect.py`) 그 종류에 `maker/routes.py`의 경로를 제공한다. 모든 경로는 위 도구들로 이루어진 명령줄이다. 실행하면 출력
+감지하고(`maker/detect.py`) 그 종류에 `maker/routes.py`의 경로를 제공한다. 모든 경로는 레시피 문서의 도구들로 이루어진 명령줄이다. 실행하면 출력
 폴더에 `svf/<dest>/<NAME>.SVF`와 `build-<id>/BUILD.md`가 쓰인다. BUILD.md는 페이스마다 원본 단계와 실행한 명령을 실제 경로와 함께
 나열하므로, 어떤 결과든 이 장으로 손수 재현할 수 있다. 페이지에 보이는 레이블별 경로는 다음과 같다(`native` = 원본이 경로가 만드는
 것과 정확히 같음. 나머지는 맞춤이며 experimental로 표시된다):
@@ -69,7 +69,7 @@ maker(`maker/`, [desktop-app.md](../desktop-app.ko.md)의 데스크톱 앱, [mak
 검증: 이 표의 경로 레이블과 종류는 `routes.py`에서 읽고, 이 호스트 폰트의 사본이 든 폴더에 `detect.scan`과 `routes.routes`를 실행해
 확인했다: NanumGothic Bold, Caveat-VF, Noto Sans CJK Regular 컬렉션의 페이스 열 개(인덱스 0-9)는 `outline`이고 `mkfont` 경로를 얻는다(Caveat, NanumGothic, Noto CJK의 각 페이스는 `experimental fit`과 `vector fit`도). neodgm.ttf는 `outline-composite`로 `mkfont`, `composite`(native), `vector fit`을 얻는다. `wqy_12pt.bdf`(종류 `bdf-iso10646`)와 `18x18ko.pcf.gz`(`bitmap`, 크기 [18])는 `mkfont`만, `hanglm16.pcf.gz`는 `bdf-ksc5601`로 `bdfface`와 `bdfface + from-svf fit`, NEODG16.SVF(`svf-precomposed`)는 `copy`와 `from-svf fit`, NEODG16A.SVF(`svf-jamo`)는 `copy`를 얻는다.
 
-위 레시피의 독점 원본 사본에 같은 점검을 했다(2026-11-22. 자세한 것은 각 레시피에): 원시 DOS 폰트는 `dos-raw`에 `dos raw`(11,520 바이트짜리는 `johab844`도),
+레시피 문서의 독점 원본 사본에 같은 점검을 했다(2026-11-22. 자세한 것은 각 레시피에): 원시 DOS 폰트는 `dos-raw`에 `dos raw`(11,520 바이트짜리는 `johab844`도),
 `johabm16.bdf`는 `bdf-johab`에 `hanterm`, `batang24.bdf`는 `bdf-ksc5601`에 `bdfface`와 `bdfface + from-svf fit`, 스트라이크가 있는 굴림과 Mac Seoul은
 `outline-composite` / `outline`에 `mkfont`(비트맵 전용 Seoul은 `bitmap`에 `mkfont`만), Windows FON은 경로 없이 레이블만("no Unicode character map, mkfont cannot read it"),
 HWP 1.x, HWP 3.0, KS X 1001 덤프 파일은 각 레시피대로(2026-11-23: 한글 파일 하나에 `hwp1` 항목 셋과 `hwp1`, `hwp bdf + mkfont`; `ks-raw`에

@@ -58,6 +58,8 @@ Each recipe document covers one kind of source, with its commands and measured r
 
 <a id="quick-start-by-input-kind"></a>
 
+<a id="1-quick-start-by-input-kind"></a>
+
 ## Quick start: by input kind
 
 Find what you hold; the row names the way and the section with the commands. "Pre" is a precomposed face (every
@@ -100,11 +102,13 @@ when every syllable must be exactly the source's.
 
 <a id="checking-a-face"></a>
 
+<a id="2-checking-a-face"></a>
+
 ## Checking a face
 
 <a id="checks-for-a-new-face"></a>
 
-Every recipe below ends with the same checks. The sample line is `안녕하세요 ABC 123`; the faces are 16 px in a 16x16 cell
+Every recipe document ends with the same checks. The sample line is `안녕하세요 ABC 123`; the faces are 16 px in a 16x16 cell
 unless stated.
 
     python3 tools/svfline.py measure "안녕하세요 ABC 123" FACE.SVF       # width=W ascent=A descent=D
@@ -121,7 +125,7 @@ unless stated.
   The 200x24 buffer and baseline 16 above fit a 16 px cell. For a face whose cell C is not 16 (12, 15, 24, 40, 48 px) the
   recipes' ink numbers are from `line 400 C+8 0 C` (a 400-wide buffer, the baseline at the cell height, C+8 rows: the
   buffer must be at least as wide as the measured width and as tall as the cell plus descent, or the line is clipped):
-  `python3 tools/svfline.py line 400 32 0 24 "안녕하세요 ABC 123" FACE.SVF > $OUT/out.gray` for a 24 px face. Use a wider buffer for measured widths above 200 (or 400 in the larger-cell template); those exceptions are shown below.
+  `python3 tools/svfline.py line 400 32 0 24 "안녕하세요 ABC 123" FACE.SVF > $OUT/out.gray` for a 24 px face. Use a wider buffer for measured widths above 200 (or 400 in the larger-cell template); those exceptions are shown in the recipes.
 - A jamo set is judged by `--check` (on `jamoset.py` and `jamovec.py`): it composes all 11,172 syllables from the pieces
   and fails on a table error; the fit line before it prints the IoU of the pieces against the source's syllables
   (`fit: 11172 syllables, IoU 0.817`). `--check` does not fail on a poor fit: read the IoU, and look at the result
@@ -130,14 +134,18 @@ unless stated.
   files at `HEAD`, then compare working files with that manifest; they do not validate a new `FACE.SVF`.
   `tools/build/build_faces.py` rebuilds the faces of `svf/` (see [Faces of svf/](recipes/svf-faces.md#faces-of-svf)).
 
-Reference run (verified), NanumGothic Bold at 16 px (below): 1 bpp `125,520` bytes, 2,446 glyphs, `width=146 ascent=14
+Reference run (verified), NanumGothic Bold at 16 px ([Precomposed faces](recipes/outline-fonts.md#precomposed-faces-mkfontpy)): 1 bpp `125,520` bytes, 2,446 glyphs, `width=146 ascent=14
 descent=2`, ink 677.
 
 <a id="reference"></a>
 
+<a id="16-reference"></a>
+
 ## Reference
 
 <a id="ks-x-1001"></a>
+
+<a id="161-ks-x-1001"></a>
 
 ### KS X 1001
 
@@ -157,6 +165,8 @@ KS X 1001 (formerly KS C 5601) has 2,350 precomposed Hangul syllables (rows 0xB0
 
 <a id="encodings"></a>
 
+<a id="162-encodings"></a>
+
 ### Encodings
 
 EUC-KR / wansung byte pair = GL code + 0x8080 (`가` = B0A1 = GL 3021); Python: `bytes((0xB0,0xA1)).decode("euc_kr")`.
@@ -165,6 +175,8 @@ Johab (Python `johab` codec): a 16-bit code `1 iiiii mmmmm fffff` with fill valu
 x 28 + final with 0-based jamo indices. See [Hangul composition and encodings](#ref-encoding). `tools/test_recipes.py` checks these examples.
 
 <a id="known-limits"></a>
+
+<a id="163-known-limits"></a>
 
 ### Known limits
 
@@ -178,6 +190,8 @@ x 28 + final with 0-based jamo indices. See [Hangul composition and encodings](#
 - Known gaps of the tools in general: [tools.md](tools.md#remaining-gaps-of-the-tools), "Remaining gaps of the tools".
 
 <a id="references"></a>
+
+<a id="18-references"></a>
 
 ## References
 
@@ -204,55 +218,60 @@ Until 2026-11-27 the recipes were one document. A link to a section anchor that 
 
 | Old anchor of docs/recipes.md | Now in |
 |---|---|
-| <a id="outline-fonts"></a>`#outline-fonts` | [Outline fonts](recipes/outline-fonts.md#outline-fonts) |
-| <a id="precomposed-faces-mkfontpy"></a>`#precomposed-faces-mkfontpy` | [Precomposed faces (`mkfont.py`)](recipes/outline-fonts.md#precomposed-faces-mkfontpy) |
-| <a id="opentype-cff-otf"></a>`#opentype-cff-otf` | [OpenType CFF (`.otf`)](recipes/outline-fonts.md#opentype-cff-otf) |
-| <a id="jamo-sets-from-truetype-and-opentype-fonts"></a>`#jamo-sets-from-truetype-and-opentype-fonts` | [Jamo sets from TrueType and OpenType fonts](recipes/outline-fonts.md#jamo-sets-from-truetype-and-opentype-fonts) |
-| <a id="truetype-fonts-that-already-carry-jamo"></a>`#truetype-fonts-that-already-carry-jamo` | [TrueType fonts that already carry jamo](recipes/outline-fonts.md#truetype-fonts-that-already-carry-jamo) |
-| <a id="2-bpp-anti-aliased-faces-from-a-truetypeopentype-font"></a><a id="anti-aliased-2-bpp-faces"></a>`#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font`, `#anti-aliased-2-bpp-faces` | [2 bpp anti-aliased faces from a TrueType/OpenType font](recipes/outline-fonts.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font) |
-| <a id="baseline-vertical-shift-and-clipping"></a>`#baseline-vertical-shift-and-clipping` | [Baseline, vertical shift and clipping](recipes/outline-fonts.md#baseline-vertical-shift-and-clipping) |
-| <a id="ttc-and-otc"></a><a id="opentype-cff-collections-and-variable-fonts"></a>`#ttc-and-otc`, `#opentype-cff-collections-and-variable-fonts` | [TTC and OTC](recipes/outline-fonts.md#ttc-and-otc) |
-| <a id="variable-fonts"></a>`#variable-fonts` | [Variable fonts](recipes/outline-fonts.md#variable-fonts) |
-| <a id="mac-format-truetype"></a>`#mac-format-truetype` | [Mac-format TrueType](recipes/outline-fonts.md#mac-format-truetype) |
-| <a id="bitmap-fonts"></a><a id="x-window-korean-fonts"></a>`#bitmap-fonts`, `#x-window-korean-fonts` | [Bitmap fonts](recipes/bitmap-fonts.md#bitmap-fonts) |
-| <a id="iso-10646-bdf-and-pcf"></a>`#iso-10646-bdf-and-pcf` | [ISO 10646 BDF and PCF](recipes/bitmap-fonts.md#iso-10646-bdf-and-pcf) |
-| <a id="ks-c-5601-bdf-and-pcf"></a>`#ks-c-5601-bdf-and-pcf` | [KS C 5601 BDF and PCF](recipes/bitmap-fonts.md#ks-c-5601-bdf-and-pcf) |
-| <a id="hanterm"></a>`#hanterm` | [hanterm](recipes/bitmap-fonts.md#hanterm) |
-| <a id="hbf"></a>`#hbf` | [HBF](recipes/bitmap-fonts.md#hbf) |
-| <a id="windows-fnt-and-fon"></a>`#windows-fnt-and-fon` | [Windows FNT and FON](recipes/bitmap-fonts.md#windows-fnt-and-fon) |
-| <a id="embedded-bitmap-strikes"></a>`#embedded-bitmap-strikes` | [Embedded bitmap strikes](recipes/bitmap-fonts.md#embedded-bitmap-strikes) |
-| <a id="a-low-resolution-face-from-a-high-resolution-bitmap-font"></a>`#a-low-resolution-face-from-a-high-resolution-bitmap-font` | [A low-resolution face from a high-resolution bitmap font](recipes/bitmap-fonts.md#a-low-resolution-face-from-a-high-resolution-bitmap-font) |
-| <a id="dos-era-raw-fonts"></a>`#dos-era-raw-fonts` | [DOS-era raw fonts](recipes/dos-fonts.md#dos-era-raw-fonts) |
-| <a id="other-dos-era-korean-fonts"></a>`#other-dos-era-korean-fonts` | [Other DOS-era Korean fonts](recipes/dos-fonts.md#other-dos-era-korean-fonts) |
-| <a id="hwp-1x-and-2x-fonts"></a>`#hwp-1x-and-2x-fonts` | [HWP 1.x and 2.x fonts](recipes/dos-fonts.md#hwp-1x-and-2x-fonts) |
-| <a id="hwp-30-fnt-fonts"></a>`#hwp-30-fnt-fonts` | [HWP 3.0 FNT fonts](recipes/dos-fonts.md#hwp-30-fnt-fonts) |
-| <a id="ks-x-1001-raw-dumps"></a>`#ks-x-1001-raw-dumps` | [KS X 1001 raw dumps](recipes/dos-fonts.md#ks-x-1001-raw-dumps) |
-| <a id="finding-a-font-inside-a-program-or-data-file-with-claude"></a>`#finding-a-font-inside-a-program-or-data-file-with-claude` | [Finding a font inside a program or data file, with Claude](recipes/programs-and-drivers.md#finding-a-font-inside-a-program-or-data-file-with-claude) |
-| <a id="the-prompt"></a>`#the-prompt` | [The prompt](recipes/programs-and-drivers.md#the-prompt) |
-| <a id="nkp-a-hercules-hangul-tsr-with-cropped-pieces"></a>`#nkp-a-hercules-hangul-tsr-with-cropped-pieces` | [NKP: a Hercules Hangul TSR with cropped pieces](recipes/programs-and-drivers.md#nkp-a-hercules-hangul-tsr-with-cropped-pieces) |
-| <a id="dokkaebi-the-font-inside-the-driver"></a>`#dokkaebi-the-font-inside-the-driver` | [Dokkaebi: the font inside the driver](recipes/programs-and-drivers.md#dokkaebi-the-font-inside-the-driver) |
-| <a id="korean-vga-font-roms-86box"></a>`#korean-vga-font-roms-86box` | [Korean VGA font ROMs (86Box)](recipes/rom-86box.md#korean-vga-font-roms-86box) |
-| <a id="korean-msx-fonts-msx2-and-msx1"></a>`#korean-msx-fonts-msx2-and-msx1` | [Korean MSX fonts (MSX2 and MSX1)](recipes/rom-msx.md#korean-msx-fonts-msx2-and-msx1) |
-| <a id="msx-with-a-coding-agent-recommended"></a>`#msx-with-a-coding-agent-recommended` | [With a coding agent (recommended)](recipes/rom-msx.md#msx-with-a-coding-agent-recommended) |
-| <a id="korean-font-roms-in-mame-sets"></a>`#korean-font-roms-in-mame-sets` | [Korean font ROMs in MAME sets](recipes/rom-mame.md#korean-font-roms-in-mame-sets) |
-| <a id="samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact"></a>`#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact` | [Samsung SPC-1500: a jamo set in four inverted ROMs (exact)](recipes/rom-mame.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) |
-| <a id="date-quiz-go-go-a-2350-syllable-sprite-font"></a>`#date-quiz-go-go-a-2350-syllable-sprite-font` | [Date Quiz Go Go: a 2,350-syllable sprite font](recipes/rom-mame.md#date-quiz-go-go-a-2350-syllable-sprite-font) |
-| <a id="x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check"></a>`#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check` | [X Se Dae Quiz: Taebaek GOTHIC16 in the sprites (a cross-check)](recipes/rom-mame.md#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check) |
-| <a id="quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen"></a>`#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen` | [Quiz King of Fighters (Korea): a 2,350-syllable font with an outline pen](recipes/rom-mame.md#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen) |
-| <a id="live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built"></a>`#live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built` | [Live Quiz Show: the rule read, the pieces not aligned (not built)](recipes/rom-mame.md#live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built) |
-| <a id="sets-with-no-font-or-with-a-font-not-resolved"></a>`#sets-with-no-font-or-with-a-font-not-resolved` | [Sets with no font, or with a font not resolved](recipes/rom-mame.md#sets-with-no-font-or-with-a-font-not-resolved) |
-| <a id="os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set"></a>`#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set` | [OS/2 Korean fonts (완성형) to a precomposed face and a jamo set](recipes/os2.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set) |
-| <a id="classic-mac-korean-bitmap-fonts"></a>`#classic-mac-korean-bitmap-fonts` | [Classic Mac Korean bitmap fonts](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) |
-| <a id="an-existing-svf"></a>`#an-existing-svf` | [An existing SVF](recipes/svf-and-ttf.md#an-existing-svf) |
-| <a id="an-svf-face-back-to-a-ttf-bitmap-font"></a>`#an-svf-face-back-to-a-ttf-bitmap-font` | [An SVF face back to a TTF bitmap font](recipes/svf-and-ttf.md#an-svf-face-back-to-a-ttf-bitmap-font) |
-| <a id="composite-glyphs---composite"></a>`#composite-glyphs---composite` | [Composite glyphs (`--composite`)](recipes/svf-and-ttf.md#composite-glyphs---composite) |
-| <a id="choosing-the-number-of-sets-벌-수"></a><a id="choosing-the-number-of-sets"></a>`#choosing-the-number-of-sets-벌-수`, `#choosing-the-number-of-sets` | [Choosing the number of sets (벌 수)](recipes/sets.md#choosing-the-number-of-sets-벌-수) |
-| <a id="desktop-app-and-maker-routes"></a>`#desktop-app-and-maker-routes` | [Desktop app and maker routes](recipes/desktop-routes.md#desktop-app-and-maker-routes) |
-| <a id="faces-of-svf"></a><a id="rebuilding-the-faces-of-svf"></a>`#faces-of-svf`, `#rebuilding-the-faces-of-svf` | [Faces of svf/](recipes/svf-faces.md#faces-of-svf) |
-| <a id="the-precomposed-recipe-mkfont-rows"></a>`#the-precomposed-recipe-mkfont-rows` | [The precomposed recipe (`mkfont` rows)](recipes/svf-faces.md#the-precomposed-recipe-mkfont-rows) |
-| <a id="the-jamo-set-from-precomposed-recipe-jamoset-rows"></a>`#the-jamo-set-from-precomposed-recipe-jamoset-rows` | [The jamo-set-from-precomposed recipe (`jamoset` rows)](recipes/svf-faces.md#the-jamo-set-from-precomposed-recipe-jamoset-rows) |
-| <a id="families"></a>`#families` | [Families](recipes/svf-faces.md#families) |
-| <a id="faces-without-a-recipe"></a>`#faces-without-a-recipe` | [Faces without a recipe](recipes/svf-faces.md#faces-without-a-recipe) |
-| <a id="adding-a-face-to-svf"></a>`#adding-a-face-to-svf` | [Adding a face to svf/](recipes/svf-faces.md#adding-a-face-to-svf) |
+| <a id="outline-fonts"></a><a id="3-outline-fonts"></a>`#outline-fonts`, `#3-outline-fonts` | [Outline fonts](recipes/outline-fonts.md#outline-fonts) |
+| <a id="precomposed-faces-mkfontpy"></a><a id="31-precomposed-faces-mkfontpy"></a>`#precomposed-faces-mkfontpy`, `#31-precomposed-faces-mkfontpy` | [Precomposed faces (`mkfont.py`)](recipes/outline-fonts.md#precomposed-faces-mkfontpy) |
+| <a id="opentype-cff-otf"></a><a id="32-opentype-cff-otf"></a>`#opentype-cff-otf`, `#32-opentype-cff-otf` | [OpenType CFF (`.otf`)](recipes/outline-fonts.md#opentype-cff-otf) |
+| <a id="jamo-sets-from-truetype-and-opentype-fonts"></a><a id="33-jamo-sets-from-truetype-and-opentype-fonts"></a>`#jamo-sets-from-truetype-and-opentype-fonts`, `#33-jamo-sets-from-truetype-and-opentype-fonts` | [Jamo sets from TrueType and OpenType fonts](recipes/outline-fonts.md#jamo-sets-from-truetype-and-opentype-fonts) |
+| <a id="truetype-fonts-that-already-carry-jamo"></a><a id="34-truetype-fonts-that-already-carry-jamo"></a>`#truetype-fonts-that-already-carry-jamo`, `#34-truetype-fonts-that-already-carry-jamo` | [TrueType fonts that already carry jamo](recipes/outline-fonts.md#truetype-fonts-that-already-carry-jamo) |
+| <a id="2-bpp-anti-aliased-faces-from-a-truetypeopentype-font"></a><a id="anti-aliased-2-bpp-faces"></a><a id="35-2-bpp-anti-aliased-faces-from-a-truetypeopentype-font"></a>`#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font`, `#anti-aliased-2-bpp-faces`, `#35-2-bpp-anti-aliased-faces-from-a-truetypeopentype-font` | [2 bpp anti-aliased faces from a TrueType/OpenType font](recipes/outline-fonts.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font) |
+| <a id="baseline-vertical-shift-and-clipping"></a><a id="36-baseline-vertical-shift-and-clipping"></a>`#baseline-vertical-shift-and-clipping`, `#36-baseline-vertical-shift-and-clipping` | [Baseline, vertical shift and clipping](recipes/outline-fonts.md#baseline-vertical-shift-and-clipping) |
+| <a id="ttc-and-otc"></a><a id="opentype-cff-collections-and-variable-fonts"></a><a id="37-ttc-and-otc"></a>`#ttc-and-otc`, `#opentype-cff-collections-and-variable-fonts`, `#37-ttc-and-otc` | [TTC and OTC](recipes/outline-fonts.md#ttc-and-otc) |
+| <a id="variable-fonts"></a><a id="38-variable-fonts"></a>`#variable-fonts`, `#38-variable-fonts` | [Variable fonts](recipes/outline-fonts.md#variable-fonts) |
+| <a id="mac-format-truetype"></a><a id="39-mac-format-truetype"></a>`#mac-format-truetype`, `#39-mac-format-truetype` | [Mac-format TrueType](recipes/outline-fonts.md#mac-format-truetype) |
+| <a id="bitmap-fonts"></a><a id="x-window-korean-fonts"></a><a id="4-bitmap-fonts"></a>`#bitmap-fonts`, `#x-window-korean-fonts`, `#4-bitmap-fonts` | [Bitmap fonts](recipes/bitmap-fonts.md#bitmap-fonts) |
+| <a id="iso-10646-bdf-and-pcf"></a><a id="41-iso-10646-bdf-and-pcf"></a>`#iso-10646-bdf-and-pcf`, `#41-iso-10646-bdf-and-pcf` | [ISO 10646 BDF and PCF](recipes/bitmap-fonts.md#iso-10646-bdf-and-pcf) |
+| <a id="ks-c-5601-bdf-and-pcf"></a><a id="42-ks-c-5601-bdf-and-pcf"></a>`#ks-c-5601-bdf-and-pcf`, `#42-ks-c-5601-bdf-and-pcf` | [KS C 5601 BDF and PCF](recipes/bitmap-fonts.md#ks-c-5601-bdf-and-pcf) |
+| <a id="hanterm"></a><a id="43-hanterm"></a>`#hanterm`, `#43-hanterm` | [hanterm](recipes/bitmap-fonts.md#hanterm) |
+| <a id="hbf"></a><a id="44-hbf"></a>`#hbf`, `#44-hbf` | [HBF](recipes/bitmap-fonts.md#hbf) |
+| <a id="windows-fnt-and-fon"></a><a id="45-windows-fnt-and-fon"></a>`#windows-fnt-and-fon`, `#45-windows-fnt-and-fon` | [Windows FNT and FON](recipes/bitmap-fonts.md#windows-fnt-and-fon) |
+| <a id="embedded-bitmap-strikes"></a><a id="46-embedded-bitmap-strikes"></a>`#embedded-bitmap-strikes`, `#46-embedded-bitmap-strikes` | [Embedded bitmap strikes](recipes/bitmap-fonts.md#embedded-bitmap-strikes) |
+| <a id="a-low-resolution-face-from-a-high-resolution-bitmap-font"></a><a id="9-a-low-resolution-face-from-a-high-resolution-bitmap-font"></a>`#a-low-resolution-face-from-a-high-resolution-bitmap-font`, `#9-a-low-resolution-face-from-a-high-resolution-bitmap-font` | [A low-resolution face from a high-resolution bitmap font](recipes/bitmap-fonts.md#a-low-resolution-face-from-a-high-resolution-bitmap-font) |
+| <a id="dos-era-raw-fonts"></a><a id="5-dos-era-raw-fonts"></a>`#dos-era-raw-fonts`, `#5-dos-era-raw-fonts` | [DOS-era raw fonts](recipes/dos-fonts.md#dos-era-raw-fonts) |
+| <a id="other-dos-era-korean-fonts"></a><a id="51-other-dos-era-korean-fonts"></a>`#other-dos-era-korean-fonts`, `#51-other-dos-era-korean-fonts` | [Other DOS-era Korean fonts](recipes/dos-fonts.md#other-dos-era-korean-fonts) |
+| <a id="hwp-1x-and-2x-fonts"></a><a id="52-hwp-1x-and-2x-fonts"></a>`#hwp-1x-and-2x-fonts`, `#52-hwp-1x-and-2x-fonts` | [HWP 1.x and 2.x fonts](recipes/dos-fonts.md#hwp-1x-and-2x-fonts) |
+| <a id="hwp-30-fnt-fonts"></a><a id="53-hwp-30-fnt-fonts"></a>`#hwp-30-fnt-fonts`, `#53-hwp-30-fnt-fonts` | [HWP 3.0 FNT fonts](recipes/dos-fonts.md#hwp-30-fnt-fonts) |
+| <a id="ks-x-1001-raw-dumps"></a><a id="54-ks-x-1001-raw-dumps"></a>`#ks-x-1001-raw-dumps`, `#54-ks-x-1001-raw-dumps` | [KS X 1001 raw dumps](recipes/dos-fonts.md#ks-x-1001-raw-dumps) |
+| <a id="finding-a-font-inside-a-program-or-data-file-with-claude"></a><a id="6-finding-a-font-inside-a-program-or-data-file-with-claude"></a>`#finding-a-font-inside-a-program-or-data-file-with-claude`, `#6-finding-a-font-inside-a-program-or-data-file-with-claude` | [Finding a font inside a program or data file, with Claude](recipes/programs-and-drivers.md#finding-a-font-inside-a-program-or-data-file-with-claude) |
+| <a id="the-prompt"></a><a id="61-the-prompt"></a>`#the-prompt`, `#61-the-prompt` | [The prompt](recipes/programs-and-drivers.md#the-prompt) |
+| <a id="nkp-a-hercules-hangul-tsr-with-cropped-pieces"></a><a id="62-nkp-a-hercules-hangul-tsr-with-cropped-pieces"></a>`#nkp-a-hercules-hangul-tsr-with-cropped-pieces`, `#62-nkp-a-hercules-hangul-tsr-with-cropped-pieces` | [NKP: a Hercules Hangul TSR with cropped pieces](recipes/programs-and-drivers.md#nkp-a-hercules-hangul-tsr-with-cropped-pieces) |
+| <a id="dokkaebi-the-font-inside-the-driver"></a><a id="63-dokkaebi-the-font-inside-the-driver"></a>`#dokkaebi-the-font-inside-the-driver`, `#63-dokkaebi-the-font-inside-the-driver` | [Dokkaebi: the font inside the driver](recipes/programs-and-drivers.md#dokkaebi-the-font-inside-the-driver) |
+| <a id="korean-vga-font-roms-86box"></a><a id="64-korean-vga-font-roms-86box"></a>`#korean-vga-font-roms-86box`, `#64-korean-vga-font-roms-86box` | [Korean VGA font ROMs (86Box)](recipes/rom-86box.md#korean-vga-font-roms-86box) |
+| <a id="korean-msx-fonts-msx2-and-msx1"></a><a id="65-korean-msx-fonts-msx2-and-msx1"></a>`#korean-msx-fonts-msx2-and-msx1`, `#65-korean-msx-fonts-msx2-and-msx1` | [Korean MSX fonts (MSX2 and MSX1)](recipes/rom-msx.md#korean-msx-fonts-msx2-and-msx1) |
+| <a id="msx-with-a-coding-agent-recommended"></a><a id="with-a-coding-agent-recommended"></a>`#msx-with-a-coding-agent-recommended`, `#with-a-coding-agent-recommended` | [With a coding agent (recommended)](recipes/rom-msx.md#msx-with-a-coding-agent-recommended) |
+| <a id="msx2-the-daewoo-jamo-set-font-exact"></a>`#msx2-the-daewoo-jamo-set-font-exact` | [MSX2: the Daewoo jamo-set font (exact)](recipes/rom-msx.md#msx2-the-daewoo-jamo-set-font-exact) |
+| <a id="msx2-the-cpc-400s-precomposed-font"></a>`#msx2-the-cpc-400s-precomposed-font` | [MSX2: the CPC-400S precomposed font](recipes/rom-msx.md#msx2-the-cpc-400s-precomposed-font) |
+| <a id="msx1-the-jamo-cells-of-the-bios-laid-out-as-the-machine-does"></a>`#msx1-the-jamo-cells-of-the-bios-laid-out-as-the-machine-does` | [MSX1: the jamo cells of the BIOS, laid out as the machine does](recipes/rom-msx.md#msx1-the-jamo-cells-of-the-bios-laid-out-as-the-machine-does) |
+| <a id="truetype-files"></a>`#truetype-files` | [TrueType files](recipes/rom-msx.md#truetype-files) |
+| <a id="the-emulator-as-ground-truth"></a>`#the-emulator-as-ground-truth` | [The emulator as ground truth](recipes/rom-msx.md#the-emulator-as-ground-truth) |
+| <a id="korean-font-roms-in-mame-sets"></a><a id="7-korean-font-roms-in-mame-sets"></a>`#korean-font-roms-in-mame-sets`, `#7-korean-font-roms-in-mame-sets` | [Korean font ROMs in MAME sets](recipes/rom-mame.md#korean-font-roms-in-mame-sets) |
+| <a id="samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact"></a><a id="71-samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact"></a>`#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact`, `#71-samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact` | [Samsung SPC-1500: a jamo set in four inverted ROMs (exact)](recipes/rom-mame.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) |
+| <a id="date-quiz-go-go-a-2350-syllable-sprite-font"></a><a id="72-date-quiz-go-go-a-2350-syllable-sprite-font"></a>`#date-quiz-go-go-a-2350-syllable-sprite-font`, `#72-date-quiz-go-go-a-2350-syllable-sprite-font` | [Date Quiz Go Go: a 2,350-syllable sprite font](recipes/rom-mame.md#date-quiz-go-go-a-2350-syllable-sprite-font) |
+| <a id="x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check"></a><a id="73-x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check"></a>`#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check`, `#73-x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check` | [X Se Dae Quiz: Taebaek GOTHIC16 in the sprites (a cross-check)](recipes/rom-mame.md#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check) |
+| <a id="quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen"></a><a id="74-quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen"></a>`#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen`, `#74-quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen` | [Quiz King of Fighters (Korea): a 2,350-syllable font with an outline pen](recipes/rom-mame.md#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen) |
+| <a id="live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built"></a><a id="75-live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built"></a>`#live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built`, `#75-live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built` | [Live Quiz Show: the rule read, the pieces not aligned (not built)](recipes/rom-mame.md#live-quiz-show-the-rule-read-the-pieces-not-aligned-not-built) |
+| <a id="sets-with-no-font-or-with-a-font-not-resolved"></a><a id="76-sets-with-no-font-or-with-a-font-not-resolved"></a>`#sets-with-no-font-or-with-a-font-not-resolved`, `#76-sets-with-no-font-or-with-a-font-not-resolved` | [Sets with no font, or with a font not resolved](recipes/rom-mame.md#sets-with-no-font-or-with-a-font-not-resolved) |
+| <a id="os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set"></a><a id="8-os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set"></a>`#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set`, `#8-os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set` | [OS/2 Korean fonts (완성형) to a precomposed face and a jamo set](recipes/os2.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set) |
+| <a id="classic-mac-korean-bitmap-fonts"></a><a id="10-classic-mac-korean-bitmap-fonts"></a>`#classic-mac-korean-bitmap-fonts`, `#10-classic-mac-korean-bitmap-fonts` | [Classic Mac Korean bitmap fonts](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) |
+| <a id="an-existing-svf"></a><a id="11-an-existing-svf"></a>`#an-existing-svf`, `#11-an-existing-svf` | [An existing SVF](recipes/svf-and-ttf.md#an-existing-svf) |
+| <a id="an-svf-face-back-to-a-ttf-bitmap-font"></a><a id="12-an-svf-face-back-to-a-ttf-bitmap-font"></a>`#an-svf-face-back-to-a-ttf-bitmap-font`, `#12-an-svf-face-back-to-a-ttf-bitmap-font` | [An SVF face back to a TTF bitmap font](recipes/svf-and-ttf.md#an-svf-face-back-to-a-ttf-bitmap-font) |
+| <a id="composite-glyphs---composite"></a><a id="121-composite-glyphs---composite"></a>`#composite-glyphs---composite`, `#121-composite-glyphs---composite` | [Composite glyphs (`--composite`)](recipes/svf-and-ttf.md#composite-glyphs---composite) |
+| <a id="choosing-the-number-of-sets-벌-수"></a><a id="choosing-the-number-of-sets"></a><a id="13-choosing-the-number-of-sets-벌-수"></a>`#choosing-the-number-of-sets-벌-수`, `#choosing-the-number-of-sets`, `#13-choosing-the-number-of-sets-벌-수` | [Choosing the number of sets (벌 수)](recipes/sets.md#choosing-the-number-of-sets-벌-수) |
+| <a id="desktop-app-and-maker-routes"></a><a id="14-desktop-app-and-maker-routes"></a>`#desktop-app-and-maker-routes`, `#14-desktop-app-and-maker-routes` | [Desktop app and maker routes](recipes/desktop-routes.md#desktop-app-and-maker-routes) |
+| <a id="faces-of-svf"></a><a id="rebuilding-the-faces-of-svf"></a><a id="15-faces-of-svf"></a>`#faces-of-svf`, `#rebuilding-the-faces-of-svf`, `#15-faces-of-svf` | [Faces of svf/](recipes/svf-faces.md#faces-of-svf) |
+| <a id="the-precomposed-recipe-mkfont-rows"></a><a id="151-the-precomposed-recipe-mkfont-rows"></a>`#the-precomposed-recipe-mkfont-rows`, `#151-the-precomposed-recipe-mkfont-rows` | [The precomposed recipe (`mkfont` rows)](recipes/svf-faces.md#the-precomposed-recipe-mkfont-rows) |
+| <a id="the-jamo-set-from-precomposed-recipe-jamoset-rows"></a><a id="152-the-jamo-set-from-precomposed-recipe-jamoset-rows"></a>`#the-jamo-set-from-precomposed-recipe-jamoset-rows`, `#152-the-jamo-set-from-precomposed-recipe-jamoset-rows` | [The jamo-set-from-precomposed recipe (`jamoset` rows)](recipes/svf-faces.md#the-jamo-set-from-precomposed-recipe-jamoset-rows) |
+| <a id="families"></a><a id="153-families"></a>`#families`, `#153-families` | [Families](recipes/svf-faces.md#families) |
+| <a id="faces-without-a-recipe"></a><a id="154-faces-without-a-recipe"></a>`#faces-without-a-recipe`, `#154-faces-without-a-recipe` | [Faces without a recipe](recipes/svf-faces.md#faces-without-a-recipe) |
+| <a id="adding-a-face-to-svf"></a><a id="17-adding-a-face-to-svf"></a>`#adding-a-face-to-svf`, `#17-adding-a-face-to-svf` | [Adding a face to svf/](recipes/svf-faces.md#adding-a-face-to-svf) |
 
 [Project overview](../README.md) · [Tool reference](tools.md)

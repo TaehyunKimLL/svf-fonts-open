@@ -177,7 +177,7 @@ The other two sources go the same way: `bdfface.py --hangul dotum24.bdf --ascii 
 --symbols --check -o $OUT/GHANC40J.SVF` (and `GOTHIC16.FNT --eng ROMAN16.FNT` for the comparison), each then through `svfscale.py --size 16`.
 
 The 2 bpp result is exactly what the renderer draws when it scales the 24 px face by 2/3 and the coverage is quantised
-to four levels (checked on all 2,350 syllables of the OS/2 face below: every one equal), in this comparison, a stored 2 bpp face and
+to four levels (checked on all 2,350 syllables of the [OS/2 face](os2.md): every one equal), in this comparison, a stored 2 bpp face and
 quantised draw-time scaling give the same pixels; the stored face costs memory, the scaled draw costs time. A jamo set can be
 fitted only to the 1 bpp result: `jamoset.py --bpp 2` takes outline fonts only (`--bpp 2 works from an outline font
 (--from-ttf)`), so there is no 2 bpp jamo set from a bitmap source.

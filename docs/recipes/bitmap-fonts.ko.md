@@ -168,7 +168,7 @@ descent=2`, 잉크 298. `svf2to3.py --profile default --check`는 두 크기 모
 `8x16.bdf`), `jamoset.py --layout 844 GHANC40.PFT --eng GASCII40.PFT --symbols --check -o $OUT/GHANC40J.SVF`(비교용은 `GOTHIC16.FNT --eng ROMAN16.FNT`). 각각 그다음
 `svfscale.py --size 16`.
 
-2 bpp 결과는 렌더러가 24 px 페이스를 2/3로 축소해 그리고 피복도를 네 단계로 양자화한 것과 정확히 같다(아래 OS/2 페이스의 2,350
+2 bpp 결과는 렌더러가 24 px 페이스를 2/3로 축소해 그리고 피복도를 네 단계로 양자화한 것과 정확히 같다([OS/2 페이스](os2.ko.md)의 2,350
 음절 모두에서 확인: 전부 같음). 이 비교에서는 저장한 2 bpp 페이스와 그리는 시점의 축소를 양자화한 결과가 같은 픽셀을 내며, 저장한 페이스는 메모리를,
 축소해 그리기는 시간을 쓴다. 자모 세트는 1 bpp 결과에만 맞출 수 있다. `jamoset.py --bpp 2`는 아웃라인 폰트만 받으므로(`--bpp 2 works
 from an outline font (--from-ttf)`) 비트맵 원본에서 2 bpp 자모 세트를 만드는 길은 없다.

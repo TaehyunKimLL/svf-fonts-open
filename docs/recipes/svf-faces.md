@@ -125,7 +125,7 @@ iolo's dual-licence ambiguity is described in [IOLO.TXT](../../svf/iolo/IOLO.TXT
 
 ## Adding a face to svf/
 
-Make the face with a recipe above, check it ([Checking a face](../recipes.md#checking-a-face)), and add:
+Make the face with a recipe (the [recipe documents](../recipes.md#recipe-documents)), check it ([Checking a face](../recipes.md#checking-a-face)), and add:
 
 - its licence text beside it in `svf/`;
 - a row in `web/LICENCES.tsv` and one in `web/FAMILIES.tsv`;

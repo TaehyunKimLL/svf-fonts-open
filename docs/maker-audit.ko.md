@@ -97,7 +97,7 @@ Electron은 실행마다 토큰을 생성하고 `userData` 아래 데이터 폴�
 ## 5. 검증 경계
 
 - 자동 입력 테스트는 합성 파일을 사용한다. 실제 Mac·HWP·ROM 원본은 사용자가 별도로 제공해야 한다.
-- 마스크 맞춤 명령줄 실행 기록은 [레시피](recipes.ko.md)에 있다. 그것이 maker의 전체 `mask fit` 실행을 검증하지는 않는다.
+- 마스크 맞춤 명령줄 실행 기록은 [recipes/outline-fonts.ko.md](recipes/outline-fonts.ko.md#truetype와-opentype-폰트에서-만드는-자모-세트)(방법 2)와 [recipes/desktop-routes.ko.md](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로)에 있다. 그것이 maker의 전체 `mask fit` 실행을 검증하지는 않는다.
 - 조각 인식기의 실제 모델은 검증되지 않았으며 통합 테스트는 스텁을 사용한다.
 - 데스크톱 자동 테스트는 대화상자를 스텁으로 바꾸고 GPU를 끈다. 실제 대화상자·파일 관리자·창 관리자·GPU·샌드박스 검증은 별도이다.
 - Windows NSIS·portable 빌드는 `windows-build` 브랜치에서 Actions를 통과했으나 main에 병합되지 않았다. macOS와 오래된 glibc는 미검증이다. [플랫폼 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 참고한다. 서버 배포용 systemd unit은 제공하지 않는다.
@@ -122,7 +122,7 @@ HWP는 이후 확장이 원문에 덧붙어 있으며, Windows는 [2026-11-27 �
 
 
 카드 t_c3d8c80b. `maker/`(detect.py, jobs.py, routes.py, presets.py, settings.py, naming.py,
-preview.py, server.py, static/*)를 [recipes.ko.md](recipes.ko.md)와 대조한 읽기 전용 감사이며, 2026-11-03에 `ec5c6b3`(선별된 OFL 전용
+preview.py, server.py, static/*)를 레시피(당시 한 파일, 지금은 [색인](recipes.ko.md)과 [그 문서들](recipes.ko.md#레시피-문서))와 대조한 읽기 전용 감사이며, 2026-11-03에 `ec5c6b3`(선별된 OFL 전용
 저장소)에서 수행했다. 근거는 해당 커밋의 `file:line`이다(이 브랜치를 위해 다시 쓴 행은 줄 번호가 변하므로 심볼 이름을 인용한다). "Not verified"는 읽기만 하고 실행하지 않은 부분을 뜻한다.
 
 maker의 동작을 한 단락으로 설명하면 다음과 같다. `detect.sniff`(maker/detect.py:84)가 매직 바이트와 크기로 파일에 태그를 붙이고,
@@ -153,7 +153,7 @@ FreeType으로 읽을 수 있는 원본의 원본 PNG만 Pillow(`preview.source_
 | DOS johab raw (`.FNT`, `*.KOR`, HBIOS, san, 621, Dokkaebi, Kyra) | 예: 정확한 크기(`DOS_SIZES`)로 판별하고, 후보를 레이아웃 opener로 거른다; 소유자가 레이아웃을 확인한다 | `jamoset.py SRC --layout L --check [--eng ENG] [--face 0\|1]`; `--eng` = 옆에 있는 2048/4096바이트 파일 | 예: 첫 크기에서 같은 명령으로 구운 뒤 `svfline` | detect.py:29-33, 241-253, 417-436; routes.py:144-150, 277-279; preview.py:146-197; server.py:906-913 |
 | DOS `johab844.py` (raw 조각에서 만든 완성형) | 예: 후보 `844`를 가진 11,520바이트 raw 폰트(`dos_bytes`) | 완성형 경로 `johab844`: `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng ENG]`; 레이아웃 844와 8x16 영문 폰트만; 선택한 범위는 무시되고 노트가 기준 페이스를 명시한다 | 해당 없음 | routes.py `_johab844_commands`; settings.py `_route_errors`; B5 |
 | 12x24 영문 `.PFT` (12,288바이트: 태백 `GASCII24.PFT`. HWP 1.x 자신의 `ASCII.PFT`는 14x24, 41,654바이트이며 t_d4cf7f46부터 헤더로 읽는다) / HBIOS 12x24 영문 (15,360) | 예: 둘 다 `eng` 항목이다(`eng` = 바이트와 셀); 15,360바이트 파일은 `hbios_eng_like`(빈 여백 행, 12 px 셀, `A`에 잉크)일 때만 HBIOS 영문이고, 아니면 Dokkaebi 페이스이다; UI 재정의 없음 | DOS 자모 경로의 `jamoset.py --eng FILE`; 24 px 미만 페이스에서는 거부 | 아니오 | detect.py `hbios_eng_like`; settings.py `_route_errors`; A5/B6 |
-| HWP 한글 `.PFT` | 로컬 모드 전용(Task 14): 크기가 `eng` 크기가 아닐 때 `.pft` 확장자(바이트 규칙 없음)로 이름 붙은 `other` 항목, 형식 `hwp-pft`, 다른 곳에서 변환해 그 파일을 추가하라는 레이블을 가진다; 업로드는 `unknown (...)`을 유지한다. 12,288바이트 12x24 영문 `.PFT`(태백 `GASCII24.PFT`. 테스트의 `ASCII.PFT` 픽스처)는 배치의 어느 폴더에 있든 24 px DOS raw 페이스와 짝지어진다(`detect.detect_file`, `HWP_PFT_LABEL`, `scan`). t_d4cf7f46부터 HWP 1.x `.SFT`/`.PFT`(자신의 `ASCII.PFT`는 14x24, 41,654바이트), HWP 3.0 `.FNT`, KS X 1001 덤프는 `tools/hwpfont.py`가 읽는다(종류 `hwp1`, `ks-raw`). `hwp-pft`는 여기서 읽는 레이아웃이 아닌 `.PFT`만 가리킨다 | 당시에는 없음(recipes: BDF 또는 완성형 SVF를 넣을 것). 지금은 `hwp1` / `hwp bdf + mkfont` / `hwp3 844` / `hwp bdf + from-svf fit` 경로 | 아니오 | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py), `test_hwp_inputs.py`; 실제 HWP 파일은 손으로, 그리고 `JOHAB_FONTS`와 함께 `tools/test_hwpfont.py`로 실행했다(recipes.ko.md) |
+| HWP 한글 `.PFT` | 로컬 모드 전용(Task 14): 크기가 `eng` 크기가 아닐 때 `.pft` 확장자(바이트 규칙 없음)로 이름 붙은 `other` 항목, 형식 `hwp-pft`, 다른 곳에서 변환해 그 파일을 추가하라는 레이블을 가진다; 업로드는 `unknown (...)`을 유지한다. 12,288바이트 12x24 영문 `.PFT`(태백 `GASCII24.PFT`. 테스트의 `ASCII.PFT` 픽스처)는 배치의 어느 폴더에 있든 24 px DOS raw 페이스와 짝지어진다(`detect.detect_file`, `HWP_PFT_LABEL`, `scan`). t_d4cf7f46부터 HWP 1.x `.SFT`/`.PFT`(자신의 `ASCII.PFT`는 14x24, 41,654바이트), HWP 3.0 `.FNT`, KS X 1001 덤프는 `tools/hwpfont.py`가 읽는다(종류 `hwp1`, `ks-raw`). `hwp-pft`는 여기서 읽는 레이아웃이 아닌 `.PFT`만 가리킨다 | 당시에는 없음(recipes: BDF 또는 완성형 SVF를 넣을 것). 지금은 `hwp1` / `hwp bdf + mkfont` / `hwp3 844` / `hwp bdf + from-svf fit` 경로 | 아니오 | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py), `test_hwp_inputs.py`; 실제 HWP 파일은 손으로, 그리고 `JOHAB_FONTS`와 함께 `tools/test_hwpfont.py`로 실행했다(recipes/dos-fonts.ko.md) |
 | Windows `.FNT` / `.FON` | 예: `fnt`/`fon` -> `bitmap`; FON은 페이스 0만 | 스트라이크에서 mkfont, 1 bpp | 예 | detect.py:109-112, 391-415; routes.py:273-276 |
 | Unicode cmap을 가진 Mac TrueType (`true` 매직) | 예: `ttf` | TTF와 같음 | 예 | detect.py:90-91 |
 | Mac Korean (1,3) 또는 Wansung (3,5) cmap만 가진 Mac TrueType | 예: `mac_cmap_only`가 항목에 `mac-cmap` prep 연산을 주고 커버리지를 그것을 통해 읽는다(Unicode 서브테이블도 있는 폰트에는 주지 않는다) | `source` 단계: `macsfnt.py unicode IN OUT`, 이어서 TTF 경로 | Now 예(준비된 사본을 그린다) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |

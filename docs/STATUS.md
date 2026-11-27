@@ -362,7 +362,7 @@ face마다 만드는 법은 [recipes/svf-faces.ko.md](recipes/svf-faces.ko.md)�
   함께 하는 실제 FUSE 마운트 시작, GPU 경로, 샌드박스된 렌더러는 **아직 하지 않은 수동 점검**이다. 자동 테스트는 대화상자를
   스텁으로 바꾸고 GPU를 끈다.
 - **`mask fit`**: 2026-11-22에 freetype-py와 uharfbuzz를 스크래치 폴더에 설치해 `jamoset.py`의 마스크 맞춤을 neodgm, Noto Sans CJK KR, 맑은 고딕으로
-  실행했다(recipes.ko.md). 작성자 호스트의 시스템에는 라이브러리가 여전히 없어서 maker의 정체성 검사는 스텁으로만 테스트했다. 실제 Mac, HWP,
+  실행했다(recipes/outline-fonts.ko.md). 작성자 호스트의 시스템에는 라이브러리가 여전히 없어서 maker의 정체성 검사는 스텁으로만 테스트했다. 실제 Mac, HWP,
   Johab 파일은 환경 변수가 사용자 자신의 사본을 가리킬 때만 테스트되고, 저장소의 테스트는 합성 입력을 쓴다. 레시피는 2026-11-22에 실제 원본
   (Mac fbit 1.0 / 7.1, HWP 1.20 / 2.1, DOS 원시 폰트, 스트라이크, hanterm, HBF)으로 실행했고(recipes.ko.md), 그 실행에서 나온 빈틈은 `docs/tools.ko.md`
   "도구의 남은 한계"에 있다: Windows FNT/FON은 아무것도 그리지 못한다(maker는 경로 없이 "no Unicode character map"으로 표시한다). 그 실행의
