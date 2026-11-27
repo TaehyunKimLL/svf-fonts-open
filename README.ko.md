@@ -26,6 +26,7 @@ Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설�
 ### 폰트와 형식
 
 - [조합형과 자모 세트](docs/jamo-sets.ko.md) — 한글 인코딩, 벌 규칙과 SVF JSET 예.
+- [안티앨리어싱](docs/anti-aliasing.ko.md) — coverage와 회색 단계, 1/2/8 bpp, 타깃별 단계-색 변환, AA 페이스 만들기, bpp 고르기.
 
 ### 도구와 레시피
 
@@ -55,6 +56,7 @@ Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설�
 | `docs/c-renderer-guide.md` | C 렌더러 통합 가이드: 빌드, 페이스 열기, 줄 그리기, 타깃, 스케일, 한글, 메모리, 문제 해결 |
 | [docs/web-renderer-guide.ko.md](docs/web-renderer-guide.ko.md) | 웹 렌더러 사용법: emsdk 빌드, WASM 로딩, 캔버스·Node 예제, 색상, 측정, 메모리, picker API |
 | `docs/jamo-sets.ko.md` | 조합형 해설: 문자 집합, 글꼴 기법과 벌 체계(8x4x4 등), SVF의 JSET v1/v2/BIG/JMAP/LIST와 실제 페이스로 따라가는 예, MCU에서의 제약 |
+| `docs/anti-aliasing.ko.md` | 안티앨리어싱: coverage, 감마, 서브픽셀 렌더링을 하지 않는 이유, 1/2/8 bpp와 2 bpp 단계, 타깃별 단계-색 변환 규칙, 2 bpp 자모 세트의 최댓값(OR가 아님), 윤곽과 축소로 AA 페이스 만들기, 메모리·속도·bpp 선택(그림은 `tools/doc_figures_aa.py`) |
 | `docs/recipes.ko.md` | 레시피 장: 입력 종류별 빠른 시작(아웃라인, 비트맵, DOS 원시, 클래식 Mac, 기존 SVF), 다시 실행한 수치가 든 각 레시피, maker의 경로 표(경로 대 명령줄), `svf/`의 각 페이스를 만드는 방법 |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | 설계 문서와 구현 계획. 기능마다 한 쌍이며 날짜로 이름 붙인다. 작업 기록이며, 이 저장소가 제외한 원래 작업 저장소의 페이스, 도구, 경로를 여전히 언급한다 |
 | `svf/dos/` | 완성형 및 자모 세트 페이스(처음에는 ScummVM 한글 맵용으로 만듦)와 그 라이선스 `.TXT` 파일 |

@@ -547,7 +547,9 @@ fonts"). There are three:
 3. **Piece tables.** Each (set, jamo) holds a piece number. A piece is the glyph at code point **U+F0000 + piece number**
    (plane 15, private use), so pieces are stored and looked up like any glyph. 0xFFFF is a blank piece.
 
-A syllable is composed by the **maximum coverage** of its pieces: the OR at 1 bpp, the same rule at 2 and 8 bpp. A
+A syllable is composed by the **maximum coverage** of its pieces: the OR at 1 bpp, the same rule at 2 and 8 bpp (per
+2-bit level, not the OR of the bytes, which would turn levels 1 and 2 into 3: [Anti-aliasing, section
+3](anti-aliasing.md#3-jamo-sets-the-maximum-not-or-at-levels) shows it on real syllables). A
 compatibility jamo U+3131..U+3163 (51) is drawn from the one piece its `compatPiece` names.
 
 ```mermaid
