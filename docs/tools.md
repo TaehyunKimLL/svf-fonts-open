@@ -1119,7 +1119,8 @@ environment) and passes it in; the working directory is not on the path.
 face the four lines of `tools/doc_figures_x11.py`. A character the face lacks is left out of its line and printed, and
 a line left empty is dropped (the HangulTalk 1.0 fonts hold Hangul only; the 7.1.2 faces have no KS X 1001 symbols). A
 face without U+0020 advances half a cell at a space. Each line printed gives the face's cell, size in bytes and the
-first line's `width ascent descent`.
+first line's `width ascent descent`. One more image, `kh753-seoul-sizes.png`, draws `<ppem> 다람쥐 헌 쳇바퀴에 타고파 ABC 123`
+once per strike of 7.5.3 Seoul (9, 10, 12, 14, 16, 18, 20, 24), each line on that strike's face.
 
 **Synopsis.**
 

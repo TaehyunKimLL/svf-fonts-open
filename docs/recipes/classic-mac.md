@@ -67,7 +67,14 @@ All fonts are TrueType in `FFIL` suitcases, precomposed. The `Bitmap 서체 설�
 | #태그래픽 | 9–24 (8) | 5,001 | 2,350 | 0 | 3,441 | 1,315,024 B |
 | #헤드라인A | 18, 20, 24 | 2,768 | 2,350 | 0 | 2,547 | 448,400 B |
 
-- Why Seoul has 9,889 glyphs: 2,350 syllables + 4,888 Hanja + 894 KS X 1001 symbols + 93 compatibility jamo + 103 ASCII (8,328 glyphs for the 8,329 KS X 1001 codes) + 1,197 Apple extension symbols (lead A1–AD, trail 41–A0) + 235 KS-range codes with no Unicode mapping + 38 single-byte Mac characters + 91 glyphs no code reaches. AppleGothic and AppleMyungjo have the same coded glyphs and 755 glyphs no code reaches (10,553).
+- Why Seoul has 9,889 glyphs: 2,350 syllables + 4,888 Hanja + 894 KS X 1001 symbols + 93 compatibility jamo + 103 ASCII (8,328 glyphs for the 8,329 KS X 1001 codes) + 1,197 Apple extension symbols (lead A1–AD, trail 41–A0) + 235 KS-range codes with no Unicode mapping + 38 single-byte Mac characters + 91 blank glyphs no code reaches. AppleGothic and AppleMyungjo have the same coded glyphs and 755 glyphs no code reaches (10,553): 664 proportional forms (below) and 91 others, blank except one inked glyph in AppleGothic (glyph 198).
+- Proportional forms: only AppleGothic and AppleMyungjo have a `mort` table; the other nine 7.5.3 faces have `feat` but no `mort`. Their `feat` offers Vertical Substitution and Text Spacing Type → Proportional Text, and the `mort` chain has three noncontextual subtables: two with flag 0x1 (proportional, 664 substitutions each) and one with flag 0x2 (vertical, 83). The 664 targets are proportional-width versions of full-width KS X 1001 symbol characters (A1A4: advance 1,024 → 244 of 1,024 units; 572 of them are narrower). No code reaches them, so the tools, which take glyphs through the cmap, leave them out; a tool option for them is planned. Of the 83 vertical substitutions, 42 map codes in rows A1, A2, A3 and A5 to vertical forms reached through Apple extension codes (A1A2 → A250), and 41 map proportional forms to proportional vertical forms.
+
+| KS lead row | A1 | A2 | A3 (full-width ASCII) | A5 (Roman numerals, Greek) | A7 (units) | A8 | A9 | AA (hiragana) | AB (katakana) | AC (Cyrillic) | AD |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Proportional forms | 85 | 75 | 89 | 70 | 79 | 9 | 9 | 80 | 86 | 66 | 16 |
+
+None are in rows A4 (jamo) or A6 (box drawing), or among syllables and Hanja.
 - Hanja: in every font with Hanja they are exactly the 4,888 KS X 1001 Hanja (rows CA–FD); no code outside those rows decodes to Hanja. #필기체, #공작체, #태그래픽 and #헤드라인A have none.
 - KS X 1001 codes are the Mac Korean (1,3) entries that decode as KS X 1001 (Seoul: 8,329 of 9,799 entries). Every font has 93 compatibility jamo in its cmap. The Mac Korean cmap has codes outside KS X 1001 (Apple additions): 1,470 in the fonts with Hanja, 1,522 in #필기체, #공작체 and #태그래픽, and 195 in #헤드라인A.
 - Outline copies (`glyf` plus the same `bdat`, byte for byte): all 11 in the installer's `Font Folder`; AppleGothic, AppleMyungjo and Seoul also in `한글 시스템/자형 폴더` (Seoul: 6,159,836 B).
@@ -199,6 +206,10 @@ Source: Korean System 7.5.3, the CD for the Power Macintosh 7220 (1996); the fon
 | #궁서체 16 (7.5.3) | 5,228 B | 16x16 | 12 / 4 | none |
 | 한강체 (Hangang) 16 (Mac OS 8.5) | 5,748 B | 16x16 | 13 / 3 | none |
 
+![Seoul of Korean System 7.5.3 at its eight strikes, one line per size from 9 to 24 px: the size, a Korean pangram, ABC 123, x2](../images/recipes/mac/kh753-seoul-sizes.png)
+
+*Korean System 7.5.3 (1996) Seoul, bitmap-only copy, at all eight strikes (9, 10, 12, 14, 16, 18, 20, 24 ppem); each line is drawn on that strike's face. x2.*
+
 ![AppleGothic 12 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-applegothic12.png)
 
 *Korean System 7.5.3 (1996) AppleGothic 12 ppem bitmap-only strike. `_` is omitted because it lies below the 12x12 cell. x2.*
@@ -239,7 +250,7 @@ Source: Korean System 7.5.3, the CD for the Power Macintosh 7220 (1996); the fon
 
 ## Making the samples
 
-The 14 sample images above (33,924 B total) render four lines at x2 scale: two Korean pangrams, one English line, and ASCII plus KS X 1001 symbols (`※☆★○●◎◇◆□■△▲→←↑↓`). Characters missing from a face are omitted. `tools/doc_figures_mac.py` draws them directly from your source folders without storing font copies in the repository.
+The 15 sample images above (38,050 B total) render at x2 scale; all but the Seoul sizes image draw four lines: two Korean pangrams, one English line, and ASCII plus KS X 1001 symbols (`※☆★○●◎◇◆□■△▲→←↑↓`). Characters missing from a face are omitted. `tools/doc_figures_mac.py` draws them directly from your source folders without storing font copies in the repository.
 
 ```sh
 python3 -I tools/doc_figures_mac.py --ht10 "$SRC/HT10/System Folder" --ht712 "$SRC/HT712/More Additions" \

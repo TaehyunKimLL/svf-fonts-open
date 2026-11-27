@@ -78,7 +78,7 @@ class SkipTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(D.write_or_check({}, tmp, True, skipped), 1)
-            self.assertIn("14 face(s) skipped", out.getvalue())
+            self.assertIn("15 face(s) skipped", out.getvalue())
 
     def test_missing_htbl_skips_712(self):
         with tempfile.TemporaryDirectory() as tmp:

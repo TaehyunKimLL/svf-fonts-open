@@ -42,8 +42,9 @@ Writes into DIR (default docs/images/recipes/mac/), one PNG per face: four lines
 ASCII symbols and the KS X 1001 symbols of doc_figures_x11.SYMBOLS) drawn with svfline.py as doc_figures_x11 draws
 them, black on white, every pixel doubled. A character the face does not have is left out of its line, and a line left
 empty is dropped; the tool prints which. A face without U+0020 (the HangulTalk 1.0 jamo sets) advances half a cell at
-a space (svfline's missing_advance), so the words stay apart; nothing is drawn there. 8-bit grey PNG, no metadata,
-written by binscan.png_bytes.
+a space (svfline's missing_advance), so the words stay apart; nothing is drawn there. One more image,
+kh753-seoul-sizes.png, draws "<ppem> SIZE_LINE" once per strike of 7.5.3 Seoul (SIZES), each line on that strike's face.
+8-bit grey PNG, no metadata, written by binscan.png_bytes.
 
 --check draws in memory and compares with the files in DIR byte for byte (exit 1 on a difference or a missing file, and
 when a face was skipped because its option was not given or its file is not there: it says which). The 'fbit' images
@@ -66,6 +67,8 @@ import doc_figures_x11  # noqa: E402
 import svfline  # noqa: E402
 
 LINES = doc_figures_x11.LINES
+SIZES = (9, 10, 12, 14, 16, 18, 20, 24)     # the strikes of the 7.5.3 fonts, one line each in the sizes image
+SIZE_LINE = "다람쥐 헌 쳇바퀴에 타고파 ABC 123"
 SCALE, PAD, GAP, INK, PAPER = (doc_figures_x11.SCALE, doc_figures_x11.PAD, doc_figures_x11.GAP, doc_figures_x11.INK,
                                doc_figures_x11.PAPER)
 
@@ -86,6 +89,7 @@ FACES = (
     ("kh753-shinmyungjo16.png", "kh753", (os.path.join("#신명조", "#신명조[FFIL].rsrc"),), "sfnt", 16),
     ("kh753-gungseo16.png", "kh753", (os.path.join("#궁서체", "#궁서체[FFIL].rsrc"),), "sfnt", 16),
     ("kh85-hangang16.png", "kh85", ("한강체[FFIL].rsrc",), "sfnt", 16),
+    ("kh753-seoul-sizes.png", "kh753", (os.path.join("Seoul", "Seoul[FFIL].rsrc"),), "sizes", SIZES),
 )
 
 # Started as `python3 -I -c BOOT USERSITE TOOL ARGS...`: -I keeps the working directory and PYTHONPATH out of the
@@ -206,6 +210,45 @@ def draw(face_path, lines, space=0):
     return binscan.png_bytes(rows, w * SCALE, h * SCALE)
 
 
+def draw_sizes(faces):
+    """The PNG bytes of one line per (ppem, face path): "<ppem> SIZE_LINE" on that face, black on white, x SCALE."""
+    lines = [(f"{ppem} {SIZE_LINE}".encode("utf-8"), svfline.Face.load(p), p) for ppem, p in faces]
+    w = max(svfline.measure([p], t)[0] for t, _, p in lines) + 2 * PAD
+    h = sum(f.cell_h for _, f, _ in lines) + (len(lines) - 1) * GAP + 2 * PAD
+    places, top = [], PAD
+    for t, f, _ in lines:
+        places += svfline.placements([f], t, PAD, top + f.ascent)
+        top += f.cell_h + GAP
+    gray = svfline.draw_gray8(places, w, h)
+    rows = []
+    for y in range(h):
+        row = []
+        for x in range(w):
+            row += [INK if gray[y * w + x] >= 128 else PAPER] * SCALE
+        rows += [row] * SCALE
+    return binscan.png_bytes(rows, w * SCALE, h * SCALE)
+
+
+def render_sizes(png, files, sizes, args):
+    """One strike face per size of @p sizes (the sfnt route), drawn by draw_sizes."""
+    with tempfile.TemporaryDirectory() as root:
+        faces = []
+        for ppem in sizes:
+            tmp = os.path.join(root, str(ppem))
+            os.mkdir(tmp)
+            with open(os.path.join(tmp, "sample.txt"), "w", encoding="utf-8") as fh:
+                fh.write(f"0123456789 {SIZE_LINE}")
+            faces.append((ppem, sfnt_face(files, ppem, tmp, args)))
+        missing = sorted({c for ppem, p in faces for c in set(f"{ppem} {SIZE_LINE}") - {" "}
+                          if not svfline.Face.load(p).has(ord(c))})
+        if missing:
+            raise SystemExit(f"doc_figures_mac: {png}: not in the face: {''.join(missing)}")
+        data = draw_sizes(faces)
+        print(f"{png}: {files[0].rsplit(os.sep, 1)[-1]}, strikes {', '.join(map(str, sizes))} px, "
+              f"image {len(data)} bytes")
+        return data
+
+
 def render(args):
     """({image file: PNG bytes} for every face whose files are there, [image files skipped])."""
     out, skipped = {}, []
@@ -220,6 +263,9 @@ def render(args):
         if absent:
             print(f"{png}: skipped, {absent[0]} is not there")
             skipped.append(png)
+            continue
+        if kind == "sizes":
+            out[png] = render_sizes(png, files, size, args)
             continue
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(tmp, "sample.txt"), "w", encoding="utf-8") as fh:
