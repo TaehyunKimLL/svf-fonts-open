@@ -2,7 +2,7 @@
 
 # Recipes: Classic Mac Korean bitmap fonts
 
-HangulTalk 1.0 `fbit` fonts (45 glyph sets and the `fdef` rule: an exact jamo set) and HangulTalk 7.1 type-3 `fbit` fonts with HTBL 1 (a precomposed face and a jamo set); the maker's local mode reads them in place.
+HangulTalk 1.0 `fbit` fonts (45 glyph sets and the `fdef` rule: an exact jamo set) and HangulTalk 7.1 type-3 `fbit` fonts with HTBL 1 (a precomposed face and a jamo set); the maker's local mode reads them in place. The TrueType bitmap strikes of System 7.5 and later, and sample images of each face, follow.
 
 **Before you start.** Commands run from the project root with `$OUT` set as in the [index](../recipes.md); every face ends with the checks of [Checking a face](../recipes.md#checking-a-face). Source files are proprietary and supplied separately. Mac-format TrueType (`.dfont`, suitcases) is in [Outline fonts](outline-fonts.md#mac-format-truetype).
 
@@ -38,6 +38,22 @@ maker's local mode (`detect.scan(..., local=True)`, on copies of the four fonts)
 sets), 24 x 24" (Munjo24; Munjo12, Gotic12 12 x 12, Munjo16 16 x 16), source kind `mac-fbit1`, coverage 2,350 KS / 11,172
 syllables and 51 compatibility jamo, and offers the `mac fbit 1.0` route, which runs the command above; upload mode
 says "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)".
+
+The images of this chapter show what each face draws of four sample lines (two Korean pangrams, an English line, the
+ASCII symbols and the KS X 1001 symbols `※☆★○●◎◇◆□■△▲→←↑↓`), black on white, every pixel doubled; a character a face
+does not have is left out of its line ([Making the samples](#classic-mac-samples)). The HangulTalk 1.0 faces are built by
+the command above without `--symbols` (that option adds a box and three dots drawn by `jamoset.py`, not by the font):
+
+![Gotic12 of HangulTalk 1.0 as a 12x12 jamo set: the two Korean lines only, since the font holds no Latin letters or symbols, x2](../images/recipes/mac/ht10-gotic12.png)
+
+*`Gotic12` of the Korean System 4.1 / HangulTalk 1.0 System Disk (1988) as a 12x12 jamo set, ascent 12, descent 0
+(`23,304 bytes`). The font holds Hangul only, so only the two Korean lines are drawn, and a space is half a cell of
+paper (the font has no space glyph); x2*
+
+![Munjo24 of HangulTalk 1.0 as a 24x24 jamo set: the two Korean lines only, x2](../images/recipes/mac/ht10-munjo24.png)
+
+*`Munjo24` of the same disk (1988) as a 24x24 jamo set, ascent 24, descent 0 (`36,564 bytes`); Hangul only, as above;
+x2*
 
 **HangulTalk 7.1.x type-3 'fbit' fonts** (Seoul12, AppleGothic12/24, AppleMyungjo12/24): the planes are composed by a
 table, InputBackSupport 'HTBL' 1, and only the 2,350 KS X 1001 syllables and 51 compatibility jamo exist.
@@ -79,5 +95,115 @@ local mode reads the files (`detect.scan(..., local=True)`): the `Seoul12` fork,
 type-3 fbit, 12 px, 482 planes (needs HTBL 1)" with the routes `mac fbit 7.1 direct`, `derived` and `bdf + mkfont`; the extension
 is "HangulTalk 7.1 HTBL 1 (InputBackSupport): the composition table"; `Seoul[FFIL]` is "Mac bitmap suitcase (FOND + NFNT): Latin
 strikes at 9, 12 pt".
+
+The same commands run on the CD's other type-3 fonts with the HTBL 1 above and their family suitcases for the Latin
+letters: `AppleGothic12[splt]` with `--latin "AppleGothic[FFIL].rsrc"` gives `22,860 bytes`; `AppleMyungjo24[splt]` with
+the 24 pt `NFNT` of `AppleMyungjo[FFIL]` gives `37,244 bytes` (`latin_notes`: `j` shifted 1 px into the cell); `verify`
+is clean for both (ks_bad 0, compat_bad 0, non_ks_present 0). Neither the fonts nor the suitcases hold KS X 1001
+symbols (those are in the separate `KSSymbol12` / `KSSymbol24` archives, which these tools do not read), so the symbol
+line has the ASCII symbols only:
+
+![Seoul12 of HangulTalk 7.1.2, direct face with the Latin letters of the Seoul suitcase, x2](../images/recipes/mac/ht712-seoul12.png)
+
+*`Seoul12` of the Korean System 7.1.2 / HangulTalk 7.1.2 CD (1994), `direct` face with the 12 pt `NFNT` of
+`Seoul[FFIL]` (`17,924 bytes`), 12x12, ascent 10, descent 2; no KS X 1001 symbols; x2*
+
+![AppleGothic12 of HangulTalk 7.1.2 with the Latin letters of the AppleGothic suitcase, x2](../images/recipes/mac/ht712-applegothic12.png)
+
+*`AppleGothic12` of the same CD (1994), `direct` face with the 12 pt `NFNT` of `AppleGothic[FFIL]` (`22,860 bytes`),
+12x12, ascent 10, descent 2; no KS X 1001 symbols; x2*
+
+![AppleMyungjo24 of HangulTalk 7.1.2 with the Latin letters of the AppleMyungjo suitcase, x2](../images/recipes/mac/ht712-applemyungjo24.png)
+
+*`AppleMyungjo24` of the same CD (1994), `direct` face with the 24 pt `NFNT` of `AppleMyungjo[FFIL]` (`37,244 bytes`),
+24x24, ascent 20, descent 4; no KS X 1001 symbols; x2*
+
+<a id="classic-mac-truetype-bitmap-strikes"></a>
+
+### TrueType bitmap strikes (System 7.5 to Mac OS 8.5)
+
+From Korean System 7.5 on, the Korean fonts are TrueType in family suitcases (`FFIL`) with 1 bpp strikes in Apple's
+`bloc`/`bdat` tables at 9, 10, 12, 14, 16, 18, 20 and 24 ppem; the CD's `Bitmap 서체 설치` (bitmap font install) folder
+holds bitmap-only copies (strikes, no outlines). No tool of this chapter reads them: they take the
+[Mac-format TrueType](outline-fonts.md#mac-format-truetype) route, and at a strike's size FreeType draws the strike's
+pixels ([Embedded bitmap strikes](bitmap-fonts.md#embedded-bitmap-strikes)):
+
+    python3 tools/macsfnt.py extract "AppleGothic[FFIL].rsrc" $OUT/AppleGothic.ttf
+    python3 tools/macsfnt.py unicode $OUT/AppleGothic.ttf $OUT/AppleGothicU.ttf     # only the Mac Korean cmap: add a Unicode one
+    python3 tools/mkfont.py $OUT/AppleGothicU.ttf $OUT/agothic16.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+
+On the 7.5.3 bitmap-only AppleGothic they give `123,360 bytes`, 2,446 glyphs. `--size` must be one of the strikes (between them FreeType rasterises the outline, and a bitmap-only copy does not
+open). The result is a precomposed face; the strikes also hold the font's KS X 1001 symbols and, in most faces, hanja,
+which a wider `--unicode` set takes. A bitmap-only copy has no `head` table, so `mkfont.py` takes each glyph's advance from the
+strike's metrics through fontTools.
+
+Run on the bitmap-only copies of Korean System 7.5.3 (the CD for the Power Macintosh 7220, 1996; fonts "1994-1995 Elex
+Computer") and on Hangang (한강체) of the Mac OS 8.5 Korean CD (1998), a full font (outlines and strikes at the same eight
+sizes) that already has a Unicode cmap, so `unicode` is not needed. Each face below holds the sample's characters
+(`--unicode file:` of the four lines):
+
+| Font (strike) | Cell | Ascent / descent | Face | Not in the face |
+| --- | --- | --- | --- | --- |
+| AppleGothic 12 | 12x12 | 9 / 3 | 4,828 bytes | `_` (the strike's `_` lies below the cell) |
+| AppleGothic 16 | 16x16 | 13 / 3 | 5,596 bytes | none |
+| AppleMyungjo 16 | 16x16 | 13 / 3 | 5,844 bytes | none |
+| AppleMyungjo 24 | 24x24 | 19 / 5 | 8,824 bytes | none |
+| Seoul 12 | 12x12 | 10 / 2 | 4,772 bytes | none |
+| Seoul 16 | 16x16 | 13 / 3 | 5,536 bytes | none |
+| #신명조 16 | 16x16 | 12 / 4 | 5,368 bytes | none |
+| #궁서체 16 | 16x16 | 12 / 4 | 5,228 bytes | none |
+| 한강체 (Hangang) 16, Mac OS 8.5 | 16x16 | 13 / 3 | 5,748 bytes | none |
+
+![The AppleGothic 12 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-applegothic12.png)
+
+*The 12 ppem strike of AppleGothic, Korean System 7.5.3 (1996), bitmap-only copy; the `_` is left out (it lies below
+the 12x12 cell); x2*
+
+![The AppleGothic 16 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-applegothic16.png)
+
+*The 16 ppem strike of AppleGothic, Korean System 7.5.3 (1996); x2*
+
+![The AppleMyungjo 16 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-applemyungjo16.png)
+
+*The 16 ppem strike of AppleMyungjo, Korean System 7.5.3 (1996); x2*
+
+![The AppleMyungjo 24 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-applemyungjo24.png)
+
+*The 24 ppem strike of AppleMyungjo, Korean System 7.5.3 (1996); x2*
+
+![The Seoul 12 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-seoul12.png)
+
+*The 12 ppem strike of Seoul, Korean System 7.5.3 (1996); x2*
+
+![The Seoul 16 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-seoul16.png)
+
+*The 16 ppem strike of Seoul, Korean System 7.5.3 (1996); x2*
+
+![The #신명조 (Shin Myeongjo) 16 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-shinmyungjo16.png)
+
+*The 16 ppem strike of #신명조 (Shin Myeongjo), Korean System 7.5.3 (1996); x2*
+
+![The #궁서체 (Gungseo) 16 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-gungseo16.png)
+
+*The 16 ppem strike of #궁서체 (Gungseo), Korean System 7.5.3 (1996); x2*
+
+![The Hangang 16 px strike of Mac OS 8.5 Korean, x2](../images/recipes/mac/kh85-hangang16.png)
+
+*The 16 ppem strike of 한강체 (Hangang), Mac OS 8.5 Korean (1998); x2*
+
+<a id="classic-mac-samples"></a>
+
+### Making the samples
+
+The images of this chapter are drawn by `tools/doc_figures_mac.py` from the files themselves, with the commands above;
+it needs the folders, not a copy of the fonts in the repository:
+
+    python3 -I tools/doc_figures_mac.py --ht10 "$SRC/HT10/System Folder" --ht712 "$SRC/HT712/More Additions" \
+        --htbl "$SRC/HT712/InputBackSupport[INIT].rsrc" --kh753 "$SRC/KH753/Bitmap 서체 설치" \
+        --kh85 "$SRC/KH85/한글 시스템/자형 폴더" [--check]
+
+Fourteen images, 33,924 bytes in all; `--check` compares them byte for byte and fails when a face was skipped
+([tool reference](../tools.md#toolsdoc_figures_macpy)). The strike images depend on Pillow and its FreeType (made with
+Pillow 10.2.0, FreeType 2.13.2); the `fbit` images on the font files alone.
 
 [Recipes index](../recipes.md) · [Tool reference](../tools.md)
