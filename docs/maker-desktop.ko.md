@@ -22,6 +22,15 @@ Linux x86_64 AppImage를 빌드한다. 설치와 사용법은 [데스크톱 앱]
 2초 안에 준비되지 않으면 시작 안내 페이지를 표시한다. 포트를 받으면 해당 루프백 HTTP 페이지를 로드하며,
 `/api/` 요청에는 셸이 `X-Maker-Token`을 붙인다. 토큰은 페이지에 전달하지 않는다.
 
+![시작 안내 페이지 "starting the maker..."](images/maker/starting.png)
+
+*사이드카가 2초 안에 준비되지 않을 때 표시하는 `desktop/starting.html`.*
+
+![사이드카가 제공하는 페이지 위에 네이티브 메뉴 막대 File, View, Help가 있는 셸 창](images/maker/window.png)
+
+*셸의 창: 네이티브 메뉴(File, View, Help)는 셸의 것이고, 그 아래는 모두 사이드카의 페이지이다. 창 관리자 없는 Xvfb에서
+찍었다(5.2절).*
+
 페이지의 `window.svfMaker`는 `pickFiles()`, `pickFolder()`, `pickOutputDir()`,
 `openOutputFolder()`와 `platform`을 제공한다. 마지막 함수는 인자를 받지 않는다. 셸이 현재 작업의 출력 폴더를
 조회하고, 사용자가 대화상자에서 고른 최근 32개 실제 경로 중 하나인지 확인한 뒤 파일 관리자에 표시한다.
@@ -107,6 +116,10 @@ Ubuntu의 사용자 네임스페이스 제한은 시스템 정책에 따라 달�
 `--no-sandbox` 실행에서 Chromium 프로세스 샌드박스가 켜지는 것은 아니다.
 실제 감지 결과는 셸 로그와 Help > About에 표시한다.
 
+!["renderer sandbox: off (--no-sandbox; user namespaces unavailable)" 줄이 있는 About 대화상자](images/maker/about.png)
+
+*사용자 네임스페이스를 막는 호스트의 Help > About: 마지막 줄이 감지한 샌드박스 상태이다.*
+
 셸은 원격 요청, 새 창, 다운로드와 권한 요청을 차단한다. 페이지와 사이드카는 루프백 HTTP로 통신한다.
 이 제어는 선택적 인식기 등 하위 프로세스의 운영체제 수준 네트워크 격리가 아니다.
 보안 설정의 의미는 Electron 보안 안내와 Ubuntu 사용자 네임스페이스 설명을 참고한다(7절).
@@ -166,6 +179,35 @@ Ubuntu 24.04 x86_64, glibc 2.39 호스트에서 기록한 값이다. 11-22 크�
 | Electron 태스크 수 (xvfb 아래 `--no-sandbox --disable-gpu`) | 인스턴스 하나 87, 두 번째 인스턴스 경우 114 (계획 단계 측정, GPU 포함 143과 170); 수명 주기 테스트의 최대값은 79-80 |
 | Debian Pillow 비교 | 같음 |
 | `sample set` e2e 단계 | dev 12.6 초, 패키지 14.9 초 (17단계: 페이스 10개와 TTF / BDF 내보내기 3개; 2026-11-24, 커밋 8c10dc1); 내보내기 이전 dev 10.4 초, 패키지 15.0 초 (14단계) |
+
+### 5.2. 문서 화면
+
+`desktop/test/doc-shots.js`가 [desktop-app.ko.md](desktop-app.ko.md)와 이 문서의 화면을 찍어 `docs/images/maker/`에 쓴다.
+e2e 드라이버처럼 대화상자를 스텁으로 바꾸고 새 사용자 데이터 폴더로 실제 `main.js`를 실행한 뒤, 페이지를 세 작업으로
+조작한다.
+
+| 작업 | 입력 | 화면 |
+|---|---|---|
+| 1 | `maker/test/uisample.py`의 샘플(`ttf/`의 OFL 폰트 폴더 넷, 합성 Mac·HWP·BDF·dfont 입력)과 그 폰트별 설정 | 시작, 확인 동의, 소스, 폰트 표, 일괄·고급 설정, override 패널, 라이선스 선택, 실행 중, 완료, 미리보기, 내보내기, 글리프 격자, 작업 목록, 창, View 메뉴, About |
+| 2 | `svf/`의 OFL SVF 둘, `maker/test/fixtures.py`의 합성 DOS raw 폰트, `maker/test/test_recipe.py`의 합성 86Box Trigem ROM 쌍(`NEODG16.SVF`로 그림), 알 수 없는 파일 | 다른 종류, DOS 배치, `svf2ttf` 경로, 2 bpp 자모 세트, 알려진 ROM 페이스 |
+| 3 | `ttf/neodgm` | 거부된 dest, 실패한 단계(6 px 셀의 `fit cell`) |
+
+사이드카는 `test_recipe.py`가 프로세스 안에서 하듯 내장 86Box 레시피의 해시를 합성 쌍의 해시로 바꾼 채 시작한다. ROM이나
+Apple 데이터는 쓰지 않는다. 페이지에는 언어 전환이 없으므로 모든 화면은 영어 레이블이다. 드라이버는 캡처마다 페이지의
+스크래치·체크아웃 경로(`/home/user/svf-shots`, `/home/user/svf-fonts`), 작업 id(`0000000000a1`...), 단계 시간(`·.· s`)을
+바꾸고, 1280 x 1024 Xvfb 화면에서 고정 창 크기(1200 x 800, 배율 1)로 찍는다. 끝에 Pillow로 모든 PNG를 256색으로 줄인다.
+
+체크아웃 루트에서, `desktop/node_modules`를 설치하고 `maker/static/wasm/`을 빌드(`bash maker/build-wasm.sh`)한 뒤 실행한다.
+
+```sh
+bash desktop/test/run-doc-shots.sh
+# 같은 실행을 직접:
+xvfb-run -a -s "-screen 0 1280x1024x24" desktop/node_modules/.bin/electron --no-sandbox --disable-gpu desktop/test/doc-shots.js
+```
+
+`TMP_DIR`은 스크래치 폴더(기본 `~/work/tmp/svf-doc-shots`. `uisample.py`가 거부하므로 `/tmp` 아래는 안 된다), `SHOT_DIR`은
+다른 출력 폴더이다. 그림마다 `SHOT <name> <width>x<height>`, 끝에 `SHOTS DONE <n> files, <bytes> bytes`를 출력하며, 실패한
+그림이 있으면 종료 코드 1이다. 실행에는 몇 분이 걸린다.
 
 ## 6. 지원 범위와 남은 검증
 

@@ -80,12 +80,40 @@ Python 공유 라이브러리 `libpython3.12t64`도 사용할 수 있어야 한�
 
 **첫 변환**
 
+이 안내의 화면은 `desktop/test/doc-shots.js`가 합성 입력과 OFL 입력만으로 찍었다([maker-desktop.ko.md](maker-desktop.ko.md#52-문서-화면)).
+페이지의 레이블은 영어이다. 경로는 `/home/user/...`, 작업 id는 `0000000000a1`, 단계 시간은 `·.· s`로 바꿔 보여 주므로
+다시 찍어도 같은 그림이 나온다.
+
 1. "SVF maker" 창이 열린다. 소스 패널에서 **choose files**(또는 **choose folder**)를 눌러 폰트(예: `.ttf`)를 고른다.
+
+   ![시작 직후의 SVF maker 창: 상단 바에 "no job", 소스 패널에 choose files, choose folder, choose output folder, detect 버튼이 있고 일괄 설정, 폰트, 단계는 비어 있다](images/maker/start.png)
+
+   *시작 직후의 창. 아직 작업이 없다. 왼쪽 열에 소스 패널과 작업 목록이 있다.*
+
 2. **choose output folder**를 눌러 비어 있고 클라우드 클라이언트가 동기화하지 않는 폴더를 고른다.
+
+   ![버튼 아래에 고른 소스 루트 아홉 개가 나열되고 "choose output folder" 아래에 출력 폴더가 표시된 소스 패널](images/maker/sources-chosen.png)
+
+   *소스 아홉 개(저장소의 OFL 폰트 폴더 넷과 합성 입력 다섯)와 출력 폴더를 고른 상태.*
+
 3. **detect**를 누르고 "before you convert" 안내를 읽은 뒤 OK를 누른다. 폰트 표가 채워진다.
+
+   ![어둡게 가려진 창 위의 "before you convert" 대화상자: 라이선스 책임 안내와 OK 버튼](images/maker/acknowledge.png)
+
+   *무엇이 만들어지기 전에 세션마다 한 번 표시되는 안내.*
+
 4. 원하는 행의 **use** 상자를 체크한다(행은 그 폰트와 함께 라이선스 파일이 발견된 경우에만 미리 체크되며, DOS raw 폰트는 절대
    미리 체크되지 않는다). 일괄 설정을 살펴보고(처음에는 프리셋 `plain`이면 충분하다) **run**을 누른다. 단계 표는 각 단계의 상태, 시간(seconds), stderr를 보여 준다(명령 자체는 출력 폴더의 `build-<id>/BUILD.md`에 기록되며, [recipes.ko.md](recipes.ko.md#데스크톱-앱과-maker-경로)가 각 경로를 그 명령줄에 대응시킨다).
+
+   ![실행 중인 작업의 단계 표: 완성형 단계 둘은 done이고 미리보기가 그려졌으며, 하나는 running, 나머지는 pending](images/maker/running.png)
+
+   *실행 중: 끝난 페이스는 바로 그려진다. 상단 바에 "running"과 cancel 버튼이 보인다.*
+
 5. 작업이 끝나면 **open folder**를 누른다. 페이스는 `<output>/svf/<dest>/`에 있다(6절).
+
+   ![끝난 작업의 상단 바: "done — written to /home/user/svf-shots/sample/out"과 open folder, edit and re-run, delete job 버튼. 아래 단계 표의 모든 단계가 done](images/maker/done.png)
+
+   *끝난 작업: 상태 줄이 출력 폴더를 알려 주고, 결과 열에 모든 페이스가 그려진다.*
 
 **패키징 없이 체크아웃에서 실행**(개발용. AppImage도 PyInstaller도 없다. 위와 같은 Python, node, emsdk, 네트워크가 필요하지만 한 번만, 그리고 위의 apt 패키지도 필요하다. 셸이 시스템 `python3`로 maker를 시작하므로 그 `python3`이
 Pillow와 fontTools를 import할 수 있어야 한다):
@@ -133,6 +161,10 @@ Pillow와 fontTools를 import할 수 있어야 한다):
 창 제목은 "SVF maker"이다. 셸은 정확히 한 페이지 `http://127.0.0.1:<port>/`만 로드한다. 사이드카가 아직 시작되는 중이면
 (2초 넘게) 창에는 작은 "starting the maker..." 페이지가 표시된다.
 
+!["starting the maker..."라고만 적힌 페이지](images/maker/starting.png)
+
+*시작 안내 페이지(`desktop/starting.html`). 사이드카가 2초 넘게 걸릴 때만 표시된다.*
+
 ## 2. 앱 시작
 
 Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~134 MiB이며 빠른 시작대로 빌드한다)이다.
@@ -161,6 +193,11 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 창은 1200 x 800으로 열린다(마지막으로 둔 크기와 위치가 기억된다). 페이지에는 상단 바가 있고 그 아래에: 소스 패널과 작업 목록이
 있는 좁은 왼쪽 열, 그 옆(왼쪽 열의 오른쪽)의 일괄 설정, 그 둘 아래 전체 너비의 폰트 표, 맨 아래의 단계 표가 있다. 1000 px보다 좁은
 창에서는 영역이 한 열로 쌓인다.
+
+![끝난 작업이 열린 창 전체: 메뉴 막대 File, View, Help, 작업 상태와 버튼이 있는 상단 바, 왼쪽의 소스 패널과 작업 목록, 오른쪽의 일괄 설정, 그 아래에서 시작하는 폰트 표](images/maker/window.png)
+
+*1200 x 800 창과 네이티브 메뉴 막대(창 관리자 없는 Xvfb에서 찍었으므로 제목 표시줄은 없다). 폰트 표와 단계 표는 아래로
+이어진다.*
 
 ### 3.1 첫 실행: 확인 동의
 
@@ -193,6 +230,10 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 
 패널 아래의 **jobs**는 이 세션의 작업을 나열하므로 작업 사이를 전환할 수 있다.
 
+![jobs 제목 아래 항목 하나 "0000000000a1 done (24)"](images/maker/jobs-list.png)
+
+*작업 목록: 작업 id, 상태, 감지된 항목 수.*
+
 ### 3.3 폰트 표(설정 아래, 전체 너비)
 
 감지 후에는 모든 폰트(또는 컬렉션의 모든 페이스)가 한 행이 된다: 그 파일, 패밀리와 스타일, 종류(4절 참조), 폰트가
@@ -201,6 +242,25 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 (폰트가 아님, 읽을 수 없음, 규칙 밖)도 숨기지 않고 "refused" 목록에 나열한다.
 
 열은 id, use, preview, label, family/style, sizes, coverage, jamo, licence, layout, override이다.
+
+![샘플 세트를 감지한 뒤의 폰트 표: 한글 미리보기가 그려지고 use가 미리 체크된 TTF 행, 비활성인 licence text 행, 첫 Mac 행](images/maker/detected.png)
+
+***detect** 후의 폰트 표: OFL TTF마다 미리보기가 그려지며, 라이선스 파일을 함께 골랐으므로 미리 체크되어 있다. 라이선스
+파일 자체는 비활성 행으로 나열된다.*
+
+![같은 표의 다음 행: HangulTalk 7.1 fbit(HTBL 1 필요), Mac suitcase, HangulTalk 1.0 fbit, HWP Latin 짝, layout 칸이 "confirm"인 probable DOS Johab 폰트, 읽지 않는 알 수 없는 배치의 .PFT](images/maker/fonts-mac-hwp.png)
+
+*합성 Mac·HWP 입력: HTBL 표와 suitcase는 독립 폰트가 아니라 짝이다. HWP 3.0 `HAN24.FNT`는 "probable DOS Johab (844)"로
+감지되어 배치 확인을 기다리고, `HANGUL24.PFT`는 읽지 않는 이유와 함께 나열된다.*
+
+![다른 종류의 행: SVF v3 자모 세트, SVF v3 완성형 페이스, layout 칸이 "confirm"인 DOS raw 폰트, 알려진 Trigem 한글 VGA ROM, "read with tg_ksc5601.rom"으로 표시된 BIOS, "unknown"으로 표시된 파일](images/maker/detected-kinds.png)
+
+*한 작업의 다른 종류들: SVF 파일 둘, 영문 폰트를 곁들인 합성 DOS raw 폰트, 합성 86Box Trigem ROM 쌍(ROM이 "known: ..." 한
+행이 되고 BIOS는 함께 읽힌다), 알아보지 못한 파일("unknown", 경로 없음).*
+
+![layout 목록을 연 DOS raw 폰트 행: confirm, 844, 844-ihnm](images/maker/dos-layout-confirm.png)
+
+*DOS raw 폰트의 **layout** 칸: 실행 전에 후보 배치 하나를 고른다.*
 
 - **use**는 그 행을 실행에 포함한다. 행은 그 폰트와 함께 라이선스 파일이 발견된 경우에만 미리 체크된다. DOS raw 폰트는 배치를 먼저
   확인해야 하므로 절대 미리 체크되지 않는다.
@@ -216,9 +276,36 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
   표); **instance**(가변 폰트의 이름 붙은 인스턴스); **licence name**과 **note name**; **advanced options**(3.4절의 고급 패널,
   이 폰트에만); 글리프별 수직 이동 편집기와 출력 이름.
 
+![neodgm.ttf 행 아래에 열린 override 패널: dest, kinds, layout, sizes, bpp, range, preset, jamo route, also write, experimental, latin companion, licence name, note name, advanced options, dy, clipping과 출력 이름](images/maker/font-override.png)
+
+***override** 체크로 연 폰트별 패널. "(batch)"는 일괄 값을 따른다는 뜻이다. 아래쪽 출력 이름은 종류·크기·bpp별로 제안된
+파일 이름이다.*
+
+![johab.bdf의 override 패널: jamo route 목록에 "(default)"와 "hanterm"이 보이고, also write는 TTF on, composites on이며 둘 다 빨간 테두리로 표시됨](images/maker/font-override-jamo-route.png)
+
+*자모 세트의 경로 선택(테두리): Johab BDF는 `hanterm` 경로를 제시한다. 이 폰트만의 **also write**로 TTF를 켜고 합성 글리프로
+쓰게 했다.*
+
+![SVF 파일 NEODG16.SVF의 override 패널에서 precomposed route 목록을 연 모습: (default), copy, svf2ttf (TTF / BDF only)](images/maker/font-override-svf2ttf.png)
+
+*SVF 소스의 **precomposed route**: `copy` 또는 SVF의 TTF / BDF만 쓰는 `svf2ttf`.*
+
+![neodgm.ttf 행의 licence 칸을 목록으로 연 모습: none, 저작권 줄이 붙은 LICENSE.txt, 저장소 svf 트리의 라이선스 파일들](images/maker/licence-picker.png)
+
+*행의 **licence** 선택: 폰트와 함께 고른 라이선스 파일이 먼저, 그다음 저장소의 라이선스 본문이 온다. "paste..."(그림에는
+없음)는 붙여 넣은 본문을 받는다.*
+
 ### 3.4 일괄 설정(왼쪽 열의 오른쪽)
 
 하나의 설정 묶음이 일괄 전체에 적용되며, 행은 제외를 선택할 수 있다.
+
+![일괄 설정: dest dos, kinds precomposed, layout 844, sizes 16, bpp 1과 2, range 2350, preset plain, 그리고 TTF, BDF, TTF as composites를 체크한 "also write"가 빨간 테두리로 표시됨](images/maker/batch-settings.png)
+
+***also write**의 TTF, BDF, TTF as composites를 체크한 일괄 설정(테두리).*
+
+![advanced panel을 연 일괄 설정: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize, Latin ascent, Hangul ascent](images/maker/batch-advanced.png)
+
+***advanced panel**을 연 모습.*
 
 | 컨트롤 | 의미 |
 |---|---|
@@ -252,6 +339,45 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 페이스 단계가 실패하면 그 export는 "face step failed"로 실패한다. 명령 자체는 이 표에 없다. 출력 폴더의
 `build-<id>/BUILD.md`가 무엇을 어떤 명령으로 실행했는지 나열한다([경로 표](recipes.ko.md#데스크톱-앱과-maker-경로)). 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
 볼 수 있다. (캔버스에 잉크가 있다는 것은 저장소의 테스트가 단언하는 것이지 앱이 검사하는 것이 아니다.)
+
+페이스의 result 칸에는 자체 컨트롤이 있다: 표본 문장, 배율(1/1~4/1), 렌더 대상(GRAY8, MONO, RGB565), MONO 문턱값,
+**guides**, **glyphs**(글리프 격자), 그리고 종류에 따라 폰트에 적용하기 전에 시험해 보는 **dy** 또는 **ascent**.
+
+![완성형 1 bpp 단계: NEODU16.SVF done, "nudged 0", 1비트 픽셀로 그린 표본 줄](images/maker/preview-precomposed-1bpp.png)
+
+*완성형 1 bpp 페이스(NeoDunggeunmo, 16 px).*
+
+![완성형 2 bpp 단계: NANUM17A.SVF done, "nudged 1,685", 회색 단계로 그린 표본 줄](images/maker/preview-precomposed-2bpp.png)
+
+*완성형 2 bpp 페이스(NanumGothic Bold, 17 px): 회색 단계는 페이스의 2 bpp 픽셀을 GRAY8로 그린 것이다.*
+
+![자모 1 bpp 단계: 합성 Johab BDF에서 만든 JOHA16J.SVF, 식별 검사 줄과 "composed 11172 syllables from 368 glyphs" 검사 줄](images/maker/preview-jamo-1bpp.png)
+
+*합성 Johab BDF로 만든 자모 세트. 조각이 합성 막대이므로 음절도 막대로 그려진다. 검사 줄은 조합한 음절 수를 알려 준다.*
+
+![자모 2 bpp 단계: SVF 자모 세트에서 복사한 GOTHA16A.SVF를 회색 단계로 그린 모습](images/maker/preview-jamo-2bpp.png)
+
+*2 bpp 자모 세트(저장소의 OFL SVF, 경로 `copy`)를 조각 조합으로 그린 모습.*
+
+![글리프 격자를 연 NanumGothic 단계: 1/10쪽, ASCII 글리프와 첫 한글 음절들](images/maker/glyph-grid.png)
+
+***glyphs** 버튼은 페이스의 글리프 격자를 쪽 단위로 연다.*
+
+![export 단계: "TTF: 11,223 glyphs ... written svf/jamo-extra/JOHA16J.ttf"인 JOHA16J.ttf, 2,446 글리프의 KSC16.ttf와 KSC16.bdf](images/maker/export-ttf-bdf.png)
+
+*TTF / BDF 내보내기는 kind `export` 단계이다. result 줄은 다시 읽은 글리프 수, 크기, 쓴 위치를 보여 준다.*
+
+![svf2ttf 경로로 고른 SVF의 단계: "read for its TTF / BDF only"인 NEODG16.SVF, 이어서 각각 2,905 글리프인 NEODG16.ttf와 NEODG16.bdf](images/maker/export-svf2ttf.png)
+
+*경로 `svf2ttf`: SVF는 읽기만 하고, 작업은 그 TTF와 BDF를 쓴다.*
+
+![알려진 ROM 세트의 단계: 합성 Trigem ROM 쌍에서 그린 TGVGA16.SVF와 2,447 글리프의 TTF 내보내기](images/maker/preview-known-rom.png)
+
+*알려진 ROM 세트(NEODG16.SVF로 그린 합성 86Box Trigem 쌍): 16 px 완성형 페이스와 그 TTF.*
+
+![두 번째 작업의 단계 표: SVF에서 복사한 2 bpp 자모 세트, svf2ttf 내보내기, DOS raw 자모 세트, 알려진 ROM 페이스](images/maker/done-kinds.png)
+
+*두 번째 작업 전체.*
 
 ## 4. 앱이 이해하는 입력
 
@@ -329,6 +455,18 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 - **Help**: About은 앱 버전, 빌드 id, Electron, Chromium, Node 버전, 사이드카의 버전과 Python, 렌더러 샌드박스 상태,
   그리고 서드파티 라이선스(`THIRD-PARTY.txt`) 버튼을 보여 준다.
 
+![메뉴 막대에서 연 View 메뉴: Reload (Ctrl+R), Actual size, Zoom in (Ctrl++), Zoom out (Ctrl+-)](images/maker/menu-view.png)
+
+***View** 메뉴.*
+
+![About 대화상자: SVF maker 0.1.0, build unknown, Electron 45.2.3, Chromium, Node, "renderer sandbox: off (--no-sandbox; user namespaces unavailable)", Ok와 Third-party licences 버튼](images/maker/about.png)
+
+*개발 실행(그래서 "build unknown"이고 사이드카 버전 줄이 없다)에서 사용자 네임스페이스를 쓸 수 없는 호스트의 Help > About:
+렌더러 샌드박스가 꺼져 있다(8절).*
+
+앱에는 트레이 아이콘이 없다(도구 세트의 indicator 라이브러리를 제거한다.
+[maker-desktop.ko.md](maker-desktop.ko.md#4-라이선스와-대응-소스) 참조).
+
 셸은 `shell-state.json`에 네 가지를 기억한다: 창의 위치와 크기, 확대 배율, 마지막 출력 폴더, 그리고 내준 출력
 폴더들(마지막 32개, 실제 경로로 저장하며 이것들만 "Open output folder"로 열 수 있다). 토큰과 입력 경로는 저장하지
 않는다.
@@ -391,6 +529,21 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
   참조).
 
 ## 11. 볼 수 있는 메시지
+
+![batch settings 위의 노란 메시지 줄 "PUT /api/jobs/0000000000a3/settings: HTTP 400: batch: dest my/set is not dos, jamo-extra, games/<name> or new/<name>". dest는 "new...", new 칸에는 my/set](images/maker/dest-refused.png)
+
+*거부된 설정: dest `my/set`은 받아들이는 형식(3.4절)이 아니다. 고칠 때까지 아무것도 저장되지 않는다.*
+
+실패한 단계는 오류와 함께 단계 표에 남고, 작업은 다른 단계를 계속한다.
+
+![완성형 단계가 실패한 작업의 단계 표: NEODU16.SVF "failed, exit 1", stderr 칸 "[1 line(s) not kept: the tool's output may quote input bytes]"](images/maker/failed-step.png)
+
+*실패한 단계(여기서는 어떤 크기도 맞지 않는 6 px 셀의 `mkfont.py --fit-cell`): state 칸에 `failed`와 종료 코드가 보인다.
+로컬 모드에서는 입력 바이트를 인용할 수 있으므로 페이지가 도구 자체의 출력 줄을 보여 주지 않는다.*
+
+![실패한 단계가 있는 작업의 상단 바](images/maker/failed-status.png)
+
+*그 작업의 상태 줄.*
 
 페이지는 서버가 거부하는 모든 것에 대해 상단 바 아래에 메시지 줄을 보여 준다. 줄의 형식은
 `METHOD /api/...: HTTP <status>: <text>`이다. 아래 문장은 서버 자신의 문장이다.

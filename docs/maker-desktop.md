@@ -22,6 +22,15 @@ The shell creates a fresh 16-byte random token encoded as 32 hexadecimal charact
 After 2 seconds without readiness it displays a starting page. Once the port is known it loads the loopback HTTP
 page and adds `X-Maker-Token` to `/api/` requests. The token is not passed to the page.
 
+![The starting page, "starting the maker..."](images/maker/starting.png)
+
+*`desktop/starting.html`, shown while the sidecar is not ready after 2 seconds.*
+
+![The shell window with the native menu bar File, View, Help above the page served by the sidecar](images/maker/window.png)
+
+*The shell's window: the native menu (File, View, Help) belongs to the shell; everything below it is the sidecar's page.
+Captured under Xvfb without a window manager (section 5.2).*
+
 The page's `window.svfMaker` exposes `pickFiles()`, `pickFolder()`, `pickOutputDir()`,
 `openOutputFolder()` and `platform`. The last function takes no argument. The shell looks up the current job's
 output folder and checks it against the last 32 real paths chosen through its dialog before showing it in the file manager.
@@ -108,6 +117,10 @@ The shell requests `sandbox: true`, `contextIsolation: true` and `nodeIntegratio
 Chromium's process sandbox when running with `--no-sandbox`.
 The shell log and Help > About show the detected state.
 
+![The About dialog with the line "renderer sandbox: off (--no-sandbox; user namespaces unavailable)"](images/maker/about.png)
+
+*Help > About on a host that denies user namespaces: the last line is the detected sandbox state.*
+
 The shell blocks remote requests, new windows, downloads and permission requests. The page and sidecar communicate
 over loopback HTTP. These controls do not provide operating-system network isolation for subprocesses such as an
 optional recogniser. See Electron's security guide and Ubuntu's user-namespace notes in section 7.
@@ -168,6 +181,36 @@ Recorded on Ubuntu 24.04 x86_64 with glibc 2.39. The size/build run on November 
 | Electron task counts (`--no-sandbox --disable-gpu` under xvfb) | one instance 87, second-instance case 114 (planning measurements, with the GPU 143 and 170); the lifecycle test's peak was 79-80 |
 | Debian Pillow comparison | equal |
 | `sample set` e2e step | dev 12.6 s, packaged 14.9 s (17 steps: 10 faces and 3 TTF / BDF exports; 2026-11-24, commit 8c10dc1); before the exports dev 10.4 s, packaged 15.0 s (14 steps) |
+
+### 5.2. Documentation screenshots
+
+`desktop/test/doc-shots.js` takes the screenshots in [desktop-app.md](desktop-app.md) and this page and writes them to
+`docs/images/maker/`. Like the e2e driver it runs the real `main.js` with stubbed dialogs and a fresh user-data folder,
+then drives the page through three jobs:
+
+| Job | Inputs | Pictures |
+|---|---|---|
+| 1 | The `maker/test/uisample.py` sample (four OFL font folders of `ttf/`, synthetic Mac, HWP, BDF and dfont inputs) with its per-font settings | start, acknowledgement, sources, fonts table, batch and advanced settings, override panels, licence picker, running, done, previews, exports, glyph grid, jobs list, window, View menu, About |
+| 2 | Two OFL SVF files from `svf/`, the synthetic DOS raw font of `maker/test/fixtures.py`, the synthetic 86Box Trigem ROM pair of `maker/test/test_recipe.py` (drawn from `NEODG16.SVF`) and an unknown file | other kinds, DOS layout, `svf2ttf` route, 2 bpp jamo set, known ROM face |
+| 3 | `ttf/neodgm` | a refused dest, a failed step (`fit cell` with a 6 px cell) |
+
+The sidecar is started with the built-in 86Box recipe set to the synthetic pair's hashes, as `test_recipe.py` does
+in-process; no ROM or Apple data is used. The page has no language switch, so every picture shows its English labels.
+Before each capture the driver replaces the scratch and checkout paths (`/home/user/svf-shots`, `/home/user/svf-fonts`),
+the job ids (`0000000000a1`...) and the step seconds (`·.· s`) in the page, and it captures at a fixed window size
+(1200 x 800, scale factor 1) on a 1280 x 1024 Xvfb screen. At the end it reduces every PNG to 256 colours with Pillow.
+
+From the checkout root, with `desktop/node_modules` installed and `maker/static/wasm/` built (`bash maker/build-wasm.sh`):
+
+```sh
+bash desktop/test/run-doc-shots.sh
+# the same, by hand:
+xvfb-run -a -s "-screen 0 1280x1024x24" desktop/node_modules/.bin/electron --no-sandbox --disable-gpu desktop/test/doc-shots.js
+```
+
+`TMP_DIR` names the scratch folder (default `~/work/tmp/svf-doc-shots`; not under `/tmp`, which `uisample.py` refuses),
+`SHOT_DIR` another output folder. It prints `SHOT <name> <width>x<height>` per picture and
+`SHOTS DONE <n> files, <bytes> bytes`, and exits 1 if a picture failed. A run takes a few minutes.
 
 ## 6. Support and remaining verification
 

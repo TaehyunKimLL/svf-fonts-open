@@ -84,14 +84,42 @@ Later sections write `./svf-maker-0.1.0.AppImage` for the file in the current di
 
 **First conversion**
 
+The screenshots in this guide were taken by `desktop/test/doc-shots.js` (see [maker-desktop.md](maker-desktop.md#52-documentation-screenshots))
+from synthetic and OFL inputs only. The page's labels are in English. Paths are shown under `/home/user/...`, job ids as
+`0000000000a1` and step times as `·.· s`, so the pictures stay the same from run to run.
+
 1. The window "SVF maker" opens. In the sources panel press **choose files** (or **choose folder**) and pick a font, for
    example a `.ttf`.
+
+   ![The SVF maker window after start: the top bar says "no job", the sources panel has the buttons choose files, choose folder, choose output folder and detect; batch settings, fonts and steps are empty](images/maker/start.png)
+
+   *The window right after start: no job yet. The left column holds the sources panel and the jobs list.*
+
 2. Press **choose output folder** and pick an empty folder that is not synced by a cloud client.
+
+   ![The sources panel with nine picked source roots listed under the buttons and the chosen output folder shown under "choose output folder"](images/maker/sources-chosen.png)
+
+   *Nine sources picked (four OFL font folders of the repository and five synthetic ones) and the output folder.*
+
 3. Press **detect**, read the "before you convert" note and press OK. The fonts table fills.
+
+   ![A modal dialog "before you convert" over the dimmed window, with the licence responsibility text and an OK button](images/maker/acknowledge.png)
+
+   *The note shown once per session before anything is created.*
+
 4. Tick the **use** box of each row you want (a row is pre-ticked only when a licence file was found with its font, and a
    DOS raw font never is), look at the batch settings (the preset `plain` is fine for a first try), and press **run**. The steps table shows each step's state, seconds and stderr (the commands themselves
    are written to `build-<id>/BUILD.md` in the output folder; [recipes.md](recipes.md#desktop-app-and-maker-routes) maps each route to its command line).
+
+   ![The steps table while a job runs: two precomposed steps are done with drawn previews, one is running and the rest are pending](images/maker/running.png)
+
+   *A run in progress: finished faces are drawn at once; the top bar says "running" and offers cancel.*
+
 5. When the job is done, press **open folder**: the faces are in `<output>/svf/<dest>/` (section 6).
+
+   ![The top bar of a finished job: "done — written to /home/user/svf-shots/sample/out" with the buttons open folder, edit and re-run and delete job; below, the steps table with every step done](images/maker/done.png)
+
+   *The finished job: the status line names the output folder; every face is drawn in the result column.*
 
 **Run from the checkout without packaging** (for development; no AppImage, no PyInstaller; it needs the same Python, node,
 emsdk and network as above, but only once, and it also needs the apt packages above: the shell starts the maker with the
@@ -139,6 +167,10 @@ The app is three layers in one package.
 The window title is "SVF maker". The shell loads exactly one page, `http://127.0.0.1:<port>/`; while the sidecar is still
 starting (more than 2 seconds) the window shows a small "starting the maker..." page.
 
+![The plain page that reads "starting the maker..."](images/maker/starting.png)
+
+*The starting page (`desktop/starting.html`), shown only when the sidecar takes longer than 2 seconds.*
+
 ## 2. Starting the app
 
 On Linux the package is one file, `svf-maker-<version>.AppImage` (about 133 to 134 MiB; build it as in the Quick start).
@@ -168,6 +200,11 @@ The window opens at 1200 x 800 (the size and position you leave it in are rememb
 it: a narrow left column with the sources panel and the jobs list, the batch settings beside it (right of the left
 column), the fonts table across the full width below those, and the steps table at the bottom. In a window narrower than
 1000 px the areas stack in one column.
+
+![The whole window with a finished job: the menu bar File, View, Help; the top bar with the job status and buttons; the sources panel and jobs list on the left; batch settings on the right; the fonts table starting below](images/maker/window.png)
+
+*The window at 1200 x 800 with the native menu bar (captured under Xvfb without a window manager, so there is no title
+bar). The fonts table and the steps table continue below.*
 
 ### 3.1 First run: the acknowledgement
 
@@ -201,6 +238,10 @@ client.
 
 Below the panel, **jobs** lists the jobs of this session so you can switch between them.
 
+![The jobs heading with one entry, "0000000000a1 done (24)"](images/maker/jobs-list.png)
+
+*The jobs list: the job id, its state and the number of detected entries.*
+
 ### 3.3 Fonts table (full width, below the settings)
 
 After detection every font (or every face of a collection) is a row: its file, family and style, its kind (see section
@@ -210,6 +251,26 @@ font that has no companion table). The page also lists refused files (not a font
 "refused" list instead of hiding them.
 
 The columns are: id, use, preview, label, family/style, sizes, coverage, jamo, licence, layout and override.
+
+![The fonts table after detection of the sample set: TTF rows with drawn Hangul previews and pre-ticked use boxes, licence text rows disabled, and the first Mac rows](images/maker/detected.png)
+
+*The fonts table after **detect**: each OFL TTF has a drawn preview and is pre-ticked because its licence file was picked
+with it; the licence files themselves are listed as disabled rows.*
+
+![More rows of the same table: a HangulTalk 7.1 fbit (needs HTBL 1), a Mac suitcase, a HangulTalk 1.0 fbit, an HWP Latin companion, a probable DOS Johab font whose layout cell says "confirm", and a .PFT of an unknown layout that is not read](images/maker/fonts-mac-hwp.png)
+
+*Synthetic Mac and HWP inputs: the HTBL table and the suitcase are companions, not fonts of their own; the HWP 3.0
+`HAN24.FNT` is detected as "probable DOS Johab (844)" and waits for its layout; `HANGUL24.PFT` is listed with why it is
+not read.*
+
+![Rows for other kinds: an SVF v3 jamo set, an SVF v3 precomposed face, a DOS raw font with "confirm" in the layout column, a known Trigem Korean VGA ROM, its BIOS labelled "read with tg_ksc5601.rom", and a file labelled "unknown"](images/maker/detected-kinds.png)
+
+*Other kinds in one job: two SVF files, a synthetic DOS raw font with its English font, the synthetic 86Box Trigem ROM pair
+(the ROM is one row "known: ...", the BIOS is read with it) and an unrecognised file ("unknown", no route).*
+
+![A DOS raw font row with its layout list opened: confirm, 844 and 844-ihnm](images/maker/dos-layout-confirm.png)
+
+*A DOS raw font's **layout** cell: pick one of the candidate layouts before the run.*
 
 - **use** includes the row in the run. A row is pre-ticked only when a licence file was found with its font; a DOS raw
   font is never pre-ticked, because its layout must be confirmed first.
@@ -226,9 +287,36 @@ The columns are: id, use, preview, label, family/style, sizes, coverage, jamo, l
   table); **instance** (a variable font's named instance); **licence name** and **note name**; **advanced options** (the
   advanced panel of section 3.4, for this font only); the per-glyph vertical-shift editor and the output names.
 
+![The override panel of neodgm.ttf opened under its row: dest, kinds, layout, sizes, bpp, range, preset, jamo route, also write, experimental, latin companion, licence name, note name, advanced options, dy, clipping and the output names](images/maker/font-override.png)
+
+*The per-font panel opened with the **override** tick. "(batch)" means the batch value applies; the output names at the
+bottom are the suggested file names per kind, size and bpp.*
+
+![The override panel of johab.bdf: the jamo route list shows "(default)" and "hanterm" and the also write selects are set to TTF on and composites on, both outlined in red](images/maker/font-override-jamo-route.png)
+
+*Route selection for a jamo set (outlined): a Johab BDF offers the `hanterm` route; its own **also write** turns on the
+TTF and writes it as composites.*
+
+![The override panel of an SVF file, NEODG16.SVF, with the precomposed route list opened: (default), copy and svf2ttf (TTF / BDF only)](images/maker/font-override-svf2ttf.png)
+
+*An SVF source's **precomposed route**: `copy` or `svf2ttf`, which writes only the SVF's TTF / BDF.*
+
+![The licence column of the neodgm.ttf row opened as a list: none, LICENSE.txt with its copyright line, and the licence files of the repository's svf tree](images/maker/licence-picker.png)
+
+*The **licence** picker of a row: the licence files picked with the font come first, then the repository's licence
+texts; "paste..." (not shown) takes a pasted text.*
+
 ### 3.4 Batch settings (right of the left column)
 
 One set of settings applies to the whole batch; a row can opt out.
+
+![The batch settings: dest dos, kinds precomposed, layout 844, sizes 16, bpp 1 and 2, range 2350, preset plain, and "also write" with TTF, BDF and TTF as composites ticked and outlined in red](images/maker/batch-settings.png)
+
+*The batch settings with **also write** TTF, BDF and TTF as composites ticked (outlined).*
+
+![The batch settings with the advanced panel opened: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize, Latin ascent, Hangul ascent](images/maker/batch-advanced.png)
+
+*The **advanced panel** opened.*
 
 | Control | Meaning |
 |---|---|
@@ -265,6 +353,48 @@ themselves are not in this table: `build-<id>/BUILD.md` in the output folder lis
 Every result face is
 drawn on a canvas by the renderer, so you can see what was made. (That the canvas has ink is something the repository's
 tests assert, not something the app checks.)
+
+The result cell of a face has its own controls: the sample text, the scale (1/1 to 4/1), the render target (GRAY8, MONO,
+RGB565), the MONO threshold, **guides**, **glyphs** (the glyph grid) and, depending on the kind, **dy** or **ascent** to
+try before applying it to the font.
+
+![A precomposed 1 bpp step: NEODU16.SVF done, "nudged 0", with the sample line drawn in one-bit pixels](images/maker/preview-precomposed-1bpp.png)
+
+*A precomposed 1 bpp face (NeoDunggeunmo, 16 px).*
+
+![A precomposed 2 bpp step: NANUM17A.SVF done, "nudged 1,685", with the sample line drawn in grey levels](images/maker/preview-precomposed-2bpp.png)
+
+*A precomposed 2 bpp face (NanumGothic Bold, 17 px): the grey levels are the face's 2 bpp pixels drawn to GRAY8.*
+
+![A jamo 1 bpp step: JOHA16J.SVF from a synthetic Johab BDF, with the identity-check line and the check line "composed 11172 syllables from 368 glyphs"](images/maker/preview-jamo-1bpp.png)
+
+*A jamo set made from a synthetic Johab BDF. Its pieces are synthetic bars, so the syllables are drawn as bars; the
+check line says how many syllables it composes.*
+
+![A jamo 2 bpp step: GOTHA16A.SVF copied from an SVF jamo set, drawn in grey levels](images/maker/preview-jamo-2bpp.png)
+
+*A 2 bpp jamo set (an OFL SVF from the repository, route `copy`) drawn by composing its pieces.*
+
+![The NanumGothic step with its glyph grid opened: page 1/10, the ASCII glyphs and the first Hangul syllables](images/maker/glyph-grid.png)
+
+*The **glyphs** button opens the face's glyph grid, page by page.*
+
+![The export steps: JOHA16J.ttf with "TTF: 11,223 glyphs ... written svf/jamo-extra/JOHA16J.ttf", KSC16.ttf with 2,446 glyphs and KSC16.bdf with 2,446 glyphs](images/maker/export-ttf-bdf.png)
+
+*TTF / BDF exports are steps of kind `export`: each result line gives the glyph count read back, the size and where it
+was written.*
+
+![The steps of an SVF picked with route svf2ttf: NEODG16.SVF "read for its TTF / BDF only", then NEODG16.ttf and NEODG16.bdf with 2,905 glyphs each](images/maker/export-svf2ttf.png)
+
+*Route `svf2ttf`: the SVF is only read; the job writes its TTF and BDF.*
+
+![The steps of a known ROM set: TGVGA16.SVF drawn from the synthetic Trigem ROM pair, and its TTF export with 2,447 glyphs](images/maker/preview-known-rom.png)
+
+*A known ROM set (the synthetic 86Box Trigem pair drawn from NEODG16.SVF): a 16 px precomposed face and its TTF.*
+
+![The steps table of the second job: a 2 bpp jamo set copied from SVF, the svf2ttf exports, a DOS raw jamo set and the known ROM face](images/maker/done-kinds.png)
+
+*The whole second job.*
 
 ## 4. Inputs the app understands
 
@@ -346,6 +476,18 @@ kept separately in the app data folder (section 9).
 - **Help**: About shows the app version, build id, Electron, Chromium and Node versions, the sidecar's version and Python,
   the renderer sandbox state, and a button for the third-party licences (`THIRD-PARTY.txt`).
 
+![The View menu opened from the menu bar: Reload (Ctrl+R), Actual size, Zoom in (Ctrl++), Zoom out (Ctrl+-)](images/maker/menu-view.png)
+
+*The **View** menu.*
+
+![The About dialog: SVF maker 0.1.0, build unknown, Electron 45.2.3, Chromium, Node, "renderer sandbox: off (--no-sandbox; user namespaces unavailable)", with the buttons Ok and Third-party licences](images/maker/about.png)
+
+*Help > About from a development run (so "build unknown" and no sidecar version line), on a host where user namespaces
+are unavailable: the renderer sandbox is off (section 8).*
+
+The app has no tray icon (the toolset's indicator libraries are removed, see
+[maker-desktop.md](maker-desktop.md#4-licences-and-corresponding-sources)).
+
 The shell remembers four things in `shell-state.json`: the window position and size, the zoom factor, the last output
 folder, and the output folders it handed out (the last 32, as real paths; only those can be opened by "Open output
 folder"). It stores no token and no input path.
@@ -411,6 +553,22 @@ Optional environment variables (set them before starting the app):
 
 The page shows a message line under the top bar for anything the server refuses. A line has the form
 `METHOD /api/...: HTTP <status>: <text>`. The texts below are the server's own.
+
+![The yellow message line "PUT /api/jobs/0000000000a3/settings: HTTP 400: batch: dest my/set is not dos, jamo-extra, games/<name> or new/<name>" above the batch settings, where dest is "new..." and the new field holds my/set](images/maker/dest-refused.png)
+
+*A refused setting: the dest `my/set` is not one of the accepted forms (section 3.4); nothing is saved until it is fixed.*
+
+A failed step stays in the steps table with its error and the job goes on with the other steps:
+
+![The steps table of a job whose precomposed step failed: NEODU16.SVF "failed, exit 1" with the stderr cell "[1 line(s) not kept: the tool's output may quote input bytes]"](images/maker/failed-step.png)
+
+*A failed step (here `mkfont.py --fit-cell` with a cell of 6 px, which no size fits): the state cell says `failed` and
+the exit status. In local mode the page does not show the tool's own output lines, because they may quote input
+bytes.*
+
+![The top bar of a job that ended with failed steps](images/maker/failed-status.png)
+
+*The status line of that job.*
 
 **The server is busy (HTTP 409 with a busy kind).** Several actions can meet a job that is being changed by another
 request (a second window of the same job, a preview being made, a run being prepared). These answers are not errors in
