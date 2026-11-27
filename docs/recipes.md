@@ -95,7 +95,7 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | TTF with jamo glyphs (conjoining jamo, PUA pieces, GSUB `ljmo`) | as any TTF | composites `jamovec.py --components`; variants `--mask-font`; else a fit | [TrueType fonts that already carry jamo](recipes/outline-fonts.md#truetype-fonts-that-already-carry-jamo) |
 | A 24-48 px bitmap face wanted at 16 px or 2 bpp | `svfscale.py --size 16 [--bpp 2]` | `jamoset.py --from-svf` (1 bpp result) | [A low-resolution face from a high-resolution bitmap font](recipes/bitmap-fonts.md#a-low-resolution-face-from-a-high-resolution-bitmap-font) |
 | Mac HangulTalk 1.0 `fbit` (45 sets + `fdef`) | no | `jamoset.py --layout mac-fbit-45sets` | [Classic Mac Korean bitmap fonts](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) |
-| Mac HangulTalk 7.1 type-3 `fbit` + HTBL 1 | `macfbit3.py bdf` + `mkfont.py` | `macfbit_svf.py build` | [Classic Mac Korean bitmap fonts](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) |
+| Mac HangulTalk 7.1 type-3 `fbit` + HTBL 1 | `macfbit3.py bdf` + `mkfont.py` | `macfbit_svf.py build` | [Classic Mac Korean bitmap fonts](recipes/classic-mac.md#classic-mac-hangultalk-71) |
 | An SVF face | `svfdy.py`, `svf2to3.py` | `jamoset.py --from-svf` (1 bpp source) | [An existing SVF](recipes/svf-and-ttf.md#an-existing-svf) |
 | An SVF face, wanted back as a TTF (or BDF) bitmap font | `svf2ttf.py ttf` (or `bdf`) | the same: every syllable composed, a precomposed font (`--composite`: the pieces shared, syllables composite glyphs) | [An SVF face back to a TTF bitmap font](recipes/svf-and-ttf.md#an-svf-face-back-to-a-ttf-bitmap-font) |
 

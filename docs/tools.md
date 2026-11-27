@@ -322,7 +322,7 @@ into an SVF v3 jamo-set face, with every KS X 1001 syllable exactly as the Mac d
 **Status.** Special-purpose (HangulTalk type-3 fbit). Reads resources supplied by the user.
 
 **Inputs.** The 'fbit' resource (482 glyph slots, 2 banks x 241) and InputBackSupport 'HTBL' 1 (4 bytes per KS code:
-bank and three glyph bytes; the format is described in `tools/macfbit3.py` and [recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts)). `--latin` reads
+bank and three glyph bytes; the format is described in `tools/macfbit3.py` and [recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-hangultalk-71)). `--latin` reads
 the family suitcase's resource fork ('FOND' + 'NFNT') for ASCII 0x20-0x7E at the cell's point size.
 
 **Method.** The Mac picks its medial (and the ㄱ ㄹ ㅇ finals) by the initial more finely than 12 lead classes allow

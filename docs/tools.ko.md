@@ -311,7 +311,7 @@ SVF v3 자모 세트 페이스로 변환한다. 모든 KS X 1001 음절이 Mac�
 **상태.** 특수 목적(HangulTalk type-3 fbit). 사용자가 제공한 리소스를 읽는다.
 
 **입력.** 'fbit' 리소스(글리프 슬롯 482개, 241개씩 2 bank)와 InputBackSupport 'HTBL' 1(KS 코드당 4바이트:
-bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 [recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트)에 설명되어 있다). `--latin`은
+bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 [recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-hangultalk-71)에 설명되어 있다). `--latin`은
 패밀리 suitcase의 리소스 포크('FOND' + 'NFNT')에서 셀의 포인트 크기로 ASCII 0x20-0x7E를 읽는다.
 
 **방법.** Mac은 모든 Mac 슬롯이 조각 하나일 때(`slot_conflicts`) 중성(그리고 ㄱ ㄹ ㅇ 종성)을 초성에 따라 12개 초성 클래스가 허용하는 것보다 더 세밀하게
