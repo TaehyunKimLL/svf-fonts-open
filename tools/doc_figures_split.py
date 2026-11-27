@@ -5,7 +5,8 @@
 
 Reads only OFL-licensed fonts of this repository (ALLOWED below; their licence texts sit beside them):
   ttf/nanumgothic/NanumGothic-Regular.ttf  the outline font: baked to 1 bpp precomposed cells by tools/mkfont.py's
-                                           render() (the --clip-cell bake) and fitted to 8x4x4 by jamoset.fit_font,
+                                           render() (mkfont.choose_ascent, no nudge: --clip-cell with that ascent
+                                           given as --ascent) and fitted to 8x4x4 by jamoset.fit_font,
                                            the function `jamoset.py --from-svf` runs (OFL.txt)
   svf/dos/NEODG16.SVF                      Neo Dunggeunmo 16 px precomposed: the comparison and the labels (OFL.TXT)
   svf/dos/NEODG16A.SVF                     its 8x4x4 jamo set, made by `jamoset.py --from-svf` (OFL.TXT)
@@ -149,13 +150,26 @@ class JamoFace:
         return J.compose(self.f, self.t, cp)
 
 
+_FONTS = {}
+
+
+def font_at(size):
+    """(ImageFont, ascent) of NanumGothic Regular at @p size px: the font's ascent rule mkfont.choose_ascent for a
+    @p size px cell (mkfont --clip-cell without --ascent would move it further with fit_ascent; the figures keep the
+    plain rule, as `--ascent` with that value does)."""
+    if size not in _FONTS:
+        import mkfont
+        font = ImageFont.truetype(path_of(TTF), size)
+        _FONTS[size] = (font, mkfont.choose_ascent(font, size))
+    return _FONTS[size]
+
+
 def bake(size, ch, mono=False):
-    """@p ch of NanumGothic Regular drawn by mkfont.render into a @p size px square cell with the font's ascent rule
-    (mkfont.choose_ascent) and no nudge (--clip-cell), packed to 1 bpp by mkfont.pack_glyph. @p mono: FreeType's
-    monochrome hinting (mkfont --mono-hint)."""
+    """@p ch of NanumGothic Regular drawn by mkfont.render into a @p size px square cell at font_at's ascent with no
+    nudge (as --clip-cell), packed to 1 bpp by mkfont.pack_glyph. @p mono: FreeType's monochrome hinting
+    (mkfont --mono-hint)."""
     import mkfont
-    font = ImageFont.truetype(path_of(TTF), size)
-    ascent = mkfont.choose_ascent(font, size)
+    font, ascent = font_at(size)
     old = mkfont.MONO_HINT
     mkfont.MONO_HINT = mono
     try:
@@ -401,7 +415,7 @@ def fig_blank(lab, neo, pro):
                 lab.centre(d, x + cw // 2, y + geo.h * sc + 4, note, FRAME if not (cell and any(cell)) else GREY)
                 if cell:
                     layers.append((cell, colour))
-            if len(parts) < 3:
+            if ch != "ㅡ" and len(parts) < 3:  # a syllable without a final: an empty final box
                 x = x0 + 2 * (cw + gap)
                 bitmap(d, face.geo, x, y, [], sc)
             x = x0 + 3 * (cw + gap)

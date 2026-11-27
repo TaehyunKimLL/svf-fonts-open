@@ -8,8 +8,10 @@ from a precomposed font, **jamo splitting** (자모 분리), means recovering pi
 describes how the tools of this repository do it, how each kind of source fares, what they do poorly, and what earlier
 attempts taught.
 
-Every number below is measured with the repository's tools (the command or the document it comes from is named) or cited
-from the recipe documents, which record their own runs. The figures are drawn by `python3 -I tools/doc_figures_split.py`
+Chapters 1 to 3 and 6 use numbers measured with the repository's tools (the command or the document it comes from is
+named) or cited from the recipe documents, which record their own runs. Chapter 5 and the numbers marked "in research" in
+chapters 3 and 4 come from earlier research runs, partly on proprietary fonts; they are reported as findings and cannot be
+reproduced from this repository. The figures are drawn by `python3 -I tools/doc_figures_split.py`
 from OFL fonts of this repository only (NanumGothic Regular, Neo Dunggeunmo, Neo Dunggeunmo Pro); `--check` re-renders them
 and compares byte for byte.
 
@@ -48,13 +50,16 @@ syllable by syllable is approximated: a shared piece is a compromise between the
 pieces). Columns: 완성형 = the precomposed glyph; 초성 / 중성 / 종성 조각 = the initial / medial / final piece (# = piece
 number); 조합 (색) = the pieces overlaid (black where two pieces overlap); 차이 = the difference (grey both, orange only in
 the precomposed glyph, sky blue only in the composition). Over the 2,350 KS X 1001 syllables this fit is 15,336 bytes,
-225 syllables exact, mean IoU 0.772. Note 글: the medial ㅡ piece has only stray dots and the bar sits in the final piece.*
+225 syllables exact, mean IoU 0.772. Note 글: both the medial ㅡ piece (#212, with stray dots) and the final piece
+(#324) carry a bar one row below the glyph's own bar, so the composition draws the bar twice in the same wrong row and misses
+the glyph's row (IoU 0.513). In 꽃 the medial ㅗ piece (#223) keeps only a short stem; the final piece draws the bar.*
 
 ### 1.2 Why it is hard
 
 - **Strokes overlap and touch.** In the precomposed glyph the jamo share pixels, so a pixel's owner is not written
   anywhere. Where an initial's foot touches the vowel's bar, the bar can be fitted to either piece and the composition is the
-  same: the fit picks whatever reduces the error, which need not be the jamo the pixel belongs to (figure 1, 글).
+  same: the fit puts a stroke wherever it lowers the error, which need not be the jamo the stroke belongs to (figure 1:
+  the ㅡ bar of 글 in both the medial and the final piece, the ㅗ bar of 꽃 in the final piece).
 - **The same jamo changes shape by context.** The ㄱ of 가, 고 and 각 differ. A layout with few sets forces syllables
   that drew the jamo differently to share a piece. The designer's own grouping of contexts is not in the font
   ([Glyphs forum on divergent Hangul composition setups](https://forum.glyphsapp.com/t/divergent-hangeul-composition-setups/29856)).
@@ -86,7 +91,7 @@ the precomposed glyph, sky blue only in the composition). Over the 2,350 KS X 10
 | `tools/jamofit.py` | the 1 bpp fit (`fit_pieces`), the GSUB mask (`mask_pieces`), the metrics (`iou`, `f1_tol1`, `quality_report`) |
 | `tools/jamoadapt.py` | the adaptive set system: classes by clustering, sets split where the syllables sharing a piece disagree |
 | `tools/jamoaa.py` | 2 bpp: exact-area rasteriser, contours assigned to jamo, median consensus, level refinement under the maximum |
-| `tools/jamoseg.py` | outline segmentation of a syllable into its jamo (library, used by `jamoaa.py` and `jamovec.py`) |
+| `tools/jamoseg.py` | outline segmentation of a syllable into its jamo with path clipping (library; imported by no tool, only by `tools/test_jamoaa.py`; `jamoaa.py` has its own contour assignment, which `jamovec.py` uses) |
 | `tools/jamovec.py` | vector fit: pieces as outlines chosen once at a decision size, rendered to any size |
 | `tools/jamomerge.py` | shrinks a fitted face to a byte budget by merging piece variants, sets and classes |
 | `tools/jamofill.py` | research builder: AND cores of a strike grown into pieces, coordinate descent on a weighted error |
@@ -95,25 +100,31 @@ the precomposed glyph, sky blue only in the composition). Over the 2,350 KS X 10
 
 The maker runs these as **routes** (`maker/routes.py`): *bdfface + from-svf fit* (`bdfface.py` makes a precomposed face
 from BDF files, then `jamoset.py --from-svf`), *experimental fit* (`--from-ttf --binarize threshold --mask-font none`, or
-`--bpp 2`), *mask fit* (`--mask-font` the font itself, only when freetype-py and uharfbuzz are present), *vector fit*
+`--bpp 2`), *mask fit* (`--mask-font` the font itself with `--no-clean`, offered only when the font has the GSUB
+`ljmo` / `vjmo` / `tjmo` features and freetype-py and uharfbuzz load), *vector fit*
 (`jamovec.py master` then `render`) and *composite* (`jamovec.py master --components`). The route table is in
 [Desktop routes](recipes/desktop-routes.md).
 
 ```mermaid
 flowchart TD
   S["precomposed source"] --> K{"what is it?"}
-  K -->|"outline font"| T["jamoset --from-ttf<br/>render the syllables at --size<br/>(mono, threshold or ridge)"]
+  K -->|"outline font, 1 bpp"| T["jamoset --from-ttf<br/>render the syllables at --size<br/>(mono, threshold or ridge)"]
+  K -->|"outline font, 2 bpp"| AA["jamoset --from-ttf --bpp 2<br/>jamoaa.build (2.5)"]
   K -->|"bitmap face, BDF, ROM"| B["bdfface / mkfont<br/>to a 1 bpp precomposed SVF"]
   B --> V["jamoset --from-svf"]
   K -->|"TrueType with composite syllables"| C["jamovec master --components"]
   K -->|"outline, vector route"| M["jamovec master<br/>(segment once at 48 px)"]
-  T --> P["fit_prep: donors, adaptive sets,<br/>clean masks (adaptive or 2 bpp)"]
-  V --> P
+  T --> Q{"adaptive layout<br/>or --clean?"}
+  V --> Q
+  Q -->|yes| P["fit_prep: donors, adaptive sets,<br/>donor masks"]
+  Q -->|no| F
   P --> F["fit_font: pieces by<br/>coordinate descent"]
   F --> R["fit_report: compose with the engine rule,<br/>IoU, exact, F1 tol 1, blobs"]
+  AA --> RA["aa: level error,<br/>IoU at level 2"]
   C --> RV["jamovec render --size --bpp"]
   M --> RV
   R --> O["jamo-set SVF"]
+  RA --> O
   RV --> O
 ```
 
@@ -147,16 +158,18 @@ thermometer planes (one plane at 1 bpp, three at 2 bpp).
 2. **Splits.** For each set, a 2-medians split of its contexts (seeded by the largest item and the item farthest from
    it, up to 8 Lloyd passes). The gain is the drop in summed L1 distance of donors to their (set, jamo) median. The best
    split of all slots is applied while the slot is under its limit, each side has at least 4 syllables and the gain is at
-   least 0.05 % of the starting cost; then up to 4 reassignment rounds.
+   least 0.05 % of the starting cost. When no split qualifies, the loop ends and up to 4 reassignment rounds run once,
+   moving contexts to the set that fits them best.
 3. Contexts with no syllable follow the nearest used context that 8x4x4 puts in the same set.
 
 ```mermaid
 flowchart LR
   A["start: 8x4x4 sets,<br/>12 x 12 classes clustered"] --> B["for every set:<br/>2-medians split of its contexts"]
   B --> C{"best gain >= 0.05 %<br/>and >= 4 syllables a side<br/>and slot under its limit?"}
-  C -->|yes| D["apply the split<br/>reassign (<= 4 rounds)"]
+  C -->|yes| D["apply the split"]
   D --> B
-  C -->|no| E["layout: sets, classes,<br/>parent of each set"]
+  C -->|no| RA["reassign contexts<br/>(<= 4 rounds, once)"]
+  RA --> E["layout: sets, classes,<br/>parent of each set"]
 ```
 
 ### 2.4 The 1 bpp fit (`jamofit.fit_pieces`)
@@ -166,14 +179,18 @@ is **coordinate descent** over pieces in the order initial, medial, final:
 
 - With the other two pieces of every syllable fixed, a pixel of piece k is set when, among the syllables that use k and
   are not already inked there by their other pieces, **more have target ink than not** (a majority; ties stay off).
-- The **first pass is strict**: a pixel is set only if *every* such syllable has ink there (the AND). With a plain majority
-  from the start, the initial would swallow the vowel's ink and the error never falls (the comment in `fit_pieces`).
+- For free pieces and donor masks the **first pass is strict**: a pixel is set only if *every* such syllable has ink there
+  (the AND). With a plain majority from the start, the initial would swallow the vowel's ink and the error never falls
+  (the comment in `fit_pieces`). A GSUB-masked fit starts with the majority: its masks already keep each piece in its
+  jamo's place.
 - A piece may only use pixels inside its mask, if it has one (below).
 - The fit stops after `--passes` (12) passes or when the summed Hamming error stops falling. It is deterministic.
 
 ```mermaid
 flowchart TD
-  I["pieces empty"] --> S["pass 0 (strict):<br/>pixel on where all free users have ink (AND)"]
+  I["pieces empty"] --> G{"GSUB masks?"}
+  G -->|no| S["pass 0 (strict):<br/>pixel on where all free users have ink (AND)"]
+  G -->|yes| L
   S --> L["pass n: for each piece in order<br/>initial, medial, final"]
   L --> V["pixel on where most free users<br/>have ink (majority), inside the mask"]
   V --> E{"Hamming error fell<br/>and n < passes?"}
@@ -188,7 +205,9 @@ flowchart TD
   `--mask-radius` (1 up to 16 px, 2 up to 24 px, else 3), bounds the piece. Without `--mask-font` the tool tries a mask
   font (`$JAMOSET_MASK_FONT`) only when the free fit's mean IoU is below 0.995 (`AUTO_EXACT`).
 - **Donor masks** (`--clean`, on for adaptive and 2 bpp): pixels where at least 25 % of the jamo's donors have coverage,
-  dilated by one pixel; specks of 1 px (2 px above 16 px) that no syllable needs are removed after the fit.
+  dilated by one pixel. They take the place of a mask font when both are given. After the fit, components of up to 1 px
+  (2 px above 16 px) are removed when removing them does not raise the summed Hamming error of the syllables using the
+  piece (a minority of those syllables may still have ink there).
 - None (`--mask-font none --no-clean`): free pieces.
 
 **Unused pieces.** A (set, jamo) no fitted syllable uses (a context the font never draws, often outside KS X 1001 for a
@@ -202,14 +221,19 @@ A 1 bpp fit of thresholded coverage cannot be refined into levels, so 2 bpp is f
 (`jamoset.py --from-ttf --bpp 2`):
 
 1. **Region fit**: a free 1 bpp fit on coverage >= 0.5 with one medial set per tail class, to find where each jamo is.
-2. **Contours to jamo**: each syllable's contours are grouped by containment, and each group goes to the jamo whose region
-   it covers most. A group that straddles two regions and is not 85 % inside one is split pixel by pixel; the same contour
-   in peer syllables decides ambiguous cases.
-3. **Consensus**: each piece is the per-pixel median of its donors' coverage, quantised to levels 0..3; donors further
+2. **Contours to jamo**: each syllable's contours are grouped by containment. For each group, **peer syllables decide
+   first**: when the syllables that share a jamo with this one agree clearly on where the same contour belongs, the group
+   goes there (this keeps the ㅗ / ㅜ / ㅡ bars that the region fit misplaces with their vowel). A group the peers do not
+   settle and that straddles two regions (not 85 % inside one) is split pixel by pixel, the peers' pixels deciding; the
+   other unsettled groups are also split by the peers' pixels. Only where no peer pixels exist does a group go whole to
+   the region it overlaps most.
+3. **Sets** (with `--layout adaptive`): `jamoadapt.adapt` runs on these donors (2.3).
+4. **Consensus**: each piece is the per-pixel median of its donors' coverage, quantised to levels 0..3; donors further
    than median + 3 x 1.4826 x MAD (with at least 5 donors) are dropped.
-4. **Refinement**: coordinate descent on levels: each pixel takes the level in {current, 0, 1, 2, 3} that minimises the sum
-   over its syllables of |max(level, other pieces) - target|, for `--aa-refine` passes (2).
-5. **Clean**: level-1 pixels stay only where half the donors have ink; small components without a level-3 pixel go.
+5. **Refinement**: coordinate descent on levels: each pixel takes the level in {current, 0, 1, 2, 3} that minimises the sum
+   over its syllables of |max(level, other pieces) - target|, for `--aa-refine` passes (2); with `--clean` (the 2 bpp
+   default) only inside the donor masks.
+6. **Clean**: level-1 pixels stay only where half the donors have ink; small components without a level-3 pixel go.
 
 The maximum has a floor no piece set removes: where two jamo cover disjoint halves of one pixel, the precomposed glyph's
 coverage adds up and the maximum of the pieces does not (`join_loss`).
@@ -220,7 +244,8 @@ coverage adds up and the maximum of the pieces does not (`join_loss`).
 components with `--components`), lays out 8x4x4 or adaptive sets, and keeps for each piece the **medoid donor's own
 contours** (the clean donor closest to the per-pixel median). `render` rasterises those outlines at any size with no
 fitting. The pieces are therefore the font's own shapes, not pixels chosen to minimise an error, and the same master gives
-every size. The cost is time: `master` took 172 s on NanumGothic ([Maker capability audit](maker-audit.md)) and 25 s on
+every size. The cost is time: `master` took 172 s on NanumGothic on a heavily loaded machine
+([Maker capability audit](maker-audit.md)) and 25 s on
 Neo Dunggeunmo with `--components` ([Outline fonts](recipes/outline-fonts.md#jamo-sets-from-truetype-and-opentype-fonts)).
 
 ### 2.7 After the fit: shrinking and exceptions
@@ -301,11 +326,20 @@ NanumGothic fit of figure 1: KS 2,350, 225 exact, IoU 0.772; the per-syllable Io
 ### 3.2 Real precomposed designs
 
 Designs drawn syllable by syllable never fit exactly, and more sets keep helping. The faces in `svf/jamo-extra/` are fitted
-with 12 x 12 classes and 24/16/16 sets ([FACES.TSV](../svf/jamo-extra/FACES.TSV)); mean IoU over all syllables at 16 px:
-Gothic A1 Regular 0.9411 (KS 0.9521, corpus-weighted 0.9769), Gothic A1 Bold 0.9595, NanumSquareRound Regular 0.9716,
-Bold 0.9760, and Single Day 0.9977 (8 x 8 classes; a hand-lettered design close to an OR of pieces). The corpus-weighted
-column is higher because the pieces were chosen with usage weights, so frequent syllables are drawn closest. Bytes at 16 px:
-69,797 (Gothic A1) against about 357,504 for 11,172 whole 16x16 cells.
+with 12 x 12 classes and 24/16/16 sets ([FACES.TSV](../svf/jamo-extra/FACES.TSV)). Mean IoU at 16 px over every syllable
+the font draws:
+
+| Font | Syllables drawn | Mean IoU | Note |
+|---|---:|---:|---|
+| Gothic A1 Regular | 11,172 | 0.9411 | KS 0.9521, corpus-weighted 0.9769 |
+| Gothic A1 Bold | 11,172 | 0.9595 | |
+| NanumSquareRound Regular | 2,479 | 0.9716 | |
+| NanumSquareRound Bold | 2,479 | 0.9760 | |
+| Single Day | 11,172 | 0.9977 | 8 x 8 classes; a hand-lettered design close to an OR of pieces |
+
+NanumSquareRound draws only 2,479 syllables, so its score covers fewer and mostly common syllables than Gothic A1's. The
+corpus-weighted column is higher because the pieces were chosen with usage weights, so frequent syllables are drawn
+closest. Bytes at 16 px: 69,797 (Gothic A1) against about 357,504 for 11,172 whole 16x16 cells.
 
 ### 3.3 Small pixel fonts: the blank medial ㅡ
 
@@ -320,17 +354,27 @@ glyph for U+3161 and draws it; `NEODG16G` (6x2x1) and Neo Dunggeunmo Pro `NDGPR1
 *Figure 4. 그 글 으 고 and the compatibility jamo ㅡ (U+3161) in `NEODG16A` (left) and `NDGPR16` (right). "빈 조각" = an
 inkless piece. The compositions agree; the pieces do not.*
 
-The way out is to give the compatibility jamo a whole glyph (`--chars` with the compatibility jamo, as `NEODG16C`) or a
-LIST entry with a piece that has the bar (`jamoexc.py`, `"ㅡ": {"pieces": [n]}`).
+The way out is to give the compatibility jamo whole glyphs. Bake them into the precomposed source
+(`mkfont.py ... --unicode ascii,ksx1001-hangul,3131-3163`); `jamoset.py --from-svf` keeps a whole glyph for every
+compatibility jamo the source draws and points the JSET entry at it instead of at a piece (checked: Neo Dunggeunmo baked
+that way and fitted to 8x4x4 is exact on the 2,350 syllables, and U+3161 draws its 14 px bar). For an existing face,
+`jamoexc.py` can add `"ㅡ": {"whole": "HEX"}`: no piece of `NEODG16A` holds the bar alone, so a `"pieces"` entry cannot
+draw it, and a LIST needs at least one syllable entry besides compatibility jamo.
 
 ### 3.4 ROM fonts
 
-The ROM fonts are 16x16 precomposed grids. Whether they fit depends on how they were drawn, not on the medium: the three
-86Box Korean VGA ROMs fit 8x4x4 to 0.968 (Trigem, 1,576 exact), 0.919 (ATI, 644) and 0.872 (Kasan, 290)
-([86Box ROMs](recipes/rom-86box.md)); the MSX CPC-400S 256 KB font to 0.794 (83 exact; [MSX ROMs](recipes/rom-msx.md));
-Quiz King of Fighters to 0.835 with 8x4x4 and 0.975 adaptive (62,084 bytes against 123,640 precomposed), and the recipe keeps
-the precomposed face ([MAME ROMs](recipes/rom-mame.md#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen)).
-A ROM holds only the KS 2,350 (CPC-400S lacks 133 of them), so every other syllable is extrapolated.
+The ROM fonts are 16x16 precomposed grids. Whether they fit depends on how they were drawn, not on the medium:
+
+| ROM | 8x4x4 IoU (exact) | Note | Source |
+|---|---|---|---|
+| 86Box Trigem | 0.968 (1,576) | | [86Box ROMs](recipes/rom-86box.md) |
+| 86Box ATI | 0.919 (644) | | [86Box ROMs](recipes/rom-86box.md) |
+| 86Box Kasan | 0.872 (290) | | [86Box ROMs](recipes/rom-86box.md) |
+| MSX CPC-400S 256 KB | 0.794 (83) | | [MSX ROMs](recipes/rom-msx.md) |
+| Quiz King of Fighters | 0.835 | adaptive 0.975 (62,084 bytes against 123,640 precomposed); the recipe keeps the precomposed face | [MAME ROMs](recipes/rom-mame.md#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen) |
+
+Most of these ROMs hold the KS 2,350 and nothing else. CPC-400S holds 2,591 syllables: 2,217 of the KS 2,350 (133 are
+missing) and 374 outside KS that its driver's lists name. Every syllable the ROM lacks is extrapolated.
 
 ### 3.5 Mac HangulTalk table fonts
 
@@ -369,8 +413,8 @@ adaptive faces are much closer: Gothic A1 16 px 2 bpp 0.0297 (level difference /
 When a few frequent syllables are wrong, `jamoexc.py` stores them whole: at most 255 entries, 118 + 8 x N bytes of entries
 plus the whole cells. In the research on two proprietary 12 px fonts, adding a LIST of whole syllables gained about three
 times as much usage-weighted IoU per KB as adding uniform sets (0.134 against 0.045) and was smaller than isolating those
-syllables with extra classes at every count tried (section 5). The 100 most frequent syllables of a corpus of Korean game
-translations cover 68 % of the text, the 300 most frequent 88 %.
+syllables with extra classes at every count tried (section 5). In the same research, the 100 most frequent syllables of a
+corpus of Korean game translations covered 68 % of the text, the 300 most frequent 88 %.
 
 ### 3.9 When to keep the precomposed face
 
@@ -382,8 +426,8 @@ syllables are needed and the source is close to an OR of pieces.
 ## 4. What we do poorly
 
 1. **Small sizes.** At 12-16 px every measure falls. NanumGothic Regular reaches only 0.733 / 0.707 mean IoU in 8x4x4 at
-   12 / 16 px, with the 5th percentile at 0.40 (3.6). Strokes touch (figure 2: at 12 px with monochrome hinting the mean
-   component count drops from 3.13 to 2.03) and hinting moves each syllable's strokes differently, so no single piece can
+   12 / 16 px, with the 5th percentile at 0.40 (3.6). Strokes touch (1.2: the mean component count is 3.13 at 32 px and
+   2.03 at 12 px with monochrome hinting; figure 2 shows examples) and hinting moves each syllable's strokes differently, so no single piece can
    serve all the syllables. In research, 12 px faces built from a proprietary font's own conjoining pieces reached a mean
    IoU of 0.58 against its hinted precomposed glyphs, with 822 of 2,350 syllables below 0.5.
 2. **Pixel IoU is not identity.** IoU counts pixels; a reader needs strokes. A fit can score well and still give the ㅡ
@@ -406,11 +450,11 @@ syllables are needed and the source is close to an OR of pieces.
    4,192 of them from the nearest context; ROM fonts and KS-only faces extrapolate every one. No measure exists for them:
    the IoU is over the syllables the font draws.
 8. **Set-count and class limits.** The standard JSET allows 32 / 24 / 16 sets and 12 x 12 classes (BIG 128 / 128 / 64,
-   19 x 28). An exact split of a 12 px pixel font needed far more (114 / 37 / 33 sets, or 65 / 91 / 41 with honest pieces
+   19 x 28). In research, an exact split of a 12 px pixel font needed far more (114 / 37 / 33 sets, or 65 / 91 / 41 with honest pieces
    and a 19 x 27 class grid, section 5); a refinement loop on 12 px gothic faces was refused a split 73-376 times by the
    limits.
 9. **Speed.** A fixed-layout fit takes 10-15 s on an outline font, adaptive about a minute (66.8 s at 16 px; Gowun Batang
-   Bold 20 px 89 s), 2 bpp over a minute (72.7 s), and a vector master minutes (172 s). The maker's mask fit has never been
+   Bold 20 px 89 s), 2 bpp over a minute (72.7 s), and a vector master minutes (172 s on a heavily loaded machine). The maker's mask fit has never been
    run in the maker.
 10. **Two routes of one name differ.** The maker page's *bdfface + from-svf fit* passes no `--mask-font`, so where a mask font
    and the libraries are present a fit below IoU 0.995 is masked; the built-in recipe of the same name passes
@@ -425,7 +469,7 @@ references; only the findings are reported here, no data from them.
 |---|---|---|---|---|
 | 2026-10-15 to 10-22 | jamo sets from any precomposed font | pixel fits with a fixed 8x4x4, then a plan to split outlines once at 128-256 px with path booleans and decide ambiguous cuts by a vision model | pixel fits "looked wrong on 가 / 고 even with good IoU"; picks by a model and a fixed rule differed by less than 1 px a syllable at 12-40 px, so the error was in grouping and in which donor became the piece | adaptive sets and vector segmentation kept (`jamoadapt.py`, `jamoseg.py`, `jamovec.py`); exact fitting given up as a goal ("don't try to fit it exactly") |
 | 2026-10-23 to 10-26 | smaller tables | JSET version 2: the same tables in bits | the largest block 12,321 → 9,246 bytes; 95 faces 652,431 → 310,160 bytes (47.5 %) | kept: version 1 the standard, version 2 where it pays |
-| 2026-10-24 | small-size (12-16 px) pieces, "approach P" | for each jamo a native prototype piece (from bitmap strikes and Mac planes, never cut from small syllables) placed within ±1 px, under a table of 228 features | judged by an automatic count of vanished strokes, it seemed to win | rebuilt: the user ruled that each jamo keeps its base form, overlap is acceptable and a lost stroke is not, and that jamo are never split at a small size |
+| 2026-10-24 | small-size (12-16 px) pieces, "approach P" | for each jamo a native prototype piece (from bitmap strikes and Mac planes, never cut from small syllables) placed within ±1 px, under a table of 228 features | judged by an automatic count of vanished strokes, it seemed to win | rebuilt: the maintainer decided that each jamo keeps its base form, overlap is acceptable and a lost stroke is not, and that jamo are never split at a small size |
 | 2026-10-25 | the same, rebuilt | features in tiers (identity / structure / finish), identity a hard constraint | whole-stroke losses 0 in all six test cells, but the old count rose (e.g. 284 → 601) | the old count dropped as a yardstick: 78-89 % of its entries were displaced strokes, and it missed 86-100 % of the slots that lost identity |
 | 2026-10-26 | a judge that agrees with people | judge v2 (100 x identity + 10 x structure + finish), then v2.1 / v2.2 learning which strokes may touch from many design families | v2 ranked hand-made strikes best at 12 px; a blind check of 60 syllables ranked hand 1.25 < P 2.18 < plain 2.57; tuning P against v2 gamed it (merges 28 → 163); at 16 px every version ranked P above the hand strike | 12 px only; a judge built from the candidate's own pieces is circular |
 | 2026-10-26 | 12 px faces of three OFL gothic fonts with a refinement loop | 32 / 22-24 / 12-15 sets, loop on judge v2.2 | the loop lowered its own score by about 30 %; the set limits refused a split 73 / 376 / 139 times; 835-1,018 of 2,350 syllables got worse on at least one measure | paused: no independent check |
@@ -433,7 +477,8 @@ references; only the findings are reported here, no data from them.
 | 2026-10-26 | Mac fonts in SVF | the original table as JMAP; a derived JSET (2.8) | Seoul12 exact on KS in both; derived needs guesses outside KS | the original structure is canonical; derived faces only for small targets |
 | 2026-10-26 to 10-27 | a 12 px face in 8 KB for a small MCU | pieces from other faces; Seoul12 shrunk by `jamomerge.py` | pieces taken from another design read worse than the source and showed noise dots, ㅡ ㅜ ㅗ that could not be told apart and a ㄲ without its bar; Seoul12 shrunk to 8,160 / 7,012 / 6,144 / 5,548 bytes | Seoul12 kept as the small preset; a hard-coded composition for one font (0.5-1 KB gain) abandoned for the table-driven form |
 | 2026-10-27 to 10-28 | 12 px faces from fonts' own conjoining (GSUB) pieces | the font's positional variants as pieces; more sets; LIST of whole syllables | mean IoU 0.58 against the hinted glyphs (layout differs, ±1 px shift only reaches 0.64); a stroke filter costs about 0.03 IoU; LIST beat extra classes at every size and gained 0.134 IoU per KB against 0.045 for sets; split-half check 0.812 / 0.813 (no overfitting) | decomposing whole precomposed glyphs dropped at 12 px; the format judged expressive enough: the gaps are in pieces and evaluators |
-| 2026-11-09 | | | | segmentation research stopped for now; the tools stay as they are |
+| 2026-11-01 | | | | the follow-up face-quality research (evaluation-driven piece search, layout correction, evaluator reliability) cancelled; the findings kept in the research notes |
+| 2026-11-09 | | | | jamo segmentation research stopped for now; the tools stay as they are |
 
 **What was learned.**
 
