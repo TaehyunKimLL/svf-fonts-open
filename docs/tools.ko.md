@@ -33,7 +33,7 @@
   `max(0, -bearingX)`에 둔 채 저장된다).
 - **자모 세트(jamo set)**(헤더 플래그 비트 1)는 위치별 자모 **조각(piece)**을
   `U+F0000 + 조각 번호`의 글리프로 저장하고, 코드 포인트 표 바로 뒤의 **JSET** 블록으로 음절을 조합한다.
-  버전 1·2 블록은 클래스·세트 표를, 버전 3(JMAP)은 음절 매핑을 쓴다. 음절의 조각은 픽셀별 최댓값으로
+  버전 1·2 블록은 클래스·벌 표를, 버전 3(JMAP)은 음절 매핑을 쓴다. 음절의 조각은 픽셀별 최댓값으로
   합친다(1 bpp에서는 비트 OR와 같다). JMAP은 일부 음절만 제공할 수도 있다.
   예를 들어 16 px, 1 bpp인 `svf/dos/NEODG16G.SVF`는 10,684바이트로 11,172개 음절을 합성한다(참고 문헌 1·2).
   조각을 만드는 빌더는 1 또는 2 bpp를 지원한다. ASCII, 기호와 개별 완성형 글리프도 함께 저장할 수 있다.
@@ -42,7 +42,7 @@
 
 두 종류 모두 **dy** 범위를 가질 수 있다. 자모 세트는 음절을 dy 0에서 합성한다(조각은 dy를 가질 수 없다).
 
-**레이아웃(layout)**은 자모 세트의 세트 체계이다. 초성/종성 클래스, 초성/중성/종성 세트 표, 조각 표로 이루어진다. 이름이
+**레이아웃(layout)**은 자모 세트의 벌 체계이다. 초성/종성 클래스, 초성/중성/종성 벌 표, 조각 표로 이루어진다. 이름이
 있는 레이아웃은 `844`(DOS 8x4x4 표준), `844-ihnm`, `844-hbios24`, `844-hwp3`, `hwp1`, `1044-san`, `621`, `hanterm-johab`,
 `dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`이다.
 
@@ -69,7 +69,7 @@
 완성형 페이스에 맞춘다. SVFN v3도 쓰고(`write_svfn`, `pack_svfn`, `--profile`, `--box`) 읽으며(v2 페이스는 변환 안내
 메시지와 함께 거부된다, `tools/svf2to3.py`), JSET 블록을 묶고 풀며, 검사를 위해 음절을 합성한다.
 
-**상태.** 범용이다. 게임 전용 세트 체계(SAGA IHNM, hanterm, Dokkaebi 프린터, Kyra LoK, Mac
+**상태.** 범용이다. 게임 전용 벌 체계(SAGA IHNM, hanterm, Dokkaebi 프린터, Kyra LoK, Mac
 HangulTalk, HWP 1.x)의 이름을 갖지만 특정 게임에 묶여 있지 않다.
 
 **입력.** 모드에 따라 다르다.
@@ -80,7 +80,7 @@ HangulTalk, HWP 1.x)의 이름을 갖지만 특정 게임에 묶여 있지 않�
 - `ENCODING`이 johab-1 글리프 번호인 hanterm BDF(`hanterm-johab`). 정규식 리더로 파싱한다;
 - Mac HangulTalk 1.0 `fbit` 리소스 포크(`mac-fbit-45sets`). 원시 리소스 맵에서 파싱한다;
 - HWP 1.x `HANGUL.SFT` / `HANGUL1/2/3.PFT`(`hwp1`, `--face 0..2`): JSET 표는 그 페이스에 대한 HWP.EXE 자체의 규칙이며 `hwpfont.py`를
-  통해 읽는다. HWP 3.0 `HAN16_*.FNT`(`844-hwp3`: 음절 2,350자 뒤의 360개짜리 8x4x4 세트);
+  통해 읽는다. HWP 3.0 `HAN16_*.FNT`(`844-hwp3`: 음절 2,350자 뒤의 360개 조각으로 이루어진 8x4x4 벌 체계);
 - `rawcarve.py` compose 명세가 설명하는 모든 폰트(`spec`, `--spec SPEC.json` 또는 내장 `spc1500`): 위치 인자 파일은 명세의
   오프셋이 가리키는 바이트이고, JSET은 명세 자신의 규칙 그대로다(정확);
 - `--eng` 원시 8x16 DOS 영문 폰트(2048 또는 4096바이트), 16x16 영문 폰트(8192바이트: 2바이트 16행짜리 글리프 256개,
@@ -111,17 +111,17 @@ hanterm BDF, Kyra `.BIT`, Dokkaebi FNT, HWP 3.0 HAN16 FNT 파일), `mac-fbit-45s
 
 | 옵션(기본값) | 모드 | 의미 |
 |---|---|---|
-| `--layout` (필수) | 모든 모드 | 세트 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`와 `hwp1`은 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크, HWP 1.x 한글 파일) |
+| `--layout` (필수) | 모든 모드 | 벌 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`와 `hwp1`은 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크, HWP 1.x 한글 파일) |
 | `--face N` (0) | `source`, `hwp1` | Dokkaebi 프린터 폰트의 서체(0 또는 1), HWP 1.x 한글 파일의 페이스(0, 1, 2) |
 | `--eng FILE` (없음) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | ASCII용 원시 8x16 영문 폰트(2048 또는 4096바이트; 12x24, 20x40, 24x48 페이스와 위의 HWP 영문 폰트도 읽는다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
-| `--spec SPEC.json\|spc1500` (없음) | `spec` | 위치 인자 파일의 `rawcarve.py` compose 명세(JSON 파일, 또는 내장 `spc1500`: 이 이름은 언제나 내장 명세이고, 그 이름의 파일은 `./spc1500`으로 준다). 명세가 이름 붙인 초성 조각 세트마다 JSET 초성 세트 하나(`novowel` 세트가 먼저), 중성 표마다 중성 세트 하나(`nofinal`, `final`, 그리고 초성 부류를 둘로 만드는 `*_kk` 표), 종성 조각 세트마다 종성 세트 하나, 종성 부류 둘. 다른 배치와 함께 주면 거부한다 |
+| `--spec SPEC.json\|spc1500` (없음) | `spec` | 위치 인자 파일의 `rawcarve.py` compose 명세(JSON 파일, 또는 내장 `spc1500`: 이 이름은 언제나 내장 명세이고, 그 이름의 파일은 `./spc1500`으로 준다). 명세가 이름 붙인 초성 조각 벌마다 JSET 초성 벌 하나(`novowel` 벌이 먼저), 중성 표마다 중성 벌 하나(`nofinal`, `final`, 그리고 초성 부류를 둘로 만드는 `*_kk` 표), 종성 조각 벌마다 종성 벌 하나, 종성 부류 둘. 다른 배치와 함께 주면 거부한다 |
 | `--eng-advance N` (없음) | `--eng`가 있는 곳 | 16x16, 12x24, 20x40, 24x48 영문 폰트의 `--eng` 글리프 전진 폭(1..255. 전진 폭이 8인 8x16 폰트에는 거부한다) |
 | `--eng-face N` (0) | `--eng`가 있는 곳 | `--eng`로 준 HWP 1.x `ASCII.SFT` / `ASCII.PFT`의 페이스(0..5: HWP 메뉴의 명조, 고딕, 위첨자, 아래첨자, 이탤릭, 필기체) |
 | `--base FILE` (없음) | `source`, `hwp1`, `--from-ttf` | 음절이 아닌 글리프를 유지하는 SVFN v3(같은 셀, 1 bpp). `--from-svf`는 무시한다(입력 페이스가 base이다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
 | `-o`, `--output` (필수) | 모든 모드 | 출력 경로 |
 | `--profile NAME` (`default`), `--box x\|y\|full` (프로파일의 값) | 모든 모드 | 출력의 SVFN v3 레이아웃 프로파일과 잉크 상자 정책(`svf2to3.py` 참고) |
 | `--jset-version 1\|2\|auto` (1; `--blank-compat`: 입력의 값) | 모든 모드 | 쓰는 JSET 블록의 버전(아래 "JSET 버전" 참고) |
-| `--jset-big` (꺼짐) | 모든 모드 | 표준 한계(12 x 12 클래스, 32/24/16 세트)를 넘어 BIG 한계(19 x 28 클래스, 128/128/64 세트)까지 허용한다(리더에 `SVF_JSET_BIG`가 필요하다). 표준 한계 안의 출력은 이 옵션이 있든 없든 같다("JSET 버전" 참고) |
+| `--jset-big` (꺼짐) | 모든 모드 | 표준 한계(12 x 12 클래스, 32/24/16 벌)를 넘어 BIG 한계(19 x 28 클래스, 128/128/64 벌)까지 허용한다(리더에 `SVF_JSET_BIG`가 필요하다). 표준 한계 안의 출력은 이 옵션이 있든 없든 같다("JSET 버전" 참고) |
 | `--advance N` (없음) | `source`, `mac-fbit-45sets`, `hwp1`, `--from-ttf`, `--from-svf`, `--bpp 2` | 합성된 음절의 전진 폭(JSET advance 바이트. 레이아웃의 값, 0 = 셀 폭) |
 | `--ascent N` (없음) | `source`, `mac-fbit-45sets`, `hwp1` | SVF의 기준선 행(12x24, 14x24, 20x40, 24x48 페이스는 `--eng` 페이스의 기준선, 그 외에는 셀의 7/8). 맞춤 모드는 맞춘 페이스에서 가져오므로 무시한다 |
 | `--embolden` (꺼짐) | `source`, `mac-fbit-45sets`, `hwp1` | 모든 조각과 ASCII 글리프를 오른쪽으로 1 px 민 자기 자신과 OR한다. 맞춤 모드는 무시하고, `--bpp 2`와 함께면 거부된다 |
@@ -159,11 +159,11 @@ version, big=False)`(1, 2 또는 `"auto"`. 같은 `Packed`이며 버전 1은 항
 빈 슬롯은 `BLANK`, 호환은 51개 조각 번호)를 돌려준다. SVF Maker는 실행하는 경로에 추가 플래그로 `--jset-version 1|2`를 넘기며,
 넘기지 않으면 업로드된 자모 세트 페이스는 블록의 버전을 그대로 유지한다.
 
-**BIG (`--jset-big`).** JSET 한계는 `jamoset.JSET_LIMITS`이다. 표준은 12 x 12 클래스, 32 / 24 / 16 세트이고, BIG은 19 x 28 클래스,
-128 / 128 / 64 세트이다(가장 큰 블록: 버전 1은 47,373바이트, 버전 2는 NA = 0일 때 29,708, 모든 슬롯이 별칭이면 45,068).
+**BIG (`--jset-big`).** JSET 한계는 `jamoset.JSET_LIMITS`이다. 표준은 12 x 12 클래스, 32 / 24 / 16 벌이고, BIG은 19 x 28 클래스,
+128 / 128 / 64 벌이다(가장 큰 블록: 버전 1은 47,373바이트, 버전 2는 NA = 0일 때 29,708, 모든 슬롯이 별칭이면 45,068).
 `unpack`은 항상 두 행을 모두 읽는다. 작성기(`pack`, `pack_v1`, `pack_jset`, `pack_fallback`, 그리고 `--jset-version`이 있는 모든 CLI인 `jamoset.py`,
 `jamovec.py render`, `svf2to3.py`. `jamoaa.py`는 `jset_big`)는 표준 행을 넘는 표를 `--jset-big` / `big=True` 없이는
-`JSET {name} {v} is not 1..{hi} (--jset-big allows 19 x 28 classes, 128/128/64 sets)`라는 메시지로 거부한다. `svf2to3.py`는 이 규칙을 재인코딩뿐 아니라 v2 블록(또는 JMAP 영역의 폴백)의 그대로 복사에도 적용한다. `jamoset.py --layout adaptive`와 `jamovec.py`의 `--jset-big`는 BIG 표를 쓰는 것만 허용할 뿐이며, 적응형(adaptive) 탐색 한계는 이로 인해 넓어지지 않는다(`--adaptive` / `--class-limit`를 따른다). `jamomerge.py`와 `jamofill.py`에는 그런 옵션이 없으며 BIG 표를 거부한다. `jamofill.py`(골격 읽기), `jamomerge.py`(`read_face`), `jamovec.py`(`tables_json`)는 JMAP 또는 LIST 페이스(JSET 버전 3)를 ValueError로 거부한다. 세트 표가 없기 때문이다. 표준 한계 안의 출력은 플래그가 있든 없든
+`JSET {name} {v} is not 1..{hi} (--jset-big allows 19 x 28 classes, 128/128/64 sets)`라는 메시지로 거부한다. `svf2to3.py`는 이 규칙을 재인코딩뿐 아니라 v2 블록(또는 JMAP 영역의 폴백)의 그대로 복사에도 적용한다. `jamoset.py --layout adaptive`와 `jamovec.py`의 `--jset-big`는 BIG 표를 쓰는 것만 허용할 뿐이며, 적응형(adaptive) 탐색 한계는 이로 인해 넓어지지 않는다(`--adaptive` / `--class-limit`를 따른다). `jamomerge.py`와 `jamofill.py`에는 그런 옵션이 없으며 BIG 표를 거부한다. `jamofill.py`(골격 읽기), `jamomerge.py`(`read_face`), `jamovec.py`(`tables_json`)는 JMAP 또는 LIST 페이스(JSET 버전 3)를 ValueError로 거부한다. 벌 표가 없기 때문이다. 표준 한계 안의 출력은 플래그가 있든 없든
 바이트 단위로 같다. `needs_big(tables)`는 표에 BIG이 필요한지 알려 주고, `class_limits(big)`는
 (초성, 종성) 클래스 한계를 주며, `jset_line`은 그런 페이스에 ` big=1`을 덧붙인다. `jamoadapt.FORMAT_LIMITS` / `CLASS_LIMITS`는 두 행을 모두 담고
 `adapt(..., class_limit=)`는 정수 또는 (초성, 종성) 쌍을 받는다.
@@ -174,7 +174,7 @@ fallback_len)`, `pack_jmap(jmap, fallback_block)`(개수가 255를 넘으면 4B,
 `JMAP Rn ...`), `jmap_from_tables(tables, syllables, glyphs, pad)`(JSET 페이스에서 plane별로 연속된 조각과, U+F0000 + 번호를 키로 하는 새 조각 글리프. 입력 글리프는 조각 번호 또는 코드 포인트를 키로 쓸 수 있다. 페이스의 글리프 딕셔너리 전체가 통하며 낮은 키는 무시된다), 그리고
 `shift_pieces(tables, delta)`(모든 조각 번호를 올린 사본. JMAP 폴백은 PI+PM+PF 이상의 조각을 지정해야 하며,
 `pack_jmap`은 겹침을 거부한다). `pack_fallback(tables, version, base=0, big=False)`는 JMAP 폴백으로 쓰도록 주어진 조각 번호(에 `base`를 더한 것)를 유지하는 버전 1 또는 2 블록을 쓴다. 버전 2는 각 행을 첫 조각에서 시작해 탐욕적으로 걸으며, 하나씩 증가하는 슬롯은 새 조각으로 저장하고 그 밖의 그려진 슬롯은 모두 별칭으로 저장하므로(가장 긴 연속 탐색이 아니다) `pack`의 것보다 크다. `renumber`, `pack_v1`, `pack`, `pack_jset`, `choose_jset_version`은 `Jmap`을 거부한다
-("a JMAP block has no set tables"). `blank_compat`와 `blank_whole_compat`는 JMAP 자체의 호환 항목과 폴백의 호환 항목을 비운다(`blank_compat`는 그 결과 폴백이 바뀌었으면 `fallback_block`을 같은 버전과 번호 체계로 `pack_fallback`으로 다시 인코딩한다(BIG 폴백은 `--jset-big` 여부와 관계없이 자신의 크기로 다시 인코딩되므로 `jamoset.py --blank-compat`는 이를 보존한다). `blank_whole_compat`는 JMAP의 모든 조각을 유지하고 세트 표의 쓰이지 않는 조각만 버린다). LIST 모드(플래그 0x08): `Jmap(..., list_mode=True)`는 `entries`를 음절 인덱스 -> 하나의 공유 풀에 있는 조각 번호 셋(BLANK = 없음. `pi`/`pm`/`pf`는 0)으로 유지한다. 상수 `JMAP_FLAG_LIST`, `JMAP_LIST_MAX`(255), `JMAP_LIST_ENTRIES`(118), `JMAP_LIST_ENTRY`(8). `jmap_size(ns, four, sparse, fallback_len, list_mode)`. `pack_jmap`은 list-mode `Jmap`에 대해 LIST를 쓰고(겹침 거부 없음, 255개 항목 초과는 SPARSE 힌트와 함께 거부), `unpack_jmap`은 그것을 읽으며(규칙 R1', L2, L3, R4, L6. L5/L7은 `parse_svfn`의 사용 가능 규칙이다) `jset_line`은 `list=1`을 출력한다. `unpack`은 버전 3 블록에 `Jmap`을 돌려주며, `pieces_of`, `used_pieces`, `compose`, `jset_line`(`jset=v3 jmap=BYTES ns=NS fallback=v1|v2|없음`, 폴백에 BIG이 필요하면 이어서 ` big=1`)이 이를 받는다. `jmap_list(f, exceptions, compat=None, jset_version=None, fallback=True, advance=0)`는 파싱된 자모 페이스 `f` 위에 LIST를 만든다. `exceptions`는 음절 인덱스(0..11171)를 1-3개의 조각 번호(BLANK로 채움) 또는 온전한 셀(바이트, 묶인 행)에 대응시키고, `compat`는 호환 인덱스(0..50)를 조각 번호 하나 또는 온전한 셀에 대응시킨다(나머지 k는 BLANK로 남아 폴백으로 간다). 온전한 셀은 페이스의 가장 높은 U+F0000 + n 코드 포인트보다 위의 번호를 가진 새 조각이 된다(음절은 s 오름차순, 그다음 호환은 k 오름차순). 0xFFFF에 이르게 되는 번호는 거부된다. `fallback`이 켜져 있으면 페이스의 JSET(버전 1 또는 2)이 그대로 폴백으로 유지되고(`jset_version`이 다르면 번호를 유지한 채 `pack_fallback`으로 다시 인코딩된다) LIST advance는 그 advance 바이트이며 `advance`는 무시된다. `fallback=False`는 폴백 없이 `advance`로 LIST를 만든다. 필드는 BLANK(0xFFFF)일 수 있다(BLANK 번호로 준 호환은 주지 않은 것을 뜻한다). 페이스에 글리프가 없는 조각 번호는 거부된다. 255개 초과 항목, 버전 3 원본(`fallback=False`여도), `fallback=False`와 함께 준 `jset_version`, 쓸 수 있는 JSET이 없는 페이스(`fallback=False`가 아니면), 범위를 벗어난 s 또는 k, 셀도 아니고 1-3개 조각의 목록도 아닌 값, 크기가 잘못된 셀을 거부한다. `(Jmap, {cp: cell})`을 돌려주며, 호출자가 `pack_jmap(jm, jm.fallback_block)`을 쓴다. `jamoset.py`에는 JMAP을 쓰는 옵션이 없고, `jamoexc.py build`가 LIST를 쓴다.
+("a JMAP block has no set tables"). `blank_compat`와 `blank_whole_compat`는 JMAP 자체의 호환 항목과 폴백의 호환 항목을 비운다(`blank_compat`는 그 결과 폴백이 바뀌었으면 `fallback_block`을 같은 버전과 번호 체계로 `pack_fallback`으로 다시 인코딩한다(BIG 폴백은 `--jset-big` 여부와 관계없이 자신의 크기로 다시 인코딩되므로 `jamoset.py --blank-compat`는 이를 보존한다). `blank_whole_compat`는 JMAP의 모든 조각을 유지하고 벌 표의 쓰이지 않는 조각만 버린다). LIST 모드(플래그 0x08): `Jmap(..., list_mode=True)`는 `entries`를 음절 인덱스 -> 하나의 공유 풀에 있는 조각 번호 셋(BLANK = 없음. `pi`/`pm`/`pf`는 0)으로 유지한다. 상수 `JMAP_FLAG_LIST`, `JMAP_LIST_MAX`(255), `JMAP_LIST_ENTRIES`(118), `JMAP_LIST_ENTRY`(8). `jmap_size(ns, four, sparse, fallback_len, list_mode)`. `pack_jmap`은 list-mode `Jmap`에 대해 LIST를 쓰고(겹침 거부 없음, 255개 항목 초과는 SPARSE 힌트와 함께 거부), `unpack_jmap`은 그것을 읽으며(규칙 R1', L2, L3, R4, L6. L5/L7은 `parse_svfn`의 사용 가능 규칙이다) `jset_line`은 `list=1`을 출력한다. `unpack`은 버전 3 블록에 `Jmap`을 돌려주며, `pieces_of`, `used_pieces`, `compose`, `jset_line`(`jset=v3 jmap=BYTES ns=NS fallback=v1|v2|없음`, 폴백에 BIG이 필요하면 이어서 ` big=1`)이 이를 받는다. `jmap_list(f, exceptions, compat=None, jset_version=None, fallback=True, advance=0)`는 파싱된 자모 페이스 `f` 위에 LIST를 만든다. `exceptions`는 음절 인덱스(0..11171)를 1-3개의 조각 번호(BLANK로 채움) 또는 온전한 셀(바이트, 묶인 행)에 대응시키고, `compat`는 호환 인덱스(0..50)를 조각 번호 하나 또는 온전한 셀에 대응시킨다(나머지 k는 BLANK로 남아 폴백으로 간다). 온전한 셀은 페이스의 가장 높은 U+F0000 + n 코드 포인트보다 위의 번호를 가진 새 조각이 된다(음절은 s 오름차순, 그다음 호환은 k 오름차순). 0xFFFF에 이르게 되는 번호는 거부된다. `fallback`이 켜져 있으면 페이스의 JSET(버전 1 또는 2)이 그대로 폴백으로 유지되고(`jset_version`이 다르면 번호를 유지한 채 `pack_fallback`으로 다시 인코딩된다) LIST advance는 그 advance 바이트이며 `advance`는 무시된다. `fallback=False`는 폴백 없이 `advance`로 LIST를 만든다. 필드는 BLANK(0xFFFF)일 수 있다(BLANK 번호로 준 호환은 주지 않은 것을 뜻한다). 페이스에 글리프가 없는 조각 번호는 거부된다. 255개 초과 항목, 버전 3 원본(`fallback=False`여도), `fallback=False`와 함께 준 `jset_version`, 쓸 수 있는 JSET이 없는 페이스(`fallback=False`가 아니면), 범위를 벗어난 s 또는 k, 셀도 아니고 1-3개 조각의 목록도 아닌 값, 크기가 잘못된 셀을 거부한다. `(Jmap, {cp: cell})`을 돌려주며, 호출자가 `pack_jmap(jm, jm.fallback_block)`을 쓴다. `jamoset.py`에는 JMAP을 쓰는 옵션이 없고, `jamoexc.py build`가 LIST를 쓴다.
 
 **내부 모듈.** `johab844.py`(844 동일성 검사용), `hwpfont.py`(`hwp1`, `844-hwp3`, HWP 영문 폰트), `rawcarve.py`(`spec`), `jamoaa.py`, `jamofit.py`,
 `jamoadapt.py`. **서드파티.** fontTools(`--bpp 2`, `--binarize threshold|ridge`, `--clean` 윤곽 도너용), freetype-py와
@@ -182,7 +182,7 @@ uharfbuzz(마스크 폰트와 1 bpp `mono`의 `--from-ttf`용). 둘 다 선택 �
 없으면 `mono` 아웃라인 맞춤은 실패한다. 자동 마스크는 메시지와 함께 생략되고, 명시적으로 지정한 마스크는 실패한다.
 
 **테스트.** `tools/test_jamoset.py`. `tools/test_hwpfont.py`(`hwp1`, `844-hwp3`, HWP `--eng`). `tools/test_tiles.py`(`spec`: 내장
-`spc1500` 명세를 MAME 그리기 코드의 독립된 읽기와, 초성 부류가 둘인 8x4x4 명세를 `johab844.py`와, 자체 모음 순서와 반 셀 세트가 있는
+`spc1500` 명세를 MAME 그리기 코드의 독립된 읽기와, 초성 부류가 둘인 8x4x4 명세를 `johab844.py`와, 자체 모음 순서와 반 셀 벌이 있는
 명세. 16x16 `--eng`, `--eng-advance`).
 
 ### `tools/mkfont.py`
@@ -315,10 +315,10 @@ bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 [recipes.ko.md
 고르므로, 조각은 Mac plane의 셀 상한(cap)이다. 중성 = 셀의 Mac 중성들의 AND, 종성 = 셀의 Mac 종성들의 AND, 초성 = 각 음절의 나머지(Mac 초성에
 공유 중성이 빠뜨리는 초성 고유의 획을 더한 것. 잔여 픽셀로 보고된다)이다. `search_classes`는 어떤 KS 음절도 정확하지 않게 되지 않고 잔여 픽셀이 더해지지 않는 동안(또는 개수가 12를 넘을 때까지) 초성과 종성
 클래스를 병합한다.
-`fit_limits`는 표에 32 / 24 / 16개보다 많은 세트가 필요할 때 개별 자모를 클래스 사이에서 옮긴다. 세트: 영역(초성
+`fit_limits`는 표에 32 / 24 / 16개보다 많은 벌이 필요할 때 개별 자모를 클래스 사이에서 옮긴다. 벌: 영역(초성
 클래스 / 모음 / 종성 클래스)별로 셀의 부분 행들이 일치하는 곳에서 병합된다(`cluster`). KS 밖의 8,822개 음절은
-외삽한다. 음절의 각 셀이 KS 음절을 담고 세트가 KS 데이터에서 그 자모를 확정하면 "regular", 아니면 "guess"이다(어떤 KS 음절도 닿지 않는 셀은
-가장 가까운 관측 셀의 세트를 취하고, 세트에 없는 자모는 가장 가까운 문맥의 평범한 Mac 글리프로 채운다). 외삽된 음절은 Mac의 출력이 아니다.
+외삽한다. 음절의 각 셀이 KS 음절을 담고 벌이 KS 데이터에서 그 자모를 확정하면 "regular", 아니면 "guess"이다(어떤 KS 음절도 닿지 않는 셀은
+가장 가까운 관측 셀의 벌을 취하고, 벌에 없는 자모는 가장 가까운 문맥의 평범한 Mac 글리프로 채운다). 외삽된 음절은 Mac의 출력이 아니다.
 
 **direct 모드(기본, `--mode direct`).** 외삽 없이 Mac의 구조 자체를 쓴다. 조각이 Mac 슬롯인 JMAP 블록(JSET 버전 3,
 명세 [SVF 명세](../spec/SVF.ko.md)의 "자모 세트 폰트 (플래그 비트 1)")이다(`direct_jmap`). plane별로 슬롯 순서대로(초성, 중성, 종성.
@@ -346,7 +346,7 @@ SVF_MAC71_INPUTS=$DST python3 -m unittest tools.test_macfbit_svf.RealFaces
 
 **출력.** SVFN v3, 1 bpp, 셀 h x h(12 또는 24), ascent h - h/6, JSET 플래그. 조각은 U+F0000 + n에 있다. 호환
 자모는 Mac 글리프가 자기 자연 표의 조각이면 호환 조각으로, 아니면 통째로 저장된다. Latin은
-글리프별 dy를 가진다(셀보다 넓은 글리프는 셀 안으로 밀어 넣으며, 기록된다). `--report`는 JSON(클래스, 세트, JSET v1과 v2의 크기,
+글리프별 dy를 가진다(셀보다 넓은 글리프는 셀 안으로 밀어 넣으며, 기록된다). `--report`는 JSON(클래스, 벌, JSET v1과 v2의 크기,
 외삽 개수, 검증)을 쓴다. `--sheets`는 PNG 시트(Mac 대 페이스 대 XOR, KS 1x/3x,
 외삽 샘플, 조각. PIL 필요)를 쓴다.
 
@@ -363,7 +363,7 @@ SVF_MAC71_INPUTS=$DST python3 -m unittest tools.test_macfbit_svf.RealFaces
 | `--classes FILE` | 탐색 | `analyse` JSON의 `lc` / `tc`를 쓴다(derived, `--with-jset`, derived 페이스의 verify) |
 | `--latin FILE`, `--latin-size N` | 없음, 셀 크기 | 패밀리의 'NFNT' 스트라이크에서 가져오는 ASCII |
 | `--jset-version 1\|2\|auto` | 1 | JSET 블록 버전(`jamoset.pack_jset`. direct: `--with-jset` 폴백의 것. auto = `jamoset.choose_jset_version`) |
-| `--jset-big` | 꺼짐 | derived와 `--with-jset`: 19 x 28 클래스까지 탐색하고 128 / 128 / 64 세트에 맞춘다. JSET은 `big=True`로 쓰인다 |
+| `--jset-big` | 꺼짐 | derived와 `--with-jset`: 19 x 28 클래스까지 탐색하고 128 / 128 / 64 벌에 맞춘다. JSET은 `big=True`로 쓰인다 |
 | `--svfdump PATH` | 없음 | C 렌더러의 음절도 함께 비교한다(`c/tests/svfdump.c`). 반복 가능 |
 
 `analyse`와 `build`의 `-o`는 `--out`으로도 지정할 수 있다.
@@ -604,7 +604,7 @@ BDF(참고 문헌 11). 그리고 두 페이스를 글리프마다 비교한다(�
 (`python3 tools/svf_synth.py --help`와 모듈 docstring이 각각을 설명한다). `--reencode`는 FACE의 JSET 블록을
 `--jset-version`으로 다시 쓴다(1: `pack_v1`, 조각 번호 유지. 2: `pack`, 조각 번호 재부여). `--jset-variant V`는 다른 모양의
 유효한 버전 2 블록(`alias`, `bit7`, `overlap`, `limits`, `w0`. 버전 2만)을, 또는 BIG
-리더용으로 `limits_big`(19 x 28 클래스, 128/128/64 세트, 별칭 없음: 버전 2에서 29,708 B, `--jset-version 1`이면 47,373 B)과 `limits_big_alias`(같되 모든 슬롯이 별칭. 45,068 B. 버전 2만)를 쓰며, 각각 모든 조각에
+리더용으로 `limits_big`(19 x 28 클래스, 128/128/64 벌, 별칭 없음: 버전 2에서 29,708 B, `--jset-version 1`이면 47,373 B)과 `limits_big_alias`(같되 모든 슬롯이 별칭. 45,068 B. 버전 2만)를 쓰며, 각각 모든 조각에
 글리프가 있다.
 `--jmap-variant V`는 `jamoset.jmap_from_tables`로 FACE의 표에서 만든 유효한 JSET 버전 3(JMAP) 블록을 쓴다
 (`sparse3`, `sparse4`, `dense3`, `dense4`, `hybrid1`, `hybrid2`(버전 1 또는 2 폴백 위에 16개 예외 음절), `dhybrid1` / `dhybrid2`(dense, 3 / 4바이트 항목, 버전 1 / 2 폴백 위: 34 / 45 KB 영역), `hybrid_big1`, `hybrid_big2`(BIG 폴백), `adv0`, `adv0fb`(JMAP과 그 버전 1 폴백의 advance가 0), `sparse_full`(11,172개 항목 전부를 가진 SPARSE 플래그. `pack_jmap`은 그 개수를 dense로 쓰므로 손으로 조립했다), `blanks`, `pi2047`). `--jmap-bad KIND`는 JMAP 규칙 하나를 깨뜨린다(23개의 `JMAP_BAD_KINDS`. 각각의 규칙은 모듈
@@ -621,14 +621,14 @@ v3 레이아웃을 고른다(기본: `default` 프로파일. `--layout-bad`와�
 
 ### `tools/jamofill.py`
 
-**목적.** 비트맵 레퍼런스 자신의 크기로 작은 자모 세트 페이스를 만든다. 세트 골격(클래스, 세트 표,
+**목적.** 비트맵 레퍼런스 자신의 크기로 작은 자모 세트 페이스를 만든다. 벌 골격(클래스, 벌 표,
 선택적으로 어느 슬롯이 조각을 공유하는지)을 유지하고 모든 조각을 레퍼런스의 음절에서 가져온다. 바이트
 예산 안에서 12 px 페이스를 만들 때 쓴다.
 
 **상태.** 연구용 빌더.
 
-**입력.** `--strike` 비트맵 조사 스트라이크(`NAME-PX.npz`: `cp`, `glyphs`, `meta`, 선택적인 `adv`. numpy 없이 읽는다). `--skeleton`은 `FACE.SVF`(그 클래스와 세트 표. 모든 슬롯이 각자의 조각), `FACE.SVF:tied`(그 공유도 함께: 조각이 하나의 비트맵인 슬롯은 하나의 조각으로 남는다), 또는 이름 있는 구조이다. `111`, `224`(초성과 중성은 종성 유무에 따라, 종성은 8x4x4 모음 그룹에 따라), `621`, `844`(jamoset.py의 레이아웃), `fine`(2 x 3 클래스, `sweep`의 63 / 6 / 42
-세트 시작점. 병합되기 전까지는 포맷 한계를 넘는다). `--pieces`는 선택적인 추가 자모 라이브러리
+**입력.** `--strike` 비트맵 조사 스트라이크(`NAME-PX.npz`: `cp`, `glyphs`, `meta`, 선택적인 `adv`. numpy 없이 읽는다). `--skeleton`은 `FACE.SVF`(그 클래스와 벌 표. 모든 슬롯이 각자의 조각), `FACE.SVF:tied`(그 공유도 함께: 조각이 하나의 비트맵인 슬롯은 하나의 조각으로 남는다), 또는 이름 있는 구조이다. `111`, `224`(초성과 중성은 종성 유무에 따라, 종성은 8x4x4 모음 그룹에 따라), `621`, `844`(jamoset.py의 레이아웃), `fine`(2 x 3 클래스, `sweep`의 63 / 6 / 42
+벌 시작점. 병합되기 전까지는 포맷 한계를 넘는다). `--pieces`는 선택적인 추가 자모 라이브러리
 (`galmuri_jamo.py analyse`의 `pieces-NAME.json`)이다.
 
 **방법.** 스트라이크의 음절을 초성, 중성, 종성으로 나누고(`decompose_strike`: 문맥별 코어, 가로형 또는 혼합형 모음의 막대에 있는 긴 수평 구간은 모음의 것으로, 나머지는 잉크가 있는 이웃을 따라 geodesic 성장으로), 세 번 이상 쓰인 변형을 유지하며, 스트라이크 자체의 호환 자모보다 수평 또는 수직 획이 더 많은 변형은 버린다(`stroke_filter`: 이웃의 획을 가져온 것). 그런 다음 각 조각
@@ -639,19 +639,19 @@ v3 레이아웃을 고른다(기본: `default` 프로파일. `--layout-bad`와�
 수직 획을 유지하고, ㄲ ㄸ ㅃ는 위 / 아래 잉크 행에 분리된 두 막대를 유지한다. 막대가
 붙어 버린 ㄲ ㄸ ㅃ(Galmuri9는 12 px ㄲ를 그렇게 그린다)는 막대 사이를 한 픽셀 잘라 복구한 것이 제공된다(`split_double`).
 누출(`leak_masks`, `Fill.leak_mask`): 문맥(모음 모양, 종성 그룹)에서 레퍼런스의 음절 5 % 미만에서만 자모가 잉크로 채우는 픽셀을, 거기서 다른 자모가 30 % 이상 채운다면 누출이며, 사용자당 픽셀마다 `LEAK_PENALTY`(40)이다. 호출자는 unit별로 비트맵을 금지할 수 있다(`Fill.banned`, {unit: set}). 금지된 후보는 절대 이기지 않는다(Uno 작업의 인식기 게이트가 이렇게 돈다: 잘못 읽힌 조각을 금지하고 fill을 다시 실행). `--pixel`이면
-각 unit은 픽셀 단위 최선의 비트맵(분할이 그 자모에 준 픽셀만)도 취할 수 있으며, 풀에 추가된다. 세트
-표는 쓸 때 압축된다(조각이 일치하는 세트가 병합되고, 그다음 세트 열이 일치하는 초성과 종성 클래스가 병합된다.
-`build_face(fill, compact=False)` / `plain_tables`는 세트와 클래스를 그대로 둔다).
+각 unit은 픽셀 단위 최선의 비트맵(분할이 그 자모에 준 픽셀만)도 취할 수 있으며, 풀에 추가된다. 벌
+표는 쓸 때 압축된다(조각이 일치하는 벌이 병합되고, 그다음 벌 열이 일치하는 초성과 종성 클래스가 병합된다.
+`build_face(fill, compact=False)` / `plain_tables`는 벌과 클래스를 그대로 둔다).
 `--budget N`은 파일이 들어맞을 때까지 한 자모의 unit들을 묶는다(절약된 바이트당 손실이 가장 적은 것부터).
 
 **출력.** `fill`: 페이스 하나(`-o`), SVFN v3 `mcu-strict`, JSET 버전 1, 스트라이크의 인쇄 가능한 ASCII(비례 폭,
 `adv`에서)와 서로 다른 조각. 다시 읽어 모든 음절을 fill과 대조한다. `--report` JSON:
-`bytes`, `pieces`, `jset_bytes`, 클래스와 세트 개수, `exact` / `exact_ks`, `mean_dist_ks`, `confuse_ks`(자모 하나 떨어진 음절과 2픽셀 이내인데 레퍼런스의 두 음절은 더 많이 다른 음절, 범주별: `oug` ㅗ ㅛ ㅜ ㅠ ㅡ,
+`bytes`, `pieces`, `jset_bytes`, 클래스와 벌 개수, `exact` / `exact_ks`, `mean_dist_ks`, `confuse_ks`(자모 하나 떨어진 음절과 2픽셀 이내인데 레퍼런스의 두 음절은 더 많이 다른 음절, 범주별: `oug` ㅗ ㅛ ㅜ ㅠ ㅡ,
 `hieuh` 초성 ㅎ, `final`, `initial`, `vowel`), `overlap_ks`(모음 조각과 픽셀을 공유하는 종성 조각),
 `missing3_ks`, `extra4_ks`, `medial_violations(_ks)`, `medial_pairs`(모음 쌍별: 문맥, 위반, 최소
 거리, 최악의 문맥), `tick_merged_ks`(없거나 덮임), `tick_touch_ks`, `width_violation_count`,
 `width_violations`(자모), `stem_widths`(자모별 수직 획 폭), `incomplete_pieces`(ㄲ 먼저),
-`leak_units`와 `leak_pairs`(조각>이웃: 픽셀)이며 KS 예시가 붙는다. `sweep`: 골격에서 시작하는 탐욕적 세트 병합(손실이
+`leak_units`와 `leak_pairs`(조각>이웃: 픽셀)이며 KS 예시가 붙는다. `sweep`: 골격에서 시작하는 탐욕적 벌 병합(손실이
 가장 적은 병합), 각 `--points NI,NM,NF` 이하에 처음 이르는 상태의 페이스와 보고서, 그리고 `PREFIX-curve.json`. `sheet`:
 `PREFIX-ks-{1,4}x.png`(2,350개 KS 음절, 한 줄에 50개), `PREFIX-text-{1,4}x.png`(샘플 텍스트), 그리고 `--strike`가 있으면
 `PREFIX-vs-ref-4x.png`(레퍼런스 위에 올린 흔한 음절 20개).
@@ -669,13 +669,13 @@ v3 레이아웃을 고른다(기본: `default` 프로파일. `--layout-bad`와�
 
 **내부 모듈.** `jamoset.py`. **서드파티.** Pillow(`sheet`만). **테스트.**
 `tools/test_jamofill.py`(문맥에 무관한 자모의 합성 스트라이크: 분할, 정확한 1/1/1과 8x4x4 fill, 압축,
-세트 병합, 예산 묶기, 획 폭, 틱, ㅊ/ㅎ 캡, 획 완전성과 ㄲ 복구, 누출 마스크,
+벌 병합, 예산 묶기, 획 폭, 틱, ㅊ/ㅎ 캡, 획 완전성과 ㄲ 복구, 누출 마스크,
 중성 게이트, 명령줄).
 
 ### `tools/jamomerge.py`
 
 **목적.** 변형이 많은 자모 세트 페이스의 변형을 병합해 더 작게 만들되, 모든 조각은 그린 그대로 유지한다. 변형이
-많은 페이스(예: 모음 클래스와 종성에 따른 13개 초성 세트, 많은 중성 구간)를 Arduino Uno 예산(8,192 B, JSET 버전 1, ASCII 포함)에
+많은 페이스(예: 모음 클래스와 종성에 따른 13개 초성 벌, 많은 중성 구간)를 Arduino Uno 예산(8,192 B, JSET 버전 1, ASCII 포함)에
 맞춰야 해서 작성되었다.
 
 **상태.** 연구용 빌더.
@@ -684,11 +684,11 @@ v3 레이아웃을 고른다(기본: `default` 프로파일. `--layout-bad`와�
 자신. 병합된 것에서 이어 가려면 병합되지 않은 페이스를 준다). `--planes` 선택적인 레퍼런스 자모 plane JSON(
 `planes` 하위 명령이 Mac type-3 `fbit`와 그 `HTBL` 1에서 쓴다. KS 레퍼런스 음절은 그때 그것에서 온다).
 
-**방법.** 페이스는 병합 상태이다. 초성과 종성 클래스, 세 세트 표, 쓰이는 슬롯마다의 비트맵으로 이루어진다. 이동(move):
-`tie`(한 자모의 모든 슬롯에서 비트맵 x를 그리던 것이 그 자모의 다른 변형 y를 그린다), `set`(한 종류의 두 세트가
-하나가 된다. 자모마다 그 자모의 존재하는 모든 변형 중에서 두 세트 사용자 전체에 대한 목적 함수가 가장 작은 변형을 취한다), 그리고 초성 / 종성 `class` 병합(
-(모음, 다른 클래스) 셀과 종류별로 어느 한쪽의 세트. 초성 병합에서의 초성과 종성 병합에서의 종성은 양쪽 자모가 서로소이므로 양쪽 조각을 모두 담은 합집합 세트도 만든다. 빈 슬롯은 그 음절의 존재하는 비트맵으로 채운다). 각 이동 뒤에 쓰이지 않는 슬롯과 세트는
-버려지고, 일치하는 세트가, 그다음 행이 일치하는 초성과 종성 클래스가 공짜로 병합된다. 탐욕적이다. 모든 이동은
+**방법.** 페이스는 병합 상태이다. 초성과 종성 클래스, 세 벌 표, 쓰이는 슬롯마다의 비트맵으로 이루어진다. 이동(move):
+`tie`(한 자모의 모든 슬롯에서 비트맵 x를 그리던 것이 그 자모의 다른 변형 y를 그린다), `set`(한 종류의 두 벌이
+하나가 된다. 자모마다 그 자모의 존재하는 모든 변형 중에서 두 벌 사용자 전체에 대한 목적 함수가 가장 작은 변형을 취한다), 그리고 초성 / 종성 `class` 병합(
+(모음, 다른 클래스) 셀과 종류별로 어느 한쪽의 벌. 초성 병합에서의 초성과 종성 병합에서의 종성은 양쪽 자모가 서로소이므로 양쪽 조각을 모두 담은 합집합 벌도 만든다. 빈 슬롯은 그 음절의 존재하는 비트맵으로 채운다). 각 이동 뒤에 쓰이지 않는 슬롯과 벌은
+버려지고, 일치하는 벌이, 그다음 행이 일치하는 초성과 종성 클래스가 공짜로 병합된다. 탐욕적이다. 모든 이동은
 절약된 바이트당 레퍼런스에 대한 픽셀 목적 함수(잃은 레퍼런스 픽셀 `MISS` 2, 남는 픽셀 1, 두 조각이 공유하는 픽셀 `OVERLAP` 1. KS X 1001 음절의 가중치는 1.0, 나머지는 `JAMOMERGE_OTHER`, 기본 0.1)로
 점수가 매겨진다. `--recog`이면 상위 `JAMOMERGE_RECOG_TOP`(16)개를 recog-11-12(바뀐 음절에 대한 가중 top-1 오류 + 0.2 x
 log-loss. 별도로 제공하는 `recog.py`, `SVF_RECOG_DIR`로 찾으며 추론만 한다)로 다시 채점하고 바이트당 최선을 적용한다. 하드
@@ -702,7 +702,7 @@ log-loss. 별도로 제공하는 `recog.py`, `SVF_RECOG_DIR`로 찾으며 추론
 와 leak 플래그는 비용만 든다(20 x 가중치).
 
 **출력.** `-o DIR`에: `--points` 예산마다 페이스 `PREFIXnK.SVF`(SVFN v3 `mcu-strict`, JSET 버전 1,
-메트릭과 dy가 있는 페이스의 ASCII. 다시 읽어 모든 음절을 검사한다)와 `PREFIXnK.json`(바이트, 부분, 세트,
+메트릭과 dy가 있는 페이스의 ASCII. 다시 읽어 모든 음절을 검사한다)와 `PREFIXnK.json`(바이트, 부분, 벌,
 클래스, 조각, 게이트 개수, 그려진 자모별 줄기 폭, `--recog`이면 인식기 top-1, `soft_gates`).
 `PREFIX-steps.json`(적용된 모든 이동: 종류, 절약된 바이트, 픽셀과 인식기 델타, 바뀐 음절, 게이트별
 거부). 이동이 남지 않은 곳의 `PREFIX-stop.SVF/.json`. `baseline`은 페이스의 크기 부분을
@@ -784,7 +784,7 @@ syllables`와 같음. `default`와 `dos` 원본에 대한 레이아웃, 메트�
 
 ### `tools/jamoadapt.py`
 
-**목적.** 맞춘 자모 세트를 위한 적응형(adaptive) 세트 체계. 844에서 시작해 조각을 공유하는 음절들이 서로 어긋나는 곳에서 세트를 쪼개며, 엔진의 JSET 한계(초성 12개와 종성 12개 클래스, 32/24/16 세트)까지 간다.
+**목적.** 맞춘 자모 세트를 위한 적응형(adaptive) 벌 체계. 844에서 시작해 조각을 공유하는 음절들이 서로 어긋나는 곳에서 벌을 쪼개며, 엔진의 JSET 한계(초성 12개와 종성 12개 클래스, 32/24/16 벌)까지 간다.
 
 **상태.** 범용이다.
 
@@ -1105,7 +1105,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 |---|---|
 | `info` | 크기, 종류(적재 이미지와 LZEXE / PKLITE 표시가 있는 DOS MZ, `.COM`, ARJ, ZIP, 옵션 ROM `55 AA`), 파일과 바이트 크기가 맞는 배치, 블록별 엔트로피 지도(바이트당 8비트에 가까우면 압축됨) |
 | `runs` | 글리프처럼 보이는 창(잉크 2-60 %, 행끼리 거의 변하지 않음)이 `--min`(32)개 이상 이어지는 구간 |
-| `sets` | 원시 자모 조각 폰트의 모든 세트 슬롯 0이 빈 칸이고 다른 슬롯의 `--min-inked`(0.8) 이상에 잉크가 있는 오프셋. 가까이 붙어 통과하는 읽기 묶음 가운데 행이 바이트 이음매(x = 7 / 8)를 가로질러 붙어 있는 것을 고르고, 한 행씩 떨어져 같은 점수를 얻는 읽기들은 순위 없이 함께 나열한다(드라이버 코드나 따로 된 사본으로 정한다) |
+| `sets` | 원시 자모 조각 폰트의 모든 벌 슬롯 0이 빈 칸이고 다른 슬롯의 `--min-inked`(0.8) 이상에 잉크가 있는 오프셋. 가까이 붙어 통과하는 읽기 묶음 가운데 행이 바이트 이음매(x = 7 / 8)를 가로질러 붙어 있는 것을 고르고, 한 행씩 떨어져 같은 점수를 얻는 읽기들은 순위 없이 함께 나열한다(드라이버 코드나 따로 된 사본으로 정한다) |
 | `ascii` | 8xH 영문 폰트의 오프셋: 공백은 빈 칸, `_`는 아래 3분의 1, `-`는 가운데, 0x21-0x7E는 잉크 있음. 묶음 가운데 첫 행이나 마지막 행에 잉크가 있는 글리프가 가장 적은 정렬 |
 | `render` | 오프셋부터의 글리프를 번호와 파일 오프셋을 붙인 `#`/`.` 텍스트로, 또는 PNG로 |
 
@@ -1120,7 +1120,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 ### `tools/nkpspec.py`
 
 **목적.** NKP 한글 TSR(1989년 허큘리스 한글 드라이버 NKP.COM V3.00, NKP3.COM)의 `rawcarve.py compose` 명세를 드라이버 자신의 표에서
-쓴다: 조각 세트 레코드, 자모 표, 한글 루틴의 초성 세트 표와 중성 선택 표(recipes.ko.md, NKP).
+쓴다: 조각 벌 레코드, 자모 표, 한글 루틴의 초성 벌 표와 중성 선택 표(recipes.ko.md, NKP).
 
 **상태.** 특수 목적(한 드라이버 계열). 다른 드라이버용 "드라이버 표에서 명세로" 스크립트의 모양을 보여 준다.
 
@@ -1128,8 +1128,8 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `--jung`, `--jong`, `--iset`, `--med`. 파일 오프셋 = 주소 - 0x100).
 
 **출력.** `find`: 표마다 한 줄(메모리 주소, 파일 오프셋. 영문 폰트도). `spec`: JSON 명세(오프셋과 규칙뿐): 플래그 비트 0이 켜진
-레코드는 (끝 - 첫) / 2 행의 16 픽셀 조각, 꺼진 레코드는 한 바이트짜리 (끝 - 첫 + 1) / 2 행의 오른쪽(또는 왼쪽) 절반 조각. 초성 세트
-표와 중성 표는 레코드를 바이트 오프셋으로 가리킨다(레코드 = 값 / 6). 종성 세트는 레코드 96.
+레코드는 (끝 - 첫) / 2 행의 16 픽셀 조각, 꺼진 레코드는 한 바이트짜리 (끝 - 첫 + 1) / 2 행의 오른쪽(또는 왼쪽) 절반 조각. 초성 벌
+표와 중성 표는 레코드를 바이트 오프셋으로 가리킨다(레코드 = 값 / 6). 종성 벌은 레코드 96.
 
 **사용법.** `python3 tools/nkpspec.py find FILE`, `python3 tools/nkpspec.py spec FILE [--desc A ...] -o SPEC.json`. 표가 없거나
 파일 밖이거나 NKP 모양이 아니면(자모 표가 유니코드 순서가 아님, 레코드 오프셋이 6의 배수가 아님, 0x100보다 작은 조각 주소, 행이 없는 16 픽셀 레코드) 메시지와 함께 종료 코드 1.
@@ -1173,11 +1173,11 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `bdf --chars ks-*`는 각 KS X 1001 코드를 `--dense`(글리프 i = 그 집합의 i번째 코드: 2,350 음절 덤프) 또는 `--grid L0,T0,PITCH`(글리프 =
 (lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). 음수 오프셋,
 1보다 작은 `--length` / `--stride` / `--count`, 음수 `--first`, 16행을 넘는 `--top` + `--height`는 거부한다. `cut`, `eng`, `bdf`는
-쓰는 바이트만 읽고(글리프보다 짧은 `--stride`여도 마지막 글리프의 전체 범위까지), `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 세트, 셀을 넘는 `--eng-top` +
-`--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 세트(`꺼짐set`,
+쓰는 바이트만 읽고(글리프보다 짧은 `--stride`여도 마지막 글리프의 전체 범위까지), `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 벌, 셀을 넘는 `--eng-top` +
+`--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 벌(`꺼짐set`,
 `stride`, 저장된 조각이 셀의 어디로 가는지: `x`, `y`, `width`, `height`, `order`, 그리고 선택으로 `lsb`, `invert`, `bg` / `fg`가 있는
-`gfx`. 최상위의 `"invert": true`나 `--invert`는 `"invert": false`라고 적지 않은 모든 세트와 `--eng` 폰트를 반전한다), 종성 없을 때와 있을 때 모음별 초성 세트, 모음별 중성
-(세트, 조각)(ㄱ / ㅋ용 다른 표를 둘 수 있다: 8x4x4 규칙), 모음별 종성 세트 또는 세트 하나, 그리고 폰트 자신의 모음 순서를 적는다.
+`gfx`. 최상위의 `"invert": true`나 `--invert`는 `"invert": false`라고 적지 않은 모든 벌과 `--eng` 폰트를 반전한다), 종성 없을 때와 있을 때 모음별 초성 벌, 모음별 중성
+(벌, 조각)(ㄱ / ㅋ용 다른 표를 둘 수 있다: 8x4x4 규칙), 모음별 종성 벌 또는 벌 하나, 그리고 폰트 자신의 모음 순서를 적는다.
 자모 번호는 유니코드의 번호다(형식은 모듈 docstring). `--spec spc1500`(이 이름은 언제나 내장 명세이며, 그 이름의 JSON 파일은 `./spc1500`)은 삼성 SPC-1500 한글 ROM의 내장
 명세(`spc1500_spec`, MAME `spc1500.cpp`에서; 참고 문헌 10)이며, `ss150fnt.bin` .. `ss153fnt.bin`을 차례로 이은 32 KB 영역에 쓴다.
 `jamoset.py --layout spec`도 같은 명세를 읽는다. 잘못된 오프셋, 명세, 빈 결과에는 메시지와 함께 종료 코드 1.
@@ -1258,17 +1258,17 @@ ceil(w / 8) x h가 아닌 글리프당 바이트, 블록이나 파일을 넘는 
 HWP 1.x 조합 규칙은 `L_CLS`, `V_CLS`, `T_CLS`, `SEL`에 정의되어 있다.
 
 **입력.** HWP 1.x `.SFT` / `.PFT`(32 바이트 "HWP Font Editor v1.0" 또는 "FE" 헤더, 크기는 정확히 32 + 글리프 수 x 글리프 바이트.
-화면 폰트는 행 우선, 프린터 폰트는 열 우선): `HANGUL.SFT`(16x16, 글리프 1,193개, 조각 31/29/31개짜리 초성/중성/종성 세트가 10/4/4,
+화면 폰트는 행 우선, 프린터 폰트는 열 우선): `HANGUL.SFT`(16x16, 글리프 1,193개, 조각 31/29/31개짜리 초성/중성/종성 벌이 10/4/4,
 7/2/2, 6/2/2인 페이스 셋), `HANGUL1/2/3.PFT`(24x24, 980개; 7/2/3, 7/2/2, 5/2/2), `ASCII.SFT` / `ASCII.PFT`(8x16 / 14x24, 991개:
 147개짜리 페이스 여섯), `HANJA.SFT`(4,888개), 기호 파일(`other`). HWP 3.0 `.FNT`(72 바이트 "FNT" 01 헤더: 형식 0 영문, 1 한글,
-2 한자. 6과 8에 LE16 폭과 높이. 행 우선 글리프): `HAN*.FNT`는 KS X 1001 음절 2,350자(16 px는 360개짜리 8x4x4 세트 추가),
+2 한자. 6과 8에 LE16 폭과 높이. 행 우선 글리프): `HAN*.FNT`는 KS X 1001 음절 2,350자(16 px는 360개 조각으로 이루어진 8x4x4 벌 체계 추가),
 `ENG*.FNT`는 0x20부터의 코드, `HAJ16_0.FNT`는 한자. 글리프 수는 본문의 것이며, 헤더와 다르면 `info`가 알린다(HAN24는 2,710이라 적고 2,350을, ENG40은
 147이라 적고 96을 담는다). 0x20-0x7E의 95자에 못 미치는 영문 FNT는 거부한다. 글리프 순서는 파일 이름이 아니라 높이를 따른다: 24행인
 HWP 1.x 폰트는 열 우선이다. KS 원시: 16, 24, 32, 40, 48 px 정사각형 글리프 정확히 2,350개인 헤더 없는 파일
 (75,200 / 169,200 / 300,800 / 470,000 / 676,800 바이트)로, 첫 글리프와 마지막 글리프에 잉크가 있고 서로 달라야 한다. 그 밖의 것과
 16 MiB를 넘는 파일은 거부한다. `--ascii`는 `jamoset.py --eng`가 읽는 어떤 영문 폰트든 받는다.
 
-**출력.** `info`: 한 줄(계열 `HWP 1.x font` / `HWP 3.0 FNT` / `KS X 1001 raw dump`, 종류, 글리프 수와 크기, 페이스들의 세트 수,
+**출력.** `info`: 한 줄(계열 `HWP 1.x font` / `HWP 3.0 FNT` / `KS X 1001 raw dump`, 종류, 글리프 수와 크기, 페이스들의 벌 수,
 HWP 3.0 폰트의 이름, 8x4x4 꼬리). `bdf`: BDF 2.1(`CHARSET_REGISTRY "ISO10646"`, `PIXEL_SIZE` = 셀 높이, `ENCODING` = 코드
 포인트, `STARTCHAR U+XXXX`): 한글 파일은 음절(KS X 1001 2,350자. HWP 1.x 페이스는 `--syllables all`로 11,172자 전부), 영문 파일은
 U+0020..U+007E(advance = 글리프 폭), 한자 파일은 한자 4,888자. `--ascii`를 주면 그 영문 폰트의 ASCII도 넣는다(셀보다 낮으면 높이
@@ -1285,7 +1285,7 @@ U+0020..U+007E(advance = 글리프 폭), 한자 파일은 한자 4,888자. `--as
 함께 1(어느 형식도 아님, 헤더와 맞지 않는 크기, 범위를 벗어난 페이스, 쓸 것이 없는 파일).
 
 라이브러리로: `read(data)`(`Font`: `family`, `kind`, `w`, `h`, `count`, 행 정수로 된 `glyph(i)`, `jamo844`, `table`),
-`Hwp1Hangul(font, face)`(`pieces(cp)`, `syllable(cp)`, 그리고 JSET 세트 함수로 쓴 규칙 `lead_class`, `init_set`, `med_set`,
+`Hwp1Hangul(font, face)`(`pieces(cp)`, `syllable(cp)`, 그리고 JSET 벌 함수로 쓴 규칙 `lead_class`, `init_set`, `med_set`,
 `fin_set`, `init_src`, `med_src`, `fin_src`), `syllables`, `ascii_glyphs`, `hanja_glyphs`, `english(path)`, `ks_hangul()`,
 `ks_hanja()`, `ks_raw_px(size)`.
 
@@ -1323,6 +1323,8 @@ U+0020..U+007E(advance = 글리프 폭), 한자 파일은 한자 4,888자. `--as
 
 입력 포맷별 지원 범위, 실행 예와 Maker 변환 경로는 [레시피](recipes.ko.md)를 참고한다.
 TTF/OTF, TTC, 가변 폰트, Mac 폰트, BDF/PCF/HBF, DOS 원시 폰트와 기존 SVF를 다룬다.
+
+<a id="도구에-남은-빈틈"></a>
 
 ## 10. 도구의 제약
 

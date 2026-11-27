@@ -1418,6 +1418,8 @@ own resource reader).
 For supported inputs, examples, and Maker conversion routes, see [recipes](recipes.md).
 They cover TTF/OTF, TTC, variable fonts, Mac fonts, BDF/PCF/HBF, DOS raw fonts, and existing SVF faces.
 
+<a id="remaining-gaps-of-the-tools"></a>
+
 ## 10. Tool limitations
 
 - `mkfont.py` requires `--unicode` or `--chars-from` and always writes a metrics table,
