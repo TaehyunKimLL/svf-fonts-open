@@ -2,11 +2,11 @@
 
 # 레시피: 비트맵 폰트
 
-비트맵 폰트 파일에서 SVF 페이스를 만든다: ISO 10646이나 KS C 5601의 BDF와 PCF, hanterm 조합형 BDF, HBF, Windows FNT와 FON, 아웃라인 폰트에 내장된 비트맵 스트라이크, 그리고 고해상도 비트맵 폰트를 줄여 만드는 저해상도(또는 2 bpp) 페이스.
+비트맵 폰트 파일에서 SVF 페이스를 만든다: ISO 10646이나 KS C 5601의 BDF와 PCF(X 윈도 한글 폰트 자체는 hanterm 조합형 폰트를 포함해 [별도 문서](x-window.ko.md)에 있다), HBF, Windows FNT와 FON, 아웃라인 폰트에 내장된 비트맵 스트라이크, 그리고 고해상도 비트맵 폰트를 줄여 만드는 저해상도(또는 2 bpp) 페이스.
 
 **시작 전에.** 명령은 [색인](../recipes.ko.md)에서처럼 `$OUT`을 정하고 프로젝트 루트에서 실행한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 점검으로 끝난다. KS C 5601 레시피가 모든 문서의 `bdfface.py` 줄이 읽는 `$OUT/ks.txt`(KS X 1001 음절 2,350자)를 쓴다.
 
-위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [아웃라인 폰트](outline-fonts.ko.md), [DOS 시대 원시 폰트](dos-fonts.ko.md), [안티앨리어싱](../anti-aliasing.ko.md).
+위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [X 윈도와 유닉스의 한글 폰트](x-window.ko.md), [아웃라인 폰트](outline-fonts.ko.md), [DOS 시대 원시 폰트](dos-fonts.ko.md), [안티앨리어싱](../anti-aliasing.ko.md).
 
 <a id="비트맵-폰트"></a>
 
@@ -16,7 +16,8 @@
 
 비트맵 폰트는 두 종류가 서로 다른 경로로 도구에 닿는다. 유니코드 인코딩(`CHARSET_REGISTRY "ISO10646"`, 또는 내장 스트라이크가 있는
 TrueType)은 `mkfont.py`와 FreeType을 거치고, KS C 5601 / KS X 1001 인코딩(`ENCODING` = GL 코드, X Window 한글 폰트)은
-`bdfface.py`를 거친다.
+`bdfface.py`를 거친다. X 윈도와 유닉스의 한글 폰트를 계열별로(대우, 백묵, 한양, KAIST, 미지, hanterm) 명령, 측정값, 라이선스,
+샘플과 함께 다룬 것은 [X 윈도와 유닉스의 한글 폰트](x-window.ko.md)에 있다.
 
 <a id="iso-10646-bdf와-pcf"></a>
 
@@ -59,26 +60,16 @@ BDF만 읽는 `bdfface.py`로 간다. PCF는 maker의 `srcprep.py pcf-bdf`(표�
 `115,700 바이트`, 자모 세트 `16,272 바이트`, IoU 1.000이다.
 
 `bdfface.py`는 `--chars-from`이 지정한 한글 음절(임의의 텍스트; `mkfont.py`의 규칙), `--ascii`의 ASCII 0x20-0x7E, 자체의 U+2026 /
-U+25A1만 담는다. BDF에서 기호나 자모는 오지 않는다. 셀의 기본값은 BDF의 박스와 상관없이 24x24이므로 `--cell`을 주어라. `--ascent` /
+U+25A1만 담는다. `--symbols`를 주지 않으면 BDF에서 기호나 자모는 오지 않는다. `--symbols`를 주면 `--chars-from`이 지정한 다른
+문자(KS X 1001 기호, 자모, 한자)도 한글 BDF에서 가져온다([X 윈도 레시피](x-window.ko.md#준비-음절-목록-ascii-절반-pcf)가 쓴다). 셀의 기본값은 BDF의 박스와 상관없이 24x24이므로 `--cell`을 주어라. `--ascent` /
 `--hangul-ascent`는 기준선을 정한다. Synthetic(`tools/test_recipes.py`): 음절 10개짜리 KS C 5601 BDF와 ISO 10646 ASCII BDF는 정확히 그
 음절만 담은 페이스를 주고 행도 제자리에 있다.
 
 <a id="hanterm"></a>
 
-### hanterm
-
-hanterm 폰트(johab-1 인코딩, 글리프 번호는 `ENCODING`, 10x(3|4)x4 벌, 글리프 529개)는 직접 읽는다.
-
-    python3 tools/jamoset.py --layout hanterm-johab johabm16.bdf --check -o $OUT/HTERM16J.SVF
-
-KAIST 명조와 KAIST 고딕, hanterm 3.0.4 폰트 세트의 16 px Johab 폰트(`johabm16.bdf`, `johabg16.bdf`; 각각 글리프 529개,
-`CHARSET_REGISTRY "JOHAB-1"`; KAIST; 재배포 조건 명시 없음)로 실행했다.
-
-명조: `13,740 바이트`, 조각 368개, `check: composed 11172 syllables from 368 glyphs, JSET 1303 bytes`, `width=80 ascent=14
-descent=2`(샘플 줄의 음절 다섯 개. BDF에 ASCII가 없으니 ASCII는 `--eng`에 원시 8x16 영문 폰트를 준다), 잉크 310. 고딕: `13,180 바이트`,
-잉크 214. maker의 `detect.scan`은 둘 다 종류 `bdf-johab`, 레이블 "BDF (johab)", 크기 [16], 경로 `hanterm`을 준다. 같은 세트의 `10-6-6`
-폴더(10x6x6 벌)는 다른 레이아웃이라 실행하지 않았다. Synthetic(`tools/test_recipes.py`): 글리프 529개의 hanterm BDF가 음절 11,172개를
-10/4/4 벌 체계로 모두 조합한다.
+**hanterm**(옮김). hanterm 조합형 BDF(hanterm 3.0.4의 johab-1 폰트와 hanterm-font 3.1의 johab844-1 폰트,
+`jamoset.py --layout hanterm-johab`과 `--layout hanterm-844`)는 이제 [X 윈도와 유닉스의 한글 폰트](x-window.ko.md)의
+[hanterm 조합형 폰트](x-window.ko.md#hanterm)에 있다.
 
 <a id="hbf"></a>
 

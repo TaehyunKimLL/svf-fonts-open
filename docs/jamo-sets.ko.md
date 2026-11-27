@@ -433,7 +433,8 @@ flowchart TD
 | 8x4x4 IHNM | 8 / 4 / 4 | 360 | 11,520 | ㄱㅋ 중성 벌이 뒤바뀜 | [docs/recipes/dos-fonts.ko.md](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) `844-ihnm` |
 | 10x4x4 (san 1.0) | 10 / 4 / 4 | 400 | 12,800 | 초성: 받침 없을 때의 5벌을 받침 있을 때도 따로 | `notes/dos.md`, `jamoset.py` `_san1044` |
 | 6x2x1 (Apple II 시대) | 6 / 2 / 1 | 192 | 6,144 | 초성: 모음 3종(세로, 가로, 섞임) x 받침; 중성: 받침; 종성 1벌 | `notes/apple2.md`, `jamoset.py` `_621` |
-| hanterm johab | 10 / (3 또는 4) / 4 | 529 글리프 | BDF | 종성 클래스 셋(없음, ㄴ, 그 밖) | [docs/recipes/bitmap-fonts.ko.md](recipes/bitmap-fonts.ko.md#hanterm) "hanterm", `jamoset.py` `_hanterm` |
+| hanterm johab | 10 / (3 또는 4) / 4 | 529 글리프 | BDF | 종성 클래스 셋(없음, ㄴ, 그 밖) | [docs/recipes/x-window.ko.md](recipes/x-window.ko.md#hanterm) "hanterm", `jamoset.py` `_hanterm` |
+| hanterm johab844-1 (hanterm-font `8-4-4`) | 8 / 4 / 4 | 360 글리프 | BDF | 8x4x4 규칙(hanterm의 `convert_3_to_jo844font`) | [docs/recipes/x-window.ko.md](recipes/x-window.ko.md#hanterm) `hanterm-844` |
 | Dokkaebi 프린터 16/24 px | 7 / 2 / 2 | 240 (한 글자체) | 15,360 (두 글자체) | 초성: 모음 x 받침 | `notes/hanme-dokkaebi.md` 3절 |
 | Dokkaebi 프린터 40/48 px | 12 / 4 / 4 | 440 (한 글자체) | 176,000 (40 px), 253,440 (48 px), 파일마다 두 글자체 | | 같은 곳 |
 | 한메 한글 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (한 글자체) | 초성: 모음 5종; 중성: 받침; 종성: 모음 3종 | `notes/hanme-dokkaebi.md` 1절 |

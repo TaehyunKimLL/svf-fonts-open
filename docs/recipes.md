@@ -43,7 +43,8 @@ Each recipe document covers one kind of source, with its commands and measured r
 | Document | Covers |
 |---|---|
 | [Outline fonts](recipes/outline-fonts.md) | TTF, OTF, TTC/OTC, variable and Mac TrueType fonts; jamo sets from outline fonts and from fonts that carry jamo; 2 bpp anti-aliasing; baseline and clipping |
-| [Bitmap fonts](recipes/bitmap-fonts.md) | BDF/PCF (ISO 10646, KS C 5601), hanterm, HBF, Windows FNT/FON, embedded strikes; a low-resolution face from a high-resolution bitmap font |
+| [Bitmap fonts](recipes/bitmap-fonts.md) | BDF/PCF (ISO 10646, KS C 5601), HBF, Windows FNT/FON, embedded strikes; a low-resolution face from a high-resolution bitmap font |
+| [Korean fonts from X Window and Unix](recipes/x-window.md) | The X and Unix Korean fonts family by family: Daewoo, Baekmuk, Hanyang, KAIST, Mizi, jfbterm and zhcon (KS C 5601 BDF/PCF), hanterm's johab844-1 and johab-1 jamo-set fonts; licences and samples |
 | [DOS-era raw fonts](recipes/dos-fonts.md) | Raw jamo-piece fonts (8x4x4, san, Dokkaebi, Kyrandia), HWP 1.x/2.x and 3.0 fonts, KS X 1001 raw dumps |
 | [Fonts inside programs and drivers](recipes/programs-and-drivers.md) | Finding a font inside a program or data file with Claude: the tools, the prompt, NKP, Dokkaebi |
 | [Korean VGA font ROMs (86Box)](recipes/rom-86box.md) | The Korean VGA font ROMs of the 86Box ROM set (Trigem, Kasan, ATI) |
@@ -74,8 +75,9 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | Mac TrueType (`.dfont`, suitcase, a Korean-only cmap) | `macsfnt.py extract` / `unicode`, then as above | as above | [Mac-format TrueType](recipes/outline-fonts.md#mac-format-truetype) |
 | Outline font with embedded strikes (`EBDT`, `bdat`) | `mkfont.py --size` the strike's size, 1 bpp | no | [Embedded bitmap strikes](recipes/bitmap-fonts.md#embedded-bitmap-strikes) |
 | BDF or PCF in Unicode (`ISO10646`) | `mkfont.py` at the file's own pixel size, 1 bpp | fit with `jamoset.py --from-svf` | [ISO 10646 BDF and PCF](recipes/bitmap-fonts.md#iso-10646-bdf-and-pcf) |
-| BDF or PCF in KS C 5601 / KS X 1001 (X Window) | `srcprep.py pcf-bdf` (PCF only), then `bdfface.py` | `jamoset.py --from-svf` | [KS C 5601 BDF and PCF](recipes/bitmap-fonts.md#ks-c-5601-bdf-and-pcf) |
-| hanterm johab BDF | no | `jamoset.py --layout hanterm-johab` | [hanterm](recipes/bitmap-fonts.md#hanterm) |
+| BDF or PCF in KS C 5601 / KS X 1001 (X Window) | `srcprep.py pcf-bdf` (PCF only), then `bdfface.py` (`--symbols` for the symbols) | `jamoset.py --from-svf` | [KS C 5601 BDF and PCF](recipes/bitmap-fonts.md#ks-c-5601-bdf-and-pcf); the fonts family by family: [Korean fonts from X Window and Unix](recipes/x-window.md#korean-fonts-from-x-window-and-unix) |
+| hanterm johab-1 BDF (`10-6-6`, 529 glyphs) | no | `jamoset.py --layout hanterm-johab` | [hanterm johab fonts](recipes/x-window.md#hanterm) |
+| hanterm johab844-1 BDF (`8-4-4`, 360 glyphs) | no | `jamoset.py --layout hanterm-844` (exact) | [hanterm johab fonts](recipes/x-window.md#hanterm) |
 | HBF | only as the ASCII half of `bdfface.py` | no | [HBF](recipes/bitmap-fonts.md#hbf) |
 | Windows `.FNT` / `.FON` | no reader (FreeType gives it no Unicode map; convert it to a BDF with an outside tool first) | no | [Windows FNT and FON](recipes/bitmap-fonts.md#windows-fnt-and-fon) |
 | DOS raw jamo-piece font (8x4x4 `HANGUL.FNT`, san, Dokkaebi, Kyra...) | `johab844.py` (16 px 8x4x4) | `jamoset.py --layout L` | [DOS-era raw fonts](recipes/dos-fonts.md#dos-era-raw-fonts) |
@@ -229,10 +231,11 @@ Until 2026-11-27 the recipes were one document. A link to a section anchor that 
 | <a id="ttc-and-otc"></a><a id="opentype-cff-collections-and-variable-fonts"></a><a id="37-ttc-and-otc"></a>`#ttc-and-otc`, `#opentype-cff-collections-and-variable-fonts`, `#37-ttc-and-otc` | [TTC and OTC](recipes/outline-fonts.md#ttc-and-otc) |
 | <a id="variable-fonts"></a><a id="38-variable-fonts"></a>`#variable-fonts`, `#38-variable-fonts` | [Variable fonts](recipes/outline-fonts.md#variable-fonts) |
 | <a id="mac-format-truetype"></a><a id="39-mac-format-truetype"></a>`#mac-format-truetype`, `#39-mac-format-truetype` | [Mac-format TrueType](recipes/outline-fonts.md#mac-format-truetype) |
-| <a id="bitmap-fonts"></a><a id="x-window-korean-fonts"></a><a id="4-bitmap-fonts"></a>`#bitmap-fonts`, `#x-window-korean-fonts`, `#4-bitmap-fonts` | [Bitmap fonts](recipes/bitmap-fonts.md#bitmap-fonts) |
+| <a id="bitmap-fonts"></a><a id="4-bitmap-fonts"></a>`#bitmap-fonts`, `#4-bitmap-fonts` | [Bitmap fonts](recipes/bitmap-fonts.md#bitmap-fonts) |
+| <a id="x-window-korean-fonts"></a>`#x-window-korean-fonts` | [Korean fonts from X Window and Unix](recipes/x-window.md#x-window-korean-fonts) |
 | <a id="iso-10646-bdf-and-pcf"></a><a id="41-iso-10646-bdf-and-pcf"></a>`#iso-10646-bdf-and-pcf`, `#41-iso-10646-bdf-and-pcf` | [ISO 10646 BDF and PCF](recipes/bitmap-fonts.md#iso-10646-bdf-and-pcf) |
 | <a id="ks-c-5601-bdf-and-pcf"></a><a id="42-ks-c-5601-bdf-and-pcf"></a>`#ks-c-5601-bdf-and-pcf`, `#42-ks-c-5601-bdf-and-pcf` | [KS C 5601 BDF and PCF](recipes/bitmap-fonts.md#ks-c-5601-bdf-and-pcf) |
-| <a id="hanterm"></a><a id="43-hanterm"></a>`#hanterm`, `#43-hanterm` | [hanterm](recipes/bitmap-fonts.md#hanterm) |
+| <a id="hanterm"></a><a id="43-hanterm"></a>`#hanterm`, `#43-hanterm` | [hanterm johab fonts](recipes/x-window.md#hanterm) |
 | <a id="hbf"></a><a id="44-hbf"></a>`#hbf`, `#44-hbf` | [HBF](recipes/bitmap-fonts.md#hbf) |
 | <a id="windows-fnt-and-fon"></a><a id="45-windows-fnt-and-fon"></a>`#windows-fnt-and-fon`, `#45-windows-fnt-and-fon` | [Windows FNT and FON](recipes/bitmap-fonts.md#windows-fnt-and-fon) |
 | <a id="embedded-bitmap-strikes"></a><a id="46-embedded-bitmap-strikes"></a>`#embedded-bitmap-strikes`, `#46-embedded-bitmap-strikes` | [Embedded bitmap strikes](recipes/bitmap-fonts.md#embedded-bitmap-strikes) |

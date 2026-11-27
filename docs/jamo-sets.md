@@ -444,7 +444,8 @@ initial = s x 20 + L + 1     medial = 160 + s x 22 + V + 1     final = 248 + s x
 | 8x4x4 IHNM | 8 / 4 / 4 | 360 | 11,520 | medial sets of ㄱㅋ swapped | [docs/recipes/dos-fonts.md](recipes/dos-fonts.md#other-dos-era-korean-fonts) `844-ihnm` |
 | 10x4x4 (san 1.0) | 10 / 4 / 4 | 400 | 12,800 | initial: the 5 no-final sets kept apart with a final too | `notes/dos.md`, `jamoset.py` `_san1044` |
 | 6x2x1 (Apple II era) | 6 / 2 / 1 | 192 | 6,144 | initial: 3 vowel kinds (vertical, horizontal, compound) x final; medial: final; one final set | `notes/apple2.md`, `jamoset.py` `_621` |
-| hanterm johab | 10 / (3 or 4) / 4 | 529 glyphs | BDF | three tail classes (none, ㄴ, other) | [docs/recipes/bitmap-fonts.md](recipes/bitmap-fonts.md#hanterm) "hanterm", `jamoset.py` `_hanterm` |
+| hanterm johab | 10 / (3 or 4) / 4 | 529 glyphs | BDF | three tail classes (none, ㄴ, other) | [docs/recipes/x-window.md](recipes/x-window.md#hanterm) "hanterm", `jamoset.py` `_hanterm` |
+| hanterm johab844-1 (hanterm-font `8-4-4`) | 8 / 4 / 4 | 360 glyphs | BDF | the 8x4x4 rule (hanterm's `convert_3_to_jo844font`) | [docs/recipes/x-window.md](recipes/x-window.md#hanterm) `hanterm-844` |
 | Dokkaebi printer 16/24 px | 7 / 2 / 2 | 240 (one face) | 15,360 (two faces) | initial: vowel x final | `notes/hanme-dokkaebi.md` 3 |
 | Dokkaebi printer 40/48 px | 12 / 4 / 4 | 440 (one face) | 176,000 (40 px) and 253,440 (48 px), each file two faces | | the same |
 | Hanme Hangul 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (one face) | initial: 5 vowel kinds; medial: final; final: 3 vowel kinds | `notes/hanme-dokkaebi.md` 1 |
