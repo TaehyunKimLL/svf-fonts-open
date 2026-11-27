@@ -2686,7 +2686,7 @@ class ShippedFacesAreJsetV1(unittest.TestCase):
                     if v != 1:
                         bad.append((path, v))
         self.assertEqual(bad, [])
-        self.assertEqual(n, 66)
+        self.assertEqual(n, 67)
 
     def test_the_check_bites_on_a_version_2_copy(self):
         sys.path.insert(0, HERE)

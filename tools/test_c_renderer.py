@@ -33,7 +33,7 @@ import svfline  # noqa: E402
 
 C_DIR = os.path.join(ROOT, "c")
 SVF_DIR = os.path.join(ROOT, "svf")
-EXPECTED_FACES = 116
+EXPECTED_FACES = 117
 
 _build = {}
 

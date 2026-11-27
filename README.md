@@ -16,6 +16,28 @@ and how this repository reads their Reserved Font Names. [docs/recipes.md](docs/
 upstream font, and how to convert other kinds of Korean fonts (TrueType/OpenType outlines, X11 BDF/PCF, DOS johab, classic
 Mac) to SVF, by input kind.
 
+## Documents
+
+### Start here
+
+- [Status](docs/STATUS.md) — development status, timeline and known gaps.
+- [Specification](spec/SVF.md) — the SVFN v3 file format and reader contracts.
+
+### Fonts and formats
+
+- [Johab and jamo sets](docs/jamo-sets.md) — Hangul encodings, jamo-set rules and SVF JSET worked examples.
+
+### Tools and recipes
+
+- [Tools](docs/tools.md) — command reference for font conversion and inspection.
+- [Recipes](docs/recipes.md) — conversion workflows for outlines, bitmaps, DOS, ROM/MAME, OS/2, HWP, TTF jamo and existing SVF faces.
+
+### C renderer and applications
+
+- [C renderer guide](docs/c-renderer-guide.md) — integration, targets, memory and Hangul rendering.
+- [Desktop app](docs/desktop-app.md) — build and use the SVF maker desktop application.
+- [Maker desktop](docs/maker-desktop.md) — desktop maker implementation and packaging.
+
 ## Rules
 
 - This repository is the master of the fonts. Faces are made, changed and checked only here; users take them as they are.

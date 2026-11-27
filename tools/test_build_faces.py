@@ -47,7 +47,7 @@ class Table(unittest.TestCase):
 
     def test_counts(self):
         methods = [r["method"] for r in self.rows]
-        self.assertEqual((methods.count("mkfont"), methods.count("jamoset"), methods.count("none")), (46, 7, 63))
+        self.assertEqual((methods.count("mkfont"), methods.count("jamoset"), methods.count("none")), (46, 7, 64))
 
 
 class Rebuild(unittest.TestCase):

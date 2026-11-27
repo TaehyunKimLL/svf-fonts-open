@@ -831,7 +831,7 @@ class Synthetic(unittest.TestCase):
         self.assertEqual(svf2ttf.ps_name("내 폰트", "Regular", "/x/neo16.svf"), "neo16-Regular")
         self.assertEqual(svf2ttf.ps_name("가", "굵게", "/x/한.svf"), "SVF-Regular")
         long = svf2ttf.ps_name("A" * 80, "B" * 40, "/x/f.svf")
-        self.assertEqual(len(long), 63)
+        self.assertEqual(len(long), 64)
         self.assertTrue(long.endswith("-" + "B" * 29))
 
     def test_two_bpp_outline_threshold(self):

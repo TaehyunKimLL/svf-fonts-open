@@ -229,6 +229,23 @@ What the research material does show is that, whatever the code, many Korean sys
 syllables with **johab fonts**. Even Korean MS-DOS 6.22's `HFONT.SYS` holds no syllables, only 1,128 symbols and 4,888
 Hanja, with the note "HBIOS.SYS/COM composes Hangul from its own jamo set" (johab-fonts `notes/os.md`).
 
+
+### 1.4.1 Commercial johab and the KS precomposed-code dispute
+
+Sources describe Sambo as leading a commercial composed-form code in the early-to-mid 1980s, called Sambo johab, KSSM or commercial johab. The Korean-language account treats it as an open industrial convention, with an earlier TG code, and says Qnix Korean MS-DOS 3.20 and KSSM shared the Hangul portion while differing in Hanja and symbol areas [15]. Other accounts list Sambo, Goldstar and Samsung variants separately [16]. Thus commercial johab and KSSM overlap in practical usage, but the names do not prove that every byte table was identical. A recollection dates Sambo's first code to 1983–84; the verifiable sources support only the broader early-to-mid-1980s range.
+
+The commonly described two-byte layout has a top flag bit of 1 followed by 5-bit initial, medial and final fields. Typical fill values are initial 1, medial 2 and final 1 for no final; blank values and the Hanja/symbol areas vary by implementation. These codes were used on Sambo/Trigem PCs, Hangul cards and DOS software. Sources describe Bosuk-geul and early Hangeul word processors as operating with composed-form drivers, but do not consistently identify Bosuk-geul's exact KSSM byte table, so that attribution is left qualified [15][16][17].
+
+The 1987 KS C 5601 precomposed code was adopted amid the need for interchange in the national administrative network and mainframe systems. Government and contemporary accounts describe that administrative origin, although dates differ between a March 1987 enactment and an August 31 revision [17][18]. A 94×94 table carried as two EUC bytes was convenient for fixed-width server and terminal processing and for defining an interchange repertoire with Hanja, but it could not cover every modern syllable needed by PCs. The resulting precomposed-versus-composed dispute continued; in 1992, annex 3 of KS C 5601 accepted a composed form based on the KSSM family [19].
+
+| Period | Event | Sources |
+|---|---|---|
+| early-to-mid 1980s | Sambo commercial johab and related variants used on PCs and Hangul cards | [15][16] |
+| 1987 | KS C 5601 precomposed code adopted for administrative-network interchange | [17][18] |
+| 1988–1991 | Administrative-network mainframes I and II deployed | [18] |
+| 1992 | KS C 5601 annex 3 accepted a composed form | [19] |
+| after 1995 | Korean Windows 95 used CP949 and reduced practical johab support | [6][15] |
+
 ## 2. Johab as a font technique: sets
 
 ### 2.1 Why pieces: memory
@@ -545,10 +562,10 @@ header read with `HEADER3` of `jamoset.py`).
 ```mermaid
 flowchart TD
   H["header, 48 bytes<br/>magic SVFN, version 3, flags 7<br/>(bit 0 metrics, bit 1 JSET, bit 2 marks)"]
-  H -->|"byte 32"| C["code point table (48)<br/>440 x (u32 cp, u32 glyph)<br/>U+F0000 + n here too"]
+  H -->|"byte 32"| C["code point table (48)<br/>439 x (u32 cp, u32 glyph)<br/>U+F0000 + n here too"]
   H -->|"bytes 36, 40"| J["JSET block (3,560, 1,101 bytes)"]
-  H -->|"byte 20"| M["metrics table (4,672)<br/>440 x 4 bytes"]
-  H -->|"byte 44"| O["glyph offset table (6,432)<br/>441 entries"]
+  H -->|"byte 20"| M["metrics table (4,672)<br/>439 x 4 bytes"]
+  H -->|"byte 44"| O["glyph offset table (6,432)<br/>440 entries"]
   H -->|"bytes 24, 28"| D["glyph data (8,196, 8,212 bytes)<br/>records: x0 y0 wb h + rows"]
   O -.->|start of record i| D
 ```
@@ -764,10 +781,10 @@ bytes always hold; `cell_set`).
 
 **Why it is slower.** Version 1 reads a cell as a byte and a piece as a u16. Version 2 fetches two bytes, shifts and masks
 for each set number, and counts the presence bits below a slot for each piece (`popcount(presenceBits & ~aliasBits &
-below(j))`); the Pico cost is in 5.3. The 66 jamo faces of this project's `svf/` (all version 1) in version 2
+below(j))`); the Pico cost is in 5.3. The 67 jamo faces of this project's `svf/` (all version 1) in version 2
 would take the JSET bytes from 621,312 to 301,767; `--jset-version auto`, which writes version 2 only when it saves at least
 1,024 bytes (`jamoset.choose_jset_version`), changes 57 faces and gives 308,871 (measured in memory with `jamoset.unpack`
-and `pack_jset` on 2026-11-26). The 95 faces / 652,431 / 310,160 / 58 faces / 337,695 of `spec/SVF.md` "When to use
+and `pack_jset` on 2026-11-26). The 96 faces / 652,431 / 310,160 / 58 faces / 337,695 of `spec/SVF.md` "When to use
 version 2" were measured on the source project's 95 faces.
 
 ### 5.2 BIG: only the limits
@@ -1363,3 +1380,9 @@ In order:
 [12] [Unicode Standard, Chapter 2.5 Encoding Forms](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G25564)
 [13] [Unicode Standard, Chapter 2.6 Encoding Schemes](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G12709)
 [14] [iolo 8x4x4-fonts](https://github.com/iolo/8x4x4-fonts)
+
+[15] [Korean commercial johab encoding](https://ko.wikipedia.org/wiki/한글_상용_조합형_인코딩)
+[16] [Hangul representations in the 1980s](https://pat.im/1150)
+[17] [National Institute of Korean Language, background of the precomposed code](https://www.korean.go.kr/nkview/nklife/1990_2/21_9.html)
+[18] [ET News, administrative mainframe history](https://www.etnews.com/201209110614)
+[19] [Seoul Shinmun, 1992 Hangul-code report](https://www.seoul.co.kr/news/1992/10/07/19921007014003)
