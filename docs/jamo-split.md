@@ -551,7 +551,7 @@ syllables are needed and the source is close to an OR of pieces.
    proves the tables compose, not that the pieces are the jamo; the identity check needs an external recogniser that the
    repository does not ship and that was never run here on a real model. In research, a per-pixel model put 98-99.5 % of the
    pixels in the right slot, against 66-92 % for pixel fitting (7.2, 7.3). Faces built from it with hard identity gates kept
-   95.5-99.5 % (7.4, 7.6). Neither is in this repository (7.8).
+   95.5-99.7 % on the Apple and Gulim ground-truth faces (7.4, 7.6). Neither is in this repository (7.8).
 3. **Blank or degenerate pieces.** A piece no syllable needs ink in stays blank (4.3); a piece of a context the source
    never draws is copied from another set or left blank (`unseen_pieces`). The compatibility jamo then draw blank or wrong.
 4. **Designs not built from pieces.** Kasan 0.872, CPC-400S 0.794, Quiz King of Fighters 0.835 with 8x4x4: the result is a
