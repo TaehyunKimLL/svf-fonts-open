@@ -1297,6 +1297,7 @@ flowchart TD
    (SPC-1500 10,652바이트, 11,172자 모두 정확).
 2. 완성형에서 만든다면 먼저 8x4x4로 맞추고 IoU를 본다. 약 0.98 이상이면 8x4x4를 쓴다. 그보다 낮으면 `adaptive:12,8,6`을 시도하고,
    아웃라인 래스터라면 완성형이나 LIST 예외가 대개 바이트를 더 잘 쓴다([docs/recipes/sets.ko.md](recipes/sets.ko.md#벌-수-정하기) "세트 수(벌 수) 정하기").
+   맞춤이 동작하는 방식, 원본 종류별 결과, 잘 못하는 부분은 [자모 분리](jamo-split.ko.md)에 있다.
 3. 목표 예산이 정해져 있으면 넉넉하게 맞춘 뒤 `tools/jamomerge.py merge --points`로 예산까지 줄인다(Seoul 프리셋이 그렇게 만들어졌다).
 4. 대상 빌드가 그 형태를 읽는지 7.1절의 매트릭스로 확인한다. MCU에서 JMAP, LIST, BIG은 **기본으로 꺼져 있다.**
 5. 페이스를 열고 `svf_status`를 확인한다. 일반 페이스는 음절을 조합하지 못하지만 저장된 한글 글리프는 그릴 수 있다.
@@ -1311,6 +1312,7 @@ flowchart TD
 | [docs/c-renderer-guide.ko.md](c-renderer-guide.ko.md) 10-13장 | 한글, 메모리, 스위치, 플랫폼 |
 | [c/cross/SIZES.md](../c/cross/SIZES.md), [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) | 크기와 속도 측정 |
 | [docs/recipes.ko.md](recipes.ko.md) | 글꼴별 레시피([레시피 문서](recipes.ko.md#레시피-문서) 색인)와 [벌 수 정하기](recipes/sets.ko.md) |
+| [docs/jamo-split.ko.md](jamo-split.ko.md) | 자모 분리: 완성형 글꼴에서 자모 세트 만들기(맞춤, 경우별 처리, 약점, 시도의 역사) |
 | [docs/tools.ko.md](tools.ko.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | 벌 체계 표(`I844_*`, `F844`, `_844` 등), `pack`, `unpack`, `pieces_of` |
 | [렌더러 설계](../spec/renderer-design.ko.md) | 배치, 스케일링, 메모리 모델 |

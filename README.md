@@ -27,6 +27,7 @@ Mac) to SVF, by input kind.
 ### 2.2. Fonts and formats
 
 - [Johab and jamo sets](docs/jamo-sets.md) — Hangul encodings, jamo-set rules and SVF JSET worked examples.
+- [Jamo splitting](docs/jamo-split.md) — making a jamo set from a precomposed font: the fit, case by case, what fits poorly, what earlier attempts taught.
 - [Anti-aliasing](docs/anti-aliasing.md) — coverage and grey levels, 1/2/8 bpp, how levels become colours on each target, making AA faces, choosing a bpp.
 
 ### 2.3. Tools and recipes
@@ -60,6 +61,7 @@ Mac) to SVF, by input kind.
 | `docs/c-renderer-guide.md` | integration guide for the C renderer: build, open faces, draw lines, targets, scaling, Hangul, memory, troubleshooting |
 | [docs/web-renderer-guide.md](docs/web-renderer-guide.md) | web renderer guide: emsdk build, WASM loading, canvas and Node examples, colours, measurement, memory, picker API |
 | `docs/jamo-sets.md` | johab (조합형) explained: the character set, the font technique and its set systems (8x4x4 and others), SVF's JSET v1/v2/BIG/JMAP/LIST with a worked example, and the constraints on MCUs |
+| `docs/jamo-split.md` | jamo splitting (자모 분리): fitting a jamo set to a precomposed font (layouts, the 1 bpp and 2 bpp fits, vector fit, Mac residual transfer, LIST), results by kind of source, known weaknesses with numbers, the history of attempts, and a decision flow (figures from `tools/doc_figures_split.py`) |
 | `docs/anti-aliasing.md` | anti-aliasing: coverage, gamma, no subpixel rendering; 1/2/8 bpp and the 2 bpp levels; level-to-colour rules of each target; maximum (not OR) in 2 bpp jamo sets; making AA faces from outlines and by downscaling; memory, speed and choice of bpp (figures from `tools/doc_figures_aa.py`) |
 | `docs/recipes.md` | the recipes index: a quick start by input kind (outline, bitmap, DOS raw, ROMs, classic Mac, existing SVF), checking a face, the KS X 1001 and encoding reference, and the list of the recipe documents |
 | `docs/recipes/` | one recipe document per kind of source (outline fonts, bitmap fonts, DOS-era fonts, fonts inside programs, 86Box / MSX / MAME ROMs, OS/2, classic Mac, existing SVF and SVF to TTF), each recipe re-run with its numbers; choosing the number of sets; the maker's route table (route to command line); how each face of `svf/` is made |

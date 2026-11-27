@@ -6,7 +6,7 @@ TrueType and OpenType fonts (TTF, OTF with CFF outlines, TTC/OTC, variable fonts
 
 **Before you start.** Commands run from the project root with `$OUT` set as in the [index](../recipes.md); every face ends with the checks of [Checking a face](../recipes.md#checking-a-face). The outline routes need Pillow and fontTools in the selected Python environment (the jamo tools also take `--pylib DIR`).
 
-Up: [Recipes index](../recipes.md) · Related: [Choosing the number of sets (벌 수)](sets.md), [Existing SVF faces, and SVF back to TTF](svf-and-ttf.md), [Jamo sets](../jamo-sets.md), [Anti-aliasing](../anti-aliasing.md).
+Up: [Recipes index](../recipes.md) · Related: [Choosing the number of sets (벌 수)](sets.md), [Existing SVF faces, and SVF back to TTF](svf-and-ttf.md), [Jamo sets](../jamo-sets.md), [Jamo splitting](../jamo-split.md), [Anti-aliasing](../anti-aliasing.md).
 
 <a id="outline-fonts"></a>
 

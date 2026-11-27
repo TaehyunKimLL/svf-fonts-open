@@ -53,6 +53,7 @@ Each recipe document covers one kind of source, with its commands and measured r
 | [Classic Mac Korean bitmap fonts](recipes/classic-mac.md) | HangulTalk 1.0 and 7.1 `fbit` bitmap fonts |
 | [Existing SVF faces, and SVF back to TTF](recipes/svf-and-ttf.md) | An existing SVF (dy, re-bake as a jamo set); an SVF face back to a TTF or BDF font, composite glyphs |
 | [Choosing the number of sets (벌 수)](recipes/sets.md) | How many sets (벌) a jamo set should have, and what they cost |
+| [Jamo splitting](jamo-split.md) | Background for every jamo-set fit: how a jamo set is fitted to a precomposed font, case by case, and what fits poorly |
 | [Desktop app and maker routes](recipes/desktop-routes.md) | The maker's route table: each route and its command line |
 | [Faces of svf/](recipes/svf-faces.md) | How the faces of svf/ are made and rebuilt; adding a face to svf/ |
 

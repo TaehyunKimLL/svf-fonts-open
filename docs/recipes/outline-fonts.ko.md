@@ -6,7 +6,7 @@ TrueType와 OpenType 폰트(TTF, CFF 윤곽의 OTF, TTC/OTC, 가변 폰트, Mac 
 
 **시작 전에.** 명령은 [색인](../recipes.ko.md)에서처럼 `$OUT`을 정하고 프로젝트 루트에서 실행한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 점검으로 끝난다. 선택한 Python 환경의 Pillow와 fontTools가 필요하다(자모 도구는 `--pylib DIR`도 받는다).
 
-위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [벌 수 정하기](sets.ko.md), [기존 SVF, 그리고 SVF에서 다시 TTF로](svf-and-ttf.ko.md), [자모 세트](../jamo-sets.ko.md), [안티앨리어싱](../anti-aliasing.ko.md).
+위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [벌 수 정하기](sets.ko.md), [기존 SVF, 그리고 SVF에서 다시 TTF로](svf-and-ttf.ko.md), [자모 세트](../jamo-sets.ko.md), [자모 분리](../jamo-split.ko.md), [안티앨리어싱](../anti-aliasing.ko.md).
 
 <a id="아웃라인-폰트"></a>
 

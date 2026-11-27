@@ -52,6 +52,7 @@
 | [클래식 Mac 한글 비트맵 폰트](recipes/classic-mac.ko.md) | HangulTalk 1.0과 7.1 `fbit` 비트맵 폰트 |
 | [기존 SVF, 그리고 SVF에서 다시 TTF로](recipes/svf-and-ttf.ko.md) | 기존 SVF(dy, 자모 세트로 다시 굽기); SVF 페이스를 다시 TTF나 BDF 폰트로, 합성 글리프 |
 | [벌 수 정하기](recipes/sets.ko.md) | 자모 세트의 벌을 몇 개로 할지, 그 비용 |
+| [자모 분리](jamo-split.ko.md) | 모든 자모 세트 맞춤의 배경: 완성형 글꼴에 자모 세트를 맞추는 방식, 경우별 처리, 잘 맞지 않는 것 |
 | [데스크톱 앱과 maker 경로](recipes/desktop-routes.ko.md) | maker의 경로 표: 경로마다 그 명령줄 |
 | [svf/의 페이스](recipes/svf-faces.ko.md) | svf/의 페이스를 만들고 다시 빌드하는 법; svf/에 페이스 추가하기 |
 

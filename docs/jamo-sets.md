@@ -1343,6 +1343,7 @@ In order:
 2. From a precomposed face: fit 8x4x4 first and read the IoU. At about 0.98 or more keep 8x4x4; below, try
    `adaptive:12,8,6`; for an outline raster the precomposed face or a few LIST exceptions usually use the bytes better
    ([docs/recipes/sets.md](recipes/sets.md#choosing-the-number-of-sets-벌-수) "Choosing the number of sets (벌 수)").
+   How the fit works, how each kind of source fares and what it does poorly: [Jamo splitting](jamo-split.md).
 3. With a fixed budget, fit generously and let `tools/jamomerge.py merge --points` cut down to it (as the Seoul presets
    were made).
 4. Check with the matrix of 7.1 that the target build reads that form: on MCUs JMAP, LIST and BIG are **off by default**.
@@ -1358,6 +1359,7 @@ In order:
 | [docs/c-renderer-guide.md](c-renderer-guide.md) chapters 10-13 | Hangul, memory, switches, platforms |
 | [c/cross/SIZES.md](../c/cross/SIZES.md), [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) | size and speed measurements |
 | [docs/recipes.md](recipes.md) | recipes per font (the index of the [recipe documents](recipes.md#recipe-documents)) and [Choosing the number of sets (벌 수)](recipes/sets.md) |
+| [docs/jamo-split.md](jamo-split.md) | jamo splitting: a jamo set from a precomposed font (the fit, cases, weaknesses, history) |
 | [docs/tools.md](tools.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | the set system tables (`I844_*`, `F844`, `_844` and others), `pack`, `unpack`, `pieces_of` |
 | [Renderer design](../spec/renderer-design.md) | layout, scaling and memory model |

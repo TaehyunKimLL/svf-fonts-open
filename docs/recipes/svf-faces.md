@@ -6,7 +6,7 @@ How each face shipped in `svf/` is made and rebuilt (`tools/build/faces.tsv`, `t
 
 **Before you start.** Commands run from the project root with `$OUT` set as in the [index](../recipes.md); every face ends with the checks of [Checking a face](../recipes.md#checking-a-face). The upstream fonts are in `ttf/`.
 
-Up: [Recipes index](../recipes.md) · Related: [Outline fonts](outline-fonts.md), [Existing SVF faces, and SVF back to TTF](svf-and-ttf.md), [NOTICE](../../NOTICE.md).
+Up: [Recipes index](../recipes.md) · Related: [Outline fonts](outline-fonts.md), [Jamo splitting](../jamo-split.md), [Existing SVF faces, and SVF back to TTF](svf-and-ttf.md), [NOTICE](../../NOTICE.md).
 
 <a id="faces-of-svf"></a>
 

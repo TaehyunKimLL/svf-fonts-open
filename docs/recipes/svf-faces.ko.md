@@ -6,7 +6,7 @@
 
 **시작 전에.** 명령은 [색인](../recipes.ko.md)에서처럼 `$OUT`을 정하고 프로젝트 루트에서 실행한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 점검으로 끝난다. 상류 폰트는 `ttf/`에 있다.
 
-위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [아웃라인 폰트](outline-fonts.ko.md), [기존 SVF, 그리고 SVF에서 다시 TTF로](svf-and-ttf.ko.md), [NOTICE](../../NOTICE.ko.md).
+위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [아웃라인 폰트](outline-fonts.ko.md), [자모 분리](../jamo-split.ko.md), [기존 SVF, 그리고 SVF에서 다시 TTF로](svf-and-ttf.ko.md), [NOTICE](../../NOTICE.ko.md).
 
 <a id="svf의-페이스"></a>
 
