@@ -121,3 +121,4 @@ jamo-extra/SGDAY20.SVF	none				none	jamo set built by the research pipeline (vec
 jamo-extra/SGDAY20A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
 jamo-extra/SGDAY24.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
 jamo-extra/SGDAY24A.SVF	none				none	jamo set built by the research pipeline (vector piece separation, usage-weighted merge to 24/16/16 sets and 12 x 12 classes) that is not part of this repository
+iolo/SANS8J.SVF	none				none	original iolo 8x4x4 bitmap face, converted externally with jamoset.py --layout 844 --check

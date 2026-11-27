@@ -288,7 +288,7 @@ const uint32_t neodg16g_len = 10124u;
   draws the same from an odd address (tested).
 - `--profile mcu-strict` rewrites the face in the layout of `SVF_LAYOUT_MCU_STRICT` (record and table units 4 bytes, row
   unit 1 byte, 16-bit offsets where they fit); the pixels are the same. **Every face under `svf/` already has that
-  layout** (the units; all 116 files checked with `svfdump FACE info`), so a build with
+  layout** (the units; all 117 files checked with `svfdump FACE info`), so a build with
   `-DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT` opens the shipped files as they are, and the profile only shrinks the
   offsets: NEODG16G goes from 10,684 to 10,124 bytes. Without `--profile` the bytes are the file's own. A face in the
   `tight` profile (1/1/1) is refused by such a build with `SVF_E_LAYOUT`.

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""The pixel figures of docs/jamo-sets.md and docs/jamo-sets.ko.md (card t_6c1f4069).
+"""The pixel figures of docs/jamo-sets.md and docs/jamo-sets.ko.md.
 
   python3 -I tools/doc_figures_jamo.py [--out DIR] [--check]
 
-Reads two SIL OFL 1.1 faces of svf/ and nothing else: svf/dos/NEODG16A.SVF (Neo Dunggeunmo, a 16x16 1 bpp jamo set in
-the 8x4x4 layout, JSET version 1) and svf/dos/NEODG16.SVF (the same font precomposed, 16x16 1 bpp, ASCII and
-KS X 1001 without Hanja). Every label is drawn with NEODG16's own glyphs, so no system font is read. No Apple or ROM
-data is read: the figures may be published with the faces' OFL notes (svf/dos/NEODGM.TXT, svf/dos/OFL.TXT).
+Reads the OFL-licensed svf/iolo/SANS8J.SVF (iolo conversion of a legacy DOS 8x4x4 bitmap, a 16x16 1 bpp jamo set in
+the 8x4x4 layout, JSET version 1) and svf/dos/NEODG16.SVF (a different Neo Dunggeunmo precomposed font used only for comparison, 16x16 1 bpp, ASCII and
+KS X 1001 without Hanja). Labels use the comparison face glyphs, so no system font is read. No Apple or ROM
+data is read: the figures use the iolo OFL note (svf/iolo/IOLO.TXT, svf/iolo/LICENSE-OFL.txt)
+and the comparison face's notes (svf/dos/NEODGM.TXT, svf/dos/OFL.TXT).
 
 Writes into DIR (default docs/images/jamo-sets/):
   compose.png       syllables split into their initial / medial / final pieces, colour-coded, and composed
@@ -35,9 +36,9 @@ try:
 except ImportError:  # pragma: no cover
     Image = ImageDraw = None
 
-JAMO_FACE = "svf/dos/NEODG16A.SVF"
+JAMO_FACE = "svf/iolo/SANS8J.SVF"
 PRE_FACE = "svf/dos/NEODG16.SVF"
-ALLOWED = (JAMO_FACE, PRE_FACE)  # OFL faces only (web/LICENCES.tsv: dos/NEODG*)
+ALLOWED = (JAMO_FACE, PRE_FACE)  # OFL faces: iolo/SANS8J and dos/NEODG16
 
 LEADS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
 VOWELS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
@@ -264,7 +265,7 @@ def fig_precomposed(fc):
     sylls = "가각고곡한흙뷔를의괌"  # KS X 1001 syllables only: NEODG16 has no other
     sc, gap, left, top = 4, 10, 150, 10
     cw = fc.w * sc
-    rows = [("완성형", "NEODG16"), ("8x4x4 조합형", "NEODG16A"), ("차이", "")]
+    rows = [("완성형", "NEODG16"), ("8x4x4 조합형", "SANS8J"), ("차이", "")]
     row_h = fc.h * sc + 26
     W = left + len(sylls) * (cw + gap)
     H = top + len(rows) * row_h + 28
@@ -392,7 +393,7 @@ def main(argv=None):
         return 2
     fc, out = render_all()
     n, exact, iou = compare(fc)
-    print(f"KS X 1001 syllables {n}: NEODG16A composes {exact} exactly like NEODG16, mean IoU {iou:.4f}")
+    print(f"KS X 1001 syllables {n}: SANS8J composes {exact} exactly like comparison face, mean IoU {iou:.4f}")
     bad = 0
     for name, data in out.items():
         path = os.path.join(a.out, name)

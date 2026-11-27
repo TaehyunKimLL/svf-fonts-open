@@ -21,6 +21,7 @@
 | `svf/dos/GBATB*`, `GBA*X?` | Gowun Batang Bold | 2021 The Gowun Batang Project Authors | `svf/dos/OFLGOWUN.TXT`, `GOWUNBAT.TXT` |
 | `svf/dos/GOTHB18A`, `svf/jamo-extra/GOTHA*`, `GOTHB*` | Gothic A1 | HanYang I&C Co., Ltd. | `OFLGOTHA.TXT` (두 폴더 모두) |
 | `svf/dos/MARU*` | MaruBuri | NAVER Corp., NAVER Cultural Foundation | `svf/dos/OFLMARU.TXT`, `PAPMARU.TXT` |
+| `svf/iolo/SANS8J.SVF` | iolo 8x4x4-fonts SANS8J | Copyright (c) 2025 Dongsu Jang | `svf/iolo/IOLO.TXT`, `LICENSE-OFL.txt`, `LICENSE-MIT.txt` |
 | `svf/dos/NEODG*`, `NEO*X?` | Neo Dunggeunmo 1.601 | 2017-2021 Eunbin Jeong (Dalgona.) | `svf/dos/OFL.TXT`, `NEODGM.TXT` |
 | `svf/jamo-extra/NDGPR*` | Neo Dunggeunmo Pro 1.020 | Dalgona (original Dunggeunmo by Jungtae Kim, public domain) | `svf/jamo-extra/OFLNDGPR.TXT` |
 | `svf/dos/NGOT*`, `NGO*X?` | NanumGothic Bold | 2010 NHN Corporation | `svf/dos/OFLNANUM.TXT`, `NANUMGOT.TXT` |

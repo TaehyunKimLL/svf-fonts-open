@@ -14,23 +14,14 @@ This document covers, in order:
 1. Johab as a character set: the bit layout, its relation to the precomposed (완성형) set, the Unicode syllable formula
    (chapter 1).
 2. Johab as a font technique: the idea of sets, the DOS-era set systems (8x4x4 and others) and their selection rules, and
-   the systems this repository's research read out of real files (chapters 2-3).
-3. The structure this repository implements: SVF's JSET block versions 1 and 2, BIG, version 3 (JMAP) and LIST. One
+   systems read from historical files (chapters 2-3).
+3. The structure implemented here: SVF's JSET block versions 1 and 2, BIG, version 3 (JMAP) and LIST. One
    syllable is followed through a real face (chapters 4-6).
 4. The constraints on small-memory targets (MCUs): readers per build, code size, table size, blocks a build cannot read,
    streaming, speed, and how to choose (chapters 7-8).
 
-**Sources.** Every number comes from a file that was read, with its path and section. A few measurements from outside
-the files (the Seoul12 comparison, the QEMU measurement of 2026-11-25) are values recorded on this document's work card
-t_6c1f4069 and are marked so. Historical background that no file confirms is marked "as is generally known". The research
-notes live outside this repository, in the johab-fonts research tree (`notes/*.md`); most of them state that no original
-program was run, only bytes and static disassembly read. The exception is `notes/msx.md`, where some results come from
-running the Korean MSX ROMs in the openMSX 19.1 emulator. Apple data and ROM data are never shown as images here, only as tables
-and numbers.
-
-**Figure faces.** Every pixel figure is drawn from `svf/dos/NEODG16A.SVF` (Neo Dunggeunmo, 16x16 1 bpp, an 8x4x4 jamo set,
-JSET version 1) and `svf/dos/NEODG16.SVF` (the same font precomposed). Both are SIL OFL 1.1 (`svf/dos/NEODGM.TXT`, the row
-`dos/NEODG*` of `web/LICENCES.tsv`). `python3 -I tools/doc_figures_jamo.py` makes them; it writes the same bytes on every
+**Figure faces.** Every pixel figure is drawn from `svf/iolo/SANS8J.SVF` (iolo SANS8J Gothic, 16x16 1 bpp, a converted legacy 8x4x4 jamo set,
+JSET version 1) and `svf/dos/NEODG16.SVF` (a different font used only for comparison). SANS8J comes from iolo 8x4x4-fonts [11]; the font licence is interpreted as OFL-1.1 (`svf/iolo/IOLO.TXT`). `python3 -I tools/doc_figures_jamo.py` makes them; it writes the same bytes on every
 run, and `--check` verifies that.
 
 ## Contents
@@ -54,8 +45,8 @@ precomposed set of KS X 1001 (formerly KS C 5601) gives a code to only **2,350**
 0xB0-0xC8 (`docs/recipes.md` "KS X 1001"). The others have no code and cannot be written in it.
 
 A johab code is one 16-bit word per syllable whose three fields are the initial, medial and final numbers, so all
-11,172 can be written. This repository's documents call it "KS X 1001 annex 3" (the Python `johab` codec;
-`docs/recipes.md` "Encodings"). This document's work card (t_6c1f4069) names it the johab of KS C 5601-1992 annex 3,
+11,172 can be written. This document calls it "KS X 1001 annex 3" (the Python `johab` codec;
+`docs/recipes.md` "Encodings"). KS C 5601-1992 annex 3 is the Johab form assigned to
 Windows code page 1361; in Python `codecs.lookup('cp1361')` returns the `johab` codec (checked 2026-11-26).
 
 | Form | Syllables | Code | Syllable order | Name here |
@@ -83,6 +74,48 @@ flowchart LR
   KS -->|the 2,350 are a subset, by table| UN
   CP -->|codec table| UN
   JO -->|same order, a table per field| UN
+```
+
+### 1.1.1 EUC-KR and CP949
+
+**EUC (Extended Unix Code)** is a family of multibyte encodings built on ISO 2022's G0–G3 code sets for Unix systems, including EUC-JP, EUC-KR, EUC-CN and EUC-TW. Its multibyte character bytes have the high bit set (normally 0xA1–0xFE), so they do not collide with ASCII or C0 controls [1]. In particular, character bytes contain neither NUL nor the path separator `/`, consistent with the Unix character-set requirements [2]. This helps byte-oriented C strings, shells and terminals distinguish ASCII syntax from text [1].
+
+ISO 2022's primary set is G0; auxiliary sets are G1–G3. EUC uses SS2 (0x8E) and SS3 (0x8F) to invoke G2 and G3 for one character, with the assignment of sets defined by each encoding [1]. EUC-KR places the 94×94 character table of KS C 5601 (now KS X 1001) in G1. It adds 0x80 to each row and cell byte (0x21–0x7E), so row r and cell c become `(0xA0+r, 0xA0+c)`. Hangul syllables occupy only 25 rows (2,350 characters), which is why EUC-KR encodes only those 2,350 precomposed syllables [3][4]. RFC 1557's ISO-2022-KR defines the ASCII/KS X 1001 switching used for mail; it carries the same character repertoire with a different escape-based transport convention [5].
+
+**CP949 (Unified Hangul Code, UHC, or extended Wansung)** is Microsoft's Korean Windows code page, listed as ANSI/OEM Korean [6]. Counting the Hangul entries outside EUC-KR in the CP949 mapping table gives **8,822 extension syllables**, with leads 0x81–0xC6 and trails in 0x41–0x5A, 0x61–0x7A or 0x81–0xFE; the EUC-KR assignments remain unchanged [16]. These trail bytes include ASCII letters, unlike ISO 2022's separation of ASCII and multibyte bytes [1][16]. Retaining the original KS assignments also means CP949 byte order is not syllable order [16]. Johab (Windows code page 1361) is a separate encoding [6][12]. Unicode independently defines the U+AC00..U+D7A3 syllable block [7].
+
+| Bytes/code | Use | Note |
+|---|---|---|
+| ASCII 0x00–0x7F | ASCII and C0 | no collision with EUC multibyte bytes |
+| EUC-KR 0xA1–0xFE × 0xA1–0xFE | KS X 1001 94×94 table | 2,350 Hangul syllables |
+| CP949 extension 0x81–0xC6 × (0x41–0x5A, 0x61–0x7A, 0x81–0xFE) | additional 8,822 syllables | outside EUC-KR pairs |
+| Johab (CP1361) | composed-form fields | not an ISO 2022/EUC encoding |
+
+### 1.1.2 Unicode and encoding forms
+
+Unicode defines code points U+0000..U+10FFFF. Its 17 planes are numbered 0..16: plane 0 is the BMP (U+0000..U+FFFF), and planes 1..16 are supplementary planes. ISO/IEC 10646 (UCS) standardizes the same characters and code points; Unicode and UCS maintain that repertoire jointly. Planes 15 and 16 contain private-use areas. SVF jamo pieces use private-use code points U+F0000+n in plane 15, which are not interpreted as ordinary characters.
+
+Hangul has both models. Precomposed syllables occupy U+AC00..U+D7A3 (11,172), laid out by the arithmetic formula in section 1.3. Conjoining jamo use three characters from Hangul Jamo U+1100..U+11FF: 한 is U+1112 U+1161 U+11AB. Hangul Compatibility Jamo U+3131..U+318E are standalone compatibility letters, as used by KS X 1001; Hangul Jamo Extended-A and Extended-B contain Old Hangul jamo. An L·V·T sequence and its precomposed syllable are canonically equivalent. NFC composes L·V·T and NFD decomposes the syllable [8].
+
+An SVF syllable face is keyed by U+AC00..U+D7A3. A conjoining sequence arriving in UTF-8 must be normalized to NFC or shaped before lookup; otherwise three code points do not select one syllable glyph.
+
+Encoding forms turn code points into bytes. UCS-2 stores only the BMP in 16 bits; UTF-16 uses surrogate pairs for planes 1..16 (U+F0000 therefore needs a pair). UCS-4/UTF-32 stores every code point in 32 bits. UTF-8 uses 1–4 self-synchronizing bytes and remains ASCII-compatible. UTF-16LE/BE and UTF-32 specify byte order; a BOM (U+FEFF) can signal that order [9][10].
+
+| Character | EUC-KR | CP949 | Johab | UTF-8 | UTF-16LE | UTF-16BE | UTF-32LE | Cannot represent |
+|---|---|---|---|---|---|---|---|---|
+| A U+0041 | 41 | 41 | 41 | 41 | 41 00 | 00 41 | 41 00 00 00 | — |
+| 한 U+D55C | C7 D1 | C7 D1 | D0 65 | ED 95 9C | 5C D5 | D5 5C | 5C D5 00 00 | — |
+| ㄱ U+3131 | A4 A1 | A4 A1 | 88 41 | E3 84 B1 | 31 31 | 31 31 | 31 31 00 00 | — |
+| 한 (LVT) U+1112 U+1161 U+11AB | — | — | — | E1 84 92 E1 85 A1 E1 86 AB | 12 11 61 11 AB 11 | 11 12 11 61 11 AB | 12 11 00 00 61 11 00 00 AB 11 00 00 | EUC-KR, CP949, Johab |
+| U+F0000 | — | — | — | F3 B0 80 80 | 80 DB 00 DC | DB 80 DC 00 | 00 00 0F 00 | EUC-KR, CP949, Johab |
+
+```mermaid
+flowchart LR
+  C["character: 한 or LVT"] --> P["code points<br/>U+D55C or U+1112 U+1161 U+11AB"]
+  P --> F["encoding / 인코딩<br/>EUC, CP949, UTF-8, UTF-16, UTF-32"]
+  F --> B["bytes"]
+  B --> S["SVF input<br/>UTF-8 text → svf_draw_utf8 → code points"]
+  S --> V["lookup U+AC00..U+D7A3<br/>or normalize/shape first"]
 ```
 
 ### 1.2 The bit layout of the 16-bit johab code
@@ -173,19 +206,9 @@ gaps, so a conversion needs a table per field, such as `JUNG_FIELD` in `tools/ja
 
 ### 1.4 Why the precomposed set stayed (background)
 
-This part is not confirmed by any file of the repository. As is generally known, Korean PC software of the 1980s (Hangul
-BIOSes, word processors, terminal programs) used johab codes widely; the national standard chose the 2,350-syllable
-precomposed set; the Korean editions of MS-DOS and Windows then made the precomposed set their default, and Microsoft's
-extended precomposed code (UHC, code page 949) added the 8,822 syllables outside the standard in unused code space while
-keeping the precomposed bytes, so 11,172 syllables could be written without breaking EUC-KR. What the repository does
-confirm is only the result: CP949 holds all 11,172 and its KS 2,350 equal EUC-KR byte for byte (the table of 1.1, Python
-codec). The names and history of the commercial johab codes (Sambo's KSSM and others) are not documented in the research
-notes. This repository's recipes mention "삼보 조합형 한글 sets" once (`docs/recipes.md` "NKP: a Hercules Hangul TSR with
-cropped pieces"), and the notes only printer drivers and game font files named KSSM (`notes/printer.md`,
-`notes/games.md`).
+Korean PC software used johab codes and fonts widely in the 1980s, while the national standard selected a 2,350-syllable precomposed set [12][13][14]. Microsoft preserved that set's byte assignments and added the remaining syllables in CP949; counting its mapping table gives 8,822 additional syllables and 11,172 in total [16].
 
-Only what a file dates, in order. The year of a standard is the one in its name. CP949 and the Unicode syllable block have
-no date in the sources and stand apart.
+The dated milestones below use the year stated by the standard or source; CP949 and the Unicode syllable block are shown separately because the cited material gives no single introduction date.
 
 ```mermaid
 flowchart LR
@@ -193,7 +216,7 @@ flowchart LR
   B["1987<br/>Samsung SPC-1500<br/>jamo set in ROM<br/>(docs/recipes.md)"]
   C["1988<br/>Mac HangulTalk 1.0<br/>fbit, 45 sets<br/>(notes/mac.md)"]
   D["1989<br/>NKP Hercules TSR<br/>(docs/recipes.md)<br/>1989-1990 HWP 1.x"]
-  E["1992<br/>KS C 5601-1992 annex 3<br/>johab (work card)"]
+  E["1992<br/>KS C 5601-1992 annex 3<br/>johab"]
   F["1994<br/>IBM HBIOS V3.0<br/>8x4x4 + precomposed<br/>(notes/os.md)"]
   A --> B --> C --> D --> E --> F
   subgraph N["no date in the sources"]
@@ -205,6 +228,23 @@ flowchart LR
 What the research material does show is that, whatever the code, many Korean systems of the 1980s and 1990s drew their
 syllables with **johab fonts**. Even Korean MS-DOS 6.22's `HFONT.SYS` holds no syllables, only 1,128 symbols and 4,888
 Hanja, with the note "HBIOS.SYS/COM composes Hangul from its own jamo set" (johab-fonts `notes/os.md`).
+
+
+### 1.4.1 Commercial johab and the KS precomposed-code dispute
+
+Sambo led the open industrial convention called Sambo johab, KSSM or commercial johab [12]. Accounts of the 1980s also distinguish Sambo, Goldstar and Samsung variants [13]. The cited accounts do not establish 1983–84 as the year of Sambo's first code; the date remains uncertain within the 1980s.
+
+Commercial johab uses a top flag bit of 1 followed by 5-bit initial, medial and final fields. Its fill values are initial 1, medial 2 and final 1 for no final [12]. The 1980s account describes hardware Hangul cards, Bosuk-geul running under NKP and Hangul Dokkaebi II BIOSes, and DOS Hangeul’s Hancom two-byte johab extension. It does not identify Bosuk-geul’s exact byte table [13].
+
+The 1987 KS C 5601 precomposed code was adopted for information interchange in administrative-network workstations and educational PCs; the cited source dates adoption to 1987-08-31 [14]. Its two-byte character table provided a common repertoire including Hanja, but omitted many modern Hangul syllables [14]. The precomposed-versus-composed dispute continued; in 1992, annex 3 of KS C 5601 accepted the commercial composed form [12].
+
+| Period | Event | Sources |
+|---|---|---|
+| 1980s | Commercial johab and other variants used in PC software and Hangul display systems | [12][13] |
+| 1987-08-31 | KS C 5601 precomposed code adopted for administrative-network interchange | [14] |
+| 1988–1991 | Administrative-network mainframes I and II developed | [15] |
+| 1992 | KS C 5601 annex 3 accepted a composed form | [12] |
+| 1995 onward | Korean Windows 95 dropped commercial johab support | [12] |
 
 ## 2. Johab as a font technique: sets
 
@@ -222,10 +262,22 @@ johab font is **360 pieces x 32 bytes = 11,520 bytes** (`notes/dos.md` "Format f
 | 48x48 | 103,680 | 676,800 | 3,217,536 |
 
 The piece file sizes are in `notes/dos.md`; the precomposed columns are syllables x cell bytes. SVF shows the same thing:
-for Neo Dunggeunmo at 16 px the precomposed `NEODG16.SVF` is 133,720 bytes (2,905 glyphs: 95 ASCII, 2,803 KS X 1001
+the precomposed Neo Dunggeunmo `NEODG16.SVF` is 133,720 bytes (2,905 glyphs: 95 ASCII, 2,803 KS X 1001
 characters, and 7 syllables outside KS, 갷 닏 떄 섥 슺 텊 햝; the KS characters include U+212B Å of KS row A1, which the
-source TTF lacks: `tools/build/faces.tsv`), and the 8x4x4 jamo set `NEODG16A.SVF` is **16,408 bytes** (440 glyphs, 344 of them pieces) and
+source TTF lacks: `tools/build/faces.tsv`), while the iolo SANS8J 8x4x4 jamo set `SANS8J.SVF` is **15,740 bytes** (439 glyphs, 344 pieces) and
 draws all 11,172 (read with `jamoset.parse_svfn`, as `tools/doc_figures_jamo.py` does).
+
+### 2.1.1 IoU: composition quality
+
+For 1 bpp cells, IoU (intersection over union) is `|A ∩ B| / |A ∪ B|` over inked pixels in composed syllable A and the font's own precomposed glyph B. `tools/jamofit.py`'s `iou()` returns 1.0 when both are blank. In the example below, intersection 2 and union 5 give IoU = 2/5 = 0.4.
+
+```
+A  ##..    B  .##.
+   .#..       .##.
+intersection 2, union 5 → IoU = 2/5 = 0.4
+```
+
+`quality_report()` averages IoU over syllables; `exact` counts identical cells (IoU 1.0). In `svf/jamo-extra/FACES.TSV`, `ks2350` covers the KS 2,350, `all` every syllable the font draws, `freq` weights by corpus frequency, and `top500` averages the 500 most frequent syllables. For 2 bpp, `tools/jamoaa.py`'s `aa_quality()` reports the raw mean absolute level difference (0..3); `maker/quality.py` divides it by 3 for the FACES.TSV quality score (0 is best). IoU ignores blank-cell area and penalizes both missing and extra ink. A one-pixel stroke shift can cost heavily at 16 px, and the metric does not measure legibility.
 
 ### 2.2 Sets: a jamo's shape depends on where it sits
 
@@ -260,15 +312,14 @@ flowchart LR
 One set is 640 bytes of initials (20 x 32), 704 of medials (22 x 32), 896 of finals (28 x 32) (the same note). The last box
 (copy to the screen) is this document's; the note covers the steps up to the OR.
 
-![가 각 고 곡 한 흙: initial (vermillion), medial (blue) and final (green) pieces and their OR; NEODG16A, one square = one pixel](images/jamo-sets/compose.png)
+![가 각 고 곡 한 흙: initial (vermillion), medial (blue) and final (green) pieces and their OR; SANS8J, one square = one pixel](images/jamo-sets/compose.png)
 
-*Figure 1. Pieces and composition in NEODG16A. "벌 n #p" is the piece's set and its SVF piece number (chapter 4). The ㄱ of
+*Figure 1. Pieces and composition in SANS8J. "벌 n #p" is the piece's set and its SVF piece number (chapter 4). The ㄱ of
 가 and 각 (sets 0 and 5) and of 고 and 곡 (sets 1 and 6) changes with the final; the ㅗ of 고 and 곡 is a different piece
-too (medial sets 0 and 2: without and with a final). The medial piece 233 of 흙 is empty: fitting this face put ㅡ's stroke
-into the initial piece 132 (section 4.3). Column headings: 초성 = initial, 중성 = medial, 종성 = final, 조합 (색) =
+too (medial sets 0 and 2: without and with a final). The medial ㅡ pieces are non-empty in this converted face. Column headings: 초성 = initial, 중성 = medial, 종성 = final, 조합 (색) =
 composed (in colour), 조합 = composed; "벌 n" = set n, "(종성 없음)" = no final.*
 
-One 16x16 cell split into its pieces (NEODG16A's 한: `I` initial piece 113, `M` medial piece 215, `F` final piece 239,
+One 16x16 cell split into its pieces (SANS8J's 한: `I` initial piece 113, `M` medial piece 215, `F` final piece 239,
 `.` blank; no pixel is shared):
 
 ```
@@ -286,7 +337,7 @@ One 16x16 cell split into its pieces (NEODG16A's 한: `I` initial piece 113, `M`
  10  ..FF............
  11  ..FF............
  12  ..FF............
- 13  ...FFFFFFFFFF...
+ 13  ..FFFFFFFFFFF...
  14  ................
  15  ................
 ```
@@ -361,14 +412,14 @@ flowchart TD
 ```
 
 "ㄱ or ㅋ" is `KK = (0, 15)`; as its comment says, "gg is NOT in the group" (ㄲ is not). `tools/doc_figures_jamo.py` checks,
-while drawing figure 2, that each example syllable really uses that set in NEODG16A's tables.
+while drawing figure 2, that each example syllable really uses that set in SANS8J's tables.
 
 ![the initial ㄱ in its 8 sets, the medials ㅏ and ㅗ in their 4 sets, the final ㄱ in its 4 sets, each with a syllable that uses it](images/jamo-sets/sets.png)
 
-*Figure 2. NEODG16A's sets. The initial ㄱ differs in every set. The medial ㅏ is shorter with a final (sets 2, 3); in this
+*Figure 2. SANS8J's sets. The initial ㄱ has 7 distinct bitmaps across 8 sets. The medial ㅏ is shorter with a final (sets 2, 3); in this
 font ㅏ has the same bitmap after ㄱ/ㅋ (sets 0, 2) as after the others (1, 3), and ㅗ does not. The final ㄱ has the same
 bitmap in sets 1 and 3. Labels: 초성 = initial, 중성 = medial, 종성 = final, 벌 = set. Equal bitmaps still have their own
-piece numbers: of the 344 pieces, 270 bitmaps are distinct
+piece numbers: of the 344 pieces, 283 bitmaps are distinct
 (compared through `jamoset.unpack`).*
 
 Inside the 8x4x4 file (`notes/hanme-dokkaebi.md` section 2, `docs/recipes.md` "Other DOS-era Korean fonts"): 360 slots,
@@ -419,7 +470,7 @@ systems by its own rule (chapter 4).
 - **IBM PC DOS HBIOS V3.0**: `$KGOZN16`/`$KMYZN16` are 360 x 32-byte 8x4x4 sets; `$KMYZN24` is a 360-piece set plus the
   2,350 precomposed syllables (`notes/os.md`).
 - **Dokkaebi**: `DKBBG.FNT` (15,584 bytes) is an 11,520-byte 8x4x4 set plus 127 symbols, and the driver `DKBB.COM` holds
-  the same bytes at offset 96 (`notes/hanme-dokkaebi.md` section 2). The repository finds the font inside the driver and
+  the same bytes at offset 96 (`notes/hanme-dokkaebi.md` section 2). Driver analysis finds the font inside the driver and
   makes a jamo set of it (`docs/recipes.md` "Dokkaebi: the font inside the driver"). The DKB3 form (912 glyphs) stores the
   initial+medial pairs precomposed and ORs only the final: fewer overlays, more glyphs (the same note, 2.1).
 - **NKP** (a Hercules TSR, 1989) stores only the rows a piece needs, not the full cell, saving bytes; each piece record
@@ -429,14 +480,14 @@ systems by its own rule (chapter 4).
 
 The three Korean VGA cards of the 86Box ROM set (Trigem, Kasan, ATI) each have a 512 KB KS C 5601 font ROM of 16,384
 32-byte slots, a 128 x 128 grid: **a precomposed grid**, not a johab font; 가 is slot 0x1821 (`docs/recipes.md` "Korean VGA
-font ROMs (86Box)"). The repository can fit an 8x4x4 jamo set to that precomposed face, but many syllables are not drawn
+font ROMs (86Box)"). The tools can fit an 8x4x4 jamo set to that precomposed face, but many syllables are not drawn
 as an OR of pieces, and the IoU stays at 0.968 / 0.872 / 0.919. Korean MS-DOS 6.22 is the opposite case: its font file
 `HFONT.SYS` has no syllables and HBIOS composes them from its own jamo set (section 1.4).
 
 ### 3.3 Mac: rules (HangulTalk 1.0) and a table (HangulTalk 7.1.x)
 
 - **HangulTalk 1.0** (System 4.1) `fbit` fonts (Gotic12, Munjo12/16/24) hold 45 glyph sets; the composition rule is the
-  18 selection tables of the 68k 'fdef' driver (`notes/mac.md` "Format 1"). That is a rule. The repository's
+  18 selection tables of the 68k 'fdef' driver (`notes/mac.md` "Format 1"). That is a rule. The project's
   `--layout mac-fbit-45sets` moves it into a JSET as it is: Munjo24 gives 653 pieces, 8 lead x 4 tail classes, 20/15/4
   sets, 36,660 bytes, and all 11,172 syllables equal that rule (`docs/recipes.md` "Classic Mac Korean bitmap fonts").
 - **HangulTalk 7.1.x** Seoul12, AppleGothic12/24 and AppleMyungjo12/24 are `fbit` type 3: 482 glyphs (2 banks x 241) and
@@ -478,7 +529,7 @@ cannot be composed.
 - **Daewoo MSX CPC-300/400S**: the upper 16 KB of the extension ROM hold 6 initial sets x 20, 2 medial sets x 28 and
   2 final sets x 29 pieces, the selection read from the Hangul BASIC ROM routine (`notes/msx.md`).
 - **OS/2 Warp 4 Korean** system DBCS fonts hold the precomposed set (all of KS X 1001), compressed with a Huffman code and
-  a prediction (`notes/os2-dbcs.md`); the repository decodes them into a precomposed face and fits jamo sets to it
+  a prediction (`notes/os2-dbcs.md`); the tools decode them into a precomposed face and fits jamo sets to it
   (`docs/recipes.md` "OS/2 Korean fonts (완성형) to a precomposed face and a jamo set").
 
 ## 4. Jamo sets in SVF: JSET version 1
@@ -516,17 +567,17 @@ The JSET block is where the SVFN header's bytes 36 (offset) and 40 (size) say; h
 values are little-endian (`spec/SVF.md` "Jamo-set fonts").
 
 Where the JSET sits in a whole SVFN file. The header's offset fields point at each table; their order may differ between
-files. The numbers in brackets are NEODG16A's (16,408 bytes; `spec/SVF.md` "Cells, layout bytes and reserved bytes"; the
+files. The numbers in brackets are SANS8J's (15,740 bytes; `spec/SVF.md` "Cells, layout bytes and reserved bytes"; the
 header read with `HEADER3` of `jamoset.py`).
 
 ```mermaid
 flowchart TD
-  H["header, 48 bytes<br/>magic SVFN, version 3, flags 7<br/>(bit 0 metrics, bit 1 JSET, bit 2 marks)"]
-  H -->|"byte 32"| C["code point table (48)<br/>440 x (u32 cp, u32 glyph)<br/>U+F0000 + n here too"]
-  H -->|"bytes 36, 40"| J["JSET block (3,568, 1,101 bytes)"]
-  H -->|"byte 20"| M["metrics table (4,672)<br/>440 x 4 bytes"]
-  H -->|"byte 44"| O["glyph offset table (6,432)<br/>441 entries"]
-  H -->|"bytes 24, 28"| D["glyph data (8,196, 8,212 bytes)<br/>records: x0 y0 wb h + rows"]
+  H["header, 48 bytes<br/>magic SVFN, version 3, flags 3<br/>(bit 0 metrics, bit 1 JSET)"]
+  H -->|"byte 32"| C["code point table (48)<br/>439 x (u32 cp, u32 glyph)<br/>U+F0000 + n here too"]
+  H -->|"bytes 36, 40"| J["JSET block (3,560, 1,101 bytes)"]
+  H -->|"byte 20"| M["metrics table (4,664)<br/>439 x 4 bytes"]
+  H -->|"byte 44"| O["glyph offset table (6,420)<br/>440 entries"]
+  H -->|"bytes 24, 28"| D["glyph data (8,180, 7,560 bytes)<br/>records: x0 y0 wb h + rows"]
   O -.->|start of record i| D
 ```
 
@@ -564,8 +615,8 @@ The size is `12 + 19 + 28 + 3 x LC x 21 x TC + 2 x (NI x 19 + NM x 21 + NF x 27 
 | System | LC x TC | NI / NM / NF | v1 block | Real face |
 |---|---|---|---:|---|
 | 6x2x1 | 1 x 2 | 6 / 2 / 1 | 653 | JSET of `svf/dos/NEODG16G.SVF`: 653 |
-| 8x4x4 | 2 x 2 | 8 / 4 / 4 | 1,101 | JSET of `svf/dos/NEODG16A.SVF`: 1,101 |
-| SEOUL12J (section 6.4) | 8 x 4 | 9 / 6 / 3 | 2,933 | the value recorded on the work card: 2,933 |
+| 8x4x4 | 2 x 2 | 8 / 4 / 4 | 1,101 | JSET of `svf/iolo/SANS8J.SVF`: 1,101 |
+| SEOUL12J (section 6.4) | 8 x 4 | 9 / 6 / 3 | 2,933 | 2,933 |
 | 8 x 8, 24/16/16 | 8 x 8 | 24 / 16 / 16 | 6,641 | `svf/jamo-extra/SGDAY16.SVF`: 6,641 |
 | 12 x 12, 24/16/16 | 12 x 12 | 24 / 16 / 16 | 11,681 | `svf/jamo-extra/GOTHA16.SVF` and others: 11,681 |
 | standard maximum | 12 x 12 | 32 / 24 / 16 | 12,321 | (the maximum of `spec/SVF.md`) |
@@ -574,13 +625,13 @@ The size is `12 + 19 + 28 + 3 x LC x 21 x TC + 2 x (NI x 19 + NM x 21 + NF x 27 
 The real-face column comes from reading every face of `svf/dos` and `svf/jamo-extra` with `jamoset.unpack`. Every jamo
 face of `svf/` is version 1 (`spec/SVF.md` "When to use version 2").
 
-### 4.3 Following one syllable through a real face: 한 in NEODG16A
+### 4.3 Following one syllable through a real face: 한 in SANS8J
 
-`svf/dos/NEODG16A.SVF` (16,408 bytes, 16x16 1 bpp, 440 glyphs) has its JSET block at file offset 3,568, 1,101 bytes long,
+`svf/iolo/SANS8J.SVF` (15,740 bytes, 16x16 1 bpp, 439 glyphs) has its JSET block at file offset 3,560, 1,101 bytes long,
 read with `parse_svfn` and `unpack` of `tools/jamoset.py` (`python3 -I`).
 
-**First 12 bytes:** `4a 53 45 54 | 01 00 | 02 | 02 | 08 | 04 | 04 | 10` = "JSET", version 1, LC 2, TC 2, NI 8, NM 4, NF 4,
-advance 16.
+**First 12 bytes:** `4a 53 45 54 | 01 00 | 02 | 02 | 08 | 04 | 04 | 00` = "JSET", version 1, LC 2, TC 2, NI 8, NM 4, NF 4,
+advance 0 (use the 16-pixel cell width).
 
 **Offsets inside the block** (from the layout): leadClass 12, tailClass 31, initSet 59, medSet 143, finSet 227 (each
 2 x 21 x 2 = 84 bytes), initPiece 311 (8 x 19 x 2 = 304), medPiece 615 (168), finPiece 783 (216), compatPiece 999 (102),
@@ -612,28 +663,23 @@ tailClass  none = 0, the other 27 = 1
 The fin rows of the no-final classes (tc0) are all 0 and never read, so they are left out. The table is the 8x4x4 rule
 of section 2.3 written out.
 
-**The piece tables** are simple in this face: initial set s, jamo L is piece `19s + L` (0..151); medial `152 + 21s + V`
-(152..235); final `236 + 27s + T - 1` (236..343). None of the 344 piece-table slots is the blank
-sentinel 0xFFFF, but the four pieces of the medial ㅡ (170, 191, 212, 233) are empty bitmaps: the face is a fit to the
-precomposed one (`--from-svf`, section 4.4), and the fit put ㅡ's stroke into the initial piece (흙 in figure 1). So the
-compatibility jamo ㅡ (U+3161), whose compatPiece is 170, draws blank as well (`docs/recipes.md` "An existing SVF"). compatPiece names the first set,
-e.g. ㄱ -> 0, ㄳ -> 238 (final set 0), ㅏ -> 152.
+**The piece tables** are simple in this face: initial set s, jamo L is piece `19s + L` (0..151); medial `152 + 21s + V` (152..235); final `236 + 27s + T - 1` (236..343). None of the 344 piece-table slots is the blank sentinel 0xFFFF, and all four medial ㅡ pieces (170, 191, 212, 233) are non-empty in this converted face. compatPiece names the first set, e.g. ㄱ -> 0, ㄳ -> 238 (final set 0), ㅏ -> 152.
 
 **Following 한 (U+D55C):**
 
 | Step | Computation | Value | Block offset (file offset) |
 |---|---|---|---|
 | 1. decompose | s = 0xD55C - 0xAC00 = 10,588 | L = 18 (ㅎ), V = 0 (ㅏ), T = 4 (ㄴ) | |
-| 2. classes | leadClass[18], tailClass[4] | lc = 1, tc = 1 | 30 (3,598), 35 (3,603) |
+| 2. classes | leadClass[18], tailClass[4] | lc = 1, tc = 1 | 30 (3,590), 35 (3,595) |
 | 3. cell | (1 x 21 + 0) x 2 + 1 | cell = 43 | |
-| 4. sets | initSet[43], medSet[43], finSet[43] | 5, 3, 0 | 102 (3,670), 186 (3,754), 270 (3,838) |
-| 5. pieces | initPiece[5 x 19 + 18 = 113], medPiece[3 x 21 + 0 = 63], finPiece[0 x 27 + 4 - 1 = 3] | 113, 215, 239 | 537 (4,105), 741 (4,309), 789 (4,357) |
+| 4. sets | initSet[43], medSet[43], finSet[43] | 5, 3, 0 | 102 (3,662), 186 (3,746), 270 (3,830) |
+| 5. pieces | initPiece[5 x 19 + 18 = 113], medPiece[3 x 21 + 0 = 63], finPiece[0 x 27 + 4 - 1 = 3] | 113, 215, 239 | 537 (4,097), 741 (4,301), 789 (4,349) |
 | 6. glyphs | U+F0000 + n | U+F0071, U+F00D7, U+F00EF | looked up in the code point table |
 | 7. compose | OR of the three cells | the 16x16 picture of 2.2 | |
 
 ![the JSET version 1 lookup of 한: class tables, cell 43 of the three set tables, the three pieces and their OR](images/jamo-sets/lookup.png)
 
-*Figure 3. Looking up 한 in NEODG16A. The yellow cells are the ones read. Labels: 초성 = initial, 중성 = medial, 종성 = final,
+*Figure 3. Looking up 한 in SANS8J. The yellow cells are the ones read. Labels: 초성 = initial, 중성 = medial, 종성 = final,
 셀 = cell; the first line reads "initial ㅎ = 18, medial ㅏ = 0, final ㄴ = 4".*
 
 **쀍 (U+C00D, not in KS):** L = 8 (ㅃ), V = 15 (ㅞ), T = 9 (ㄺ); lc = 1, tc = 1; cell = (21 + 15) x 2 + 1 = 73; sets 7, 3, 2;
@@ -668,17 +714,14 @@ returns the composed cell (`docs/c-renderer-guide.md` chapter 10).
 
 ### 4.4 Is it the same as the precomposed face?
 
-NEODG16A is the Neo Dunggeunmo TTF rasterised at 16 px and fitted to 8x4x4 (`tools/build/faces.tsv`: `jamoset ...
---layout 844`). `tools/doc_figures_jamo.py` compares the KS 2,350 with the precomposed `NEODG16`: **all 2,350 are
-pixel-identical** (mean IoU 1.0000), because the original is a pixel font drawn with pieces in mind. A rasterised outline
-font is not: NanumGothic Bold at 16 px fitted to 8x4x4 gave IoU 0.795 and 126 exact syllables (`docs/recipes.md`
-"Choosing the number of sets (벌 수)").
+SANS8J is an iolo conversion of a legacy 8x4x4 bitmap face, converted from its SANS .fnt source with `jamoset.py --layout 844 --check`.
+The figure script compares it with the unrelated precomposed `NEODG16` only as a cross-font illustration: 274 of the KS 2,350 syllables match exactly, with mean IoU 0.9498. This does not measure SANS8J conversion fidelity; no precomposed SANS8J twin is distributed. A rasterised outline font fitted to 8x4x4 can lose fidelity: NanumGothic Bold at 16 px gave IoU 0.795 and 126 exact syllables (`docs/recipes.md` "Choosing the number of sets (벌 수)").
 
-![the same syllables: precomposed NEODG16, 8x4x4 NEODG16A, and their difference](images/jamo-sets/precomposed.png)
+![comparison example: precomposed NEODG16 and 8x4x4 SANS8J](images/jamo-sets/precomposed.png)
 
-*Figure 4. Top: precomposed. Middle: composed from the jamo set. Bottom: difference (grey = both, orange = precomposed
-only, sky blue = jamo set only); 0 pixels for every syllable of this font. Labels: 완성형 = precomposed, 조합형 = jamo set,
-차이 = difference; legend 둘 다 = both, 완성형에만 = precomposed only, 조합형에만 = jamo set only.*
+*Figure 4. Top: the comparison precomposed face. Middle: SANS8J composition. Bottom: their difference (grey = both,
+orange = comparison only, sky blue = SANS8J only). Because the sources differ, this is an illustration rather than a
+quality claim. Labels: 완성형 = precomposed, 조합형 = jamo set, 차이 = difference.*
 
 ### 4.5 Validation
 
@@ -743,12 +786,12 @@ a byte, so it is not read in one go: each field gets its own two-byte fetch (a f
 bytes always hold; `cell_set`).
 
 **Why it is slower.** Version 1 reads a cell as a byte and a piece as a u16. Version 2 fetches two bytes, shifts and masks
-for each set number, and counts the presence bits below a slot for each piece (`popcount(presenceBits & ~aliasBits &
-below(j))`); the Pico cost is in 5.3. The 66 jamo faces of this open repository's `svf/` (all version 1) in version 2
-would take the JSET bytes from 621,312 to 301,767; `--jset-version auto`, which writes version 2 only when it saves at least
-1,024 bytes (`jamoset.choose_jset_version`), changes 57 faces and gives 308,871 (measured in memory with `jamoset.unpack`
-and `pack_jset` on 2026-11-26). The 95 faces / 652,431 / 310,160 / 58 faces / 337,695 of `spec/SVF.md` "When to use
-version 2" were measured on the original repository's 95 faces.
+for each set number, and counts the presence bits below a slot for each piece (`popcount(presenceBits & ~aliasBits & below(j))`);
+the Pico cost is in 5.3. The 67 jamo faces of `svf/` (all version 1) in version 2
+would take the JSET bytes from 622,413 to 302,039; `--jset-version auto`, which writes version 2 only when it saves at least
+1,024 bytes (`jamoset.choose_jset_version`), changes 57 faces and gives 309,972 (measured in memory with `jamoset.unpack`
+and `pack_jset`). The 95 faces / 652,431 / 310,160 / 58 faces / 337,695 of `spec/SVF.md` "When to use
+version 2" describe a separate 95-face measurement set.
 
 ### 5.2 BIG: only the limits
 
@@ -765,8 +808,8 @@ The class limits were 8 and 8 until 2026-10 (largest block 6,641 bytes) and 12 a
 
 From `c/bench/MEASUREMENTS.md` "Before -> after JSET v1 + v2", rp2040js at 125 MHz, MONO_PAGE `-Os`, cycles per
 iteration. BASE is the version 1 reader of main before the change, "v1 face" the version 1 face in the current build,
-"v2 copy" a version 2 copy of the same face. The face is HGKEY6J (6x2x1, not in the open repository). Converting the 8x4x4
-NEODG16A to version 2 takes its JSET from 1,101 to 272 bytes and the file from 16,408 to 15,576 bytes (`docs/recipes.md`
+"v2 copy" a version 2 copy of the same face. The face is HGKEY6J (6x2x1, not in the project). Converting the 8x4x4
+SANS8J to version 2 takes its JSET from 1,101 to 272 bytes and the file from 15,740 to 14,911 bytes (`docs/recipes.md`
 "An existing SVF").
 
 | Case | BASE | v1 face | v2 copy | v2 vs BASE | v2 vs v1 face |
@@ -930,12 +973,9 @@ status bits (`spec/SVF.md` "Reader statuses", `c/include/svf.h` lines 75-86):
 
 ### 6.4 Seoul12: one font, two structures
 
-Seoul12 (12 px) of Mac HangulTalk 7.1.x can be put into SVF both ways, which makes it a good comparison. It is Apple data:
-no byte of it is in this repository and no image of it is shown here. The numbers below are the measurements recorded on
-work card t_6c1f4069, `docs/recipes.md` "Classic Mac Korean bitmap fonts", and `c/ports/arduino/presets/seoul12.manifest`
-of the original (private) repository.
+Seoul12 (12 px) of Mac HangulTalk 7.1.x can be put into SVF both ways, which makes it a good comparison. The file sizes below are documented in `docs/recipes.md`, "Classic Mac Korean bitmap fonts"; the preset sizes describe the Uno conversions.
 
-**A note on the name.** "SEOUL12J" here is the name the original repository's manifest and Uno presets use: the
+**A note on the name.** "SEOUL12J" here names the Uno preset's
 **derived** face (rule form, with Latin, 12,624 bytes). The command examples of `docs/recipes.md` "Classic Mac Korean bitmap
 fonts" give the same name `SEOUL12J.SVF` to the **direct** output (JMAP) and `SEOUL12D.SVF` to the derived one. The table
 calls them "original structure" (direct) and "SEOUL12J" (derived), and compares sizes with and without Latin alike.
@@ -953,15 +993,12 @@ calls them "original structure" (direct) and "SEOUL12J" (derived), and compares 
 | Tool | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
 
 The four file sizes (15,016 / 9,716 / 17,924 / 12,624) are the runs of `docs/recipes.md` "Classic Mac Korean bitmap fonts".
-The structure rows (block form, classes, sets, pieces, JSET bytes, regular / guessed counts) are recorded on work card
-t_6c1f4069.
+The structure rows give the block form, classes, sets, pieces, JSET bytes and regular / guessed counts for those conversions.
 
 **Why the rule form could not use the Mac pieces as they are.** The Mac table picks the medial (and the finals ㄱ ㄹ ㅇ)
 very finely by initial. With every Mac slot a piece, two initials that use a different medial or final glyph with the same
 medial and final cannot share a lead class. Of the 171 initial pairs (the `slot_conflicts` docstring of
-`tools/macfbit_svf.py`), Seoul12 has **130** that conflict that way, which no 12 lead classes can separate (130 is
-recorded on work card t_6c1f4069; it is the `slot_conflict_pairs` that `macfbit_svf.py analyse` prints, not re-measured here
-because this repository has no Apple input). So the `derived` mode recomputes
+`tools/macfbit_svf.py`), Seoul12 has **130** that conflict that way, which no 12 lead classes can separate. This is the `slot_conflict_pairs` value printed by `macfbit_svf.py analyse`. So the `derived` mode recomputes
 the pieces (the module docstring of `tools/macfbit_svf.py`):
 
 - medial piece of a cell = **AND** of the Mac medial glyphs of the cell's KS syllables;
@@ -993,8 +1030,7 @@ both are extrapolation, not Mac output.
 and a rule-form block that uses the Mac slots as pieces directly may be possible. **This has not been measured yet**:
 its block size, its composition and what it does with the syllables outside KS are all open.
 
-**Shrunk for MCUs.** The Uno presets of Seoul12 are SEOUL12J shrunk with `tools/jamomerge.py merge` (the original
-repository's `c/ports/arduino/README.md` "Seoul presets", `presets/seoul12.manifest`); all are SVFN v3 `mcu-strict`, JSET
+**Shrunk for MCUs.** The Uno presets of Seoul12 are SEOUL12J shrunk with `tools/jamomerge.py merge` (the Uno preset record); all are SVFN v3 `mcu-strict`, JSET
 version 1, ASCII included.
 
 ```mermaid
@@ -1006,13 +1042,9 @@ flowchart LR
   R1 --> S5["S5K 5,548<br/>(where no move was left)"]
 ```
 
-(The values of `c/ports/arduino/README.md` "Seoul presets" and `presets/seoul12.manifest` in the original repository; the
-one second merge writes S7K, S6K and S5K. This repository's plan `docs/superpowers/plans/2026-10-26-jset-v3-jmap-big.md`
-predates them and gives S8K = 8,136 (rec1/SM8K) and a second merge `--soft --points 7168 6144`; the README corrected the
-second merge to `--start-soft --points 7168 6144 4096` after the original run's logs, kept the 8,136-byte face as S8K0 and
-made the 8,160-byte face with merge 42 reverted the S8K.)
+The second merge produces S7K, S6K and S5K in one run with `--start-soft --points 7168 6144 4096`. S8K0 is the 8,136-byte intermediate face; S8K is the 8,160-byte variant with merge 42 reverted.
 
-| Preset | Bytes | Uno flash (`c/cross/SIZES.md` "Uno presets" of the original repository; not in this repository's SIZES.md) |
+| Preset | Bytes | Uno flash (`c/cross/SIZES.md` "Uno presets" of the measurement source) |
 |---|---:|---:|
 | S8K | 8,160 | 21,730 |
 | S7K | 7,012 | 20,582 |
@@ -1020,8 +1052,7 @@ made the 8,160-byte face with merge 42 reverted the S8K.)
 | S5K | 5,548 | 19,118 |
 | (input) SEOUL12J | 12,624 | |
 
-Being derived from Apple data, the faces **never enter git**; the repository keeps names, sizes and sha256 only. This open
-repository leaves the Uno Seoul presets out entirely (`docs/STATUS.md`, the note on the open edition).
+These Apple-derived faces are not distributed; their names, sizes and sha256 values identify the measured variants (`docs/STATUS.md`, the note on the open edition).
 
 ## 7. MCU constraints
 
@@ -1225,13 +1256,13 @@ On the Pico (RP2040, rp2040js at 125 MHz), MONO_PAGE `-Os`, a version 1 face tak
 48.39 µs and `syl_bwelk` 58.23 µs; by `docs/STATUS.md` the first meets its 50 µs budget, the second misses it at `-Os` and
 meets it at `-O2` (47.18 µs). A version 2 copy took 6-10 % more than the version 1 face of the same build in the earlier
 2026-10-26 run (against 5.3's 6,091 / 7,321 cycles). The face of these
-measurements is HGKEY6J (6x2x1), which the open repository does not carry, not re-measured with NEODG16G (`docs/STATUS.md`).
+measurements is HGKEY6J (6x2x1), which the measurement set does not include, not re-measured with NEODG16G (`docs/STATUS.md`).
 These are emulated figures; the hardware's XIP cache is not modelled (`docs/c-renderer-guide.md` 13.5).
 
 ### 7.6 Seoul12 in three forms, measured on QEMU (2026-11-25)
 
 The text size of the mono example's firmware (SSD1306 128x64) on qemu-pico's `raspi-pico2` (Pico 2, Arm). This
-measurement is recorded on work card t_6c1f4069 and is not yet in the repository's measurement files.
+measured on qemu-pico on 2026-11-25; the result is not in the measurement files.
 
 | Face | Form | Reader needed | Firmware text |
 |---|---|---|---:|
@@ -1255,7 +1286,7 @@ structure draws only the KS 2,350.
   ```
 
   `CMAKE_C_FLAGS` **replaces** the CPU flags the Pico SDK sets, and the `CFLAGS` environment variable is appended only on
-  the first configure (recorded on work card t_6c1f4069); the target definition is the safe place.
+  the first configure (documented in the build record); the target definition is the safe place.
 - **The same value in every translation unit.** Give the switches to the library sources and to every file that
   includes `svf.h` (the guide, chapters 2 and 12); `SVF_JMAP` in particular changes the layout of `svf_face`.
 - **Arduino (arduino-cli):** use `compiler.c.extra_flags` and `compiler.cpp.extra_flags`, not `build.extra_flags`, which
@@ -1268,7 +1299,7 @@ structure draws only the KS 2,350.
 | Budget (flash for the face) | Recommended form | Reader | Example |
 |---|---|---|---|
 | about 6-11 KB, 2 KB of RAM (Uno class) | a JSET v1 with few sets (6x2x1, or a shrunk 8x4x4) | v1 only (the AVR default) | `NEODG16G` 6x2x1: file 10,684, 10,124 in `mcu-strict`, Uno image 23,676 text (`c/ports/arduino/README.md`); Seoul S5K-S8K 5,548-8,160 |
-| about 16-20 KB | 8x4x4 JSET v1 | v1 | `NEODG16A` 16,408; 16 px 8x4x4 sets made from DOS raw fonts, ROMs and OS/2: 15,556-18,576 (`docs/recipes.md`) |
+| about 16-20 KB | 8x4x4 JSET v1 | v1 | `SANS8J` 15,740; 16 px 8x4x4 sets made from DOS raw fonts, ROMs and OS/2: 15,556-18,576 (`docs/recipes.md`) |
 | a face with big tables (12 x 12 classes) in flash or RAM | the same face as JSET v2 | v2 (+535 B on M0+) | 11,681 -> 5,324 + aliases; composition 6-10 % slower (5.3) |
 | streaming (SD and the like), tight RAM | v2 + a syllable cache | v2 | the JSET region sits in the tables buffer |
 | a large MCU (hundreds of KB of flash) | an adaptive JSET v1, BIG if needed | v1 (+BIG) | `svf/jamo-extra/GOTHA16.SVF` 60,992 |
@@ -1326,3 +1357,22 @@ In order:
 | `docs/tools.md` | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | `tools/jamoset.py` | the set system tables (`I844_*`, `F844`, `_844` and others), `pack`, `unpack`, `pieces_of` |
 | johab-fonts `notes/*.md` | analyses of the original fonts and programs (dos, mac, hanme-dokkaebi, printer, os, os2-dbcs, msx, apple2, hwp1, x11-unix, games) |
+
+## References
+
+[1] [Wikipedia: Extended Unix Code](https://en.wikipedia.org/wiki/Extended_Unix_Code)
+[2] [The Open Group, XBD chapter 6: Character Set](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap06.html)
+[3] [Wikipedia: EUC-KR](https://en.wikipedia.org/wiki/EUC-KR)
+[4] [KS X 1001 overview, Unicode](https://www.unicode.org/Public/MAPPINGS/EASTASIA/KSC/KSX1001.TXT)
+[5] [RFC 1557, ISO-2022-KR](https://www.rfc-editor.org/rfc/rfc1557)
+[6] [Microsoft Learn: Code page identifiers](https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers)
+[7] [Unicode Standard, Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G3307)
+[8] [Unicode Standard, Chapter 3.12 Conjoining Jamo Behavior](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24649)
+[9] [Unicode Standard, Chapter 2.5 Encoding Forms](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G25564)
+[10] [Unicode Standard, Chapter 2.6 Encoding Schemes](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G12709)
+[11] [iolo 8x4x4-fonts](https://github.com/iolo/8x4x4-fonts)
+[12] [Korean commercial johab encoding](https://ko.wikipedia.org/wiki/한글_상용_조합형_인코딩)
+[13] [Hangul representations in the 1980s](https://pat.im/1150)
+[14] [National Institute of Korean Language, background of the precomposed code](https://www.korean.go.kr/nkview/nklife/1990_2/21_9.html)
+[15] [ET News, administrative mainframe history](https://www.etnews.com/201209110614)
+[16] [Unicode CP949 mapping table](https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP949.TXT)

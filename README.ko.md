@@ -16,6 +16,28 @@ ScummVM 한글 고해상도 텍스트 작업의 폰트 쪽에서 출발했으며
 폰트로부터 어떻게 만드는지, 그리고 다른 종류의 한글 폰트(TrueType/OpenType 아웃라인, X11 BDF/PCF, DOS johab, 클래식
 Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설명한다.
 
+## 문서
+
+### 먼저 읽기
+
+- [상태](docs/STATUS.md) — 개발 상태, 연표와 알려진 공백.
+- [명세](spec/SVF.ko.md) — SVFN v3 파일 형식과 리더 계약.
+
+### 폰트와 형식
+
+- [조합형과 자모 세트](docs/jamo-sets.ko.md) — 한글 인코딩, 벌 규칙과 SVF JSET 예.
+
+### 도구와 레시피
+
+- [도구](docs/tools.ko.md) — 폰트 변환·검사 명령어.
+- [레시피](docs/recipes.ko.md) — 아웃라인, 비트맵, DOS, ROM/MAME, OS/2, HWP, TTF 자모와 기존 SVF 변환 절차.
+
+### C 렌더러와 응용 프로그램
+
+- [C 렌더러 가이드](docs/c-renderer-guide.ko.md) — 통합, 타깃, 메모리와 한글 렌더링.
+- [데스크톱 앱](docs/desktop-app.ko.md) — SVF maker 데스크톱 앱의 빌드와 사용법.
+- [Maker 데스크톱](docs/maker-desktop.ko.md) — 데스크톱 maker 구현과 패키징.
+
 ## 규칙
 
 - 이 저장소가 폰트의 마스터이다. 페이스는 여기서만 만들고, 바꾸고, 검사한다. 사용자는 있는 그대로 가져다 쓴다.

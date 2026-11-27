@@ -53,7 +53,7 @@ def svf_faces(svf_dir):
     return sorted(out)
 
 
-# The faces in the tree today (116 in this repository); derived, so adding a face only needs its LICENCES.tsv row.
+# The faces in the tree today (117 in this repository); derived, so adding a face only needs its LICENCES.tsv row.
 EXPECTED_FACES = len(svf_faces(SVF_DIR))
 
 
@@ -374,8 +374,8 @@ class TestIndex(unittest.TestCase):
         n = len(self.faces)
         sub = sum(e["subset"] for e in self.faces)
         lo = sum(e["latin_only"] for e in self.faces)
-        self.assertEqual((n, n - sub, lo, sub), (116, 85, 2, 31))
-        self.assertEqual(self.stdout.strip(), "116 faces, 85 listed (2 latin-only), 31 subset, 0 unmapped")
+        self.assertEqual((n, n - sub, lo, sub), (117, 86, 2, 31))
+        self.assertEqual(self.stdout.strip(), "117 faces, 86 listed (2 latin-only), 31 subset, 0 unmapped")
 
     def test_every_listed_face_has_a_family(self):
         for e in self.faces:
@@ -1402,8 +1402,8 @@ class TestPage(unittest.TestCase):
     def test_every_face_renders(self):
         with open(os.path.join(self.out, "faces-report.tsv"), encoding="utf-8") as f:
             rows = [line.rstrip("\n").split("\t") for line in f if line.strip()]
-        self.assertEqual(len(rows), 116)
-        self.assertEqual(len({r[0] for r in rows}), 116, "one row a face")
+        self.assertEqual(len(rows), 117)
+        self.assertEqual(len({r[0] for r in rows}), 117, "one row a face")
         for key, err, ink, _ms, _case in rows:
             with self.subTest(face=key):
                 self.assertEqual(err, "0")
@@ -1419,9 +1419,9 @@ class TestPage(unittest.TestCase):
         """Case A (pangram + ASCII) and the supplement case are counted separately; every other case reports."""
         with open(os.path.join(self.out, "cases.txt"), encoding="utf-8") as f:
             text = f.read()
-        m = re.search(r"case A: 116 faces, (\d+) hold .* drew ink\ncase supplement: (\d+) ", text)
+        m = re.search(r"case A: 117 faces, (\d+) hold .* drew ink\ncase supplement: (\d+) ", text)
         self.assertIsNotNone(m, text)
-        self.assertEqual(int(m.group(1)) + int(m.group(2)), 116)
+        self.assertEqual(int(m.group(1)) + int(m.group(2)), 117)
         self.assertGreater(int(m.group(2)), 0)
         for name in ("fetch-once", "C:", "D:", "E:"):
             self.assertIn("case " + name if name[0] != "f" else "case fetch-once", text)
