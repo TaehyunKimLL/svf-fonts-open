@@ -79,4 +79,31 @@ LIST exceptions (`jamoexc.py`) on an 844 set, is usually the better use of the b
 fit generously and let `jamomerge.py merge --points` cut down to it. Look at the result in every case
 (`svfline.py line`, the `web/` picker): IoU does not show which syllables went wrong.
 
+<a id="size-and-accuracy"></a>
+
+### Size and accuracy
+
+A jamo set trades bytes for fidelity. Plot the composed IoU against the face's bytes for a few caps: the curve rises
+fast, then flattens. The **knee** is where doubling the bytes gains less than about 0.02 IoU; beyond it, extra sets buy
+little. Measured with `jamoset.py --from-svf FACE --layout L` and the tool's other defaults (2026-11, faces without ASCII,
+IoU over the 2,350 KS syllables):
+
+| Face | `844` | `adaptive:8,4,4` | `adaptive:16,8,8` | `adaptive` (default) | Precomposed |
+|---|---|---|---|---|---|
+| Galmuri11, 16 px | 13,436: 0.913 | 22,300: 0.913 | 34,088: 0.972 | 58,844: 0.985 | 103,452 |
+| Windows 95 Gulim, 16 ppem strike | 14,872: 0.825 | 23,596: 0.861 | 37,408: 0.940 | 64,724: 0.973 | 121,836 |
+| Baekmuk Gulim 16 | 15,476: 0.782 | 24,156: 0.788 | 37,912: 0.876 | 66,516: 0.931 | 121,836 |
+| Mac Seoul, 10 ppem strike | 11,328: 0.864 | 19,956: 0.893 | 30,860: 0.932 | 49,824: 0.954 | 83,660 |
+
+**Which point.**
+
+| Use | Point | With today's tools |
+|---|---|---|
+| MCU | the smallest face whose IoU stays at about 0.90 or more, checked by eye | `844`, or `adaptive:8,4,4`; then `jamomerge.py merge --points` to the budget |
+| Desktop / web | near the knee | `adaptive:16,8,8` up to the default |
+
+A learned split in research reaches the same IoU in fewer bytes: about 0.92-0.96 at 18-26 KB with the standard JSET
+limits ([Jamo splitting, 7.6](../jamo-split.md#76-size-and-accuracy)). Its `--max-bytes` / `--min-iou` knobs pick a point
+on that curve directly. They exist only in a private research repository for now.
+
 [Recipes index](../recipes.md) · [Tool reference](../tools.md)

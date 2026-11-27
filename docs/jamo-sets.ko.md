@@ -1313,7 +1313,7 @@ flowchart TD
 | [docs/c-renderer-guide.ko.md](c-renderer-guide.ko.md) 10-13장 | 한글, 메모리, 스위치, 플랫폼 |
 | [c/cross/SIZES.md](../c/cross/SIZES.md), [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) | 크기와 속도 측정 |
 | [docs/recipes.ko.md](recipes.ko.md) | 글꼴별 레시피([레시피 문서](recipes.ko.md#레시피-문서) 색인)와 [벌 수 정하기](recipes/sets.ko.md) |
-| [docs/jamo-split.ko.md](jamo-split.ko.md) | 자모 분리: 완성형 글꼴에서 자모 세트 만들기(맞춤, 경우별 처리, 약점, 시도의 역사) |
+| [docs/jamo-split.ko.md](jamo-split.ko.md) | 자모 분리: 완성형 글꼴에서 자모 세트 만들기(맞춤, 경우별 처리, 약점, 시도의 역사, 2026년 11월 연구의 학습한 분리) |
 | [docs/tools.ko.md](tools.ko.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | 벌 체계 표(`I844_*`, `F844`, `_844` 등), `pack`, `unpack`, `pieces_of` |
 | [렌더러 설계](../spec/renderer-design.ko.md) | 배치, 스케일링, 메모리 모델 |
