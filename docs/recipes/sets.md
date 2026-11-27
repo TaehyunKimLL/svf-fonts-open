@@ -85,25 +85,31 @@ fit generously and let `jamomerge.py merge --points` cut down to it. Look at the
 
 A jamo set trades bytes for fidelity. Plot the composed IoU against the face's bytes for a few caps: the curve rises
 fast, then flattens. The **knee** is where doubling the bytes gains less than about 0.02 IoU; beyond it, extra sets buy
-little. Measured with `jamoset.py --from-svf FACE --layout L` and the tool's other defaults (2026-11, faces without ASCII,
-IoU over the 2,350 KS syllables):
+little.
 
-| Face | `844` | `adaptive:8,4,4` | `adaptive:16,8,8` | `adaptive` (default) | Precomposed |
-|---|---|---|---|---|---|
-| Galmuri11, 16 px | 13,436: 0.913 | 22,300: 0.913 | 34,088: 0.972 | 58,844: 0.985 | 103,452 |
-| Windows 95 Gulim, 16 ppem strike | 14,872: 0.825 | 23,596: 0.861 | 37,408: 0.940 | 64,724: 0.973 | 121,836 |
-| Baekmuk Gulim 16 | 15,476: 0.782 | 24,156: 0.788 | 37,912: 0.876 | 66,516: 0.931 | 121,836 |
-| Mac Seoul, 10 ppem strike | 11,328: 0.864 | 19,956: 0.893 | 30,860: 0.932 | 49,824: 0.954 | 83,660 |
+Measured in 2026-11 with `jamoset.py --from-svf FACE --layout L`:
+- `844` with `--mask-font none`; `adaptive` with its defaults (it confines the pieces with its own donor masks, not the mask
+  font).
+- The source and the jamo faces hold only the 2,350 KS syllables (no ASCII); bytes are the whole file, IoU is over those
+  syllables. Each cell is bytes: IoU.
+- Gulim and Seoul are proprietary fonts: their rows cannot be re-run from this repository.
+
+| Face | `844` | `adaptive:8,4,4` | `adaptive:12,6,6` | `adaptive:16,8,8` | `adaptive:24,12,12` | `adaptive` (default) | Precomposed |
+|---|---|---|---|---|---|---|---|
+| Galmuri11, 16 px | 13,436: 0.913 | 22,300: 0.913 | 28,132: 0.958 | 34,088: 0.972 | 46,492: 0.981 | 58,844: 0.985 | 103,452 |
+| Baekmuk Gulim 16 | 15,476: 0.782 | 24,156: 0.788 | 30,884: 0.844 | 37,912: 0.876 | 53,396: 0.908 | 66,516: 0.931 | 121,836 |
+| Windows 95 Gulim, 16 ppem strike | 14,872: 0.825 | 23,596: 0.861 | 30,452: 0.913 | 37,408: 0.940 | 51,148: 0.961 | 64,724: 0.973 | 121,836 |
+| Mac Seoul, 10 ppem strike | 11,328: 0.864 | 19,956: 0.893 | 25,348: 0.913 | 30,860: 0.932 | 40,988: 0.942 | 49,824: 0.954 | 83,660 |
 
 **Which point.**
 
 | Use | Point | With today's tools |
 |---|---|---|
-| MCU | the smallest face whose IoU stays at about 0.90 or more, checked by eye | `844`, or `adaptive:8,4,4`; then `jamomerge.py merge --points` to the budget |
+| MCU | the smallest face whose IoU stays at about 0.90 or more, checked by eye | the first cap that reaches 0.90 for that face: above, `844` for Galmuri11, `adaptive:12,6,6` for Gulim and Seoul, `adaptive:24,12,12` for Baekmuk; then `jamomerge.py merge --points` to the budget |
 | Desktop / web | near the knee | `adaptive:16,8,8` up to the default |
 
-A learned split in research reaches the same IoU in fewer bytes: about 0.92-0.96 at 18-26 KB with the standard JSET
-limits ([Jamo splitting, 7.6](../jamo-split.md#76-size-and-accuracy)). Its `--max-bytes` / `--min-iou` knobs pick a point
+A learned split in research reaches the same IoU in fewer bytes: 0.89-0.96 at 18-36 KB with the standard JSET limits
+(Baekmuk is the low end, 0.894 at 35.7 KB) ([Jamo splitting, 7.6](../jamo-split.md#76-size-and-accuracy)). Its `--max-bytes` / `--min-iou` knobs pick a point
 on that curve directly. They exist only in a private research repository for now.
 
 [Recipes index](../recipes.md) · [Tool reference](../tools.md)

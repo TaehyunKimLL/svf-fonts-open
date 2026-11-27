@@ -10,8 +10,8 @@ attempts taught.
 
 Chapters 1 to 4 and 8 use numbers measured with the repository's tools (the command or the document it comes from is
 named) or cited from the recipe documents, which record their own runs. Chapter 6 and the numbers marked "in research" in
-chapters 3 to 5 come from earlier research runs, partly on proprietary fonts; chapter 7 reports the learned split of 2026-11 the same way; they are reported as findings and cannot be
-reproduced from this repository. The figures are drawn by `python3 -I tools/doc_figures_split.py`
+chapters 3 to 5 come from earlier research runs, partly on proprietary fonts. Chapter 7 reports the learned split of
+2026-11 in the same way. These are findings; they cannot be reproduced from this repository. The figures are drawn by `python3 -I tools/doc_figures_split.py`
 from OFL fonts of this repository only (NanumGothic Regular, Neo Dunggeunmo, Neo Dunggeunmo Pro); `--check` re-renders them
 and compares byte for byte.
 
@@ -549,9 +549,9 @@ syllables are needed and the source is close to an OR of pieces.
    bar to the initial piece (4.3), let an initial swallow a vowel stroke, or drop the bar of ㄲ. In research, pieces of a
    12 px exact split carried 28-41 % pixels of other jamo on average, while every syllable composed exactly. `--check`
    proves the tables compose, not that the pieces are the jamo; the identity check needs an external recogniser that the
-   repository does not ship and that was never run here on a real model. In research, a per-pixel model with hard
-   identity gates put 98-99.5 % of the pixels in the right slot, against 66-92 % for pixel fitting (7.2, 7.3); neither is in
-   this repository (7.8).
+   repository does not ship and that was never run here on a real model. In research, a per-pixel model put 98-99.5 % of the
+   pixels in the right slot, against 66-92 % for pixel fitting (7.2, 7.3). Faces built from it with hard identity gates kept
+   95.5-99.5 % (7.4, 7.6). Neither is in this repository (7.8).
 3. **Blank or degenerate pieces.** A piece no syllable needs ink in stays blank (4.3); a piece of a context the source
    never draws is copied from another set or left blank (`unseen_pieces`). The compatibility jamo then draw blank or wrong.
 4. **Designs not built from pieces.** Kasan 0.872, CPC-400S 0.794, Quiz King of Fighters 0.835 with 8x4x4: the result is a
@@ -623,8 +623,10 @@ on choosing set counts for bitmap faces.
 
 ## 7. A learned split (research, 2026-11)
 
-This chapter reports a research run of 2026-11 in a private research repository. Its tools are not in this repository
-(7.8). Most of its data are proprietary bitmaps. Only numbers are given here.
+- Source: a research run of 2026-11 in a private research repository.
+- Data: mostly bitmaps of proprietary fonts (Apple, Microsoft, IBM). Only numbers are given. Rows of those fonts cannot
+  be re-run from this repository.
+- Tools: not in this repository (7.8).
 
 ### 7.1 Ground truth
 
@@ -632,7 +634,7 @@ A split is checked against fonts that store their syllables as pieces and also e
 
 | Pair | Syllables with exact pieces | Note |
 |---|---|---|
-| HangulTalk 7.1.2 jamo-plane fonts (`fbit`, composed by `HTBL` 1) vs the System 7.5.3 bitmap strikes of the same family: Seoul 12, AppleMyungjo 12 and 24, AppleGothic 24 | 2,350 / 2,350 for each; AppleGothic 24 2,349 (one strike has 2 extra pixels) | the strikes are pixel-identical to the composed planes |
+| Mac HangulTalk 7.1.2 jamo planes vs System 7.5.3 strikes (Seoul 12, AppleMyungjo 12 / 24, AppleGothic 24) | 2,350 / 2,350 each; AppleGothic 24: 2,349 (the strike of 몰 has 2 extra pixels) | the strikes are pixel-identical to the composed planes |
 | Windows 95 Gulim, bitmap strikes at 12 and 16 ppem (`EBDT` format 9 composites) | 1,928 / 2,350 KS syllables | built from 2 or 3 component bitmaps (initial, medial, final); the other 422 are whole bitmaps |
 | AppleGothic 12 (7.1.2 planes vs the 7.5.3 strike) | none | the strike was redrawn (IoU 0.567); used as a held-out face |
 
@@ -669,7 +671,7 @@ Leave-one-font-out (train on the other faces and on synthetic compositions, test
 | Gulim 12 / 16 (unseen designer, 1,928 syllables) | 0.989 / 0.986 | 1,339 / 999 |
 
 Conditioning helps on three of four faces. The remaining errors are joint pixels at 24 px, and stroke swaps at 12 px
-(Seoul's ㄱ before ㅑ ㅕ).
+(Seoul's ㄱ before ㅑ ㅕ ㅐ: 갸 겨 갼 컸 캔).
 
 ### 7.4 Grouping into sets
 
@@ -694,28 +696,39 @@ Grouping agreement with the designer's own (adjusted Rand index, initial / media
 | Face | Hybrid, standard limits | `adaptive` |
 |---|---|---|
 | Seoul 12 | 0.95 / 0.85 / 0.90 | 0.59 / 0.22 / 0.51 |
+| AppleMyungjo 12 | 0.99 / 0.70 / 0.92 | 0.54 / 0.22 / 0.47 |
 | AppleMyungjo 24 | 0.96 / 0.81 / 0.94 | 0.54 / 0.24 / 0.52 |
 | AppleGothic 24 | 0.97 / 0.84 / 0.97 | 0.55 / 0.14 / 0.45 |
-| Gulim 12 / 16 (vs its components) | 0.84 / 0.51 / 0.75, 0.80 / 0.65 / 0.68 (BIG: 0.91-0.92 / 0.73 / 0.64-0.72) | 0.56-0.59 / 0.29-0.43 / 0.16-0.49 |
+| Gulim 12 (vs its components) | 0.84 / 0.51 / 0.75 (BIG: 0.91 / 0.73 / 0.64) | 0.56 / 0.29 / 0.16 |
+| Gulim 16 (vs its components) | 0.80 / 0.65 / 0.68 (BIG: 0.92 / 0.73 / 0.72) | 0.59 / 0.43 / 0.49 |
 
 The medial agrees least. Apple chooses it by initial more finely than 12 lead classes allow.
 
 ### 7.5 Identity gates
 
-A piece must keep its jamo's form. The gates are hard: a voted or merged piece that fails one is replaced by the
-nearest syllable's own piece that passes.
+A piece must keep its jamo's form. The gates are hard:
+- a voted piece that fails one is replaced by the nearest user proposal that passes;
+- a merge whose piece would fail is not made;
+- a re-fitted piece that fails keeps its vote.
 
 | Gate | Check |
 |---|---|
 | mass, extent | at least half the median ink and 60 % of the median ink box of that jamo |
 | holes | ㅁ ㅂ ㅇ ㅎ ㅃ have a closed counter; ㄱ ㄴ ㄷ ㄹ ㅅ ㅈ ㅋ have none |
-| ticks, stubs | ㅏ ㅑ ㅓ ㅕ ㅣ: 1 / 2 / 0 ticks on the right side of the main stroke; ㅗ ㅛ ㅜ ㅠ ㅡ: 1 / 2 / 0 stubs above or below the bar |
+| ticks | ㅏ ㅓ: 1, ㅑ ㅕ: 2, ㅣ: 0, on the side the vowel opens to (right for ㅏ ㅑ, left for ㅓ ㅕ), none on the other side |
+| stubs | ㅗ ㅜ: 1, ㅛ ㅠ: 2, ㅡ: 0, above the bar (ㅗ ㅛ) or below it (ㅜ ㅠ) |
 | slant | ㅅ: an apex, wider at the bottom; ㅈ: a bar over a ㅅ |
 
 Serifs break a naive tick count: a Myungjo hook at the top of ㅏ counts as a tick. The check therefore ignores side ink
-within a share of the stroke length at each end. The share is calibrated per face on its own pieces: 0.2 for
-AppleMyungjo, 0 for Seoul 12. At 0.2, Seoul 12's upper ㅑ ㅕ ticks would fall inside the ignored band. A check is on only
-where at least 90 % of the reference pieces pass it.
+within a share of the stroke length at each end. The share is set per face:
+
+| Face | Calibrated on | Share |
+|---|---|---|
+| a GT face | its own GT pieces | AppleMyungjo 0.2; Seoul 12 0 (at 0.2 its upper ㅑ ㅕ ticks would be ignored) |
+| another size of a GT family | that family's GT face | as the family |
+| any other face | its own model proposals | 0-0.25 |
+
+Separately, each check is turned on only where at least 90 % of the reference pieces pass it.
 
 ### 7.6 Size and accuracy
 
@@ -725,36 +738,40 @@ to `adaptive` at a similar size and at its default.
 
 | Face | Precomposed | Hybrid standard | Hybrid BIG | `adaptive`, similar size | `adaptive` default |
 |---|---|---|---|---|---|
+| Galmuri11 16 px (open) | 103,452 | 22,112: 0.962 | 36,688: 0.988 | 22,300: 0.913 | 58,844: 0.985 |
+| Baekmuk Gulim 16 (open) | 121,836 | 35,708: 0.894 | 56,908: 0.943 | 37,912: 0.876 | 66,516: 0.931 |
+| Neo Dunggeunmo 16 (open; built from pieces) | 112,516 | 15,592: 0.999 | 29,540: 0.999 | 22,284: 1.000 | 22,284: 1.000 |
+| Daewoo Gothic 16 | 121,796 | 32,836: 0.904 | 51,308: 0.958 | 30,712: 0.863 | 66,436: 0.953 |
 | Seoul 10 | 83,660 | 18,000: 0.923 | 34,432: 0.957 | 19,956: 0.893 | 49,824: 0.954 |
 | AppleGothic 10 | 93,860 | 19,172: 0.959 | 40,968: 0.981 | 21,272: 0.902 | 53,760: 0.976 |
 | Gulim 12 | 103,232 | 23,196: 0.946 | 35,688: 0.982 | 22,284: 0.871 | 59,584: 0.985 |
 | Gulim 16 | 121,836 | 26,108: 0.937 | 42,244: 0.978 | 23,596: 0.861 | 64,724: 0.973 |
-| Galmuri11 16 px | 103,452 | 22,112: 0.962 | 36,688: 0.988 | 22,300: 0.913 | 58,844: 0.985 |
-| Daewoo Gothic 16 | 121,796 | 32,836: 0.904 | 51,308: 0.958 | 30,712: 0.863 | 66,436: 0.953 |
-| Baekmuk Gulim 16 | 121,836 | 35,708: 0.894 | 56,908: 0.943 | 37,912: 0.876 | 66,516: 0.931 |
 | IBM HBIOS Myeongjo 24 | 215,088 | 50,552: 0.831 | 81,916: 0.899 | 46,628: 0.785 | 105,324: 0.883 |
-| Neo Dunggeunmo 16 (built from pieces) | 112,516 | 15,592: 0.999 | 29,540: 0.999 | 22,284: 1.000 | 22,284: 1.000 |
 
-- **At a similar size, the hybrid is above adaptive on every face.** The BIG hybrid matches adaptive's default IoU at
-  55-85 % of its bytes.
+- **At a similar size, the hybrid is above adaptive on every face except Neo Dunggeunmo.** That face is built from
+  pieces, and `844` is already exact at 13,464 bytes.
+- **The BIG hybrid reaches adaptive's default IoU with 62-86 % of adaptive's bytes.** The exceptions are Gulim 12 (0.982
+  against 0.985, at 60 %) and Neo Dunggeunmo.
 - **It keeps the pieces right.** Label accuracy on Gulim is 0.957 / 0.955 standard and 0.983 / 0.982 BIG; adaptive
   gets 0.680 / 0.700.
 - **The standard curve is still rising at 32 / 24 / 16.** The standard face is limited by its set budget, not by the
   model.
 
-The research builder takes the trade-off as a choice: `--max-bytes N` (the most accurate face within N bytes) or
-`--min-iou X` (the smallest face that reaches X), over a ladder of set limits.
+The research builder makes the trade-off a choice. It walks a ladder of set limits and picks:
+- `--max-bytes N`: the most accurate face within N bytes;
+- `--min-iou X`: the smallest face that reaches IoU X.
 
 | Use | Point |
 |---|---|
-| MCU | the smallest standard face with IoU ≥ 0.90: 12.3-23.2 KB on the faces above. Baekmuk and HBIOS Myeongjo do not reach it. |
+| MCU | the smallest standard face with IoU ≥ 0.90: 12.3-32.8 KB on the faces above (Daewoo needs the full 32.8 KB). Baekmuk and HBIOS Myeongjo do not reach it. |
 | Desktop / web | the top of the standard ladder (32 / 24 / 16); with BIG, near the knee (40 / 30 / 20 to 96 / 72 / 48) |
 
 ### 7.7 The JSET BIG option
 
 The standard JSET face is the default output. BIG is an option: an engine built with `SVF_JSET_BIG` reads it
 ([Jamo sets](jamo-sets.md)). Results are reported for both. BIG fixes the one-pixel shifts the standard budget cannot
-afford (Seoul 10 써 and 호, AppleGothic 10 왜: 12-40 wrong pixels with standard limits, 0 with BIG).
+afford (wrong pixels with standard limits, fixed / derived groups: Seoul 10 써 20 / 24 and 호 12 / 25, AppleGothic 10 왜
+38 / 40; with BIG 0).
 
 ### 7.8 Availability
 
@@ -768,10 +785,10 @@ is feasible. Open jamo-set faces and open fonts built from components would be t
 
 | Problem | Measured |
 |---|---|
-| The final set budget at 9-16 px | final placement depends on the initial; the next refused final split is worth 50-140 px |
+| The final set budget at 9-16 px | final placement depends on the initial; the best split the budget refuses is worth 69-203 px per face |
 | A complex final moves the medial | 흙 at 10 px: the ㅡ bar sits one row higher above ㄺ; 13 wrong pixels even with BIG |
 | Faces below 0.90 at the standard limits | Baekmuk Gulim 16 (0.894) and HBIOS Myeongjo 24 (0.831); their precomposed glyphs vary more than sets can follow |
-| Medial grouping | ARI against Apple 0.81-0.85; Apple's medial needs more initial classes than 12 |
+| Medial grouping | ARI against Apple 0.70-0.85; Apple's medial needs more initial classes than 12 |
 
 ## 8. Practical guidance
 
