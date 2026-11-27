@@ -341,7 +341,7 @@ OS/2 글꼴의 2,350 음절 모두에서 확인했다). 저장된 페이스는 �
 저장소의 포트 예제도 이렇게 나뉜다. Pico와 ESP32 예제의 컬러(RGB565)와 회색(SSD1327) 프로필은 2 bpp인 `PAPLG16` + `PAPLG18`을, 단색
 (SSD1306) 프로필과 Arduino, CH582 예제는 16 px 1 bpp 페이스를 쓴다(`c/ports/pico/README.md`, `c/ports/esp32/README.md`). 웹 래퍼는
 GRAY8, MONO_PAGE, MONO_ROW, RGB565만 노출하며, 24/32비트 캔버스 색은 GRAY8을 변환해 만든다
-([웹 렌더러 가이드](web-renderer-guide.ko.md#색상과-rgb565-출력)). 단색 화면에 안티앨리어싱 페이스를 꼭 써야 하면 `mono_threshold`를
+([웹 렌더러 가이드](web-renderer-guide.ko.md#3-색상과-rgb565-출력)). 단색 화면에 안티앨리어싱 페이스를 꼭 써야 하면 `mono_threshold`를
 조절한다. 128은 단계 2 이상, 85 이하로 내리면 단계 1까지 남아 획이 굵어진다.
 
 크기는 그리는 크기로 굽는 것이 좋다. 안티앨리어싱은 획이 1-2 픽셀 굵기일 때 효과가 크며, 12-14 px에서는 2 bpp 페이스와 힌팅된 글꼴의

@@ -380,7 +380,7 @@ The port examples of this repository split the same way: the colour (RGB565) and
 and ESP32 examples use the 2 bpp `PAPLG16` + `PAPLG18`; the monochrome (SSD1306) profile and the Arduino and CH582
 examples use a 16 px 1 bpp face (`c/ports/pico/README.md`, `c/ports/esp32/README.md`). The web wrapper exposes GRAY8,
 MONO_PAGE, MONO_ROW and RGB565 only; 24/32-bit canvas colour is made by converting GRAY8
-([web renderer guide](web-renderer-guide.md#colours-and-rgb565-output)). If an anti-aliased face must go to a
+([web renderer guide](web-renderer-guide.md#3-colours-and-rgb565-output)). If an anti-aliased face must go to a
 monochrome screen, tune `mono_threshold`: 128 keeps levels 2 and up, 85 or less keeps level 1 too and thickens strokes.
 
 Bake at the size you draw. Anti-aliasing helps most when strokes are 1-2 pixels wide; at 12-14 px the recipe advises

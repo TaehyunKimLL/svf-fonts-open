@@ -363,7 +363,7 @@ On AVR the array has `PROGMEM`; its alignment follows the selected layout.
 - `aligned(A)` is `A = 2^max(REC, TAB)` bytes of the written layout (4 for `mcu-strict`; left out when it is 1), so a
   record's offset in the file is its address alignment. Alignment is **only speed**. `svf_open_mapped` checks the
   alignment of the offsets *inside the file* against the layout, never the address of the array: a face opens and
-  draws the same from an odd address .
+  draws the same from an odd address.
 - `--profile mcu-strict` rewrites the face in the layout of `SVF_LAYOUT_MCU_STRICT` (record and table units 4 bytes, row
   unit 1 byte, 16-bit offsets where they fit); the pixels are the same. The 117 shipped faces all use
   4/1/4-byte layout units, so a build with
@@ -377,7 +377,7 @@ On AVR the array has `PROGMEM`; its alignment follows the selected layout.
 
 | Target | Where the face lives | Notes |
 |---|---|---|
-| AVR (Arduino Uno) | `PROGMEM` flash | build the library with `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'`. Without `SVF_RD8` the library reads flash addresses as RAM and `svf_open_mapped` returns `SVF_E_MAGIC` . The text passed to `svf_draw_utf8` is read with plain loads: keep it in RAM (copy a `PROGMEM` string with `strncpy_P` first) |
+| AVR (Arduino Uno) | `PROGMEM` flash | build the library with `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'`. Without `SVF_RD8` the library reads flash addresses as RAM and `svf_open_mapped` returns `SVF_E_MAGIC`. The text passed to `svf_draw_utf8` is read with plain loads: keep it in RAM (copy a `PROGMEM` string with `strncpy_P` first) |
 | Other Arduino cores (ARM, ESP32, RP2040) | `const` array in flash | flash is memory-mapped, so no `SVF_RD8` override and no `PROGMEM` (`mkface` adds it on `__AVR__` only) |
 | ESP32 (ESP-IDF) | `const` array (`.rodata` in flash), **or** a data partition mapped with `esp_partition_mmap`, **or** a file on SPIFFS streamed | the partition keeps the face out of the app image and its size; SPIFFS + `svf_open_stream` keeps it out of the address space too (section 13.4) |
 | Raspberry Pi Pico / Pico 2 | `const` array in flash, executed in place (XIP) | the faces are read through the XIP cache: a first touch of a block is a flash read (section 13.5) |
