@@ -450,7 +450,7 @@ initial = s x 20 + L + 1     medial = 160 + s x 22 + V + 1     final = 248 + s x
 | Hanme Hangul 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (one face) | initial: 5 vowel kinds; medial: final; final: 3 vowel kinds | `notes/hanme-dokkaebi.md` 1 |
 | Kyrandia `MK15.BIT` | 10 / 4 / 4 (jamo-major order) | 385 | 11,550 (15x15) | the 8x4x4 rule, initial set = 2 x vowel kind + final | [docs/recipes.md](recipes.md) `kyra-lok`, `jamoset.py` `_kyra` |
 | HWP 1.x `HANGUL.SFT` | 10/4/4, 7/2/2, 6/2/2 (per face) | 1,193 (three faces) | | initial class (ㄱㅋ / other), final, 15 vowel shape classes | `notes/hwp1.md` |
-| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 | ROM | initial: 3 vowel kinds x final; final: vowel | `notes/msx.md` |
+| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 (210 used) | 9,280 (in the SUB-ROM) | initial: 3 vowel kinds x final; final: vowel | [docs/recipes.md](recipes.md#korean-msx-fonts-msx2-and-msx1) "Korean MSX fonts" |
 | Samsung SPC-1500 | 6 / 2 / 2 (8 initial sets in ROM) | 210 | four ROMs | initial: 3 vowel kinds x final | [docs/recipes.md](recipes.md) "Samsung SPC-1500" |
 | NKP (Hercules TSR) | 8 / 2 (each cut in four by shape) / 1 | cropped pieces | | initial: 4 vowel kinds x final | [docs/recipes.md](recipes.md) "NKP: a Hercules Hangul TSR with cropped pieces" |
 | Mac HangulTalk 1.0 `fbit` | 45 glyph sets; as SVF 20 / 15 / 4 in 8 x 4 classes | 688 (12 px) | | the 18 tables of the 'fdef' code | `notes/mac.md` "Format 1", [docs/recipes.md](recipes.md) "Classic Mac Korean bitmap fonts" |
@@ -530,8 +530,12 @@ cannot be composed.
   three pieces, the ROMs being inverted (0 bits are ink). The sets used are 6 initial, 2 medial and 2 final, and one JSET
   (one lead class, 6/2/2 sets) expresses the rule exactly: 10,652 bytes, 210 pieces, all 11,172 syllables equal to MAME's
   AND ([docs/recipes.md](recipes.md) "Samsung SPC-1500").
-- **Daewoo MSX CPC-300/400S**: the upper 16 KB of the extension ROM hold 6 initial sets x 20, 2 medial sets x 28 and
-  2 final sets x 29 pieces, the selection read from the Hangul BASIC ROM routine (`notes/msx.md`).
+- **Daewoo MSX CPC-300/400S**: the upper 16 KB of the MSX2 SUB-ROM hold 6 initial sets x 20, 2 medial sets x 28 and
+  2 final sets x 29 pieces, the selection read from the Hangul BASIC ROM routine 4DC4h. The compose spec
+  `tools/specs/msx2-daewoo.json` holds the rule and one JSET (one lead class, 6/2/2 sets) expresses it exactly: 10,584
+  bytes, 210 pieces ([docs/recipes.md](recipes.md#korean-msx-fonts-msx2-and-msx1) "Korean MSX fonts"). The CPC-400S also
+  has a 256 KB precomposed font ROM, and the Korean MSX1 machines compose syllables from 8x8 BIOS cells by a layout rule
+  read off the running machine (the same section).
 - **OS/2 Warp 4 Korean** system DBCS fonts hold the precomposed set (all of KS X 1001), compressed with a Huffman code and
   a prediction (`notes/os2-dbcs.md`); the tools decode them into a precomposed face and fits jamo sets to it
   ([docs/recipes.md](recipes.md) "OS/2 Korean fonts (완성형) to a precomposed face and a jamo set").

@@ -1189,6 +1189,58 @@ ink pen outside the planes, a `--glyph` that is not the tile's, `--fg` without `
 `tools/test_extract.py`; `tools/test_tiles.py` (`--invert`, `--gfx` presets and a driver's layout string against tiles
 built by hand, `--bg`, `--fg`, the refusals).
 
+### `tools/msx1_harvest.py`
+
+**Purpose.** Read the syllable layout of a Korean MSX1 Hangul ROM (모아쓰기 mode) off the running machine in openMSX:
+the emulator types a BASIC program that prints every syllable, and the name table of each screen is dumped (recipes.md,
+Korean MSX fonts, MSX1).
+
+**Status.** Special-purpose (the Daewoo / Goldstar MSX1 family); a template for other machines.
+
+**Inputs.** An openMSX machine name and an output prefix outside the repository; the emulator as `--emu DIR` (an
+openMSX unpacked into `DIR/root`, system ROMs in `DIR/userdata/share/systemroms`) or `--openmsx BIN`. `--first`,
+`--count` pick the syllables (all 11,172 by default).
+
+**Outputs.** `PREFIX.tcl` (the openMSX script), `PREFIX.index` (one hex code point a line), `PREFIX.names` (768 bytes a
+screen of 77 syllables, the last screen padded with its last syllable), `PREFIX.patterns` (2,048 bytes), `PREFIX.png`
+(a raw screenshot of the last screen), for `msxfont.py msx1-verify`.
+
+**Synopsis.** `python3 tools/msx1_harvest.py MACHINE PREFIX (--emu DIR | --openmsx BIN) [--first N] [--count N]
+[--timeout 600] [--script-only]`. It runs `timeout T xvfb-run -a openmsx -machine MACHINE -script PREFIX.tcl`; ROM code
+runs only inside the emulator. Exit 1 with a message on a prefix inside the repository or with a space or Tcl special
+character, no emulator given, or an incomplete harvest (with the emulator's last lines).
+
+**Repository modules imported.** None. **Third-party.** openMSX and `xvfb-run` (the run only). **Test.**
+`tools/test_msx1_harvest.py` (stored bytes, screens and padding, the typed program and the Tcl script, refusals; no
+emulator).
+
+### `tools/msxfont.py`
+
+**Purpose.** The Korean MSX fonts that are not a plain glyph table: the code-to-slot map of the Daewoo CPC-400 / 400S
+precomposed font ROM, and the Korean MSX1 syllables built from the BIOS's 8x8 cells by the Hangul ROM's layout rule
+(recipes.md, Korean MSX fonts).
+
+**Status.** Special-purpose (one machine family).
+
+**Inputs.** `kfn-map`: the 64 KB `CPC-400S.U44` image (or its last 16 KB, the "Kanji control ROM"). `msx1`: a Korean
+MSX1 BIOS (the character table at `--offset`, default 0x1B49). `msx1-verify`: an emulator harvest `PREFIX.index`,
+`PREFIX.names`, `PREFIX.patterns` (and `--bios` for the cell check).
+
+**Outputs.** `kfn-map`: `SLOT U+XXXX` lines (the syllables the driver's lists A and B reach) for `rawcarve.py bdf
+--chars map`. `msx1`: a Unicode BDF of the 11,172 syllables (8x16 or 16x16, advance = width) and ASCII 0x20-0x7E (the
+8x8 cells, `--ascii-top` rows down, default 8; `--ascent` 16). `msx1-verify`: the number of syllables whose cells the
+machine drew as the rule says, and the pattern-table cells equal to the BIOS's.
+
+**Synopsis.** `python3 tools/msxfont.py kfn-map U44 -o MAP.txt`, `python3 tools/msxfont.py msx1 BIOS [--offset O]
+[--ascii-top N] -o OUT.bdf`, `python3 tools/msxfont.py msx1-verify PREFIX [--bios BIOS]`. Exit 1 with a message on a
+file of the wrong size (refused before it is read), start offsets that are not a sorted list, an `--ascii-top` outside
+0..8 or `--ascent` outside 0..16, an empty harvest index or one naming a code point that is not a syllable, short name
+tables, a pattern table that is not 2,048 bytes, a syllable that differs, or (with `--bios`) a cell other than the
+cursor 0xFF that differs.
+
+**Repository modules imported.** `binscan.py`, `rawcarve.py`. **Third-party.** None. **Test.** `tools/test_msxfont.py`
+(synthetic control ROM, cell table and harvest; the layout cases; `rawcarve.py bdf --chars map`).
+
 ### `tools/nkpspec.py`
 
 **Purpose.** Write the `rawcarve.py compose` spec of an NKP Hangul TSR (the 1989 Hercules Hangul drivers NKP.COM V3.00,
@@ -1244,24 +1296,30 @@ are left out.
         [--offset O] [--count N] -o OUT
     python3 tools/rawcarve.py bdf FILE [--offset O] (--glyph WxH | --gfx LAYOUT) [--invert] \
         --chars ascii|ks-hangul|ks-nonhanja|ks-all [--first C] [--count N] [--dense | --grid L0,T0,PITCH] [--ascent A] -o OUT.bdf
+    python3 tools/rawcarve.py bdf FILE [--offset O] --glyph WxH --chars map --map MAP.txt [--ascent A] -o OUT.bdf
     python3 tools/rawcarve.py compose FILE --spec SPEC.json|spc1500 [--invert] [--syllables ks|all] \
         [--eng FILE2 --eng-offset O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
 
 `bdf --chars ks-*` places each KS X 1001 code by `--dense` (glyph i = the i-th code of the set: a 2,350-syllable dump)
 or `--grid L0,T0,PITCH` (glyph = (lead - L0) x PITCH + (trail - T0): `0xA1,0xA1,94` a full table, `0x80,0x80,128` the
-Korean VGA ROMs; a code whose lead is below L0 or whose trail is outside T0 .. T0 + PITCH - 1 is refused). Negative
+Korean VGA ROMs; a code whose lead is below L0 or whose trail is outside T0 .. T0 + PITCH - 1 is refused); `--chars map`
+places glyph GLYPH at U+XXXX for each `GLYPH U+XXXX` line of `--map` (a font in a machine's own order; `msxfont.py
+kfn-map` writes one; UTF-8, `#` comments; a malformed line or a glyph past the file's end is refused with the file and
+line). Negative
 offsets, a `--length` / `--stride` / `--count` below 1, a negative `--first` and `--top` + `--height` past 16 rows are
 refused; `cut`, `eng` and `bdf` read only the bytes they use (through the last glyph's whole footprint, also with a
 `--stride` shorter than a glyph), `compose` reads the whole file (up to 64 MiB). A compose
 spec with a cell outside 1..256, a negative piece, an unknown set or `--eng-top` + `--eng-height` past the cell is
 refused with a message. The compose spec names piece sets (`offset`, `stride`, and where the stored piece goes in the cell:
-`x`, `y`, `width`, `height`, `order`, and optionally `lsb`, `invert`, `gfx` with `bg` / `fg`; a top-level `"invert": true`
+`x`, `y`, `width`, `height`, `order`, and optionally `lsb`, `invert`, `gfx` with `bg` / `fg`, and `slots`, a list
+that renumbers the set's pieces when the font's numbering skips stored slots; a top-level `"invert": true`
 or `--invert` inverts every set that does not say `"invert": false`, and the `--eng` font), the initial set per vowel without and with a final, the medial (set, piece) per
 vowel (optionally another table for ㄱ / ㅋ, the 8x4x4 rule), the final set per vowel or one set, and the font's own
 vowel order; jamo are numbered as Unicode numbers them (the module docstring has the format). `--spec spc1500` (the name always
 means it; a JSON file of that name is `./spc1500`) is the built-in spec of the Samsung SPC-1500 Hangul ROMs (`spc1500_spec`, from MAME's
-`spc1500.cpp`), for the 32 KB region of `ss150fnt.bin` .. `ss153fnt.bin` one after another; `jamoset.py --layout spec`
-reads the same specs. Exit 1 with a message on
+`spc1500.cpp`), for the 32 KB region of `ss150fnt.bin` .. `ss153fnt.bin` one after another; `tools/specs/msx2-daewoo.json`
+is the spec of the Daewoo MSX2 jamo-set font (the 9,280-byte block cut from a CPC-300 / 400S ext ROM, see the recipes);
+`jamoset.py --layout spec` reads the same specs. Exit 1 with a message on
 a bad offset, spec or empty result.
 
 `region --group FILE...` is a repeatable group input. `bdf --name` defaults to `carved`;
@@ -1269,7 +1327,8 @@ a bad offset, spec or empty result.
 (defaults: glyph byte size, `rows`, off). Writing commands also accept `--output` for `-o`.
 
 **Repository modules imported.** `binscan.py`. **Third-party.** None. **Test.** `tools/test_extract.py` (a carved
-8x4x4 font builds with `jamoset.py`; a KS grid ROM; a compose spec of the 8x4x4 rule equals jamoset's composition);
+8x4x4 font builds with `jamoset.py`; a KS grid ROM; a compose spec of the 8x4x4 rule equals jamoset's composition;
+`tools/specs/msx2-daewoo.json` equals the Daewoo rule written out independently on a synthetic block, `slots`);
 `tools/test_tiles.py` (inverted fonts through `eng`, `ink`, `bdf` and `compose`; `region` interleaves, groups and swaps;
 `ink` and `bdf` of packed and planar tiles; the built-in `spc1500` spec; with `MAME_ROMS` set, the real SPC-1500, Date
 Quiz Go Go and X Se Dae Quiz ROMs by hash).

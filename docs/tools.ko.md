@@ -1117,6 +1117,49 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `--count` ...)는 2. **내부 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`. `tools/test_tiles.py`(`--invert`,
 손으로 만든 타일에 대한 `--gfx` 프리셋과 드라이버의 배치 문자열, `--bg`, `--fg`, 거부).
 
+### `tools/msx1_harvest.py`
+
+**목적.** 한국 MSX1 한글 ROM(모아쓰기 모드)의 음절 배치를 openMSX에서 실행 중인 기계로부터 읽는다: 에뮬레이터가 모든 음절을 찍는 BASIC
+프로그램을 치고, 화면마다 이름 표를 덤프한다(recipes.ko.md, 한국 MSX 폰트, MSX1).
+
+**상태.** 특수 목적(대우 / 금성 MSX1 계열). 다른 기종용 틀이 된다.
+
+**입력.** openMSX 기종 이름과 저장소 밖의 출력 접두어. 에뮬레이터는 `--emu DIR`(`DIR/root`에 푼 openMSX, 시스템 ROM은
+`DIR/userdata/share/systemroms`) 또는 `--openmsx BIN`. `--first`, `--count`가 음절을 고른다(기본은 11,172자 전부).
+
+**출력.** `PREFIX.tcl`(openMSX 스크립트), `PREFIX.index`(한 줄에 16진 코드 하나), `PREFIX.names`(77자 화면마다 768바이트. 마지막
+화면은 그 마지막 음절로 채운다), `PREFIX.patterns`(2,048바이트), `PREFIX.png`(마지막 화면의 날 스크린샷). `msxfont.py msx1-verify`용.
+
+**사용법.** `python3 tools/msx1_harvest.py MACHINE PREFIX (--emu DIR | --openmsx BIN) [--first N] [--count N] [--timeout 600]
+[--script-only]`. `timeout T xvfb-run -a openmsx -machine MACHINE -script PREFIX.tcl`을 실행한다. ROM 코드는 에뮬레이터 안에서만
+돈다. 저장소 안이거나 공백이나 Tcl 특수 문자가 든 접두어, 에뮬레이터 없음, 덜 된 수집(에뮬레이터의 마지막 줄과 함께)에는 메시지와
+함께 종료 코드 1.
+
+**내부 모듈.** 없음. **서드파티.** openMSX와 `xvfb-run`(실행할 때만). **테스트.** `tools/test_msx1_harvest.py`(저장 바이트, 화면과
+채움, 치는 프로그램과 Tcl 스크립트, 거부. 에뮬레이터 없이).
+
+### `tools/msxfont.py`
+
+**목적.** 평범한 글리프 표가 아닌 한국 MSX 폰트: 대우 CPC-400 / 400S 완성형 폰트 ROM의 코드-슬롯 대응, 그리고 BIOS의 8x8 셀로
+한글 ROM의 배치 규칙대로 만든 한국 MSX1 음절(recipes.ko.md, 한국 MSX 폰트).
+
+**상태.** 특수 목적(한 기종 계열).
+
+**입력.** `kfn-map`: 64 KB `CPC-400S.U44` 이미지(또는 그 마지막 16 KB, "Kanji control ROM"). `msx1`: 한국 MSX1 BIOS(`--offset`의
+문자 표, 기본 0x1B49). `msx1-verify`: 에뮬레이터 수집 결과 `PREFIX.index`, `PREFIX.names`, `PREFIX.patterns`(셀 검사에는 `--bios`).
+
+**출력.** `kfn-map`: `rawcarve.py bdf --chars map`이 읽는 `SLOT U+XXXX` 줄(드라이버의 목록 A와 B가 닿는 음절). `msx1`: 11,172 음절
+(8x16 또는 16x16, 진행 폭 = 너비)과 ASCII 0x20-0x7E(8x8 셀을 `--ascii-top`행 아래에, 기본 8. `--ascent` 16)의 유니코드 BDF.
+`msx1-verify`: 기계가 규칙대로 셀을 그린 음절 수와 BIOS와 같은 패턴 표 셀 수.
+
+**사용법.** `python3 tools/msxfont.py kfn-map U44 -o MAP.txt`, `python3 tools/msxfont.py msx1 BIOS [--offset O] [--ascii-top N]
+-o OUT.bdf`, `python3 tools/msxfont.py msx1-verify PREFIX [--bios BIOS]`. 크기가 맞지 않는 파일(읽기 전에 거부), 정렬된 목록이 아닌 시작 오프셋,
+0..8 밖의 `--ascii-top`이나 0..16 밖의 `--ascent`, 비었거나 음절이 아닌 코드가 든 수집 색인, 모자란 이름 표, 2,048바이트가 아닌 패턴 표,
+다른 음절, (`--bios`가 있으면) 커서 0xFF가 아닌 다른 셀에는 메시지와 함께 종료 코드 1.
+
+**내부 모듈.** `binscan.py`, `rawcarve.py`. **서드파티.** 없음. **테스트.** `tools/test_msxfont.py`(합성 제어 ROM, 셀 표, 수집
+결과. 배치의 경우들. `rawcarve.py bdf --chars map`).
+
 ### `tools/nkpspec.py`
 
 **목적.** NKP 한글 TSR(1989년 허큘리스 한글 드라이버 NKP.COM V3.00, NKP3.COM)의 `rawcarve.py compose` 명세를 드라이버 자신의 표에서
@@ -1167,19 +1210,23 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
         [--offset O] [--count N] -o OUT
     python3 tools/rawcarve.py bdf FILE [--offset O] (--glyph WxH | --gfx LAYOUT) [--invert] \
         --chars ascii|ks-hangul|ks-nonhanja|ks-all [--first C] [--count N] [--dense | --grid L0,T0,PITCH] [--ascent A] -o OUT.bdf
+    python3 tools/rawcarve.py bdf FILE [--offset O] --glyph WxH --chars map --map MAP.txt [--ascent A] -o OUT.bdf
     python3 tools/rawcarve.py compose FILE --spec SPEC.json|spc1500 [--invert] [--syllables ks|all] \
-        [--eng FILE2 --eng-꺼짐set O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
+        [--eng FILE2 --eng-offset O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
 
 `bdf --chars ks-*`는 각 KS X 1001 코드를 `--dense`(글리프 i = 그 집합의 i번째 코드: 2,350 음절 덤프) 또는 `--grid L0,T0,PITCH`(글리프 =
-(lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). 음수 오프셋,
+(lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). `--chars map`은 `--map`의 `GLYPH U+XXXX` 줄마다
+글리프 GLYPH를 U+XXXX에 놓는다(기계 자신의 순서인 폰트. `msxfont.py kfn-map`이 하나를 쓴다. UTF-8, `#` 주석. 잘못된 줄이나
+파일 끝을 넘는 글리프는 파일과 줄을 밝혀 거부한다). 음수 오프셋,
 1보다 작은 `--length` / `--stride` / `--count`, 음수 `--first`, 16행을 넘는 `--top` + `--height`는 거부한다. `cut`, `eng`, `bdf`는
 쓰는 바이트만 읽고(글리프보다 짧은 `--stride`여도 마지막 글리프의 전체 범위까지), `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 벌, 셀을 넘는 `--eng-top` +
-`--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 벌(`꺼짐set`,
+`--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 벌(`offset`,
 `stride`, 저장된 조각이 셀의 어디로 가는지: `x`, `y`, `width`, `height`, `order`, 그리고 선택으로 `lsb`, `invert`, `bg` / `fg`가 있는
-`gfx`. 최상위의 `"invert": true`나 `--invert`는 `"invert": false`라고 적지 않은 모든 벌과 `--eng` 폰트를 반전한다), 종성 없을 때와 있을 때 모음별 초성 벌, 모음별 중성
+`gfx`, 폰트의 번호가 저장된 칸을 건너뛸 때 벌의 조각 번호를 다시 매기는 목록 `slots`. 최상위의 `"invert": true`나 `--invert`는 `"invert": false`라고 적지 않은 모든 벌과 `--eng` 폰트를 반전한다), 종성 없을 때와 있을 때 모음별 초성 벌, 모음별 중성
 (벌, 조각)(ㄱ / ㅋ용 다른 표를 둘 수 있다: 8x4x4 규칙), 모음별 종성 벌 또는 벌 하나, 그리고 폰트 자신의 모음 순서를 적는다.
 자모 번호는 유니코드의 번호다(형식은 모듈 docstring). `--spec spc1500`(이 이름은 언제나 내장 명세이며, 그 이름의 JSON 파일은 `./spc1500`)은 삼성 SPC-1500 한글 ROM의 내장
 명세(`spc1500_spec`, MAME `spc1500.cpp`에서; 참고 문헌 10)이며, `ss150fnt.bin` .. `ss153fnt.bin`을 차례로 이은 32 KB 영역에 쓴다.
+`tools/specs/msx2-daewoo.json`은 대우 MSX2 자모 벌 폰트(CPC-300 / 400S ext ROM에서 잘라 낸 9,280바이트 블록, 레시피 참고)의 명세다.
 `jamoset.py --layout spec`도 같은 명세를 읽는다. 잘못된 오프셋, 명세, 빈 결과에는 메시지와 함께 종료 코드 1.
 
 `region --group FILE...`은 반복 가능한 묶음 입력이다. `bdf --name`의 기본값은 `carved`,
@@ -1187,7 +1234,8 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 (기본: 글리프 바이트 수, `rows`, 꺼짐). 쓰기 명령의 `-o`는 `--output`으로도 지정할 수 있다.
 
 **내부 모듈.** `binscan.py`. **서드파티.** 없음. **테스트.** `tools/test_extract.py`(잘라 낸 8x4x4 폰트가 `jamoset.py`로
-빌드된다. KS 격자 ROM. 8x4x4 규칙의 compose 명세가 jamoset의 조합과 같다). `tools/test_tiles.py`(`eng`, `ink`, `bdf`, `compose`를 거친
+빌드된다. KS 격자 ROM. 8x4x4 규칙의 compose 명세가 jamoset의 조합과 같다. `tools/specs/msx2-daewoo.json`이 합성 블록에서 따로 적은
+대우 규칙과 같다. `slots`). `tools/test_tiles.py`(`eng`, `ink`, `bdf`, `compose`를 거친
 반전 폰트. `region`의 엮기, 묶음, 바꾸기. 묶음(packed)과 평면(planar) 타일의 `ink`와 `bdf`. 내장 `spc1500` 명세. `MAME_ROMS`가 있으면
 실제 SPC-1500, Date Quiz Go Go, X Se Dae Quiz ROM을 해시로).
 

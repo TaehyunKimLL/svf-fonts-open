@@ -275,6 +275,74 @@ class Rawcarve(unittest.TestCase):
             self.assertEqual(r.returncode, 1)
 
 
+def msx2_block():
+    """A synthetic font block in the Daewoo MSX2 layout, 9,280 bytes as cut from the ROM: initial 6 x 20, medial 2 x 28,
+    final 2 x 29 pieces of 32 B (234 pieces, 7,488 B), then 1,792 B where the ROM keeps its 8x16 English font, here
+    filled as 56 more 32-byte slots. Slot i draws row i % 16 with the bits of i + 1 and row (i // 16) % 16 with 0x8001."""
+    out = bytearray()
+    for i in range(290):
+        rows = [0] * 16
+        rows[i % 16] |= i + 1
+        rows[(i // 16) % 16] |= 0x8001
+        out += b"".join(v.to_bytes(2, "big") for v in rows)
+    return bytes(out)
+
+
+def msx2_reference(block, cp):
+    """The Daewoo Hangul BASIC rule (selector 4DC4h), written out independently of the spec: Johab codes, the set
+    chosen by vowel class and final, piece = (set - first) * set size + code - first code. The fill pieces (initial
+    and final code 1) are blank in the ROM, so a syllable without a final ORs only two pieces."""
+    jv = [3, 4, 5, 6, 7, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29]
+    s = cp - 0xAC00
+    li, mi, t = s // 588 + 2, jv[s % 588 // 28], s % 28
+    ti = 1 if t == 0 else (t + 1 if t <= 16 else t + 2)
+    comp, horiz, right = {14, 15, 18, 21, 22, 23, 28}, {13, 19, 20, 26, 27}, {3, 5, 14, 18, 23, 28, 29}
+    if ti == 1:
+        si, sm, sf = (5 if mi in comp else 2 if mi in horiz else 1), 7, 10
+    else:
+        si, sm, sf = (6 if mi in comp else 4 if mi in horiz else 3), 8, (9 if mi in horiz else 10 if mi in right else 9)
+    idx = [(si - 1) * 20 + li - 1, 120 + (sm - 7) * 28 + mi - 2] + ([176 + (sf - 9) * 29 + ti - 1] if t else [])
+    if not t:  # the final fill piece (code 1) is blank in the ROM: no third piece; ORing the initial piece again
+        idx.append(idx[0])  # changes nothing and keeps the three-way zip below
+    return bytes(a | b | c for a, b, c in zip(*(block[i * 32:i * 32 + 32] for i in idx)))
+
+
+class Msx2Spec(unittest.TestCase):
+    SPEC = os.path.join(HERE, "specs", "msx2-daewoo.json")
+
+    def test_spec_equals_the_rule_and_builds_an_exact_jset(self):
+        """tools/specs/msx2-daewoo.json composes every syllable as the Daewoo rule does (final slot 16, Johab final 18,
+        skipped by "slots"), and jamoset.py --layout spec writes it as an exact JSET."""
+        block = msx2_block()
+        c = rawcarve.Composer(block, rawcarve.load_spec(self.SPEC))
+        for cp in range(0xAC00, 0xD7A4):
+            s = cp - 0xAC00
+            got = rawcarve.pack_rows(c.syllable(s // 588, s // 28 % 21, s % 28), 16)
+            self.assertEqual(got, msx2_reference(block, cp), hex(cp))
+        with tempfile.TemporaryDirectory() as d:
+            p, o = os.path.join(d, "font.bin"), os.path.join(d, "J.SVF")
+            wr(p, block)
+            out = run(os.path.join(HERE, "jamoset.py"), "--layout", "spec", "--spec", self.SPEC, p, "--check", "-o", o)
+            self.assertIn("6/2/2 sets, 1x2 classes", out)
+            self.assertIn("all 11172 syllables identical to rawcarve.py compose", out)
+
+    def test_slots(self):
+        """A set's "slots" renumbers its pieces; a piece past the list and a bad list are refused."""
+        block = msx2_block()
+        spec = {"sets": {"a": {"offset": 0, "stride": 32, "slots": [5, 0]}}, "initial": {}, "medial": {}, "final": {}}
+        c = rawcarve.Composer(block, spec)
+        self.assertEqual(c.piece("a", 0), rawcarve.Composer(block, {"sets": {"a": {"offset": 160, "stride": 32}}}).piece("a", 0))
+        with self.assertRaisesRegex(rawcarve.CarveError, "past its 2 slots"):
+            c.piece("a", 2)
+        for bad in ([-1], "0,1", [1.5], [True]):
+            with self.assertRaisesRegex(rawcarve.CarveError, "slots must be"):
+                rawcarve.Composer(block, {"sets": {"a": {"offset": 0, "stride": 32, "slots": bad}}})
+        # "slots": null is the same as no "slots"
+        plain = rawcarve.Composer(block, {"sets": {"a": {"offset": 0, "stride": 32}}})
+        none = rawcarve.Composer(block, {"sets": {"a": {"offset": 0, "stride": 32, "slots": None}}})
+        self.assertEqual(none.piece("a", 3), plain.piece("a", 3))
+
+
 def nkp_like():
     """A synthetic .COM with an NKP-style Hangul routine: the instruction patterns nkpspec.py looks for, the jamo tables
     (Unicode order), 17 piece-set records (record 0: 16 wide, rows 3-11, stride 18; record 48: right 8 pixels, rows

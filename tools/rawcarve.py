@@ -25,11 +25,14 @@ with `python3 -I` on untrusted downloads.
       jamoset.py --layout 844.
   rawcarve.py bdf FILE --offset O --glyph WxH --chars ascii|ks-hangul|ks-nonhanja|ks-all [--dense | --grid L0,T0,PITCH]
                   -o OUT.bdf
+  rawcarve.py bdf FILE --offset O --glyph WxH --chars map --map MAP.txt -o OUT.bdf
       glyphs at an offset as a Unicode BDF (CHARSET_REGISTRY "ISO10646"), for `bdfface.py --hangul / --ascii` and
       `mkfont.py`. ascii: glyph i is code `--first` + i (default 0). ks-*: the KS X 1001 code of each glyph is found by
       `--dense` (glyph i is the i-th code of the set in KS order, the 2,350-syllable dumps) or `--grid L0,T0,PITCH`
       (glyph index = (lead - L0) * PITCH + (trail - T0): 0xA1,0xA1,94 for a full 94 x 94 table, 0x80,0x80,128 for
-      the Korean VGA font ROMs that 86Box reads). Blank glyphs are left out.
+      the Korean VGA font ROMs that 86Box reads). map: MAP.txt lines "GLYPH U+XXXX" (a glyph index and the code point
+      it draws; # starts a comment), for a font in a machine's own order (`msxfont.py kfn-map` writes one). Blank
+      glyphs are left out.
   rawcarve.py compose FILE --spec SPEC.json [--syllables ks|all] [--eng FILE2 --eng-offset O] -o OUT.bdf
       a jamo-piece font with its own set rules (read from the driver's code) composed into syllables, as a Unicode BDF:
       the KS X 1001 2,350 (ks, the default) or all 11,172 (all). See "Compose spec" below.
@@ -48,7 +51,8 @@ Compose spec (JSON). Jamo are numbered as Unicode numbers them: L 0..18 (ㄱ..�
                                   where the pieces of a set are: piece k at offset + k * stride, drawn width x height at
                                   (x, y) of the cell (a set stored row-cropped or as a half cell is placed back here);
                                   a set may also give "lsb", "invert", or "gfx" (a binscan.py --gfx layout, its tile
-                                  size the set's) and "bg" / "fg" (a pen list)
+                                  size the set's) and "bg" / "fg" (a pen list), and "slots": [ints] (piece k is
+                                  the stored piece slots[k]: a set whose numbering skips stored slots)
    "initial": {"nofinal": [NAME by font vowel], "final": [NAME by font vowel], "novowel": NAME},   piece = L
    "medial":  {"nofinal": [[NAME, k] by font vowel], "final": [[NAME, k] by font vowel],
                "nofinal_kk": ..., "final_kk": ...},  optional *_kk tables: used when L is ㄱ or ㅋ (the 8x4x4 rule)
@@ -180,6 +184,30 @@ def cmd_eng(a):
           f"rows {a.top}..{a.top + h - 1}{', inverted' if a.invert else ''})")
 
 
+def read_map(path):
+    """[(glyph index, code point)] of a map file: "GLYPH U+XXXX" a line, # comments, blank lines skipped."""
+    out = []
+    if os.path.getsize(path) > MAX_FILE:
+        raise CarveError(f"{path}: larger than {MAX_FILE} bytes")
+    with open(path, encoding="utf-8") as fh:
+        for n, line in enumerate(fh, 1):
+            line = line.split("#", 1)[0].split()
+            if not line:
+                continue
+            if len(line) != 2 or not line[1].upper().startswith("U+"):
+                raise CarveError(f"{path}:{n}: expected GLYPH U+XXXX")
+            try:
+                idx, cp = binscan.parse_int(line[0]), int(line[1][2:], 16)
+            except ValueError:
+                raise CarveError(f"{path}:{n}: expected GLYPH U+XXXX")
+            if idx < 0 or not 0 <= cp <= 0x10FFFF:
+                raise CarveError(f"{path}:{n}: glyph index or code point out of range")
+            out.append((idx, cp))
+    if not out:
+        raise CarveError(f"{path}: no mapping line")
+    return out
+
+
 def cmd_bdf(a):
     if a.grid and (len(a.grid) != 3 or a.grid[2] < 1):
         raise CarveError("--grid is L0,T0,PITCH with PITCH 1 or more")
@@ -197,6 +225,21 @@ def cmd_bdf(a):
             if cp < 0x20:
                 continue
             glyphs[cp] = binscan.decode(d, i * gb, w, h, a.order, a.lsb, a.invert, a.gfx)
+    elif a.chars == "map":
+        if not a.map:
+            raise CarveError("--chars map needs --map MAP.txt")
+        places = read_map(a.map)
+        size = os.path.getsize(a.file)
+        fit = (size - a.offset - foot) // gb + 1 if size - a.offset >= foot else 0  # whole glyphs in the file
+        past = [i for i, _ in places if i >= fit]
+        if past:
+            raise CarveError(f"--map: glyph {past[0]} is past the {fit} whole glyphs from {a.offset:#x} in {a.file}")
+        d = read_range(a.file, a.offset, max(i for i, _ in places) * gb + foot)
+        for idx, cp in places:
+            if idx * gb + foot <= len(d):
+                rows = binscan.decode(d, idx * gb, w, h, a.order, a.lsb, a.invert, a.gfx)
+                if any(map(any, rows)):
+                    glyphs[cp] = rows
     else:
         if not a.dense and not a.grid:
             raise CarveError("ks-* needs --dense or --grid L0,T0,PITCH")
@@ -246,6 +289,10 @@ class Composer:
                 raise CarveError(f"set {name}: offset must be 0 or more and stride 1 or more")
             if not (1 <= s.get("width", self.w) <= 256 and 1 <= s.get("height", self.h) <= 256):
                 raise CarveError(f"set {name}: width and height are 1..256")
+            slots = s.get("slots")
+            if slots is not None and (not isinstance(slots, list) or
+                                      not all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in slots)):
+                raise CarveError(f"set {name}: slots must be a list of piece numbers 0 or more")
         self._gfx = {}
         for name, s in self.sets.items():
             if s.get("gfx") is not None:
@@ -266,6 +313,10 @@ class Composer:
         key = (name, k)
         if key not in self._cache:
             s = self.sets[name]
+            if s.get("slots") is not None:
+                if k >= len(s["slots"]):
+                    raise CarveError(f"set {name}: piece {k} is past its {len(s['slots'])} slots")
+                k = s["slots"][k]
             g = self._gfx.get(name)
             w, h = (g.w, g.h) if g else (s.get("width", self.w), s.get("height", self.h))
             self._cache[key] = (s.get("x", 0), s.get("y", 0),
@@ -486,7 +537,8 @@ def main(argv=None):
     p.add_argument("file")
     p.add_argument("--offset", type=binscan.nonneg, default=0)
     geometry(p)
-    p.add_argument("--chars", choices=("ascii", "ks-hangul", "ks-nonhanja", "ks-all"), required=True)
+    p.add_argument("--chars", choices=("ascii", "ks-hangul", "ks-nonhanja", "ks-all", "map"), required=True)
+    p.add_argument("--map", default=None, help="--chars map: lines GLYPH U+XXXX")
     p.add_argument("--first", type=binscan.nonneg, default=0, help="ascii: the code of the glyph at the offset (0)")
     p.add_argument("--count", type=binscan.positive, default=None, help="ascii: glyphs to read (256)")
     p.add_argument("--dense", action="store_true")
