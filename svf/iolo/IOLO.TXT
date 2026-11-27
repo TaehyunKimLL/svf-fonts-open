@@ -1,0 +1,13 @@
+iolo 6x2x1 / 8x4x4 jamo-set faces (16 px, SVFN JSET)
+=====================================================
+
+Built 2026-10-18 by jamoset.py (--layout 621 / 844 --check) from the original .fnt files of
+  https://github.com/iolo/6x2x1-fonts  commit d2d0bd4bb60d807b14b1fa44459e5d9a1d35b5d1
+  https://github.com/iolo/8x4x4-fonts  commit 8da33da60c8696b966b97d3a77c2449dd662dd03
+Rebuild: tools/build/iolo_jset.py. Licences: LICENSE-OFL.txt, LICENSE-MIT.txt (as in both repositories).
+
+6x2x1 (Apple II era): HGKEY6J 청계천한글, HLINK6J 한글링크, JOONG6J 미래교역 작은별, MR1286J 미래교역 고딕,
+  ROMAX6J 로얄컴퓨터, SCRN96J Screen9, WCOMM6J 워드콤, WOORI6J 우리글
+8x4x4: AD248J AD24, DKBY8J 도깨비, HANME8J 한메, PILGI8J 필기, SAM8J 샘, SAN8J san, SANS8J 고딕, SERIF8J 명조,
+  THIN8J thin, U4K8J u4k
+Each holds all 11,172 syllables by composition and ASCII; 13-20 KB.

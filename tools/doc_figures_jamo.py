@@ -3,9 +3,9 @@
 
   python3 -I tools/doc_figures_jamo.py [--out DIR] [--check]
 
-Reads two SIL OFL 1.1 faces of svf/ and nothing else: svf/dos/NEODG16A.SVF (Neo Dunggeunmo, a 16x16 1 bpp jamo set in
-the 8x4x4 layout, JSET version 1) and svf/dos/NEODG16.SVF (the same font precomposed, 16x16 1 bpp, ASCII and
-KS X 1001 without Hanja). Every label is drawn with NEODG16's own glyphs, so no system font is read. No Apple or ROM
+Reads two SIL OFL 1.1 faces of svf/ and nothing else: svf/iolo/SANS8J.SVF (Neo Dunggeunmo, a 16x16 1 bpp jamo set in
+the 8x4x4 layout, JSET version 1) and svf/dos/NEODG16.SVF (the comparison face is Neo Dunggeunmo precomposed, 16x16 1 bpp, ASCII and
+KS X 1001 without Hanja). Labels use the comparison face glyphs, so no system font is read. No Apple or ROM
 data is read: the figures may be published with the faces' OFL notes (svf/dos/NEODGM.TXT, svf/dos/OFL.TXT).
 
 Writes into DIR (default docs/images/jamo-sets/):
@@ -35,7 +35,7 @@ try:
 except ImportError:  # pragma: no cover
     Image = ImageDraw = None
 
-JAMO_FACE = "svf/dos/NEODG16A.SVF"
+JAMO_FACE = "svf/iolo/SANS8J.SVF"
 PRE_FACE = "svf/dos/NEODG16.SVF"
 ALLOWED = (JAMO_FACE, PRE_FACE)  # OFL faces only (web/LICENCES.tsv: dos/NEODG*)
 
@@ -392,7 +392,7 @@ def main(argv=None):
         return 2
     fc, out = render_all()
     n, exact, iou = compare(fc)
-    print(f"KS X 1001 syllables {n}: NEODG16A composes {exact} exactly like NEODG16, mean IoU {iou:.4f}")
+    print(f"KS X 1001 syllables {n}: SANS8J composes {exact} exactly like comparison face, mean IoU {iou:.4f}")
     bad = 0
     for name, data in out.items():
         path = os.path.join(a.out, name)
