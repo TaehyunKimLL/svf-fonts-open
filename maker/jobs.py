@@ -701,7 +701,7 @@ class Store:
             except FileNotFoundError:
                 if made is not None and path == files:
                     made.append(path)
-                bounded_call(("mkdir", path), lambda p=path: os.mkdir(p, 0o700), left())
+                bounded_call(("mkdir", path), lambda p=path: oscompat.mkdir_private(p), left())  # Windows: owner-only ACL
                 bounded_call(("chmod", path), lambda p=path: os.chmod(p, 0o700), left())
                 continue
             if oscompat.is_link(st) or not stat.S_ISDIR(st.st_mode):    # a link planted at the name would lead elsewhere

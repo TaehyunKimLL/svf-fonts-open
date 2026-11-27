@@ -330,6 +330,36 @@ class WindowsLinksTest(unittest.TestCase):
         finally:
             tree.close()
 
+    def test_mkdir_private_grants_the_user_and_system_only(self):
+        import ctypes
+        from ctypes import wintypes
+        adv = ctypes.WinDLL("advapi32", use_last_error=True)
+        path = os.path.join(self.tmp, "private")
+        oscompat.mkdir_private(path)
+        inner = os.path.join(path, "inner")
+        os.mkdir(inner)                                         # what is made inside inherits it
+
+        def dacl(p):
+            size = wintypes.DWORD()
+            adv.GetFileSecurityW(p, 4, None, 0, ctypes.byref(size))            # DACL_SECURITY_INFORMATION
+            buf = ctypes.create_string_buffer(size.value)
+            self.assertTrue(adv.GetFileSecurityW(p, 4, buf, size, ctypes.byref(size)))
+            text = wintypes.LPWSTR()
+            self.assertTrue(adv.ConvertSecurityDescriptorToStringSecurityDescriptorW(buf, 1, 4, ctypes.byref(text), None))
+            return text.value
+
+        sid = oscompat._user_sid()
+        top = dacl(path)
+        flags, _, aces = top[2:].partition("(")
+        self.assertIn("P", flags, top)                          # protected: nothing inherited from the parent
+        self.assertEqual(sorted(("(" + aces).strip("()").split(")(")), sorted(["A;OICI;FA;;;%s" % sid, "A;OICI;FA;;;SY"]),
+                         top)
+        below = dacl(inner)
+        self.assertNotIn(";;;BU)", below)                       # no Users, Authenticated Users or Everyone
+        self.assertNotIn(";;;AU)", below)
+        self.assertNotIn(";;;WD)", below)
+        self.assertIn(sid, below)
+
     def test_write_tree_refuses_a_device_name(self):
         out = os.path.join(self.tmp, "out")
         os.mkdir(out)

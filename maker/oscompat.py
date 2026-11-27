@@ -168,6 +168,29 @@ def windows_unsafe_name(name):
     return name.split(".", 1)[0].rstrip(" ").upper() in _DEVICE_NAMES
 
 
+# ---- private folders ------------------------------------------------------------------------------------------------
+
+def mkdir_private(path):
+    """`os.mkdir(path, 0o700)`. Windows has no mode bits (the folder would take its parent's ACL, and a local job's
+    scratch folder lives in a user-picked output folder): the folder is made with a protected DACL that grants full
+    access to the current user and SYSTEM only, inherited by everything made inside it."""
+    if not WINDOWS:
+        os.mkdir(path, 0o700)
+        return
+    sd = ctypes.c_void_p()
+    sddl = "D:P(A;OICI;FA;;;%s)(A;OICI;FA;;;SY)" % _user_sid()
+    if not _ConvertSddl(sddl, 1, ctypes.byref(sd), None):
+        raise _last_error("ConvertStringSecurityDescriptorToSecurityDescriptor")
+    try:
+        sa = _SecurityAttributes(ctypes.sizeof(_SecurityAttributes), sd, False)
+        if not _CreateDirectoryW(path, ctypes.byref(sa)):
+            exc = _last_error("CreateDirectory")
+            exc.filename = path
+            raise exc
+    finally:
+        _LocalFree(sd)
+
+
 # ---- locks ----------------------------------------------------------------------------------------------------------
 
 # Windows byte-range locks are mandatory: a lock on byte 0 would make the (empty) lock file unreadable to everyone else,
@@ -252,6 +275,44 @@ if WINDOWS:
                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
     _NtResumeProcess = _proto("NtResumeProcess", ctypes.c_long, wintypes.HANDLE, dll=_ntdll)
     _GetCurrentProcess = _proto("GetCurrentProcess", wintypes.HANDLE)
+    _advapi = ctypes.WinDLL("advapi32", use_last_error=True)
+
+    class _SecurityAttributes(ctypes.Structure):
+        _fields_ = [("nLength", wintypes.DWORD), ("lpSecurityDescriptor", ctypes.c_void_p),
+                    ("bInheritHandle", wintypes.BOOL)]
+
+    _ConvertSddl = _proto("ConvertStringSecurityDescriptorToSecurityDescriptorW", wintypes.BOOL, wintypes.LPCWSTR,
+                          wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(wintypes.ULONG), dll=_advapi)
+    _CreateDirectoryW = _proto("CreateDirectoryW", wintypes.BOOL, wintypes.LPCWSTR, ctypes.POINTER(_SecurityAttributes))
+    _LocalFree = _proto("LocalFree", ctypes.c_void_p, ctypes.c_void_p)
+    _OpenProcessToken = _proto("OpenProcessToken", wintypes.BOOL, wintypes.HANDLE, wintypes.DWORD,
+                               ctypes.POINTER(wintypes.HANDLE), dll=_advapi)
+    _GetTokenInformation = _proto("GetTokenInformation", wintypes.BOOL, wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                  wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), dll=_advapi)
+    _ConvertSidToStringSidW = _proto("ConvertSidToStringSidW", wintypes.BOOL, ctypes.c_void_p,
+                                     ctypes.POINTER(wintypes.LPWSTR), dll=_advapi)
+
+    def _user_sid():
+        """The current user's SID as text (S-1-5-21-...)."""
+        token = wintypes.HANDLE()
+        if not _OpenProcessToken(_GetCurrentProcess(), 0x8, ctypes.byref(token)):          # TOKEN_QUERY
+            raise _last_error("OpenProcessToken")
+        try:
+            size = wintypes.DWORD()
+            _GetTokenInformation(token, 1, None, 0, ctypes.byref(size))                     # TokenUser
+            buf = ctypes.create_string_buffer(size.value)
+            if not _GetTokenInformation(token, 1, buf, size, ctypes.byref(size)):
+                raise _last_error("GetTokenInformation")
+            sid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]                      # TOKEN_USER.User.Sid
+            text = wintypes.LPWSTR()
+            if not _ConvertSidToStringSidW(sid, ctypes.byref(text)):
+                raise _last_error("ConvertSidToStringSid")
+            try:
+                return text.value
+            finally:
+                _LocalFree(ctypes.cast(text, ctypes.c_void_p))
+        finally:
+            _CloseHandle(token)
     class _ProcessEntry(ctypes.Structure):
         _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
                     ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
