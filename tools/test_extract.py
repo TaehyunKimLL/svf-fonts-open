@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Tests of the extraction tools of docs/recipes.md ("Finding a font inside a program or data file", "OS/2 Korean fonts",
-"A low-resolution face from a high-resolution bitmap font"): binscan.py, rawcarve.py, os2dbcs.py and svfscale.py, on
+"""Tests of the extraction tools of the recipes (docs/recipes/programs-and-drivers.md "Finding a font inside a program or
+data file", docs/recipes/os2.md "OS/2 Korean fonts", docs/recipes/bitmap-fonts.md "A low-resolution face from a
+high-resolution bitmap font"): binscan.py, rawcarve.py, os2dbcs.py and svfscale.py, on
 synthetic files built here (no font data).
   python3 -m unittest tools.test_extract
 """

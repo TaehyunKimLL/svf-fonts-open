@@ -11,7 +11,7 @@ Each face is written to DIR/<face> and compared with svf/<face>:
 A row whose source is ext:NAME needs --ext NAME=PATH (a font that is not in this repository); without it the row is
 reported "skipped". Exit 0 when every built face matches its row's expect column ("identical" rows must be identical,
 "differs" rows may differ), 1 otherwise, 2 for a usage error. --list prints the table's rows and exits.
-Writes only below DIR. docs/recipes.md describes the recipes.
+Writes only below DIR. docs/recipes/svf-faces.md describes the recipes.
 """
 import argparse
 import os

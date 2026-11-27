@@ -8,7 +8,7 @@ The code, the format specification and the documentation written for this reposi
 The fonts and the faces made from them are **not** covered by that licence. Every font and face in this repository is
 under the **SIL Open Font License 1.1**, and its licence text sits beside it. A face in `svf/` is a Modified Version of
 its source font (rasterised, subset, or split into jamo pieces). `web/LICENCES.tsv` maps every face to its licence files
-(`tools/test_web_picker.py` fails if a face has none), and `tools/build/faces.tsv` with [docs/recipes.md](docs/recipes.md)
+(`tools/test_web_picker.py` fails if a face has none), and `tools/build/faces.tsv` with [docs/recipes/svf-faces.md](docs/recipes/svf-faces.md)
 says how each face is made from its upstream font.
 
 ## Faces (`svf/`)

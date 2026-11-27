@@ -109,7 +109,7 @@ from synthetic and OFL inputs only. The page's labels are in English. Paths are 
 
 4. Tick the **use** box of each row you want (a row is pre-ticked only when a licence file was found with its font, and a
    DOS raw font never is), look at the batch settings (the preset `plain` is fine for a first try), and press **run**. The steps table shows each step's state, seconds and stderr (the commands themselves
-   are written to `build-<id>/BUILD.md` in the output folder; [recipes.md](recipes.md#desktop-app-and-maker-routes) maps each route to its command line).
+   are written to `build-<id>/BUILD.md` in the output folder; [recipes/desktop-routes.md](recipes/desktop-routes.md#desktop-app-and-maker-routes) maps each route to its command line).
 
    ![The steps table while a job runs: two precomposed steps are done with drawn previews, one is running and the rest are pending](images/maker/running.png)
 
@@ -327,7 +327,7 @@ One set of settings applies to the whole batch; a row can opt out.
 | bpp | 1 bit or 2 bits per pixel; tick one or both. |
 | range | The set of characters to include. |
 | preset | A named recipe (section 5). "plain" uses the tools' defaults. |
-| also write TTF / BDF | Every face the run makes is also written beside its SVF as `<NAME>.ttf` (a TrueType font with the face's pixels as outlines and an embedded bitmap strike) and / or `<NAME>.bdf`, by `tools/svf2ttf.py` ([recipes.md](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font)). Off by default; a font's override can turn it on or off for that font alone. **TTF as composites** (off by default) writes a jamo set's TTF with `--composite`: its pieces once as glyphs and every syllable a composite of them (smaller, as the recipe describes); a precomposed face's TTF is unchanged. |
+| also write TTF / BDF | Every face the run makes is also written beside its SVF as `<NAME>.ttf` (a TrueType font with the face's pixels as outlines and an embedded bitmap strike) and / or `<NAME>.bdf`, by `tools/svf2ttf.py` ([recipes/svf-and-ttf.md](recipes/svf-and-ttf.md#an-svf-face-back-to-a-ttf-bitmap-font)). Off by default; a font's override can turn it on or off for that font alone. **TTF as composites** (off by default) writes a jamo set's TTF with `--composite`: its pieces once as glyphs and every syllable a composite of them (smaller, as the recipe describes); a precomposed face's TTF is unchanged. |
 | advanced panel | Fine controls: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize (threshold, ridge, mono), Latin ascent, Hangul ascent. A value here wins over the preset's. Controls that a route cannot use are hidden or disabled. |
 
 ### 3.5 Buttons in the top bar
@@ -349,7 +349,7 @@ seconds, quality, stderr and result, so you can see which step ran for which fon
 is a step of its own (kind `export`) right after the face: its result cell says how many glyphs the file holds (read back
 and checked against the face's characters) and where it was written; when the face step fails, its exports fail with
 "face step failed". The commands
-themselves are not in this table: `build-<id>/BUILD.md` in the output folder lists what was run, with which commands (the route table: [recipes.md](recipes.md#desktop-app-and-maker-routes)).
+themselves are not in this table: `build-<id>/BUILD.md` in the output folder lists what was run, with which commands (the route table: [recipes/desktop-routes.md](recipes/desktop-routes.md#desktop-app-and-maker-routes)).
 Every result face is
 drawn on a canvas by the renderer, so you can see what was made. (That the canvas has ink is something the repository's
 tests assert, not something the app checks.)
@@ -409,7 +409,7 @@ was written.*
 | Classic Mac HangulTalk 1.0 fonts | The fork with its `fdef`; a raw 1.0 `fbit` without `fdef` is listed with what is missing. |
 | Hanterm Johab fonts | Layout `hanterm-johab` (a Johab BDF). |
 | SVF files (`.svf`, v2/v3, 1 or 2 bpp) | Copied (when allowed by the route) or used as the source for a jamo fit; v3 keeps its JSET block unless a block-version change is requested; v2 is converted to v3. The `svf2ttf` route turns the SVF into a TTF and / or a BDF only (tick "also write TTF" or "BDF"). |
-| Known ROM sets (local mode) | Font ROMs recognised by their size and SHA-256 from the built-in recipes of `maker/recipes/`: the three 86Box Korean VGA cards, each a 512 KB KS C 5601 font ROM with its 32 KB VGA BIOS (Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). Pick the folder that holds both files: the font ROM is one row, "known: <card>", and the BIOS is labelled as read with it. With one file only the row says "part of <card>: also needs <file>; pick the folder" and offers nothing; a file with the right name and size but another hash is "looks like <card>, another revision" and is not converted. The faces are a 16 px precomposed face (Hangul from the ROM, English from the BIOS's 8x16 font) and, experimental, its 8x4x4 jamo fit ([recipes.md](recipes.md#korean-vga-font-roms-86box)). Four MAME sets the same way (pick the unpacked set's folder; a zip is not read): Samsung SPC-1500 (`ss150fnt.bin` .. `ss153fnt.bin`: a precomposed face and an exact jamo set, route `spec`), Date Quiz Go Go (`uor1` .. `uor4`), X Se Dae Quiz (`obj-1.u0811`, `obj-2.u082`: a jamo set, route `dos raw`) and Quiz King of Fighters (Korea) (`vic-080-c1.c1` .. `c4.c4`) ([recipes.md](recipes.md#korean-font-roms-in-mame-sets)). An upload job only labels them. |
+| Known ROM sets (local mode) | Font ROMs recognised by their size and SHA-256 from the built-in recipes of `maker/recipes/`: the three 86Box Korean VGA cards, each a 512 KB KS C 5601 font ROM with its 32 KB VGA BIOS (Trigem `tg_ksc5601.rom` + `tgkorvga.bin`, Kasan `kasan_ksc5601.rom` + `et4000_kasan16.bin`, ATI `ati_ksc5601.rom` + `atikorvga.bin`). Pick the folder that holds both files: the font ROM is one row, "known: <card>", and the BIOS is labelled as read with it. With one file only the row says "part of <card>: also needs <file>; pick the folder" and offers nothing; a file with the right name and size but another hash is "looks like <card>, another revision" and is not converted. The faces are a 16 px precomposed face (Hangul from the ROM, English from the BIOS's 8x16 font) and, experimental, its 8x4x4 jamo fit ([recipes/rom-86box.md](recipes/rom-86box.md#korean-vga-font-roms-86box)). Four MAME sets the same way (pick the unpacked set's folder; a zip is not read): Samsung SPC-1500 (`ss150fnt.bin` .. `ss153fnt.bin`: a precomposed face and an exact jamo set, route `spec`), Date Quiz Go Go (`uor1` .. `uor4`), X Se Dae Quiz (`obj-1.u0811`, `obj-2.u082`: a jamo set, route `dos raw`) and Quiz King of Fighters (Korea) (`vic-080-c1.c1` .. `c4.c4`) ([recipes/rom-mame.md](recipes/rom-mame.md#korean-font-roms-in-mame-sets)). An upload job only labels them. |
 
 No proprietary font, bitmap or table is distributed with the app. The tests use synthetic inputs.
 
@@ -661,11 +661,11 @@ The faces already written in your output folders are yours and stay.
   `libfuse2`) under Xvfb; the window rendered and a conversion in local mode ran through the packaged sidecar. Unverified in that run: a real desktop with a window manager and GPU, and Windows/macOS. The next item gives the later Windows status.
 - Windows NSIS/portable builds passed Actions on `windows-build`, not yet merged into main. macOS has not been built. See [platform status](maker-desktop.md#65-windows-and-macos-status-on-2026-11-27).
 - TTF / BDF export: each file is read back (fontTools for a TTF) and must hold exactly the face's characters; the
-  round trip (baking the TTF back with `mkfont.py` and comparing, recipes.md) is not part of a run, it takes minutes for a
+  round trip (baking the TTF back with `mkfont.py` and comparing, recipes/svf-and-ttf.md) is not part of a run, it takes minutes for a
   jamo set. Whether a program draws a TTF's 2 bpp strike as levels is up to its renderer (Windows and macOS not tested).
 - Known ROM sets: checked against the real files only where `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME` names your own
-  copy (every face the size recipes.md records); the tests use synthetic ROMs drawn from an OFL face.
-- The mask-fit command-line recipe has a recorded run (see [recipes](recipes.md)); an end-to-end maker
+  copy (every face the size recipes/rom-86box.md and recipes/rom-mame.md record); the tests use synthetic ROMs drawn from an OFL face.
+- The mask-fit command-line recipe has a recorded run (see [recipes/outline-fonts.md](recipes/outline-fonts.md#jamo-sets-from-truetype-and-opentype-fonts), way 2); an end-to-end maker
   `mask fit` run is not established by that record. The identity check has only been tested with a stub;
   `vector fit` can take minutes per font.
 - Not verified, pending manual checks on a real desktop: native dialogs with a display, the file manager integration,

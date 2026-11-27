@@ -930,7 +930,7 @@ def _mac_fbit1_entry(rel, n, rid, body, types, wrapped, family, zipped, raw=None
 
 
 HWP_PFT_LABEL = (".PFT of an unknown layout: not an HWP 1.x font, an 8x4x4 or a KS X 1001 syllable dump, so not read by "
-                 "this repository's tools (recipes.md, HWP 1.x and 2.x fonts)")
+                 "this repository's tools (recipes/dos-fonts.md, HWP 1.x and 2.x fonts)")
 HWP_LOCAL_ONLY = "HWP font: not converted here (local-only mode)"
 
 

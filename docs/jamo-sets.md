@@ -218,9 +218,9 @@ The timeline shows selected systems and standards; CP949 and the Unicode syllabl
 ```mermaid
 flowchart LR
   A["1987<br/>KS C 5601-1987 precomposed<br/>(named in HWP 1.20 SAMPLE.HWP,<br/>notes/hwp1.md)"]
-  B["1987<br/>Samsung SPC-1500<br/>jamo set in ROM<br/>(docs/recipes.md)"]
+  B["1987<br/>Samsung SPC-1500<br/>jamo set in ROM<br/>(docs/recipes/rom-mame.md)"]
   C["1988<br/>Mac HangulTalk 1.0<br/>fbit, 45 sets<br/>(notes/mac.md)"]
-  D["1989<br/>NKP Hercules TSR<br/>(docs/recipes.md)<br/>1989-1990 HWP 1.x"]
+  D["1989<br/>NKP Hercules TSR<br/>(docs/recipes/programs-and-drivers.md)<br/>1989-1990 HWP 1.x"]
   E["1992<br/>KS C 5601-1992 annex 3<br/>johab"]
   F["1994<br/>IBM HBIOS V3.0<br/>8x4x4 + precomposed<br/>(notes/os.md)"]
   A --> B --> C --> D --> E --> F
@@ -426,7 +426,7 @@ bitmap in sets 1 and 3. Labels: 초성 = initial, 중성 = medial, 종성 = fina
 piece numbers: of the 344 pieces, 283 bitmaps are distinct
 (compared through `jamoset.unpack`).*
 
-Inside the 8x4x4 file (`notes/hanme-dokkaebi.md` section 2, [docs/recipes.md](recipes.md) "Other DOS-era Korean fonts"): 360 slots,
+Inside the 8x4x4 file (`notes/hanme-dokkaebi.md` section 2, [docs/recipes/dos-fonts.md](recipes/dos-fonts.md#other-dos-era-korean-fonts) "Other DOS-era Korean fonts"): 360 slots,
 slot 0 of every set blank.
 
 ```
@@ -441,25 +441,25 @@ initial = s x 20 + L + 1     medial = 160 + s x 22 + V + 1     final = 248 + s x
 | System | Initial / medial / final sets | Pieces (file slots) | File bytes | What selects | Source |
 |---|---|---:|---:|---|---|
 | 8x4x4 (DOS raw `HANGUL.FNT`, Taebaek `GOTHIC16.FNT`, Dokkaebi `DKBBG`, HBIOS `$KGOZN16`) | 8 / 4 / 4 | 360 | 11,520 (16 px) | initial: 5 vowel kinds (no final) or 3 (final); medial: ㄱㅋ x final; final: 4 vowel kinds | `notes/dos.md`, `notes/hanme-dokkaebi.md` 2, `jamoset.py` `_844` |
-| 8x4x4 IHNM | 8 / 4 / 4 | 360 | 11,520 | medial sets of ㄱㅋ swapped | [docs/recipes.md](recipes.md) `844-ihnm` |
+| 8x4x4 IHNM | 8 / 4 / 4 | 360 | 11,520 | medial sets of ㄱㅋ swapped | [docs/recipes/dos-fonts.md](recipes/dos-fonts.md#other-dos-era-korean-fonts) `844-ihnm` |
 | 10x4x4 (san 1.0) | 10 / 4 / 4 | 400 | 12,800 | initial: the 5 no-final sets kept apart with a final too | `notes/dos.md`, `jamoset.py` `_san1044` |
 | 6x2x1 (Apple II era) | 6 / 2 / 1 | 192 | 6,144 | initial: 3 vowel kinds (vertical, horizontal, compound) x final; medial: final; one final set | `notes/apple2.md`, `jamoset.py` `_621` |
-| hanterm johab | 10 / (3 or 4) / 4 | 529 glyphs | BDF | three tail classes (none, ㄴ, other) | [docs/recipes.md](recipes.md) "hanterm", `jamoset.py` `_hanterm` |
+| hanterm johab | 10 / (3 or 4) / 4 | 529 glyphs | BDF | three tail classes (none, ㄴ, other) | [docs/recipes/bitmap-fonts.md](recipes/bitmap-fonts.md#hanterm) "hanterm", `jamoset.py` `_hanterm` |
 | Dokkaebi printer 16/24 px | 7 / 2 / 2 | 240 (one face) | 15,360 (two faces) | initial: vowel x final | `notes/hanme-dokkaebi.md` 3 |
 | Dokkaebi printer 40/48 px | 12 / 4 / 4 | 440 (one face) | 176,000 (40 px) and 253,440 (48 px), each file two faces | | the same |
 | Hanme Hangul 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (one face) | initial: 5 vowel kinds; medial: final; final: 3 vowel kinds | `notes/hanme-dokkaebi.md` 1 |
-| Kyrandia `MK15.BIT` | 10 / 4 / 4 (jamo-major order) | 385 | 11,550 (15x15) | the 8x4x4 rule, initial set = 2 x vowel kind + final | [docs/recipes.md](recipes.md) `kyra-lok`, `jamoset.py` `_kyra` |
+| Kyrandia `MK15.BIT` | 10 / 4 / 4 (jamo-major order) | 385 | 11,550 (15x15) | the 8x4x4 rule, initial set = 2 x vowel kind + final | [docs/recipes/dos-fonts.md](recipes/dos-fonts.md#other-dos-era-korean-fonts) `kyra-lok`, `jamoset.py` `_kyra` |
 | HWP 1.x `HANGUL.SFT` | 10/4/4, 7/2/2, 6/2/2 (per face) | 1,193 (three faces) | | initial class (ㄱㅋ / other), final, 15 vowel shape classes | `notes/hwp1.md` |
-| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 (210 used) | 9,280 (in the SUB-ROM) | initial: 3 vowel kinds x final; final: vowel | [docs/recipes.md](recipes.md#korean-msx-fonts-msx2-and-msx1) "Korean MSX fonts" |
-| Samsung SPC-1500 | 6 / 2 / 2 (8 initial sets in ROM) | 210 | four ROMs | initial: 3 vowel kinds x final | [docs/recipes.md](recipes.md) "Samsung SPC-1500" |
-| NKP (Hercules TSR) | 8 / 2 (each cut in four by shape) / 1 | cropped pieces | | initial: 4 vowel kinds x final | [docs/recipes.md](recipes.md) "NKP: a Hercules Hangul TSR with cropped pieces" |
-| Mac HangulTalk 1.0 `fbit` | 45 glyph sets; as SVF 20 / 15 / 4 in 8 x 4 classes | 688 (12 px) | | the 18 tables of the 'fdef' code | `notes/mac.md` "Format 1", [docs/recipes.md](recipes.md) "Classic Mac Korean bitmap fonts" |
+| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 (210 used) | 9,280 (in the SUB-ROM) | initial: 3 vowel kinds x final; final: vowel | [docs/recipes/rom-msx.md](recipes/rom-msx.md#korean-msx-fonts-msx2-and-msx1) "Korean MSX fonts" |
+| Samsung SPC-1500 | 6 / 2 / 2 (8 initial sets in ROM) | 210 | four ROMs | initial: 3 vowel kinds x final | [docs/recipes/rom-mame.md](recipes/rom-mame.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) "Samsung SPC-1500" |
+| NKP (Hercules TSR) | 8 / 2 (each cut in four by shape) / 1 | cropped pieces | | initial: 4 vowel kinds x final | [docs/recipes/programs-and-drivers.md](recipes/programs-and-drivers.md#nkp-a-hercules-hangul-tsr-with-cropped-pieces) "NKP: a Hercules Hangul TSR with cropped pieces" |
+| Mac HangulTalk 1.0 `fbit` | 45 glyph sets; as SVF 20 / 15 / 4 in 8 x 4 classes | 688 (12 px) | | the 18 tables of the 'fdef' code | `notes/mac.md` "Format 1", [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) "Classic Mac Korean bitmap fonts" |
 | Mac HangulTalk 7.1.x `fbit` type 3 | no rule: a table entry per syllable | 482 (2 banks x 241) | 8,760 (`fbit`) | a 4-byte entry per KS syllable | `notes/mac.md` "HangulTalk 7.1.x" |
 
 The same number of sets does not mean the same rule. NKP splits the with-final initials into 4 vowel shapes where 8x4x4
-has 3, so an NKP font fitted to 8x4x4 reaches IoU 0.998 only ([docs/recipes.md](recipes.md) "NKP: a Hercules Hangul TSR with cropped
+has 3, so an NKP font fitted to 8x4x4 reaches IoU 0.998 only ([docs/recipes/programs-and-drivers.md](recipes/programs-and-drivers.md#nkp-a-hercules-hangul-tsr-with-cropped-pieces) "NKP: a Hercules Hangul TSR with cropped
 pieces"). The SPC-1500 splits the no-final initials into 3 vowel shapes where 8x4x4 has 5; its precomposed face fitted to
-8x4x4 reaches IoU 0.987 (the same document, "Samsung SPC-1500"). That is why SVF's JSET is made to hold any of these
+8x4x4 reaches IoU 0.987 ([docs/recipes/rom-mame.md](recipes/rom-mame.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) "Samsung SPC-1500"). That is why SVF's JSET is made to hold any of these
 systems by its own rule (chapter 4).
 
 ## 3. Real systems: what the research read
@@ -467,7 +467,7 @@ systems by its own rule (chapter 4).
 ### 3.1 DOS Hangul programs and games
 
 - **Raw 8x4x4 files** are 360 x 32 bytes with no header. The tools here know them by size: 11,520 bytes (11,522 with a
-  2-byte header), and 25,920 / 72,000 / 103,680 bytes at 24 / 40 / 48 px ([docs/recipes.md](recipes.md) "Other DOS-era Korean
+  2-byte header), and 25,920 / 72,000 / 103,680 bytes at 24 / 40 / 48 px ([docs/recipes/dos-fonts.md](recipes/dos-fonts.md#other-dos-era-korean-fonts) "Other DOS-era Korean
   fonts"). Most Korean indie DOS games use the same 11,520-byte 8x4x4 (`notes/games.md`).
 - **HWP 3.0 for DOS**: `HAN16_*.FNT` holds the 2,350 precomposed syllables followed by a 360-glyph 8x4x4 jamo set; the
   24/40/96 px files are precomposed only (`notes/printer.md` 1).
@@ -475,15 +475,15 @@ systems by its own rule (chapter 4).
   2,350 precomposed syllables (`notes/os.md`).
 - **Dokkaebi**: `DKBBG.FNT` (15,584 bytes) is an 11,520-byte 8x4x4 set plus 127 symbols, and the driver `DKBB.COM` holds
   the same bytes at offset 96 (`notes/hanme-dokkaebi.md` section 2). Driver analysis finds the font inside the driver and
-  makes a jamo set of it ([docs/recipes.md](recipes.md) "Dokkaebi: the font inside the driver"). The DKB3 form (912 glyphs) stores the
+  makes a jamo set of it ([docs/recipes/programs-and-drivers.md](recipes/programs-and-drivers.md#dokkaebi-the-font-inside-the-driver) "Dokkaebi: the font inside the driver"). The DKB3 form (912 glyphs) stores the
   initial+medial pairs precomposed and ORs only the final: fewer overlays, more glyphs (the same note, 2.1).
 - **NKP** (a Hercules TSR, 1989) stores only the rows a piece needs, not the full cell, saving bytes; each piece record
-  says from which cell byte it is drawn ([docs/recipes.md](recipes.md) "NKP: a Hercules Hangul TSR with cropped pieces").
+  says from which cell byte it is drawn ([docs/recipes/programs-and-drivers.md](recipes/programs-and-drivers.md#nkp-a-hercules-hangul-tsr-with-cropped-pieces) "NKP: a Hercules Hangul TSR with cropped pieces").
 
 ### 3.2 Hangul cards and VGA BIOS ROMs
 
 The three Korean VGA cards of the 86Box ROM set (Trigem, Kasan, ATI) each have a 512 KB KS C 5601 font ROM of 16,384
-32-byte slots, a 128 x 128 grid: **a precomposed grid**, not a johab font; 가 is slot 0x1821 ([docs/recipes.md](recipes.md) "Korean VGA
+32-byte slots, a 128 x 128 grid: **a precomposed grid**, not a johab font; 가 is slot 0x1821 ([docs/recipes/rom-86box.md](recipes/rom-86box.md#korean-vga-font-roms-86box) "Korean VGA
 font ROMs (86Box)"). The tools can fit an 8x4x4 jamo set to that precomposed face, but many syllables are not drawn
 as an OR of pieces, and the IoU stays at 0.968 / 0.872 / 0.919. Korean MS-DOS 6.22 is the opposite case: its font file
 `HFONT.SYS` has no syllables and HBIOS composes them from its own jamo set (section 1.4).
@@ -493,7 +493,7 @@ as an OR of pieces, and the IoU stays at 0.968 / 0.872 / 0.919. Korean MS-DOS 6.
 - **HangulTalk 1.0** (System 4.1) `fbit` fonts (Gotic12, Munjo12/16/24) hold 45 glyph sets; the composition rule is the
   18 selection tables of the 68k 'fdef' driver (`notes/mac.md` "Format 1"). That is a rule. The project's
   `--layout mac-fbit-45sets` moves it into a JSET as it is: Munjo24 gives 653 pieces, 8 lead x 4 tail classes, 20/15/4
-  sets, 36,660 bytes, and all 11,172 syllables equal that rule ([docs/recipes.md](recipes.md) "Classic Mac Korean bitmap fonts").
+  sets, 36,660 bytes, and all 11,172 syllables equal that rule ([docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) "Classic Mac Korean bitmap fonts").
 - **HangulTalk 7.1.x** Seoul12, AppleGothic12/24 and AppleMyungjo12/24 are `fbit` type 3: 482 glyphs (2 banks x 241) and
   **no rule**. `InputBackSupport`'s 'HTBL' 1 resource has a 4-byte entry `[bank][g1][g2][g3]` for each of the 2,350 KS
   syllables (`notes/mac.md` "HangulTalk 7.1.x"), so the 8,822 syllables outside KS cannot be composed with these fonts.
@@ -529,16 +529,16 @@ cannot be composed.
 - **Samsung SPC-1500** (1987, MAME `spc1500`): initial, medial and final pieces in three ROMs; the MAME driver **ANDs** the
   three pieces, the ROMs being inverted (0 bits are ink). The sets used are 6 initial, 2 medial and 2 final, and one JSET
   (one lead class, 6/2/2 sets) expresses the rule exactly: 10,652 bytes, 210 pieces, all 11,172 syllables equal to MAME's
-  AND ([docs/recipes.md](recipes.md) "Samsung SPC-1500").
+  AND ([docs/recipes/rom-mame.md](recipes/rom-mame.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact) "Samsung SPC-1500").
 - **Daewoo MSX CPC-300/400S**: the upper 16 KB of the MSX2 SUB-ROM hold 6 initial sets x 20, 2 medial sets x 28 and
   2 final sets x 29 pieces, the selection read from the Hangul BASIC ROM routine 4DC4h. The compose spec
   `tools/specs/msx2-daewoo.json` holds the rule and one JSET (one lead class, 6/2/2 sets) expresses it exactly: 10,584
-  bytes, 210 pieces ([docs/recipes.md](recipes.md#korean-msx-fonts-msx2-and-msx1) "Korean MSX fonts"). The CPC-400S also
+  bytes, 210 pieces ([docs/recipes/rom-msx.md](recipes/rom-msx.md#korean-msx-fonts-msx2-and-msx1) "Korean MSX fonts"). The CPC-400S also
   has a 256 KB precomposed font ROM, and the Korean MSX1 machines compose syllables from 8x8 BIOS cells by a layout rule
   read off the running machine (the same section).
 - **OS/2 Warp 4 Korean** system DBCS fonts hold the precomposed set (all of KS X 1001), compressed with a Huffman code and
   a prediction (`notes/os2-dbcs.md`); the tools decode them into a precomposed face and fits jamo sets to it
-  ([docs/recipes.md](recipes.md) "OS/2 Korean fonts (완성형) to a precomposed face and a jamo set").
+  ([docs/recipes/os2.md](recipes/os2.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set) "OS/2 Korean fonts (완성형) to a precomposed face and a jamo set").
 
 ## 4. Jamo sets in SVF: JSET version 1
 
@@ -725,7 +725,7 @@ returns the composed cell ([docs/c-renderer-guide.md](c-renderer-guide.md) chapt
 ### 4.4 Is it the same as the precomposed face?
 
 SANS8J is an iolo conversion of a legacy 8x4x4 bitmap face, converted from its SANS .fnt source with `jamoset.py --layout 844 --check`.
-The figure script compares it with the unrelated precomposed `NEODG16` only as a cross-font illustration: 274 of the KS 2,350 syllables match exactly, with mean IoU 0.9498. This does not measure SANS8J conversion fidelity; no precomposed SANS8J twin is distributed. A rasterised outline font fitted to 8x4x4 can lose fidelity: NanumGothic Bold at 16 px gave IoU 0.795 and 126 exact syllables ([docs/recipes.md](recipes.md) "Choosing the number of sets (벌 수)").
+The figure script compares it with the unrelated precomposed `NEODG16` only as a cross-font illustration: 274 of the KS 2,350 syllables match exactly, with mean IoU 0.9498. This does not measure SANS8J conversion fidelity; no precomposed SANS8J twin is distributed. A rasterised outline font fitted to 8x4x4 can lose fidelity: NanumGothic Bold at 16 px gave IoU 0.795 and 126 exact syllables ([docs/recipes/sets.md](recipes/sets.md#choosing-the-number-of-sets-벌-수) "Choosing the number of sets (벌 수)").
 
 ![comparison example: precomposed NEODG16 and 8x4x4 SANS8J](images/jamo-sets/precomposed.png)
 
@@ -819,7 +819,7 @@ The class limits were 8 and 8 until 2026-10 (largest block 6,641 bytes) and 12 a
 From [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) "Before -> after JSET v1 + v2", rp2040js at 125 MHz, MONO_PAGE `-Os`, cycles per
 iteration. BASE is the version 1 reader of main before the change, "v1 face" the version 1 face in the current build,
 "v2 copy" a version 2 copy of the same face. The face is HGKEY6J (6x2x1, not in the project). Converting the 8x4x4
-SANS8J to version 2 takes its JSET from 1,101 to 272 bytes and the file from 15,740 to 14,911 bytes ([docs/recipes.md](recipes.md)
+SANS8J to version 2 takes its JSET from 1,101 to 272 bytes and the file from 15,740 to 14,911 bytes ([docs/recipes/svf-and-ttf.md](recipes/svf-and-ttf.md#an-existing-svf)
 "An existing SVF").
 
 | Case | BASE | v1 face | v2 copy | v2 vs BASE | v2 vs v1 face |
@@ -917,7 +917,7 @@ flowchart TD
 **Whole glyphs and exceptions.** A LIST entry whose `i` is a piece and `m = f = 0xFFFF` draws that one piece as the whole
 syllable: a precomposed cell, kept as it is. `tools/jamoexc.py` writes such LIST faces: a jamo-set face plus up to 255
 exceptions (a whole glyph, `"whole"`, or another combination of pieces, `"pieces"`), the face's own JSET kept as the
-fallback (the `tools/jamoexc.py` docstring). [docs/recipes.md](recipes.md) "Choosing the number of sets (벌 수)" recommends, for a font
+fallback (the `tools/jamoexc.py` docstring). [docs/recipes/sets.md](recipes/sets.md#choosing-the-number-of-sets-벌-수) "Choosing the number of sets (벌 수)" recommends, for a font
 8x4x4 fits poorly (an outline raster), "a few LIST exceptions on an 844 set" rather than more sets.
 
 What `jamoexc.py build` does (the docstring and `build` of `tools/jamoexc.py`):
@@ -983,10 +983,10 @@ status bits ([spec/SVF.md](../spec/SVF.md) "Reader statuses", [c/include/svf.h](
 
 ### 6.4 Seoul12: one font, two structures
 
-Seoul12 (12 px) of Mac HangulTalk 7.1.x can be put into SVF both ways, which makes it a good comparison. The file sizes below are documented in [docs/recipes.md](recipes.md), "Classic Mac Korean bitmap fonts"; the preset sizes describe the Uno conversions.
+Seoul12 (12 px) of Mac HangulTalk 7.1.x can be put into SVF both ways, which makes it a good comparison. The file sizes below are documented in [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts), "Classic Mac Korean bitmap fonts"; the preset sizes describe the Uno conversions.
 
 **A note on the name.** "SEOUL12J" here names the Uno preset's
-**derived** face (rule form, with Latin, 12,624 bytes). The command examples of [docs/recipes.md](recipes.md) "Classic Mac Korean bitmap
+**derived** face (rule form, with Latin, 12,624 bytes). The command examples of [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) "Classic Mac Korean bitmap
 fonts" give the same name `SEOUL12J.SVF` to the **direct** output (JMAP) and `SEOUL12D.SVF` to the derived one. The table
 calls them "original structure" (direct) and "SEOUL12J" (derived), and compares sizes with and without Latin alike.
 
@@ -1002,7 +1002,7 @@ calls them "original structure" (direct) and "SEOUL12J" (derived), and compares 
 | Syllables composed | the KS 2,350 only | 11,172: KS 2,350 exact + 4,630 regular + 4,192 guessed |
 | Tool | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
 
-The four file sizes (15,016 / 9,716 / 17,924 / 12,624) are the runs of [docs/recipes.md](recipes.md) "Classic Mac Korean bitmap fonts".
+The four file sizes (15,016 / 9,716 / 17,924 / 12,624) are the runs of [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) "Classic Mac Korean bitmap fonts".
 The structure rows give the block form, classes, sets, pieces, JSET bytes and regular / guessed counts for those conversions.
 
 **Why the rule form could not use the Mac pieces as they are.** The Mac table picks the medial (and the finals ㄱ ㄹ ㅇ)
@@ -1303,7 +1303,7 @@ The derived JSET also extrapolates the other 8,822 syllables.
 | Budget (flash for the face) | Recommended form | Reader | Example |
 |---|---|---|---|
 | about 6-11 KB, 2 KB of RAM (Uno class) | a JSET v1 with few sets (6x2x1, or a shrunk 8x4x4) | v1 only (the AVR default) | `NEODG16G` 6x2x1: file 10,684, 10,124 in `mcu-strict`, Uno image 23,676 text (`c/ports/arduino/README.md`); Seoul S5K-S8K 5,548-8,160 |
-| about 16-20 KB | 8x4x4 JSET v1 | v1 | `SANS8J` 15,740; 16 px 8x4x4 sets made from DOS raw fonts, ROMs and OS/2: 15,556-18,576 ([docs/recipes.md](recipes.md)) |
+| about 16-20 KB | 8x4x4 JSET v1 | v1 | `SANS8J` 15,740; 16 px 8x4x4 sets made from DOS raw fonts, ROMs and OS/2: 15,556-18,576 ([docs/recipes/dos-fonts.md](recipes/dos-fonts.md#other-dos-era-korean-fonts), [rom-86box](recipes/rom-86box.md), [rom-mame](recipes/rom-mame.md), [os2](recipes/os2.md)) |
 | a face with big tables (12 x 12 classes) in flash or RAM | the same face as JSET v2 | v2 (+535 B on M0+) | 11,681 -> 5,324 + aliases; composition 6-10 % slower (5.3) |
 | streaming (SD and the like), tight RAM | v2 + a syllable cache | v2 | the JSET region sits in the tables buffer |
 | a large MCU (hundreds of KB of flash) | an adaptive JSET v1, BIG if needed | v1 (+BIG) | `svf/jamo-extra/GOTHA16.SVF` 60,992 |
@@ -1342,7 +1342,7 @@ In order:
    tables are small (SPC-1500: 10,652 bytes, all 11,172 exact).
 2. From a precomposed face: fit 8x4x4 first and read the IoU. At about 0.98 or more keep 8x4x4; below, try
    `adaptive:12,8,6`; for an outline raster the precomposed face or a few LIST exceptions usually use the bytes better
-   ([docs/recipes.md](recipes.md) "Choosing the number of sets (벌 수)").
+   ([docs/recipes/sets.md](recipes/sets.md#choosing-the-number-of-sets-벌-수) "Choosing the number of sets (벌 수)").
 3. With a fixed budget, fit generously and let `tools/jamomerge.py merge --points` cut down to it (as the Seoul presets
    were made).
 4. Check with the matrix of 7.1 that the target build reads that form: on MCUs JMAP, LIST and BIG are **off by default**.
@@ -1357,7 +1357,7 @@ In order:
 | [c/README.md](../c/README.md) "Jamo sets: what each build reads" | the build matrix |
 | [docs/c-renderer-guide.md](c-renderer-guide.md) chapters 10-13 | Hangul, memory, switches, platforms |
 | [c/cross/SIZES.md](../c/cross/SIZES.md), [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) | size and speed measurements |
-| [docs/recipes.md](recipes.md) | recipes per font and "Choosing the number of sets (벌 수)" |
+| [docs/recipes.md](recipes.md) | recipes per font (the index of the [recipe documents](recipes.md#recipe-documents)) and [Choosing the number of sets (벌 수)](recipes/sets.md) |
 | [docs/tools.md](tools.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | the set system tables (`I844_*`, `F844`, `_844` and others), `pack`, `unpack`, `pieces_of` |
 | [Renderer design](../spec/renderer-design.md) | layout, scaling and memory model |

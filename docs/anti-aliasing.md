@@ -247,7 +247,7 @@ KS X 1001 syllables of GOTHA16A and in 660 of SGDAY16A.*
 The maximum has a limit too. When two jamo cover disjoint halves of one pixel in the outline, their union covers the whole pixel, but the maximum of the separately baked pieces is lower, so thin strokes look slightly lighter where they
 meet than in the precomposed glyph. `jamoaa.py` measures this loss (`join_loss`) and reduces it by refining the
 pieces' levels against the composed result (section 4.1)
-([recipe pitfalls](recipes.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font)).
+([recipe pitfalls](recipes/outline-fonts.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font)).
 
 ## 4. Making anti-aliased faces
 
@@ -287,7 +287,7 @@ the initial, medial or final; each piece's levels are the per-pixel median over 
 so that the max-composed syllables come closer to the syllables drawn whole (`--aa-refine N`, default 2).
 
 Commands and measurements are in the recipe
-[2 bpp anti-aliased faces from a TrueType/OpenType font](recipes.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font).
+[2 bpp anti-aliased faces from a TrueType/OpenType font](recipes/outline-fonts.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font).
 By that recipe, a 2 bpp precomposed face is 1.5-1.6 times its 1 bpp face and a 2 bpp jamo set about 1.2 times its
 1 bpp set, and a pixel font (Dunggeunmo) has no intermediate coverage at its own size: its 2 bpp face is level 3 only.
 
@@ -310,7 +310,7 @@ The renderer's draw-time scale (`scale_num / scale_den`, [C renderer guide secti
 also uses area averaging. Its output is 8-bit coverage, so compare a stored 2 bpp face with that output
 **quantised to four levels**, rather than with raw GRAY8. The example uses square 36-to-16 cells at 4/9;
 other sizes can differ because `svfscale.py` rounds cell dimensions separately (the 2 bpp and 4/9
-panels of Figure 6; the [recipe](recipes.md#a-low-resolution-face-from-a-high-resolution-bitmap-font) checked all 2,350
+panels of Figure 6; the [recipe](recipes/bitmap-fonts.md#a-low-resolution-face-from-a-high-resolution-bitmap-font) checked all 2,350
 syllables of an OS/2 font). The stored face costs memory, the draw-time scale costs time. The fitting path `jamoset.py --bpp 2` currently takes outline fonts only; a 1 bpp jamo set can be fitted to the 1 bpp result.
 
 ### 4.3 Measuring quality
@@ -345,7 +345,7 @@ Each syllable-cache slot uses 8 bytes plus the largest unscaled cell in the chai
 | 24 x 24 | 72 B | 144 B | 576 B |
 
 Whole faces (same font, same size; the NanumGothic Bold 16 measurements of the
-[recipe](recipes.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font)):
+[recipe](recipes/outline-fonts.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font)):
 
 | Face | 1 bpp | 2 bpp | Ratio |
 |---|---:|---:|---:|
@@ -392,8 +392,8 @@ comparing the 2 bpp face with a 1 bpp `--mono-hint` face of a hinted font on the
 - [C renderer guide](c-renderer-guide.md): targets (section 8), scaling (9), Hangul composition (10), memory (11).
 - [Web renderer guide](web-renderer-guide.md): colours and RGB565 output.
 - [Johab and jamo sets](jamo-sets.md): pieces, sets, JSET.
-- [Recipes](recipes.md): [2 bpp anti-aliased faces](recipes.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font),
-  [a low-resolution face from a high-resolution bitmap](recipes.md#a-low-resolution-face-from-a-high-resolution-bitmap-font).
+- [Recipes](recipes.md): [2 bpp anti-aliased faces](recipes/outline-fonts.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font),
+  [a low-resolution face from a high-resolution bitmap](recipes/bitmap-fonts.md#a-low-resolution-face-from-a-high-resolution-bitmap-font).
 - [Tools](tools.md): [mkfont.py](tools.md#toolsmkfontpy), [jamoaa.py](tools.md#toolsjamoaapy),
   [svfscale.py](tools.md#toolssvfscalepy), [svfline.py](tools.md#toolssvflinepy),
   [doc_figures_aa.py](tools.md#toolsdoc_figures_aapy).

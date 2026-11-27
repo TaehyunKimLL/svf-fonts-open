@@ -9,7 +9,7 @@
  "refs": [
   "86Box/roms 1ac40f2 video/et4000/kasan_ksc5601.rom",
   "86Box/roms 1ac40f2 video/et4000/et4000_kasan16.bin",
-  "docs/recipes.md#korean-vga-font-roms-86box"
+  "docs/recipes/rom-86box.md#korean-vga-font-roms-86box"
  ],
  "files": [
   {

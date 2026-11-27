@@ -1092,8 +1092,8 @@ class ApiTest(ApiBase):
             readme = f.read()
         with open(os.path.join(REPO_DIR, "NOTICE.md"), encoding="utf-8") as f:
             notice = f.read()
-        with open(os.path.join(REPO_DIR, "docs", "recipes.md"), encoding="utf-8") as f:
-            recipes = f.read()
+        with open(os.path.join(REPO_DIR, "docs", "recipes", "classic-mac.md"), encoding="utf-8") as f:
+            recipes = f.read()                                            # the recipe the Mac fonts' local mode is in
         self.assertIn("## Local mode (desktop app)", readme)
         self.assertIn("No proprietary font is distributed", readme)
         self.assertIn("has no code that makes an outbound connection and sends nothing anywhere (no telemetry, no crash "
