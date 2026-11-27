@@ -1002,6 +1002,34 @@ palette: the same bytes on every run), and one line comparing the two faces over
 
 **Repository modules imported.** `jamoset.py`. **Third-party.** Pillow. **Test.** `--check`.
 
+### `tools/doc_figures_split.py`
+
+**Purpose.** Draws the pixel figures of [jamo-split.md](jamo-split.md) (a precomposed syllable with its fitted pieces,
+recomposition and difference; an exact against an approximate fit; the blank medial ㅡ pieces of `NEODG16A`; touching
+strokes of an outline font at 12, 16 and 24 px) and prints the measurements the document quotes.
+
+**Status.** Special-purpose (documentation).
+
+**Inputs.** Only the allowed OFL fonts: `ttf/nanumgothic/NanumGothic-Regular.ttf` (baked by `mkfont.py`'s `render()` at
+16 px, `--clip-cell`, and fitted to 8x4x4 by `jamoset.fit_font` in memory), `svf/dos/NEODG16.SVF` (comparison and
+labels), `svf/dos/NEODG16A.SVF` and `svf/jamo-extra/NDGPR16.SVF`; it refuses any other path, so no Apple, ROM or
+proprietary data can reach a published figure.
+
+**Outputs.** `split.png`, `exact.png`, `blank.png`, `touch.png` in `docs/images/jamo-split/` (indexed PNG, fixed palette,
+no metadata: the same bytes on every run with the same Pillow and FreeType, both printed), and lines with the fit's bytes,
+exact count and mean IoU over the 2,350 KS X 1001 syllables, the comparison of `NEODG16A` with `NEODG16`, the syllables
+whose medial ㅡ piece is inkless, and the ink component counts of the touch figure.
+
+**Synopsis.**
+
+    python3 -I tools/doc_figures_split.py [--out DIR] [--check]
+
+`--check` renders in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference or a missing file).
+It takes about a second.
+
+**Repository modules imported.** `jamoset.py`, `jamofit.py` (through `jamoset`), `mkfont.py`. **Third-party.** Pillow.
+**Test.** `--check`.
+
 ### `tools/doc_figures_aa.py`
 
 **Purpose.** Draws the pixel figures of [anti-aliasing.md](anti-aliasing.md) (one syllable at 1/2/8 bpp, the 2 bpp

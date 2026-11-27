@@ -942,6 +942,31 @@ JSET 버전 1 조회)을 그린다.
 
 **내부 모듈.** `jamoset.py`. **서드파티.** Pillow. **테스트.** `--check`.
 
+### `tools/doc_figures_split.py`
+
+**목적.** [jamo-split.ko.md](jamo-split.ko.md)의 픽셀 그림(완성형 음절과 맞춘 조각, 다시 합친 결과, 차이; 정확한 맞춤과 근사한
+맞춤의 비교; `NEODG16A`의 빈 중성 ㅡ 조각; 윤곽 글꼴의 12, 16, 24 px에서 닿는 획)을 그리고, 문서가 인용하는 측정값을 출력한다.
+
+**상태.** 특수 목적(문서).
+
+**입력.** 허용 목록의 OFL 글꼴만 읽는다. `ttf/nanumgothic/NanumGothic-Regular.ttf`(`mkfont.py`의 `render()`로 16 px,
+`--clip-cell`처럼 굽고 메모리에서 `jamoset.fit_font`로 8x4x4에 맞춘다), `svf/dos/NEODG16.SVF`(비교와 라벨),
+`svf/dos/NEODG16A.SVF`, `svf/jamo-extra/NDGPR16.SVF`. 다른 경로는 거부하므로 Apple, ROM, 독점 글꼴의 데이터가 공개 그림에
+들어갈 수 없다.
+
+**출력.** `docs/images/jamo-split/`의 `split.png`, `exact.png`, `blank.png`, `touch.png`(인덱스 PNG, 고정 팔레트, 메타데이터
+없음: 같은 Pillow와 FreeType이면 실행할 때마다 같은 바이트, 두 버전을 출력한다)와, KS X 1001 음절 2,350자에서 맞춤의
+바이트·정확 개수·평균 IoU, `NEODG16A`와 `NEODG16`의 비교, 중성 ㅡ 조각에 잉크가 없는 음절 수, 닿는 획 그림의 잉크 덩어리
+수를 알리는 줄들.
+
+**사용법.**
+
+    python3 -I tools/doc_figures_split.py [--out DIR] [--check]
+
+`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없으면 종료 코드 1). 1초 남짓 걸린다.
+
+**내부 모듈.** `jamoset.py`, `jamofit.py`(`jamoset`을 거쳐), `mkfont.py`. **서드파티.** Pillow. **테스트.** `--check`.
+
 ### `tools/doc_figures_aa.py`
 
 **목적.** [anti-aliasing.ko.md](anti-aliasing.ko.md)의 픽셀 그림(한 음절의 1/2/8 bpp, 타깃별 2 bpp 단계, 2 bpp 자모 조합의 최댓값과
