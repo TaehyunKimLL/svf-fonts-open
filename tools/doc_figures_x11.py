@@ -23,7 +23,8 @@ line, ASCII symbols and the KS X 1001 symbols of SYMBOLS) drawn with svfline.py 
 white like an xterm, every pixel doubled. A character the face does not have is left out of its line (the jamo sets
 have no KS X 1001 symbols); the tool prints which. 8-bit grey PNG, no metadata, written by binscan.png_bytes.
 
---check draws in memory and compares with the files in DIR byte for byte (exit 1 on a difference or a missing file).
+--check draws in memory and compares with the files in DIR byte for byte (exit 1 on a difference or a missing file, and
+when a face was skipped because its option was not given or its file is not there: it says which).
 The images are a function of the font files alone (mkfont.py reads the ASCII PCF through Pillow's FreeType, whose
 strike pixels are the file's).
 """
@@ -107,7 +108,7 @@ def jamo_face(src, layout, ascii_font, tmp):
 
 def draw(face_path, lines):
     """The PNG bytes of @p lines on the face, black on white, x SCALE."""
-    face = svfline.Face(open(face_path, "rb").read())
+    face = svfline.Face.load(face_path)
     line_h = face.cell_h
     widths = [svfline.measure([face_path], s.encode("utf-8"))[0] for s in lines]
     w = max(widths) + 2 * PAD
@@ -126,16 +127,19 @@ def draw(face_path, lines):
 
 
 def render(args):
-    """{image file: PNG bytes} for every face whose source was given and is there."""
-    out = {}
+    """({image file: PNG bytes} for every face whose source was given and is there, [image files skipped])."""
+    out, skipped = {}, []
     for png, opt, name, kind, ascii_name, cell, extra in FACES:
         given = getattr(args, opt)
         if not given or not args.misc:
+            print(f"{png}: skipped, --{opt} not given")
+            skipped.append(png)
             continue
         src = os.path.join(given, name) if name else given
         ascii_font = os.path.join(args.misc, ascii_name)
         if not (os.path.isfile(src) and os.path.isfile(ascii_font)):
             print(f"{png}: skipped, {src if not os.path.isfile(src) else ascii_font} is not there")
+            skipped.append(png)
             continue
         with tempfile.TemporaryDirectory() as tmp:
             with open(os.path.join(tmp, "sample.txt"), "w", encoding="utf-8") as fh:
@@ -148,12 +152,12 @@ def render(args):
             out[png] = draw(face, lines)
             print(f"{png}: {name or os.path.basename(src)}, {len(out[png])} bytes"
                   + (f", not in the face (left out): {missing}" if missing else ""))
-    return out
+    return out, skipped
 
 
-def write_or_check(images, out, check):
+def write_or_check(images, out, check, skipped=()):
     """Write {file: PNG bytes} into @p out, or with @p check compare them; returns the exit code (1 on a difference or a
-    missing file)."""
+    missing file, and with @p check also when a face was @p skipped: its image is then not checked)."""
     bad = 0
     if not check:
         os.makedirs(out, exist_ok=True)
@@ -172,7 +176,16 @@ def write_or_check(images, out, check):
             with open(dest, "wb") as fh:
                 fh.write(data)
     if check:
-        print("check: " + ("ok" if not bad else f"{bad} image(s) differ or are missing"))
+        problems = []
+        if bad:
+            problems.append(f"{bad} image(s) differ or are missing")
+        if skipped:
+            problems.append(f"{len(skipped)} face(s) skipped, not checked: {', '.join(skipped)}")
+        print(f"check: {len(images) - bad} of {len(FACES)} images equal" + ("; " + "; ".join(problems) if problems
+                                                                             else "; ok"))
+        return 1 if problems else 0
+    if skipped:
+        print(f"wrote {len(images)} of {len(FACES)} images; skipped: {', '.join(skipped)}")
     return 1 if bad else 0
 
 
@@ -190,10 +203,10 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if not args.misc:
         ap.error("--misc is needed: every face takes its ASCII from the X11 core fonts")
-    images = render(args)
+    images, skipped = render(args)
     if not images:
         ap.error("no face could be drawn from the folders given")
-    return write_or_check(images, args.out, args.check)
+    return write_or_check(images, args.out, args.check, skipped)
 
 
 if __name__ == "__main__":

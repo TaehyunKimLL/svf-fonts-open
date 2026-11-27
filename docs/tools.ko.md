@@ -1019,8 +1019,8 @@ KAIST newmj 16, iyagi 16, philgi 16.
 
     python3 -I tools/doc_figures_x11.py --misc DIR [--baekmuk DIR] [--hanterm DIR] [--hanyang DIR] [--newmj F] [--iyagi F] [--philgi F] [--out DIR] [--check]
 
-`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없으면 종료 코드 1). 그림은 폰트 파일에만
-달려 있다.
+`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없으면 종료 코드 1. 옵션을 주지 않았거나
+파일이 없어 건너뛴 페이스가 있어도 1이고 그 목록을 출력하므로, 일부만 돌린 실행은 `ok`를 내지 않는다). 그림은 폰트 파일에만 달려 있다.
 
 **내부 모듈.** `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow(hanterm 폰트의 ASCII 페이스를 만드는
 `mkfont.py`를 거쳐). **테스트.** `--check`.

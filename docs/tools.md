@@ -1087,7 +1087,8 @@ metadata): per face four lines, two Korean pangrams, an English line, the ASCII 
     python3 -I tools/doc_figures_x11.py --misc DIR [--baekmuk DIR] [--hanterm DIR] [--hanyang DIR] [--newmj F] [--iyagi F] [--philgi F] [--out DIR] [--check]
 
 `--check` renders in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference or a missing
-file). The images depend only on the font files.
+file, and when a face was skipped because its option was not given or its file is not there; it lists them, so a
+partial run never reports `ok`). The images depend only on the font files.
 
 **Repository modules imported.** `svfline.py`, `binscan.py` (and the tools it runs). **Third-party.** Pillow (through
 `mkfont.py`, for the ASCII face of the hanterm fonts). **Test.** `--check`.
