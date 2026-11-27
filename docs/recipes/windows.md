@@ -22,6 +22,23 @@ Up: [Recipes index](../recipes.md) · Related: [Bitmap fonts](bitmap-fonts.md) (
 | 95 Korean | `gulim.ttc`, `batang.ttc` (TrueType, `EBLC` strikes) | embedded bitmap strikes with all 11,172 syllables at 12-21, 24, 25 ppem | precomposed faces at a strike's size |
 | XP (and current Windows) | `gulim.ttc`, `batang.ttc` | embedded bitmap strikes with all 11,172 syllables at 11-21, 24, 25 ppem | precomposed faces at a strike's size |
 
+<a id="windows-cp949-11172"></a>
+
+### Which font first draws all 11,172 CP949 syllables
+
+| Windows | Fonts | Hangul syllables drawn |
+|---|---|---:|
+| 3.1 Korean | `BT16.TBM`, `BT20.TBM` (TBM bitmaps) | 2,350 |
+| 95 Korean | `GULIM16.TBM`, `GULIM12.TBM` in the MINI cabinet (TBM bitmaps) | 2,350 |
+| 95 Korean | `gulim.ttc`, `batang.ttc` (TrueType, strikes 12-21, 24, 25 px) | 11,172 |
+| XP and current Windows | `gulim.ttc`, `batang.ttc` (TrueType, strikes also at 11 px) | 11,172 |
+
+Within this collection, all 11,172 syllables first appear in the TrueType Gulim and Batang of Korean Windows 95, while
+the TBM files of the same Windows 95 keep the KS X 1001 set of 2,350 from Windows 3.1. This matches CP949 (UHC,
+extended Wansung) arriving with Korean Windows 95 (for that history see [EUC-KR and CP949 in Jamo
+sets](../jamo-sets.md#111-euc-kr-and-cp949)). Limits: only the files compared here were looked at, and only Hangul
+syllables were counted (CP949 also covers hanja and symbols).
+
 **Source and licence.** All are proprietary Microsoft fonts (glyph design HanYang I&C). They are for research only;
 no face in `svf/` is made from them. The images in this document show faces the recipe built as small samples only;
 the fonts and the BDF and SVF files made from them are not distributed. The copies measured: `BT16.TBM`, `BT20.TBM`,
