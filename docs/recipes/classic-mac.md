@@ -12,78 +12,181 @@ Up: [Recipes index](../recipes.md) · Related: [Outline fonts](outline-fonts.md)
 
 ## Font inventory
 
-Every Korean font found in the font suitcases, font files and System files of each disk or CD, measured from the files. **Precomposed** (완성형) faces store one bitmap per syllable; **jamo-composed** (조합형) faces store pieces and compose syllables from them.
+Every Korean font found in the font suitcases, font files and System files of each disk or CD, and the Latin bitmap fonts paired with them, measured from the files. Sizes are pixels (a Mac point is a pixel at 72 dpi).
 
-How it was measured: `fbit` fonts by the conversion commands below (`jamoset.py --check`, `macfbit3.py info`, `macfbit_svf.py build` and `verify`); TrueType fonts by reading `maxp`, the `bloc` strikes (ppem, glyphs per strike) and the `bdat` image formats with fontTools. Only formats 2, 5 and 6 occur (whole glyph bitmaps); the component formats 8 and 9 do not, so every strike is precomposed. Syllable, jamo and Hanja counts come from the cmap: the Mac Korean (1,3) subtable decoded as KS X 1001, as `macsfnt.py unicode` does, or the font's own Unicode subtable.
+Bytes columns are resource fork + data fork unless marked otherwise.
+
+**Codes.** **J** jamo-composed `fbit` (조합형: pieces composed into syllables). **P** precomposed `bloc`/`bdat` strikes (완성형: one bitmap per glyph). **O** TrueType outlines with no strikes. **L** Latin bitmap (`NFNT` or `FONT`); "L only" in the pixel table means no Hangul at that size. **X** archive the tools do not convert. **=** the same font resources as the previous version. **—** not on the disk or CD.
+
+<a id="classic-mac-overview"></a>
+
+### Overview
+
+| Family | HangulTalk 1.0 (1988) | 7.1.2 (1994) | 7.5.3 (1996) | 7.6.1 (1997) | 8.5 (1998) | 8.6 (1999) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Gotic | J 12; L 12 | — | — | — | — | — |
+| Munjo | J 12, 16, 24; L 12, 18, 24 | — | — | — | — | — |
+| Seoul | — | J 12; L 9, 12 | P 9, 10, 12, 14, 16, 18, 20, 24; L 9, 10, 12, 14, 16, 18, 20, 24; J 12 (installer, = 7.1.2) | = (no J 12) | P 9, 10, 12, 14, 16, 18, 20, 24 (redrawn); L 9, 10, 12, 14, 16, 18, 20, 24 (new) | = |
+| AppleGothic | — | J 12, 24; O; L 12, 24 | P 9, 10, 12, 14, 16, 18, 20, 24; L 9, 10, 12, 14, 16, 18, 20, 24 | = | P = (new cmap); L = | — |
+| AppleMyungjo | — | J 12, 24; O; L 9, 12, 24 | P 9, 10, 12, 14, 16, 18, 20, 24; L 9, 10, 12, 14, 16, 18, 20, 24 | = | P = (new cmap); L = | — |
+| #PC명조, #신명조, #궁서체, #중고딕, #필기체, #공작체, #태그래픽 | — | — | P 9, 10, 12, 14, 16, 18, 20, 24; L 9, 10, 12, 14, 16, 18, 20, 24 | = | — | — |
+| #헤드라인A | — | — | P 18, 20, 24; L 18, 20, 24 | = | — | — |
+| 한강체 (Hangang) | — | — | — | — | P 9, 10, 12, 14, 16, 18, 20, 24; L 9, 10, 12, 14, 16, 18, 20, 24 | — |
+| KSSymbol | — | 12 (`fbit` type 0, not read); X 24 | — | — | — | — |
+| Hanja24, GHanja24, GSymbol24 | — | X 24 | — | — | — | — |
+
+<a id="classic-mac-pixel-sizes"></a>
+
+### Pixel sizes
+
+One cell answers "does family F exist at N px?". Hangul sizes are J or P; "L only" means a Latin bitmap and no Hangul at that size. Every 7.5.3–8.5 suitcase also carries L at each of its P sizes (not repeated below).
+
+| px | Gotic | Munjo | Seoul | AppleGothic | AppleMyungjo | #PC명조, #신명조, #궁서체, #중고딕, #필기체, #공작체, #태그래픽 | #헤드라인A | 한강체 | KSSymbol, Hanja |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 9 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 =; 7.1.2 L only | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap); 7.1.2 L only | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 10 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 12 | 1.0 J and L | 1.0 J and L | 7.1.2 J (7.5.3 installer =); 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 =; 7.1.2 L | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | KSSymbol12 7.1.2 (not read) |
+| 14 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 16 | — | 1.0 J | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 18 | — | 1.0 L only | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | — |
+| 20 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | — |
+| 24 | — | 1.0 J and L | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | 7.1.2 X (KSSymbol24Disk, Hanja24Disk, GHanja24Disk, GSymbol24Disk) |
+
+**How measured.** `fbit` fonts by the conversion commands below (`jamoset.py --check`, `macfbit3.py info`, `macfbit_svf.py build` and `verify`). TrueType fonts with fontTools: `maxp`, the `bloc` strikes (ppem, glyphs per strike) and the `bdat` image formats. Only formats 2, 5 and 6 (whole glyph bitmaps) occur, never the component formats 8 and 9, so every strike is precomposed. Syllable, jamo and Hanja counts come from the cmap: the Mac Korean (1,3) subtable decoded as KS X 1001 (as `macsfnt.py unicode` does), or the font's own Unicode subtable. `FOND`, `NFNT` and `FONT` are read from the resource forks; "=" compares the font resources (`FOND`, `NFNT`, `FONT`, `sfnt`, `fbit`, `fdef`) byte for byte.
 
 ### HangulTalk 1.0 (Korean System 4.1, 1988)
 
-| Font | Kind | Size | Glyphs | Hangul | Hanja |
-| --- | --- | --- | --- | --- | --- |
-| `Gotic12` | jamo `fbit` (`fdef` rule) | 12 px | 653 pieces, sets 20/15/4 | 11,172 syllables + 51 jamo | 0 |
-| `Munjo12` | jamo `fbit` | 12 px | 653 pieces, sets 20/15/4 | 11,172 + 51 | 0 |
-| `Munjo16` | jamo `fbit` | 16 px | 653 pieces, sets 20/15/4 | 11,172 + 51 | 0 |
-| `Munjo24` | jamo `fbit` | 24 px | 653 pieces, sets 20/15/4 | 11,172 + 51 | 0 |
+Where: the System Disk's `System Folder`.
 
-- The fonts hold Hangul only. The System file's `Gotic` and `Munjo` families add Latin `FONT` strikes: `Gotic` 12 pt (236 glyphs, codes 0–255), `Munjo` 12, 18 and 24 pt (231 glyphs each).
-- The Utilities disk's `Fonts` suitcase holds Latin fonts only.
-- No Hanja on either disk: the other `fbit` resources of the System Folder (in two extension files) are 76–232 B records without glyphs.
+| File | Resources | Holds | Bytes |
+| --- | --- | --- | --- |
+| `Gotic12` | `fbit` 17408 (12,380 B), `fdef` 3 (2,398 B) | J 12 | 15,587 |
+| `Munjo12` | `fbit` 17409 (12,380 B), `fdef` 3 (2,398 B) | J 12 | 15,587 |
+| `Munjo16` | `fbit` 17409 (21,554 B), `fdef` 3 (2,398 B) | J 16 | 24,761 |
+| `Munjo24` | `fbit` 17409 (47,714 B), `fdef` 3 (2,398 B) | J 24 | 50,921 |
+| `System` | `FOND` 17408 Gotic: 12 pt `FONT` 23052 (236 glyphs, codes 0–255); `FOND` 17409 Munjo: 12, 18, 24 pt `FONT` 14220, 14226, 14232 (231 glyphs each) | L 12 (Gotic); L 12, 18, 24 (Munjo) | 319,117 |
+| two extension files | `fbit` records of 76–232 B; `fdef` 0, 1, 2 (in the first) | no glyphs | 33,392; 13,694 |
+
+| Font | Glyphs | Hangul | Hanja |
+| --- | --- | --- | --- |
+| `Gotic12`, `Munjo12`, `Munjo16`, `Munjo24` | 653 pieces each, sets 20/15/4 (`fdef` rule) | 11,172 syllables + 51 jamo | 0 |
+
+- No Hanja and no Latin in the `fbit` fonts. The Utilities disk's `Fonts` suitcase holds Latin fonts only.
 
 ### HangulTalk 7.1.2 CD (1994)
 
-| Font | Kind | Size | Glyphs | Hangul | Hanja |
-| --- | --- | --- | --- | --- | --- |
-| `Seoul12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 207 pieces | 2,350 syllables + 51 jamo | 0 |
-| `AppleGothic12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 364 pieces | 2,350 + 51 | 0 |
-| `AppleGothic24` | jamo `fbit` type 3 + `HTBL` 1 | 24 px | 482 planes, 455 pieces | 2,350 + 51 | 0 |
-| `AppleMyungjo12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 395 pieces | 2,350 + 51 | 0 |
-| `AppleMyungjo24` | jamo `fbit` type 3 + `HTBL` 1 | 24 px | 482 planes, 465 pieces | 2,350 + 51 | 0 |
-| `KSSymbol12` | `fbit` handler type 0 (symbols) | 12 px | not read | none (codes A141–ADFE) | 0 |
-| AppleGothic | TrueType outlines, no strikes | any | 9,924 | 2,350 syllables | 4,888 |
-| AppleMyungjo | TrueType outlines, no strikes | any | 9,926 | 2,350 syllables | 4,888 |
-| `Hanja24Disk` | `splt` archive, 24 px Hanja | 24 px | not converted | — | not converted |
-| `GHanja24Disk` | `splt` archive, a second 24 px Hanja set | 24 px | not converted | — | not converted |
+| File | Folder | Resources | Holds | Bytes |
+| --- | --- | --- | --- | --- |
+| `Seoul12` | `Hangul System Install/Disk Tools/한글 시스템/자형 폴더` | `fbit` 17408 (8,760 B) | J 12 | 9,669 |
+| `Seoul12`, `AppleGothic12`, `AppleGothic24`, `AppleMyungjo12`, `AppleMyungjo24` `[splt]` | More Additions font files | `JM` archive of an `fbit` (8,760 B at 12 px, 34,788 B at 24 px); `Seoul12` equals the installed one | J 12, 12, 24, 12, 24 | 1,843; 2,707; 5,095; 3,194; 6,464 (data forks) |
+| `Seoul` suitcase | More Additions | `FOND` 17408; `NFNT` 1025 (9 pt, 231 glyphs), 1026 (12 pt, 232) | L 9, 12 | 5,824 |
+| `AppleGothic` suitcase | More Additions | `FOND` 17410; `NFNT` 1025 (12 pt), 1026 (24 pt), 231 glyphs each | L 12, 24 | 13,014 |
+| `AppleMyungjo` suitcase | More Additions | `FOND` 17409; `NFNT` 1025 (9 pt), 1026 (12 pt), 1027 (24 pt), 231 glyphs each | L 9, 12, 24 | 16,617 |
+| `System` | `Disk Tools/한글 시스템`, `InstallMeFirst` | `FOND` 17408 Seoul: `NFNT` 7545 (9 pt, 231 glyphs, = suitcase 1025), 5828 (12 pt, 232) | L 9, 12 | 722,913; 881,097 |
+| `InputBackSupport` | `More Additions/Extensions`, `Disk Tools/한글 시스템/확장 파일` | `HTBL` 1 (9,816 B, the same in both), `fbit` records of 40–232 B | composition table | 107,626; 80,180 |
+| AppleGothic, AppleMyungjo TrueType | installer `part` resources (joined) | `sfnt`, no `bloc`/`bdat` | O | 3,233,432; 4,767,960 |
+| `KSSymbol12` `[splt]` | More Additions | `fbit` handler type 0, 12 px, codes A141–ADFE | not read | 22,640 |
+| `KSSymbol24Disk`, `Hanja24Disk`, `GHanja24Disk`, `GSymbol24Disk` `[splt]` | More Additions | `JM` archives | X 24 | 51,504; 231,388; 211,152; 51,510 |
 
-- Pieces are the distinct bitmaps of the `direct` face; `verify` composes all 2,350 + 51 exactly.
-- The family suitcases add Latin `NFNT` strikes: `Seoul` 9 and 12 pt, `AppleGothic` 12 and 24 pt, `AppleMyungjo` 9, 12 and 24 pt.
-- Not read by these tools: `KSSymbol24Disk` (51,504 B; unpacks to 176,091 bytes that are not a resource fork), `Hanja24Disk` (231,388 B), `GHanja24Disk` (211,152 B) and `GSymbol24Disk` (51,510 B); the last three fail in the `JM` decoder. The `JM` headers of both Hanja archives give 353,300 unpacked bytes. No 12 px Hanja archive is on the CD.
+| Font | Glyphs | Hangul | Hanja |
+| --- | --- | --- | --- |
+| `Seoul12` | 482 planes, 207 pieces | 2,350 syllables + 51 jamo | 0 |
+| `AppleGothic12` | 482 planes, 364 pieces | 2,350 + 51 | 0 |
+| `AppleGothic24` | 482 planes, 455 pieces | 2,350 + 51 | 0 |
+| `AppleMyungjo12` | 482 planes, 395 pieces | 2,350 + 51 | 0 |
+| `AppleMyungjo24` | 482 planes, 465 pieces | 2,350 + 51 | 0 |
+| AppleGothic (O) | 9,924 | 2,350 syllables | 4,888 |
+| AppleMyungjo (O) | 9,926 | 2,350 syllables | 4,888 |
+
+- Pieces are the distinct bitmaps of the `direct` face; `verify` composes all 2,350 + 51 exactly. Every J font here is type 3 and needs the `HTBL` 1.
+- Archives: `KSSymbol24Disk` unpacks to 176,091 bytes that are not a resource fork; `Hanja24Disk`, `GHanja24Disk` and `GSymbol24Disk` fail in the `JM` decoder. The headers of both Hanja archives give 353,300 unpacked bytes (24 px Hanja, by name). No 12 px Hanja archive is on the CD.
 - The TrueType Hanja are exactly the 4,888 KS X 1001 Hanja (rows CA–FD).
 
 ### Korean System 7.5.3 CD (1996)
 
-All fonts are TrueType in `FFIL` suitcases, precomposed. The `Bitmap 서체 설치` folder holds bitmap-only copies (no `glyf`); every strike holds every glyph.
+| File | Folder | Resources | Holds |
+| --- | --- | --- | --- |
+| `NAME[FFIL]` (11 families) | `Bitmap 서체 설치/NAME` | `FOND`; `NFNT` at each strike size (232 glyphs; 233 in AppleGothic 24 pt and #궁서체 20 pt); `sfnt` with `bloc`/`bdat`, no `glyf` | P and L |
+| `NAME [fbit]` (11) | `Bitmap 서체 설치/NAME` | 8 `fbit` records (3 for #헤드라인A) of 401–1,463 B, `fdef` 42 (6,418 B) | strike descriptors, no glyphs |
+| `NAME[FFIL]`, `NAME [fbit]` (11) | `한글 시스템 설치/Font Folder` | as above, `sfnt` with `glyf` and the same `bdat` | P, O and L |
+| AppleGothic, AppleMyungjo, Seoul `[FFIL]` and `[fbit]` | `한글 시스템/자형 폴더` | = the Font Folder copies | P, O and L |
+| `Seoul12` | `한글 시스템 설치/Install Disk 1/자형 폴더` | `fbit` 17408, = 7.1.2 | J 12 |
+| `InputBackSupport` | `한글 시스템/확장 파일`, `Install Disk 1/확장 파일` | `fbit` records of 40–232 B | no glyphs |
+| `빛한글` | `한글 시스템/확장 파일` | `fdef` 42 (6,418 B) | no glyphs |
 
-| Font | Strikes (ppem) | Glyphs | Hangul syllables | Hanja | KS X 1001 codes | Bitmap-only sfnt |
-| --- | --- | --- | --- | --- | --- | --- |
-| AppleGothic | 9, 10, 12, 14, 16, 18, 20, 24 | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,028 B |
-| AppleMyungjo | 9–24 (8) | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,884 B |
-| Seoul | 9–24 (8) | 9,889 | 2,350 | 4,888 | 8,329 | 2,626,404 B |
-| #PC명조 | 9–24 (8) | 9,889 | 2,350 | 4,888 | 8,329 | 2,624,600 B |
-| #신명조 | 9–24 (8) | 9,889 | 2,350 | 4,888 | 8,329 | 2,627,040 B |
-| #궁서체 | 9–24 (8) | 9,889 | 2,350 | 4,888 | 8,329 | 2,624,992 B |
-| #중고딕 | 9–24 (8) | 9,889 | 2,350 | 4,888 | 8,329 | 2,625,516 B |
-| #필기체 | 9–24 (8) | 5,001 | 2,350 | 0 | 3,441 | 1,316,028 B |
-| #공작체 | 9–24 (8) | 5,001 | 2,350 | 0 | 3,441 | 1,315,032 B |
-| #태그래픽 | 9–24 (8) | 5,001 | 2,350 | 0 | 3,441 | 1,315,024 B |
-| #헤드라인A | 18, 20, 24 | 2,768 | 2,350 | 0 | 2,547 | 448,400 B |
+The `System` file has no Korean `FOND` or `sfnt`.
 
-- Why Seoul has 9,889 glyphs: 2,350 syllables + 4,888 Hanja + 894 KS X 1001 symbols + 93 compatibility jamo + 103 ASCII (8,328 glyphs for the 8,329 KS X 1001 codes) + 1,197 Apple extension symbols (lead A1–AD, trail 41–A0) + 235 KS-range codes with no Unicode mapping + 38 single-byte Mac characters + 91 blank glyphs no code reaches. AppleGothic and AppleMyungjo have the same coded glyphs and 755 glyphs no code reaches (10,553): 664 proportional forms (below) and 91 others, blank except one inked glyph in AppleGothic (glyph 198).
-- Proportional forms: only AppleGothic and AppleMyungjo have a `mort` table; the other nine 7.5.3 faces have `feat` but no `mort`. Their `feat` offers Vertical Substitution and Text Spacing Type → Proportional Text, and the `mort` chain has three noncontextual subtables: two with flag 0x1 (proportional, 664 substitutions each) and one with flag 0x2 (vertical, 83). The 664 targets are proportional-width versions of full-width KS X 1001 symbol characters (A1A4: advance 1,024 → 244 of 1,024 units; narrower ones: 572 in AppleGothic, 525 in AppleMyungjo). No code reaches them, so the tools, which take glyphs through the cmap, leave them out; a tool option for them is planned. Of the 83 vertical substitutions, 42 map codes in rows A1, A2, A3 and A5 to vertical forms reached through Apple extension codes (A1A2 → A250), and 41 map proportional forms to proportional vertical forms.
+| Font | Strikes (ppem) | Glyphs | Hangul syllables | Hanja | KS X 1001 codes | Bitmap-only sfnt | Font Folder sfnt |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| AppleGothic | 9, 10, 12, 14, 16, 18, 20, 24 | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,028 B | 8,475,352 B |
+| AppleMyungjo | 9, 10, 12, 14, 16, 18, 20, 24 | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,884 B | 10,353,128 B |
+| Seoul | 9, 10, 12, 14, 16, 18, 20, 24 | 9,889 | 2,350 | 4,888 | 8,329 | 2,626,404 B | 6,159,836 B |
+| #PC명조 | 9, 10, 12, 14, 16, 18, 20, 24 | 9,889 | 2,350 | 4,888 | 8,329 | 2,624,600 B | 7,789,420 B |
+| #신명조 | 9, 10, 12, 14, 16, 18, 20, 24 | 9,889 | 2,350 | 4,888 | 8,329 | 2,627,040 B | 7,799,156 B |
+| #궁서체 | 9, 10, 12, 14, 16, 18, 20, 24 | 9,889 | 2,350 | 4,888 | 8,329 | 2,624,992 B | 8,925,292 B |
+| #중고딕 | 9, 10, 12, 14, 16, 18, 20, 24 | 9,889 | 2,350 | 4,888 | 8,329 | 2,625,516 B | 6,316,044 B |
+| #필기체 | 9, 10, 12, 14, 16, 18, 20, 24 | 5,001 | 2,350 | 0 | 3,441 | 1,316,028 B | 3,005,080 B |
+| #공작체 | 9, 10, 12, 14, 16, 18, 20, 24 | 5,001 | 2,350 | 0 | 3,441 | 1,315,032 B | 2,553,292 B |
+| #태그래픽 | 9, 10, 12, 14, 16, 18, 20, 24 | 5,001 | 2,350 | 0 | 3,441 | 1,315,024 B | 2,572,344 B |
+| #헤드라인A | 18, 20, 24 | 2,768 | 2,350 | 0 | 2,547 | 448,400 B | 1,091,116 B |
+
+- Every strike holds every glyph. The Font Folder `bdat` and `bloc` equal the bitmap-only copies' byte for byte.
+- KS X 1001 codes are the Mac Korean (1,3) entries that decode as KS X 1001 (Seoul: 8,329 of 9,799). Every font has 93 compatibility jamo. Codes outside KS X 1001 (Apple additions): 1,470 in the fonts with Hanja, 1,522 in #필기체, #공작체, #태그래픽, 195 in #헤드라인A.
+- Hanja are exactly the 4,888 KS X 1001 Hanja (rows CA–FD); no other code decodes to Hanja. #필기체, #공작체, #태그래픽 and #헤드라인A have none.
+
+Why Seoul has 9,889 glyphs:
+
+| Glyphs | Count |
+| --- | --- |
+| Hangul syllables | 2,350 |
+| Hanja | 4,888 |
+| KS X 1001 symbols | 894 |
+| Compatibility jamo | 93 |
+| ASCII (104 codes) | 103 |
+| Apple extension symbols (lead A1–AD, trail 41–A0) | 1,197 |
+| KS-range codes with no Unicode mapping | 235 |
+| Single-byte Mac characters | 38 |
+| Blank, no code reaches them | 91 |
+| **Total** | **9,889** |
+
+AppleGothic and AppleMyungjo (10,553) have the same coded glyphs and 755 that no code reaches: 664 proportional forms and 91 others, blank except one inked glyph in AppleGothic (glyph 198).
+
+Proportional forms (only AppleGothic and AppleMyungjo have a `mort` table; the other nine faces have `feat` only):
+
+| Item | AppleGothic | AppleMyungjo |
+| --- | --- | --- |
+| `feat` | Vertical Substitution; Text Spacing Type → Proportional Text | the same |
+| `mort` flag 0x1 (proportional) | 2 noncontextual subtables, 664 substitutions each | the same |
+| `mort` flag 0x2 (vertical) | 1 subtable, 83 substitutions | the same |
+| Proportional targets narrower than the full width | 572 | 525 |
+| Example | A1A4: advance 1,024 → 244 (of 1,024 units) | the same |
 
 | KS lead row | A1 | A2 | A3 (full-width ASCII) | A5 (Roman numerals, Greek) | A7 (units) | A8 | A9 | AA (hiragana) | AB (katakana) | AC (Cyrillic) | AD |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Proportional forms | 85 | 75 | 89 | 70 | 79 | 9 | 9 | 80 | 86 | 66 | 16 |
 
-None are in rows A4 (jamo) or A6 (box drawing), or among syllables and Hanja.
-- Hanja: in every font with Hanja they are exactly the 4,888 KS X 1001 Hanja (rows CA–FD); no code outside those rows decodes to Hanja. #필기체, #공작체, #태그래픽 and #헤드라인A have none.
-- KS X 1001 codes are the Mac Korean (1,3) entries that decode as KS X 1001 (Seoul: 8,329 of 9,799 entries). Every font has 93 compatibility jamo in its cmap. The Mac Korean cmap has codes outside KS X 1001 (Apple additions): 1,470 in the fonts with Hanja, 1,522 in #필기체, #공작체 and #태그래픽, and 195 in #헤드라인A.
-- Outline copies (`glyf` plus the same `bdat`, byte for byte): all 11 in the installer's `Font Folder`; AppleGothic, AppleMyungjo and Seoul also in `한글 시스템/자형 폴더` (Seoul: 6,159,836 B).
+- None are in rows A4 (jamo) or A6 (box drawing), or among syllables and Hanja. No code reaches them, so the tools, which take glyphs through the cmap, leave them out; a tool option for them is planned.
+- Vertical: 42 substitutions map codes in rows A1, A2, A3 and A5 to vertical forms reached through Apple extension codes (A1A2 → A250); 41 map proportional forms to proportional vertical forms.
 
 ### Mac OS 7.6.1 (1997), 8.5 (1998), 8.6 (1999)
 
-- **7.6.1:** every Korean `sfnt` (bitmap-only and outline copies) is byte-identical to 7.5.3. `자형 폴더` holds AppleGothic, AppleMyungjo, Seoul, #신명조, #궁서체 and #필기체.
-- **8.5:** AppleGothic and AppleMyungjo keep the 7.5.3 `bdat` and `bloc`; only `cmap` (now with a Unicode subtable), `head` and `hhea` changed. Seoul is redrawn: 9,912 glyphs, new `bdat`. 한강체 (Hangang) is new: precomposed, strikes 9–24 (8), 9,914 glyphs, 2,350 syllables, 94 jamo, 4,888 Hanja (the KS X 1001 set; its Mac cmap also has 2 codes in the Hanja rows outside KS X 1001, DBA0 and E162: glyphs `uniDBA0`/`uniE162`, not reached by the Unicode cmap, so not extra Hanja), 8,474 Unicode codes. The System file's `.Last Resort` font maps all 11,172 syllables to placeholder glyphs (247 glyphs in all); it is not a Korean face. The folder's `AppleGothic [fbit]`, `AppleMyungjo [fbit]`, `Seoul [fbit]` and `한강체 [fbit]` files (16–19 KB) are strike descriptors: 8 `fbit` records of 1,367–1,966 B each, plus `fdef` 42 `Main` (6,418 B) except in Seoul; they hold no glyphs.
-- **8.6:** of its font suitcases and System file, only `자형 폴더/Seoul` is Korean, byte-identical to 8.5.
+| Version | File | Folder | Resources | Against the previous version |
+| --- | --- | --- | --- | --- |
+| 7.6.1 | 11 `NAME[FFIL]`, `NAME [fbit]` | `CD Extras/Bitmap 서체 설치/NAME` | as 7.5.3 | = (only `fwst`, `movp`, `vers` differ) |
+| 7.6.1 | 11 `NAME[FFIL]`, `NAME [fbit]` | `소프트웨어 설치/Mac OS 7.6/Font Folder` | as 7.5.3 | = |
+| 7.6.1 | AppleGothic, AppleMyungjo, Seoul, #신명조, #궁서체, #필기체 | `한글 시스템/자형 폴더` | as the Font Folder | = |
+| 8.5 | `AppleGothic[FFIL]` (8,555,706 B) | `한글 시스템/자형 폴더` | `sfnt` 8,522,116 B; `NFNT` = 7.5.3 (10 pt renumbered 1030 → 32763) | `bdat`, `bloc` =; `cmap` (Unicode subtable added), `head`, `hhea` changed |
+| 8.5 | `AppleMyungjo[FFIL]` (10,435,418 B) | `한글 시스템/자형 폴더` | `sfnt` 10,399,888 B; `NFNT` = | `bdat`, `bloc` =; `cmap`, `head`, `hhea` changed |
+| 8.5 | `Seoul[FFIL]` (6,254,122 B) | `한글 시스템/자형 폴더` | `sfnt` 6,216,700 B; `NFNT` 32698–32705 (255 glyphs) | redrawn: 9,912 glyphs, new `bdat`; 13 tables differ |
+| 8.5 | `한강체[FFIL]` (7,303,606 B) | `한글 시스템/자형 폴더` | `sfnt` 7,263,828 B; `NFNT` 32747–32754 (255 glyphs) | new |
+| 8.5 | `AppleGothic [fbit]`, `AppleMyungjo [fbit]`, `Seoul [fbit]`, `한강체 [fbit]` (18,821; 18,833; 16,358; 18,017 B) | `한글 시스템/자형 폴더` | 8 `fbit` records of 1,367–1,966 B; `fdef` 42 `Main` (6,418 B) except Seoul | strike descriptors, no glyphs |
+| 8.5 | `.Last Resort` | `한글 시스템/System`, `한글 소프트웨어 설치/시스템 소프트웨어/Mac OS 8.5/System Extras` | `sfnt` −4 (262,500 B), 247 glyphs | not a Korean face: maps all 11,172 syllables to placeholder glyphs |
+| 8.6 | `Seoul[FFIL]`, `Seoul [fbit]` | `한글 시스템/자형 폴더` | as 8.5 | = |
+| 8.6 | `.Last Resort` | `한글 시스템/System`, `한글 소프트웨어 설치/시스템 소프트웨어/Mac OS 8.6/System Morsels` | `sfnt` −4 (262,500 B) | same size, other bytes; not a Korean face |
+
+- The 8.5 `NFNT` ids 32698–32705 (Seoul) and 32747–32754 (한강체) are the strikes 9, 10, 12, 14, 16, 18, 20, 24 pt.
+- 한강체: precomposed, strikes 9, 10, 12, 14, 16, 18, 20, 24; 9,914 glyphs; 2,350 syllables, 94 jamo, 4,888 Hanja (the KS X 1001 set), 8,474 Unicode codes. Its Mac cmap also has 2 codes in the Hanja rows outside KS X 1001 (DBA0, E162): glyphs `uniDBA0`/`uniE162`, not reached by the Unicode cmap, so not extra Hanja.
+- 8.5 and 8.6: of the font suitcases and System files, only the faces above are Korean. 8.6 has no AppleGothic, AppleMyungjo or 한강체 among them.
 
 <a id="classic-mac-korean-bitmap-fonts"></a>
 
@@ -187,7 +290,7 @@ python3 tools/macsfnt.py unicode $OUT/AppleGothic.ttf $OUT/AppleGothicU.ttf
 python3 tools/mkfont.py $OUT/AppleGothicU.ttf $OUT/agothic16.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
 ```
 
-- `--size` must be one of the eight strike sizes above.
+- `--size` must be one of the font's strikes: 9, 10, 12, 14, 16, 18, 20, 24 (#헤드라인A: 18, 20, 24).
 - Off-strike sizes: a full font (outlines plus strikes, such as 한강체) is rasterised from its outlines (17 px: `133,288 B`); a bitmap-only copy does not open (`invalid pixel size`).
 - Mac OS 8.5 `한강체` (Hangang) already has a Unicode cmap, so skip `macsfnt.py unicode`.
 - Hanja: `--unicode ascii,ksx1001` (the `ksx1001` preset holds symbols, jamo, 2,350 syllables and 4,888 Hanja) takes them. 7.5.3 bitmap-only Seoul at 16 px: `424,316 B`, 8,319 glyphs (2 of the preset are not in the font).
@@ -206,9 +309,9 @@ Source: Korean System 7.5.3, the CD for the Power Macintosh 7220 (1996); the fon
 | #궁서체 16 (7.5.3) | 5,228 B | 16x16 | 12 / 4 | none |
 | 한강체 (Hangang) 16 (Mac OS 8.5) | 5,748 B | 16x16 | 13 / 3 | none |
 
-![Seoul of Korean System 7.5.3 at its eight strikes, one line per size from 9 to 24 px: the size, a Korean pangram, ABC 123, x2](../images/recipes/mac/kh753-seoul-sizes.png)
+![Seoul of Korean System 7.5.3 at its strikes, one line per size (9, 10, 12, 14, 16, 18, 20, 24 px): the size, a Korean pangram, ABC 123, x2](../images/recipes/mac/kh753-seoul-sizes.png)
 
-*Korean System 7.5.3 (1996) Seoul, bitmap-only copy, at all eight strikes (9, 10, 12, 14, 16, 18, 20, 24 ppem); each line is drawn on that strike's face. The space advance is 2–3 px at 9–12 ppem, so the word gaps there are narrow. x2.*
+*Korean System 7.5.3 (1996) Seoul, bitmap-only copy, at its strikes (9, 10, 12, 14, 16, 18, 20, 24 ppem); each line is drawn on that strike's face. The space advance is 2 px at 9 ppem and 3 px at 10 and 12 ppem, so the word gaps there are narrow. x2.*
 
 ![AppleGothic 12 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-applegothic12.png)
 
