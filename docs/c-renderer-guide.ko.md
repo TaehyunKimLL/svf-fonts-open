@@ -1295,13 +1295,13 @@ svf_web_compile "$PWD" /tmp/svf-module
 
 ## 참고 문헌 / References
 
-1. Arduino, Sketch build process: https://docs.arduino.cc/cli/sketch-build-process/
+1. Arduino, Sketch build process: https://docs.arduino.cc/arduino-cli/sketch-build-process/
 2. AVR-LibC, Program Space Utilities: https://avrdudes.github.io/avr-libc/avr-libc-user-manual/group__avr__pgmspace.html
-3. Arduino Uno Rev3: https://docs.arduino.cc/hardware/uno-rev3/
-4. DJGPP FAQ (DPMI, binary files): https://www.delorie.com/djgpp/v2faq/
-5. ESP-IDF v5.5, build system and partition API: https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-guides/build-system.html ; https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-reference/storage/partition.html
-6. Raspberry Pi, Pico SDK and hardware documentation: https://www.raspberrypi.com/documentation/microcontrollers/c_sdk.html ; https://www.raspberrypi.com/documentation/microcontrollers/raspberry-pi-pico.html
+3. Arduino UNO R3 datasheet (ATmega328P SRAM): https://docs.arduino.cc/resources/datasheets/A000066-datasheet.pdf
+4. DJGPP FAQ mirror (DPMI, binary files): https://djgpp.mirror.garr.it/v2faq/faq6_2.html ; https://djgpp.mirror.garr.it/v2faq/faq9_4.html
+5. ESP-IDF v5.5, build system, partitions and SPIFFS; CMake compile definitions: https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-guides/build-system.html ; https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-reference/storage/partition.html ; https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-guides/partition-tables.html ; https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-reference/storage/spiffs.html ; https://cmake.org/cmake/help/latest/command/target_compile_definitions.html
+6. Raspberry Pi, Pico C/C++ SDK and Pico/Pico 2 datasheets: https://datasheets.raspberrypi.com/pico/raspberry-pi-pico-c-sdk.pdf ; https://datasheets.raspberrypi.com/pico/pico-datasheet.pdf ; https://datasheets.raspberrypi.com/pico/pico-2-datasheet.pdf
 7. SDL3, pixel formats and surfaces: https://wiki.libsdl.org/SDL3/SDL_PixelFormat ; https://wiki.libsdl.org/SDL3/SDL_LockSurface ; https://wiki.libsdl.org/SDL3/SDL_SaveBMP
 8. Emscripten, module options and memory access: https://emscripten.org/docs/api_reference/module.html ; https://emscripten.org/docs/porting/connecting_cpp_and_javascript/Interacting-with-code.html
-9. C++ linkage: https://en.cppreference.com/w/cpp/language/storage_duration.html#Linkage
+9. C++ linkage: https://en.cppreference.com/cpp/language/storage_duration#Internal_linkage
 10. SIL Open Font License 1.1: https://openfontlicense.org/open-font-license-official-text/
