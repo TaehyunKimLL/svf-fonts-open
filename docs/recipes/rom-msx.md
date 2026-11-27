@@ -175,13 +175,13 @@ and differing pixels.
 
 ### MSX2: the Daewoo jamo-set font (exact)
 
-![The Daewoo MSX2 (CPC-300) font, precomposed face built by this recipe, white on blue, x3](../images/recipes/msx/cpc300.png)
+![The Daewoo MSX2 (CPC-300) font, precomposed face built by this recipe, white on blue, x2](../images/recipes/msx/cpc300.png)
 
-*The Daewoo MSX2 (CPC-300) font, precomposed face built by this recipe, white on blue, x3*
+*The Daewoo MSX2 (CPC-300) font, precomposed face built by this recipe, white on blue, x2*
 
-![The same font as a jamo set: syllables outside KS X 1001 (똠 뷁 쀍) composed by the machine's rule, x3](../images/recipes/msx/cpc300-jamo.png)
+![The same font as a jamo set: syllables outside KS X 1001 (똠 뷁 쀍) composed by the machine's rule, x2](../images/recipes/msx/cpc300-jamo.png)
 
-*The same font as a jamo set: syllables outside KS X 1001 (똠 뷁 쀍) composed by the machine's rule, x3*
+*The same font as a jamo set: syllables outside KS X 1001 (똠 뷁 쀍) composed by the machine's rule, x2*
 
 <small>Samples rendered from the faces this recipe builds (firmware designs by Daewoo and Goldstar, shown here as small samples only; the ROMs and faces are not distributed).</small>
 
@@ -232,9 +232,9 @@ identical to an independent implementation of routine 4DC4h, for the CPC-300 and
 
 ### MSX2: the CPC-400S precomposed font
 
-![The CPC-400S precomposed font from its 256 KB font ROM, x3](../images/recipes/msx/cpc400s.png)
+![The CPC-400S precomposed font from its 256 KB font ROM, x2](../images/recipes/msx/cpc400s.png)
 
-*The CPC-400S precomposed font from its 256 KB font ROM, x3*
+*The CPC-400S precomposed font from its 256 KB font ROM, x2*
 
 
 `cpc-400s_hangulfont.rom` is 262,144 bytes, 8,192 slots of 32 bytes (16x16, row-major). The driver writes the slot's
@@ -265,9 +265,9 @@ own codes (lead byte D4h and up), not KS X 1001, and are left out.
 
 ### MSX1: the jamo cells of the BIOS, laid out as the machine does
 
-![The MSX1 font: BIOS 8x8 jamo cells laid out by the 모아쓰기 rule; ASCII is the native 8x8 cell on the baseline, x3](../images/recipes/msx/msx1.png)
+![The MSX1 font: BIOS 8x8 jamo cells laid out by the 모아쓰기 rule; ASCII is the native 8x8 cell on the baseline, x2](../images/recipes/msx/msx1.png)
 
-*The MSX1 font: BIOS 8x8 jamo cells laid out by the 모아쓰기 rule; ASCII is the native 8x8 cell on the baseline, x3*
+*The MSX1 font: BIOS 8x8 jamo cells laid out by the 모아쓰기 rule; ASCII is the native 8x8 cell on the baseline, x2*
 
 
 The Korean MSX1 BIOS replaces the standard character table (0x1BBF) with its own at 0x1B49: 256 cells of 8x8, Latin at
