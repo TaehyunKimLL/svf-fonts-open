@@ -44,7 +44,7 @@
 
 **레이아웃(layout)**은 자모 세트의 벌 체계이다. 초성/종성 클래스, 초성/중성/종성 벌 표, 조각 표로 이루어진다. 이름이
 있는 레이아웃은 `844`(DOS 8x4x4 표준), `844-ihnm`, `844-hbios24`, `844-hwp3`, `hwp1`, `1044-san`, `621`, `hanterm-johab`,
-`dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`이다.
+`hanterm-844`, `dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`이다.
 
 한 문단으로 보는 지도: `mkfont.py`는 아웃라인 폰트에서 **완성형 페이스**를 굽고, `bdfface.py`/`johab844.py`는
 비트맵 폰트에서 굽는다.
@@ -77,7 +77,8 @@ HangulTalk, HWP 1.x)의 이름을 갖지만 특정 게임에 묶여 있지 않�
   바이트), 10x4x4(`1044-san`, 12800바이트), 6x2x1(`621`, 6144바이트, 바이트 열 순서), HBIOS/Taebaek 24x30
   (`844-hbios24`, 243900바이트), SAGA IHNM(`844-ihnm`), Kyra `MK15.BIT`(11550바이트), Dokkaebi 프린터
   `HANGUL16/24.FNT`(15360/34560, 열 우선)와 `HANGUL40/48.FNT`(176000/253440);
-- `ENCODING`이 johab-1 글리프 번호인 hanterm BDF(`hanterm-johab`). 정규식 리더로 파싱한다;
+- `ENCODING`이 johab-1 글리프 번호인 hanterm BDF(`hanterm-johab`). 정규식 리더로 파싱한다. hanterm johab844-1 BDF(`hanterm-844`:
+  글리프 360개, `ENCODING` = DOS 8x4x4 순서의 글리프 번호. 같은 리더로 읽고 `844` 표로 조합한다);
 - Mac HangulTalk 1.0 `fbit` 리소스 포크(`mac-fbit-45sets`). 원시 리소스 맵에서 파싱한다;
 - HWP 1.x `HANGUL.SFT` / `HANGUL1/2/3.PFT`(`hwp1`, `--face 0..2`): JSET 표는 그 페이스에 대한 HWP.EXE 자체의 규칙이며 `hwpfont.py`를
   통해 읽는다. HWP 3.0 `HAN16_*.FNT`(`844-hwp3`: 음절 2,350자 뒤의 360개 조각으로 이루어진 8x4x4 벌 체계);
@@ -111,7 +112,7 @@ hanterm BDF, Kyra `.BIT`, Dokkaebi FNT, HWP 3.0 HAN16 FNT 파일), `mac-fbit-45s
 
 | 옵션(기본값) | 모드 | 의미 |
 |---|---|---|
-| `--layout` (필수) | 모든 모드 | 벌 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`와 `hwp1`은 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크, HWP 1.x 한글 파일) |
+| `--layout` (필수) | 모든 모드 | 벌 체계: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-844`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive`는 `--from-ttf` 또는 `--from-svf`가 필요하다. `mac-fbit-45sets`와 `hwp1`은 독자적인 모드이다(위치 인자 파일이 `fbit` 리소스 포크, HWP 1.x 한글 파일) |
 | `--face N` (0) | `source`, `hwp1` | Dokkaebi 프린터 폰트의 서체(0 또는 1), HWP 1.x 한글 파일의 페이스(0, 1, 2) |
 | `--eng FILE` (없음) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | ASCII용 원시 8x16 영문 폰트(2048 또는 4096바이트; 12x24, 20x40, 24x48 페이스와 위의 HWP 영문 폰트도 읽는다). `--bpp 2` 및 `mac-fbit-45sets`와 함께면 거부된다 |
 | `--spec SPEC.json\|spc1500` (없음) | `spec` | 위치 인자 파일의 `rawcarve.py` compose 명세(JSON 파일, 또는 내장 `spc1500`: 이 이름은 언제나 내장 명세이고, 그 이름의 파일은 `./spc1500`으로 준다). 명세가 이름 붙인 초성 조각 벌마다 JSET 초성 벌 하나(`novowel` 벌이 먼저), 중성 표마다 중성 벌 하나(`nofinal`, `final`, 그리고 초성 부류를 둘로 만드는 `*_kk` 표), 종성 조각 벌마다 종성 벌 하나, 종성 부류 둘. 다른 배치와 함께 주면 거부한다 |
@@ -249,8 +250,9 @@ MI1/MI2 "L" 페이스용으로 작성되었으나 게임 전용은 아니다.
 
 **입력.** 자체 정규식 BDF 리더(KS X 1001 `ENCODING` 또는 유니코드)와 HBF 리더(비트맵 파일이 옆에 있는 단일 바이트 코드
 범위. gzip 가능). 한글 BDF와 ASCII BDF/HBF. `--chars-from`이 지정한 한글 음절(그래서 그것을 나열한 텍스트
-파일이 필요하다), `--ascii`의 ASCII 0x20-0x7E, 그리고 자체 U+2026/U+25A1만 유지하며, 어느 비트맵 페이스에서도 기호나 자모를 가져오지 않는다. 셀은
-BDF 자체의 박스와 관계없이 기본 24x24이다.
+파일이 필요하다), `--ascii`의 ASCII 0x20-0x7E, 그리고 자체 U+2026/U+25A1만 유지하며, `--symbols`가 없으면 어느 비트맵 페이스에서도
+기호나 자모를 가져오지 않는다. `--symbols`가 있으면 `--chars-from`이 지정한 다른 문자(KS X 1001 기호, 자모, 한자)도 한글 BDF에
+있는 것은 가져온다. 셀은 BDF 자체의 박스와 관계없이 기본 24x24이다. 2바이트 범위 밖의 `ENCODING`(인코딩 없는 글리프의 -1)은 건너뛴다.
 
 **출력.** 완성형 SVFN v3 페이스. 1 bpp, 가변 폭, 플래그 5(가변 폭 + 원점의 표시). U+2026(점 셋)과 U+25A1(누락 글리프 상자)을
 스스로 쓴다. `--fill-absent`가 있으면 페이스에 없는, 요청된 음절을 페이스에 맞춘 자모 조각으로 합성한다(`jamoset.fit_font`를 통해).
@@ -269,6 +271,7 @@ BDF 자체의 박스와 관계없이 기본 24x24이다.
 | `--chars-from FILE...` (필수) | - | 문자를 지정하는 파일(`mkfont.py` 규칙) |
 | `--hangul-advance N` | BDF의 DWIDTH | 음절 advance |
 | `--fill-absent` | 꺼짐 | 페이스에 없는, 요청된 음절을 합성한다 |
+| `--symbols` | 꺼짐 | `--chars-from`이 지정한 다른 문자(기호, 자모, 한자)도 한글 BDF에서 가져온다. 한글 기준선에 그 DWIDTH로 놓으며, BDF의 U+2026 / U+25A1이 그려 넣는 것을 대신한다 |
 | `--mask-font FILE` | `$JAMOSET_MASK_FONT` / 동봉된 NotoSansKR | `--fill-absent` 마스크 폰트(`없음` = 자유 조각) |
 | `--pylib DIR` | `$JAMOSET_PYLIB` | freetype과 uharfbuzz가 있는 디렉터리 |
 | `--profile NAME`, `--box x\|y\|full` | `default`, 프로파일의 값 | SVFN v3 레이아웃 프로파일과 잉크 상자 정책 |
@@ -993,6 +996,34 @@ OR, 윤곽에서 커버리지와 단계로, 36 px 페이스의 축소, MONO, GRA
 `--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르면 종료 코드 1).
 
 **내부 모듈.** `jamoset.py`, `svfline.py`, `mkfont.py`, `svfscale.py`. **서드파티.** Pillow. **테스트.** `--check`.
+
+### `tools/doc_figures_x11.py`
+
+**목적.** [recipes/x-window.ko.md](recipes/x-window.ko.md)의 샘플 그림을 그린다. 레시피가 만드는 페이스마다 하나: 대우 고딕 16,
+대우 명조 16과 24, 백묵 굴림, 바탕, 돋움 16과 굴림 12, hanterm johab844-1 폰트 `dkbgoth`와 johab-1 폰트 `johabm16`, 한양 고딕 16,
+KAIST newmj 16, iyagi 16, philgi 16.
+
+**상태.** 특수 목적(문서).
+
+**입력.** 폴더와 파일을 인수로 받는다. `--misc DIR`(X11 기본 폰트 폴더: 대우 PCF와 ASCII 폰트 `8x16.pcf.gz`, `12x24.pcf.gz`,
+`6x12.pcf.gz`, 필수), `--baekmuk DIR`, `--hanterm DIR`, `--hanyang DIR`, `--newmj F`, `--iyagi F`, `--philgi F`. 스크립트에는
+폰트 경로가 없고, 파일이 없는 페이스는 건너뛴다. 페이스마다 임시 폴더에서 레시피의 명령(`maker/srcprep.py pcf-bdf`,
+`bdfface.py --symbols`; hanterm 폰트는 ASCII 페이스용 `mkfont.py`와 `jamoset.py --layout hanterm-844 / hanterm-johab --base
+--check`)을 `python3 -I`로 실행해 만든다.
+
+**출력.** `docs/images/recipes/x-window/`의 PNG 파일(8비트 회색, 흰 바탕에 검은 글자, 픽셀마다 2배, 메타데이터 없음): 페이스마다
+네 줄, 한국어 팬그램 두 줄, 영어 한 줄, ASCII 기호와 KS X 1001 기호 `※☆★○●◎◇◆□■△▲→←↑↓`. 페이스에 없는 문자는 그 줄에서
+빼고 출력한다(자모 세트에는 기호가 없다).
+
+**사용법.**
+
+    python3 -I tools/doc_figures_x11.py --misc DIR [--baekmuk DIR] [--hanterm DIR] [--hanyang DIR] [--newmj F] [--iyagi F] [--philgi F] [--out DIR] [--check]
+
+`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없으면 종료 코드 1). 그림은 폰트 파일에만
+달려 있다.
+
+**내부 모듈.** `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow(hanterm 폰트의 ASCII 페이스를 만드는
+`mkfont.py`를 거쳐). **테스트.** `--check`.
 
 ## 5. 빌드 스크립트
 
