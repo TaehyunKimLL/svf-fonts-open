@@ -95,15 +95,17 @@ ASCII, 음절, 그리고 (원하면) KS X 1001 전체를 `rawcarve.py bdf --inve
     python3 -I tools/rawcarve.py bdf $W31/BT16.TBM --offset 0xf498 --glyph 16x16 --invert --chars map --map $OUT/tbm.map -o $OUT/bt16-ks.bdf
 
 다른 파일은 위 표의 오프셋과 크기로 같은 명령을 쓴다: BT20은 `--glyph 10x20`(ASCII)와 `20x20`, `--cell 20x20`, GULIM16은 BT16과
-같은 크기, GULIM12는 `6x12`와 `12x12`, `--cell 12x12`. 측정한 결과(점검 줄 `안녕하세요 ABC 123`; 12 px와 20 px의 잉크는 `line 400
+같은 크기, GULIM12는 `6x12`와 `12x12`, `--cell 12x12`. 기준선은 파일의 ASCII에서 'H' 잉크 바로 아래 행이다. BT16과 GULIM16에서는
+`rawcarve.py`의 기본값(셀의 7/8, 14행)과 같다. BT20의 'H'는 4-16행, GULIM12의 'H'는 0-9행을 덮으므로, 세 번의 자르기(ASCII, 음절,
+KS X 1001 표)에 BT20은 `--ascent 17`, GULIM12는 `--ascent 10`을 준다. 측정한 결과(점검 줄 `안녕하세요 ABC 123`; 12 px와 20 px의 잉크는 `line 400
 C+8 0 C`):
 
 | 페이스 | 바이트 | 음절 | measure | 잉크 | `bt*-ks.bdf` 글리프 |
 |---|---:|---:|---|---:|---:|
 | `BT16.SVF`, 바탕 16 px | `123,048` | 2,350 | `width=144 ascent=14 descent=2` | 472 | 8,224 |
-| `BT20.SVF`, 바탕 20 px | `191,092` | 2,350 | `width=180 ascent=18 descent=2` | 602 | 8,224 |
+| `BT20.SVF`, 바탕 20 px | `191,092` | 2,350 | `width=180 ascent=17 descent=3` | 602 | 8,224 |
 | `GULIM16.SVF`, 굴림 16 px | `124,836` | 2,350 | `width=144 ascent=14 descent=2` | 368 | 8,222 |
-| `GULIM12.SVF`, 굴림 12 px | `106,156` | 2,350 | `width=108 ascent=11 descent=1` | 294 | 8,222 |
+| `GULIM12.SVF`, 굴림 12 px | `106,152` | 2,350 | `width=108 ascent=10 descent=2` | 294 | 8,222 |
 
 모든 페이스에서 `svf2to3.py --check`는 같은 바이트를 쓰고, `bdfface.py`는 잘린 글리프 0개를 알린다. `fontmetrics.py`는 BT16,
 GULIM16, GULIM12에서 `bdfface.py`가 그린 U+2026(…) 하나만 advance를 1-2 px 넘는다고 알린다. ASCII는 고정폭(반각)이다.
@@ -125,7 +127,8 @@ GULIM16, GULIM12에서 `bdfface.py`가 그린 U+2026(…) 하나만 advance를 1
 *Windows 95 한글판 `GULIM12.TBM`(굴림 12 px), 2배*
 
 `GULIM16.TBM`의 음절 2,350자 가운데 2,047자는 Windows 95 `gulim.ttc`의 16 ppem 스트라이크와 픽셀까지 같다(기준선 맞춤, 평균
-IoU 0.973). `GULIM12.TBM`은 12 ppem 스트라이크보다 한 행 아래에 그려져 있고(ascent 11과 10), 한 행 올리면 2,171자가 같다.
+IoU 0.973). `GULIM12.TBM`을 제 기준선(`--ascent 10`)으로 자르면 12 ppem 스트라이크와
+기준선(ascent 10)이 같고, 음절 2,171자가 스트라이크와 같다(평균 IoU 0.990).
 BT16과 BT20(바탕)은 TrueType 바탕의 스트라이크와 다른 디자인이다(16 px 평균 IoU 0.27). ASCII는 TBM 쪽이 고정폭이라 모두 다르다.
 
 <a id="windows-hfont-sys"></a>

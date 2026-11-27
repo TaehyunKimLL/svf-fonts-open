@@ -9,8 +9,8 @@ The fonts are Microsoft's and are not in the repository: give the path of each o
 every font given and the others are skipped. Each face is built in a temporary directory with the commands of the
 recipe, run as subprocesses with `python3 -I` (the font files are read as data, nothing in them is run):
 
-  TBM (Windows 3.1 / 95):  tbmfont.py info (the block offsets), rawcarve.py bdf --invert (ASCII, the 2,350 syllables
-                           --dense, the KS X 1001 symbols --chars map), bdfface.py (syllables + ASCII), and mkfont.py
+  TBM (Windows 3.1 / 95):  tbmfont.py info (the block offsets), rawcarve.py bdf --invert --ascent A (ASCII, the 2,350
+                           syllables --dense, the KS X 1001 symbols --chars map; A is the row under 'H': 14, 17, 14, 10), bdfface.py (syllables + ASCII), and mkfont.py
                            on the symbol BDF for the sample's symbols (a second face, drawn first: bdfface.py puts
                            its own missing-glyph box at U+25A1, which is also one of the sample's symbols)
   TTC (Windows 95 / XP):   mkfont.py FONT --size N --bpp 1 --unicode file:SAMPLE (face 0 of the collection; at a
@@ -49,16 +49,17 @@ PAD = 4          # paper around the text, in font pixels
 GAP = 2          # rows between lines, in font pixels
 INK, PAPER = 0, 255
 
-# name: (option, kind, size, image file)
+# name: (option, kind, size, image file, ascent); a TBM face's ascent is the row under the ink of its 'H' (the
+# recipe's --ascent; 7/8 of the cell for BT16 and GULIM16, one row higher for BT20 and GULIM12)
 FACES = (
-    ("bt16", "--bt16", "tbm", 16, "bt16.png"),
-    ("bt20", "--bt20", "tbm", 20, "bt20.png"),
-    ("gulim16", "--gulim16", "tbm", 16, "gulim16-tbm.png"),
-    ("gulim12", "--gulim12", "tbm", 12, "gulim12-tbm.png"),
-    ("win95_gulim16", "--win95-gulim", "ttc", 16, "win95-gulim16.png"),
-    ("win95_gulim12", "--win95-gulim", "ttc", 12, "win95-gulim12.png"),
-    ("xp_gulim12", "--xp-gulim", "ttc", 12, "xp-gulim12.png"),
-    ("xp_batang16", "--xp-batang", "ttc", 16, "xp-batang16.png"),
+    ("bt16", "--bt16", "tbm", 16, "bt16.png", 14),
+    ("bt20", "--bt20", "tbm", 20, "bt20.png", 17),
+    ("gulim16", "--gulim16", "tbm", 16, "gulim16-tbm.png", 14),
+    ("gulim12", "--gulim12", "tbm", 12, "gulim12-tbm.png", 10),
+    ("win95_gulim16", "--win95-gulim", "ttc", 16, "win95-gulim16.png", None),
+    ("win95_gulim12", "--win95-gulim", "ttc", 12, "win95-gulim12.png", None),
+    ("xp_gulim12", "--xp-gulim", "ttc", 12, "xp-gulim12.png", None),
+    ("xp_batang16", "--xp-batang", "ttc", 16, "xp-batang16.png", None),
 )
 
 
@@ -70,7 +71,7 @@ def tool(*argv):
     return r.stdout
 
 
-def tbm_faces(path, size, tmp):
+def tbm_faces(path, size, tmp, ascent):
     """[main face, symbol face] built from a TBM file by the recipe's commands."""
     try:
         t = tbmfont.load(path)
@@ -86,11 +87,11 @@ def tbm_faces(path, size, tmp):
     smap = os.path.join(tmp, "symbols.map")
     tool("tbmfont.py", "map", "--blocks", "symbols", "-o", smap)
     tool("rawcarve.py", "bdf", path, "--offset", b["ascii"][0], "--glyph", half, "--invert", "--chars", "ascii",
-         "--count", 128, "-o", os.path.join(tmp, "ascii.bdf"))
+         "--count", 128, "--ascent", ascent, "-o", os.path.join(tmp, "ascii.bdf"))
     tool("rawcarve.py", "bdf", path, "--offset", b["hangul"][0], "--glyph", full, "--invert", "--chars", "ks-hangul",
-         "--dense", "-o", os.path.join(tmp, "hangul.bdf"))
+         "--dense", "--ascent", ascent, "-o", os.path.join(tmp, "hangul.bdf"))
     tool("rawcarve.py", "bdf", path, "--offset", b["symbols"][0], "--glyph", full, "--invert", "--chars", "map",
-         "--map", smap, "-o", os.path.join(tmp, "symbols.bdf"))
+         "--map", smap, "--ascent", ascent, "-o", os.path.join(tmp, "symbols.bdf"))
     main = os.path.join(tmp, "face.svf")
     sym = os.path.join(tmp, "symbols.svf")
     tool("bdfface.py", "--hangul", os.path.join(tmp, "hangul.bdf"), "--ascii", os.path.join(tmp, "ascii.bdf"),
@@ -100,7 +101,7 @@ def tbm_faces(path, size, tmp):
     return [sym, main]  # the symbols first: bdfface.py draws its own U+25A1 (the missing-glyph box) into the main face
 
 
-def ttc_faces(path, size, tmp):
+def ttc_faces(path, size, tmp, ascent=None):
     out = os.path.join(tmp, "face.svf")
     tool("mkfont.py", path, out, "--size", size, "--bpp", 1, "--unicode", "file:" + os.path.join(tmp, "sample.txt"))
     return [out]
@@ -130,7 +131,7 @@ def draw(chain_paths):
 def render(args):
     """{image file: PNG bytes} for every face whose source was given."""
     out = {}
-    for name, opt, kind, size, png in FACES:
+    for name, opt, kind, size, png, ascent in FACES:
         path = getattr(args, opt[2:].replace("-", "_"))
         if not path:
             continue
@@ -140,7 +141,7 @@ def render(args):
                 fh.write(text)
             with open(os.path.join(tmp, "symbols.txt"), "w", encoding="utf-8") as fh:
                 fh.write(SYMBOLS)
-            faces = (tbm_faces if kind == "tbm" else ttc_faces)(path, size, tmp)
+            faces = (tbm_faces if kind == "tbm" else ttc_faces)(path, size, tmp, ascent)
             missing = [c for c in sorted(set(text) - {" "}) if not any(svfline.Face.load(p).has(ord(c)) for p in faces)]
             out[png] = draw(faces)
             print(f"{png}: {name}, {size} px, {len(out[png])} bytes"

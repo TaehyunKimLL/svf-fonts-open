@@ -101,15 +101,18 @@ decodes to are left out):
     python3 -I tools/rawcarve.py bdf $W31/BT16.TBM --offset 0xf498 --glyph 16x16 --invert --chars map --map $OUT/tbm.map -o $OUT/bt16-ks.bdf
 
 The other files take the same commands with the offsets and sizes of the table above: BT20 `--glyph 10x20` (ASCII) and
-`20x20`, `--cell 20x20`; GULIM16 the sizes of BT16; GULIM12 `6x12` and `12x12`, `--cell 12x12`. Measured (check line
+`20x20`, `--cell 20x20`; GULIM16 the sizes of BT16; GULIM12 `6x12` and `12x12`, `--cell 12x12`. The baseline is the row
+under the ink of 'H' in the file's ASCII. That is `rawcarve.py`'s default (7/8 of the cell, row 14) for BT16 and
+GULIM16. BT20's 'H' covers rows 4-16 and GULIM12's rows 0-9, so their three cuts (ASCII, syllables, the KS X 1001
+table) take `--ascent 17` and `--ascent 10`. Measured (check line
 `안녕하세요 ABC 123`; the ink of the 12 px and 20 px faces with `line 400 C+8 0 C`):
 
 | Face | Bytes | Syllables | measure | Ink | `bt*-ks.bdf` glyphs |
 |---|---:|---:|---|---:|---:|
 | `BT16.SVF`, Batang 16 px | `123,048` | 2,350 | `width=144 ascent=14 descent=2` | 472 | 8,224 |
-| `BT20.SVF`, Batang 20 px | `191,092` | 2,350 | `width=180 ascent=18 descent=2` | 602 | 8,224 |
+| `BT20.SVF`, Batang 20 px | `191,092` | 2,350 | `width=180 ascent=17 descent=3` | 602 | 8,224 |
 | `GULIM16.SVF`, Gulim 16 px | `124,836` | 2,350 | `width=144 ascent=14 descent=2` | 368 | 8,222 |
-| `GULIM12.SVF`, Gulim 12 px | `106,156` | 2,350 | `width=108 ascent=11 descent=1` | 294 | 8,222 |
+| `GULIM12.SVF`, Gulim 12 px | `106,152` | 2,350 | `width=108 ascent=10 descent=2` | 294 | 8,222 |
 
 For every face `svf2to3.py --check` writes the same bytes and `bdfface.py` reports 0 glyphs clipped. `fontmetrics.py`
 reports, for BT16, GULIM16 and GULIM12, only the U+2026 (…) that `bdfface.py` draws reaching 1-2 px past its advance.
@@ -132,9 +135,9 @@ The ASCII is fixed width (half width).
 *Korean Windows 95 `GULIM12.TBM` (Gulim 12 px), x2*
 
 Of the 2,350 syllables of `GULIM16.TBM`, 2,047 are pixel for pixel those of the 16 ppem strike of the Windows 95
-`gulim.ttc` (aligned on the baseline; mean IoU 0.973). `GULIM12.TBM` is drawn one row lower than the 12 ppem strike
-(ascent 11 against 10); moved up a row, 2,171 are the same. BT16 and BT20 (Batang) are other designs than the strikes
-of the TrueType Batang (mean IoU 0.27 at 16 px). The ASCII differs throughout, as the TBM's is fixed width.
+`gulim.ttc` (aligned on the baseline; mean IoU 0.973). Cut on its own baseline (`--ascent 10`), `GULIM12.TBM` shares
+the baseline of the 12 ppem strike (ascent 10), and 2,171 of its syllables are the strike's (mean IoU 0.990). BT16 and
+BT20 (Batang) are other designs than the strikes of the TrueType Batang (mean IoU 0.27 at 16 px). The ASCII differs throughout, as the TBM's is fixed width.
 
 <a id="windows-hfont-sys"></a>
 
