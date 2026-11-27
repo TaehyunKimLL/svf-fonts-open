@@ -175,6 +175,17 @@ and differing pixels.
 
 ### MSX2: the Daewoo jamo-set font (exact)
 
+![The Daewoo MSX2 (CPC-300) font, precomposed face built by this recipe, white on blue, x3](../images/recipes/msx/cpc300.png)
+
+*The Daewoo MSX2 (CPC-300) font, precomposed face built by this recipe, white on blue, x3*
+
+![The same font as a jamo set: syllables outside KS X 1001 (똠 뷁 쀍) composed by the machine's rule, x3](../images/recipes/msx/cpc300-jamo.png)
+
+*The same font as a jamo set: syllables outside KS X 1001 (똠 뷁 쀍) composed by the machine's rule, x3*
+
+<small>Samples rendered from the faces this recipe builds (firmware designs by Daewoo and Goldstar, shown here as small samples only; the ROMs and faces are not distributed).</small>
+
+
 By hand, from here on: the commands the prompts above run, with the measured results.
 
 The SUB-ROM's header holds four pointer words at 4014h, 4016h, 4018h and 401Ah (CPU address = file offset): the initial
@@ -221,6 +232,11 @@ identical to an independent implementation of routine 4DC4h, for the CPC-300 and
 
 ### MSX2: the CPC-400S precomposed font
 
+![The CPC-400S precomposed font from its 256 KB font ROM, x3](../images/recipes/msx/cpc400s.png)
+
+*The CPC-400S precomposed font from its 256 KB font ROM, x3*
+
+
 `cpc-400s_hangulfont.rom` is 262,144 bytes, 8,192 slots of 32 bytes (16x16, row-major). The driver writes the slot's
 low 6 bits to port D8h and the high 7 bits to D9h and reads 32 bytes from D9h (openMSX's `MSXKanji` device, type
 `hangul`). Slot map: 0-1408 KS X 1001 symbols (slot = (row - 1) x 94 + column - 1, rows 1-15), 1410-2725 Hangul list A
@@ -248,6 +264,11 @@ bytes`, 83 syllables exact): the precomposed design is not built from jamo piece
 own codes (lead byte D4h and up), not KS X 1001, and are left out.
 
 ### MSX1: the jamo cells of the BIOS, laid out as the machine does
+
+![The MSX1 font: BIOS 8x8 jamo cells laid out by the 모아쓰기 rule; ASCII is the native 8x8 cell on the baseline, x3](../images/recipes/msx/msx1.png)
+
+*The MSX1 font: BIOS 8x8 jamo cells laid out by the 모아쓰기 rule; ASCII is the native 8x8 cell on the baseline, x3*
+
 
 The Korean MSX1 BIOS replaces the standard character table (0x1BBF) with its own at 0x1B49: 256 cells of 8x8, Latin at
 0x20-0x7E, the 19 initials at 0x86-0x98, the vowels at 0x99-0xA6 and 85 "initial over ㅗ ㅛ ㅜ ㅠ ㅡ" cells at
