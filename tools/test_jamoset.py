@@ -465,6 +465,28 @@ class WrittenFile(unittest.TestCase):
         self.assertEqual(jamoset.raw_of(jamoset.open_bdf844(bdf)), raw)
         self.assertIn("identical to johab844.py", jamoset.check(b, jamoset.LAYOUTS["hanterm-844"], bdf))
 
+    def test_bdf_glyph_reaching_past_the_cell_is_masked(self):
+        # BBX 16 16 -3 -2: the glyph starts 3 px left of the origin; the 3 px past the right edge are dropped
+        text = make_bdf().decode("latin-1").replace("ENCODING 5\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 0 -2",
+                                                    "ENCODING 5\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 -3 -2")
+        self.assertIn("BBX 16 16 -3 -2", text)
+        src = jamoset.open_bdf_glyphs(text.encode("latin-1"))
+        g = src.glyph(5)
+        self.assertTrue(all(0 <= r < 1 << 16 for r in g.rows))
+        self.assertEqual(len(g.to_bytes()), 32)
+
+    def test_bdf_with_a_huge_cell_is_refused(self):
+        for old, new in (("FONT_ASCENT 14", "FONT_ASCENT 100000000000"),
+                         ("FONTBOUNDINGBOX 16 16 0 -2", "FONTBOUNDINGBOX 100000 16 0 -2"),
+                         ("FONTBOUNDINGBOX 16 16 0 -2", "FONTBOUNDINGBOX 0 16 0 -2")):
+            text = make_bdf().decode("latin-1").replace(old, new, 1)
+            with self.assertRaises(jamoset.SourceError, msg=new):
+                jamoset.open_bdf_glyphs(text.encode("latin-1"))
+        text = make_bdf().decode("latin-1").replace("ENCODING 7\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 0 -2",
+                                                    "ENCODING 7\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 -100000 -2")
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.open_bdf_glyphs(text.encode("latin-1"))
+
     def test_hanterm_844_refuses_a_bdf_that_is_not_8x4x4(self):
         with self.assertRaises(jamoset.SourceError) as cm:	# fill slots inked: a johab-1 font cut to 360 glyphs
             jamoset.open_bdf844(bdf_of_raw844(bytes(random.Random(3).randbytes(360 * 32))))

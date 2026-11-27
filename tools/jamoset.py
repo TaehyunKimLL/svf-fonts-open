@@ -293,6 +293,9 @@ def raw_of(src):
     return b"".join(src.glyph(i).to_bytes() for i in range(src.count))
 
 
+CELL_MAX = 256		# the largest BDF cell side (and |BBX| field) bdf_glyph_source accepts
+
+
 def bdf_glyph_source(d, count, what):
     """A BDF whose ENCODING is the glyph number 0..@p count - 1 (@p what names the encoding in errors)."""
     t = d.decode("latin-1")
@@ -306,6 +309,8 @@ def bdf_glyph_source(d, count, what):
     desc = re.search(r"FONT_DESCENT\s+(\d+)", t)
     ascent = int(asc.group(1)) if asc else bh + by0
     h = ascent + (int(desc.group(1)) if desc else -by0)
+    if not (1 <= w <= CELL_MAX and 1 <= h <= CELL_MAX and 0 <= ascent <= CELL_MAX):
+        raise SourceError(f"BDF cell {w}x{h} (ascent {ascent}) is outside 1..{CELL_MAX} pixels")
     chars = {}
     for block in t.split("STARTCHAR")[1:]:
         block = block.split("ENDCHAR")[0]
@@ -318,6 +323,8 @@ def bdf_glyph_source(d, count, what):
         if not bbx or not bm:
             raise SourceError(f"BDF glyph {enc} has no BBX or BITMAP")
         bw, bhh, bx, by = map(int, bbx.groups())
+        if not (0 <= bw <= CELL_MAX and 0 <= bhh <= CELL_MAX and abs(bx) <= CELL_MAX and abs(by) <= CELL_MAX):
+            raise SourceError(f"BDF glyph {enc}: BBX {bw} {bhh} {bx} {by} is outside the {CELL_MAX} pixel limit")
         nb = (bw + 7) // 8
         lines = bm.group(1).split()
         if len(lines) < bhh or any(len(x) < nb * 2 for x in lines[:bhh]):
@@ -337,7 +344,8 @@ def bdf_glyph_source(d, count, what):
                 y = top + k
                 if 0 <= y < h:
                     sh = w - (bx + bw)
-                    out[y] = (r << sh) if sh >= 0 else (r >> -sh)
+                    v = (r << sh) if sh >= 0 else (r >> -sh)
+                    out[y] = v & ((1 << w) - 1)		# ink right of the cell (bx < 0 pushes it there) is dropped
         return Glyph(w, h, out)
 
     return Source(w, h, count, get)
