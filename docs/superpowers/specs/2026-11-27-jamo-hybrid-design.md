@@ -34,10 +34,7 @@ no font bitmaps in the repository.
 The training samples are composed in memory by the training script from the source files. Nothing derived from them is
 written into the repository.
 
-- **Composite outline fonts** (OFL) could add more pairs. Fonts whose syllables are composite glyphs (Gothic A1, Single
-  Day, Neo Dunggeunmo Pro, NanumSquareRound's KS set; `jamovec.py composite_parts` reads them) can be rendered per
-  component at 9-24 px. The OR of the components is the precomposed target, and each component is a plane. This is
-  optional; it would only follow if the folds in 1.1 show a size gap.
+- **Composite TrueType fonts** are a further source with many designers and every size (1.2).
 - **Augmentation:** a shift of ±1 source pixel only, as in research.
 
 ### 1.1 Evaluation
@@ -47,10 +44,62 @@ written into the repository.
 | leave-one-font-out over the 4 Apple GT faces | train without the face, test on it (as research: 0.988-0.995) | numbers only |
 | held-out designer: Gulim 12 / 16 | one fold trained without Gulim (research: 0.986-0.989) | numbers only |
 | held-out open families | folds without SANS8J, without NDGPR*, without SGDAY* | numbers only |
+| held-out composite TrueType families | per family or foundry (1.2) | numbers only |
 | the shipped model | trained on all of the above; its numbers are the folds' | weights only |
 
 Metrics: pixels in the right slot (label accuracy), syllables whose pieces are all exact, and the built face's composed
 IoU and bytes against `adaptive`. The private evaluation sets and their bitmaps stay outside the repository.
+
+### 1.2 Composite TrueType fonts (assessment)
+
+A scan of the TrueType fonts available for training found **69 families** that draw Hangul syllables as `glyf`
+composites. Each component glyph is one of the designer's jamo variants.
+
+| Coverage | Families (licence) |
+|---|---|
+| 11,172 of 11,172 (the 399 two-component syllables are the ones without a final) | Un fonts: UnBatang, UnDotum, UnGraphic, UnGungseo, UnPilgi, UnShinmun, UnJamo* (GPL); Neo Dunggeunmo and Pro, ThinMulmaru, Single Day, Sahmyook, WenQuanYi Zen Hei (open licences); Windows New Gulim, Pyunji, Magic, Headline (proprietary) |
+| 10,750 | Gulim, Dotum, Batang, Gungsuh and their Che variants (proprietary) |
+| 8,822 | the Nanum families (OFL) |
+| partial | D2Coding, Gothic A1, KoPub Batang, NEXON Lv1 / Lv2, Kakao Big / Small Sans, Mabinogi Classic, Iropke Batang, HSSaemaeul, Dovemayo, Tuktakpotato, goorm Sans Code, NanumSquareRound, NanumBarunGothic, and others |
+
+**What each composite gives.**
+- **Labels:** each component rasterised at the target size is one exact plane, at any size from 9 to 24 px.
+- **Grouping ground truth:** the component glyph id is the designer's variant. A family's (slot, jamo, context) → glyph id
+  table is its set rule. It can be scored with the ARI as Apple's was, and it is training data for a learned rule
+  (`--rule derived`).
+
+**Slots.** Component order is not always initial, medial, final.
+- Slots are assigned by the component glyph itself: a glyph id must be used by one slot and one jamo only, as Gulim's
+  `EBDT` components are (0 clashes).
+- Where the file order is not consistent, `jamovec.py composite_parts`' position rule decides.
+- Families with any clash are left out.
+
+**Rasterisation.** The target is what a precomposed face would hold: the whole composite rendered by FreeType mono, as
+`mkfont.py` renders.
+- Labels are the components rendered alone, at their offsets, by the same renderer.
+- A pixel of the whole raster that two component rasters cover is in both planes (overlap, as in the Apple ground truth).
+- A pixel no component raster covers goes to the component with the largest exact-area coverage (`jamoaa.py`'s
+  rasteriser).
+- A component pixel outside the whole raster is dropped.
+- Per family and size, the share of pixels decided by these rules is recorded. A (family, size) where it exceeds 2 % is
+  not used.
+
+**Hinting.**
+- A composite and its components are hinted separately, so the union of the component rasters can differ from the
+  whole raster at 9-12 px.
+- Both hinted and unhinted renders are measured, and training uses the one that `mkfont.py` uses for faces.
+- The model must still see real hand-drawn strikes (the Apple and Gulim ground truth): outline renders do not show the
+  per-syllable tuning of a bitmap strike.
+
+**Hold-out.** Folds are by family: all weights, sizes and Che / proportional variants of a family stay together.
+- Families of one foundry are held out together: Gulim, Dotum, Batang and Gungsuh as one fold, and the Un fonts as one
+  fold.
+- Reported per fold: label accuracy against the component planes, ARI against the component grouping, and the built
+  face's IoU and bytes against `adaptive`.
+
+**Volume.** Up to 69 families x 11,172 syllables x 8 sizes, about 6 M samples. Each epoch samples (family, size) pairs
+uniformly, so no family dominates. The data is rendered on the fly by the training script. Nothing rendered is stored in
+the repository; the font list with hashes goes into the provenance file (4).
 
 ## 2. Inference without torch
 
