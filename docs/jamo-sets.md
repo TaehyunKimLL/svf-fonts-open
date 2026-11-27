@@ -112,7 +112,7 @@ Encoding forms turn code points into bytes. UCS-2 stores only the BMP in 16 bits
 ```mermaid
 flowchart LR
   C["character: 한 or LVT"] --> P["code points<br/>U+D55C or U+1112 U+1161 U+11AB"]
-  P --> F["encoding form<br/>EUC, CP949, UTF-8, UTF-16, UTF-32"]
+  P --> F["encoding / 인코딩<br/>EUC, CP949, UTF-8, UTF-16, UTF-32"]
   F --> B["bytes"]
   B --> S["SVF input<br/>UTF-8 text → svf_draw_utf8 → code points"]
   S --> V["lookup U+AC00..U+D7A3<br/>or normalize/shape first"]
@@ -262,9 +262,9 @@ johab font is **360 pieces x 32 bytes = 11,520 bytes** (`notes/dos.md` "Format f
 | 48x48 | 103,680 | 676,800 | 3,217,536 |
 
 The piece file sizes are in `notes/dos.md`; the precomposed columns are syllables x cell bytes. SVF shows the same thing:
-for Neo Dunggeunmo at 16 px the precomposed `NEODG16.SVF` is 133,720 bytes (2,905 glyphs: 95 ASCII, 2,803 KS X 1001
+the precomposed Neo Dunggeunmo `NEODG16.SVF` is 133,720 bytes (2,905 glyphs: 95 ASCII, 2,803 KS X 1001
 characters, and 7 syllables outside KS, 갷 닏 떄 섥 슺 텊 햝; the KS characters include U+212B Å of KS row A1, which the
-source TTF lacks: `tools/build/faces.tsv`), and the 8x4x4 jamo set `SANS8J.SVF` is **15,740 bytes** (439 glyphs, 344 pieces) and
+source TTF lacks: `tools/build/faces.tsv`), while the iolo SANS8J 8x4x4 jamo set `SANS8J.SVF` is **15,740 bytes** (439 glyphs, 344 pieces) and
 draws all 11,172 (read with `jamoset.parse_svfn`, as `tools/doc_figures_jamo.py` does).
 
 ### 2.1.1 IoU: composition quality
@@ -277,7 +277,7 @@ A  ##..    B  .##.
 intersection 2, union 5 → IoU = 2/5 = 0.4
 ```
 
-`quality_report()` averages IoU over syllables; `exact` counts identical cells (IoU 1.0). In `svf/jamo-extra/FACES.TSV`, `ks2350` covers the KS 2,350, `all` every syllable the font draws, `freq` weights by corpus frequency, and `top500` averages the 500 most frequent syllables. For 2 bpp, `tools/jamoaa.py`'s `aa_quality()` uses mean absolute level difference divided by 3 (0 is best). IoU ignores blank-cell area and penalizes both missing and extra ink. A one-pixel stroke shift can cost heavily at 16 px, and the metric does not measure legibility.
+`quality_report()` averages IoU over syllables; `exact` counts identical cells (IoU 1.0). In `svf/jamo-extra/FACES.TSV`, `ks2350` covers the KS 2,350, `all` every syllable the font draws, `freq` weights by corpus frequency, and `top500` averages the 500 most frequent syllables. For 2 bpp, `tools/jamoaa.py`'s `aa_quality()` reports the raw mean absolute level difference (0..3); `maker/quality.py` divides it by 3 for the FACES.TSV quality score (0 is best). IoU ignores blank-cell area and penalizes both missing and extra ink. A one-pixel stroke shift can cost heavily at 16 px, and the metric does not measure legibility.
 
 ### 2.2 Sets: a jamo's shape depends on where it sits
 
@@ -1030,8 +1030,7 @@ both are extrapolation, not Mac output.
 and a rule-form block that uses the Mac slots as pieces directly may be possible. **This has not been measured yet**:
 its block size, its composition and what it does with the syllables outside KS are all open.
 
-**Shrunk for MCUs.** The Uno presets of Seoul12 are SEOUL12J shrunk with `tools/jamomerge.py merge` (the original
-project's `c/ports/arduino/README.md` "Seoul presets", `presets/seoul12.manifest`); all are SVFN v3 `mcu-strict`, JSET
+**Shrunk for MCUs.** The Uno presets of Seoul12 are SEOUL12J shrunk with `tools/jamomerge.py merge` (the Uno preset record); all are SVFN v3 `mcu-strict`, JSET
 version 1, ASCII included.
 
 ```mermaid
@@ -1263,7 +1262,7 @@ These are emulated figures; the hardware's XIP cache is not modelled (`docs/c-re
 ### 7.6 Seoul12 in three forms, measured on QEMU (2026-11-25)
 
 The text size of the mono example's firmware (SSD1306 128x64) on qemu-pico's `raspi-pico2` (Pico 2, Arm). This
-measurement is documented in the QEMU measurement record and is not yet in the measurement files.
+measured on qemu-pico on 2026-11-25; the result is not in the measurement files.
 
 | Face | Form | Reader needed | Firmware text |
 |---|---|---|---:|

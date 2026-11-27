@@ -3,9 +3,9 @@
 Face baseline (acceptance data for later changes to `svf/`):
 
 - baseline.tsv: the sha256 and size of every `.SVF` face under `svf/` (licence notes, `*.TSV` and `*.md` excluded), one
-  row a face, 116 rows. 115 rows are those of the 2026-10-21 SVFN v3 baseline of the original working repository
+  row a face, 117 rows. 115 rows are those of the 2026-10-21 SVFN v3 baseline of the original working repository
   (written there by `facecheck.py manifest` after the v3 conversion) for the faces this repository publishes; those faces
-  have not changed since. The 116th, `svf/dos/NEODG16G.SVF`, was added on 2026-11-03 (made by
+  have not changed since. The 117th, `svf/dos/NEODG16G.SVF`, was added on 2026-11-03 (made by
   `tools/build/build_faces.py`).
 
 Check the working tree against it (run in the repository root):

@@ -1608,7 +1608,7 @@ HWP 1.x, HWP 3.0, KS X 1001 덤프 파일은 각 레시피대로(2026-11-23: 한
 
 <a id="svf-페이스-다시-빌드하기"></a>
 
-`tools/build/faces.tsv`에는 `svf/`의 페이스마다 한 행씩(116행) 있고, `tools/build/build_faces.py`가 이를 실행해 각 결과를 배포된
+`tools/build/faces.tsv`에는 `svf/`의 페이스마다 한 행씩(117행) 있고, `tools/build/build_faces.py`가 이를 실행해 각 결과를 배포된
 페이스와 비교한다.
 
     python3 tools/build/build_faces.py --out $OUT/rebuild                      # every row with a recipe
@@ -1618,14 +1618,14 @@ HWP 1.x, HWP 3.0, KS X 1001 덤프 파일은 각 레시피대로(2026-11-23: 한
 출력의 각 줄은 `FACE identical`, `FACE pixels`(글리프와 헤더 값은 같고 바이트 순서만 다름), `FACE differs: ...` 중 하나이다.
 `identical`로 표시된 행이 그렇지 않으면 실행은 종료 코드 1로 끝난다.
 
-**범위(verified, 2026-11-22).** 페이스 116개:
+**범위(verified, 2026-11-22).** 페이스 117개:
 
 | 상태 | 페이스 | 개수 |
 |---|---|---:|
 | `ttf/`의 폰트에서 바이트 단위로 동일하게 다시 빌드됨 | 아래의 mkfont와 jamoset 행 중 바로 다음에 나오는 것을 제외한 전부 | 45 |
 | 외부 OFL 폰트로 바이트 단위로 동일하게 다시 빌드됨 (`--ext nanumgothic-nhn=`, NAVER 원본 배포의 힌팅된 NanumGothicBold.ttf 3.021, Debian의 `fonts-nanum`이 싣는 것) | NGOTB17, NGO17X1, NGO17X2 (`--mono-hint`), NGO15X2, NGO16BX2, NGO21AX2 (글리프 둘은 `--fallback-ttf`로) | 6 |
 | 다시 빌드됨, 글리프 하나가 다름 | NEODG16 (배포된 페이스에는 neodgm.ttf에 없는 U+212B도 있다), NGOTB16 (이 NanumGothic-Bold.ttf에 없는 U+3000도 있다); 나머지 글리프는 모두 동일 | 2 |
-| 문서화만 됨 (이 저장소의 도구로는 레시피 없음) | [레시피 없는 페이스](#레시피-없는-페이스) 참고 | 63 |
+| 문서화만 됨 (이 저장소의 도구로는 레시피 없음) | [레시피 없는 페이스](#레시피-없는-페이스) 참고 | 64 |
 
 ### 완성형 글리프 레시피 (`mkfont` 행)
 
@@ -1681,6 +1681,8 @@ NEODG16D/E/F/32/32A는 셀만 다른 같은 방식이다(22x22, 18x24, 20x24; 36
 `svf/jamo-extra/FACES.TSV`가 각 페이스를 설명한다.
 
 ### 레시피 없는 페이스
+
+- `svf/iolo/SANS8J.SVF`: iolo 레거시 8x4x4 SANS `.fnt`의 외부 변환본이며 원본 파일은 포함하지 않는다.
 
 이 페이스들은 빌드된 그대로 보관한다. 이유는 `tools/build/faces.tsv`의 행에 적혀 있다. 이유 중 라이선스 문제는 없다. 원본 폰트는
 OFL이고, 만드는 단계만 이 저장소에 없거나 여기서 재현할 수 없다.

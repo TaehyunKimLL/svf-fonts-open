@@ -1751,7 +1751,7 @@ when `freetype-py` and `uharfbuzz` import).
 
 <a id="rebuilding-the-faces-of-svf"></a>
 
-`tools/build/faces.tsv` holds one row for every face of `svf/` (116 rows); `tools/build/build_faces.py` runs them and
+`tools/build/faces.tsv` holds one row for every face of `svf/` (117 rows); `tools/build/build_faces.py` runs them and
 compares each result with the shipped face:
 
     python3 tools/build/build_faces.py --out $OUT/rebuild                      # every row with a recipe
@@ -1761,14 +1761,14 @@ compares each result with the shipped face:
 Each line of the output is `FACE identical`, `FACE pixels` (same glyphs and header values, another byte order) or
 `FACE differs: ...`; the run exits 1 when a row marked `identical` is not.
 
-**Coverage (verified, 2026-11-22).** 116 faces:
+**Coverage (verified, 2026-11-22).** 117 faces:
 
 | Status | Faces | Count |
 |---|---|---:|
 | rebuilt byte for byte from a font in `ttf/` | the mkfont and jamoset rows below except those listed next | 45 |
 | rebuilt byte for byte with an external OFL font (`--ext nanumgothic-nhn=`, the hinted NanumGothicBold.ttf 3.021 of NAVER's original release, as Debian's `fonts-nanum` ships it) | NGOTB17, NGO17X1, NGO17X2 (`--mono-hint`), NGO15X2, NGO16BX2, NGO21AX2 (two glyphs from it with `--fallback-ttf`) | 6 |
 | rebuilt, one glyph differs | NEODG16 (the shipped face also has U+212B, which neodgm.ttf lacks), NGOTB16 (also U+3000, which this NanumGothic-Bold.ttf lacks); every other glyph identical | 2 |
-| documented only (no recipe with this repository's tools) | see [Faces without a recipe](#faces-without-a-recipe) | 63 |
+| documented only (no recipe with this repository's tools) | see [Faces without a recipe](#faces-without-a-recipe) | 64 |
 
 ### The precomposed recipe (`mkfont` rows)
 
@@ -1826,6 +1826,8 @@ Every face keeps its licence text beside it in `svf/` (`web/LICENCES.tsv` names 
 `svf/jamo-extra/FACES.TSV` describe each face.
 
 ### Faces without a recipe
+
+- `svf/iolo/SANS8J.SVF`: external conversion of iolo's legacy 8x4x4 SANS `.fnt`; source file is not included here.
 
 These faces are kept as built; the row of `tools/build/faces.tsv` says why. None of the reasons is a licence question:
 the source fonts are OFL, only the making step is not in this repository or not reproducible here.

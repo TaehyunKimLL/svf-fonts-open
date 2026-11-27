@@ -38,7 +38,7 @@ except ImportError:  # pragma: no cover
 
 JAMO_FACE = "svf/iolo/SANS8J.SVF"
 PRE_FACE = "svf/dos/NEODG16.SVF"
-ALLOWED = (JAMO_FACE, PRE_FACE)  # OFL faces only (web/LICENCES.tsv: dos/NEODG*)
+ALLOWED = (JAMO_FACE, PRE_FACE)  # OFL faces: iolo/SANS8J and dos/NEODG16
 
 LEADS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
 VOWELS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
@@ -265,7 +265,7 @@ def fig_precomposed(fc):
     sylls = "가각고곡한흙뷔를의괌"  # KS X 1001 syllables only: NEODG16 has no other
     sc, gap, left, top = 4, 10, 150, 10
     cw = fc.w * sc
-    rows = [("완성형", "NEODG16"), ("8x4x4 조합형", "NEODG16A"), ("차이", "")]
+    rows = [("완성형", "NEODG16"), ("8x4x4 조합형", "SANS8J"), ("차이", "")]
     row_h = fc.h * sc + 26
     W = left + len(sylls) * (cw + gap)
     H = top + len(rows) * row_h + 28

@@ -12,8 +12,8 @@ keywords: [status, 개발 현황, SVF v3, JSET, JMAP, LIST, BIG, C renderer, por
 `c/cross/SIZES.md`, 속도는 `c/bench/MEASUREMENTS.md`, 결정과 후속 과제는 `docs/superpowers/specs/*.md`의 "Implemented"
 노트와 별도 연구 저장소(비공개)의 `docs/experiments/*.md`. 2026-11-01 부분의 기준 commit은 `main` 124baec (JMAP-LIST 병합 ca86268 + 실험 문서), 2026-11-22 부분의 기준은 `main` e1ef269 (C 렌더러 안내서 병합)이다. 열린 일은 2026-11-01의 작업 목록에서 옮기고 이후 끝난 것을 뺐다. C 라이브러리의 사용법은 [c/README.md](../c/README.md).
 
-공개판 주 (2026-11-03): 이 공개 저장소는 원본 저장소에서 SIL OFL 1.1 face (116개)와 도구를 골라 담았다. OFL이 아닌 face
-(라이선스 미기재, MIT, 묶음 단위 선언만 있는 iolo와 san 1.0), 게임 전용 bake 스크립트, Uno Seoul preset은 빠졌다
+공개판 주 (2026-11-03): 이 공개 저장소는 원본 저장소에서 SIL OFL 1.1 face (117개)와 도구를 골라 담았다. OFL이 아닌 face
+(라이선스 미기재, MIT, san 1.0)은 제외하고, iolo SANS8J는 2026-11-27 소유자 승인으로 묶음 라이선스 선언을 해석해 OFL-1.1 폰트 예외로 포함했다, 게임 전용 bake 스크립트, Uno Seoul preset은 빠졌다
 ([NOTICE.md](../NOTICE.md)). MCU 예제의 mono face는 HGKEY6J 대신 `svf/dos/NEODG16G.SVF` (Neo Dunggeunmo 6x2x1)다.
 face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces.tsv`. 공개 전(11-03 ec5c6b3 이전)의 commit 번호는 원본 저장소의 것이다. ec5c6b3 이후의 번호는 이 저장소의 것이다.
 
@@ -157,7 +157,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 | 10-28 | 포맷 표현력은 충분 (JSET v1/v2, BIG, JMAP, LIST); 새 포맷 기능 없음; 노력은 페이스 품질 연구로 | 작업 기록 |
 | 상시 | Apple·Windows·Galmuri 파생 데이터와 bitmap은 로컬 전용, git에는 수치·경로·hash만 | experiments/README.md "데이터 취급"; malgun-noto-jamo-studies.md |
 | 상시 | 렌더러는 기본 byte-identical (svfline.py 기준), fast mode만 허용 오차 | experiments/README.md 규칙 |
-| 상시 | 라이선스는 face 선택 기준이 아님 (pack은 배포하지 않음); 단 이 공개 저장소에는 SIL OFL 1.1 face만 담는다 | experiments/README.md 규칙; 공개판 |
+| 상시 | 라이선스는 face 선택 기준이 아님 (pack은 배포하지 않음); 단 이 공개 저장소에는 SIL OFL 1.1 face만 담으며, iolo SANS8J는 위의 승인된 예외이다 | experiments/README.md 규칙; 공개판 |
 | 미정 | 연구 부분의 저장소 분리: 현재 연구가 끝날 때까지 보류였고 그 연구(맑은 고딕·Noto)는 끝났으므로 **논의 예정** | 사용자 지시; research-backlog.md 머리말은 분리를 백로그 밖 정리 작업으로만 언급 |
 
 ## 6. 알려진 빈틈과 위험
