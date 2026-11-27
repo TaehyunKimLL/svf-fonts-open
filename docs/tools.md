@@ -1189,6 +1189,31 @@ ink pen outside the planes, a `--glyph` that is not the tile's, `--fg` without `
 `tools/test_extract.py`; `tools/test_tiles.py` (`--invert`, `--gfx` presets and a driver's layout string against tiles
 built by hand, `--bg`, `--fg`, the refusals).
 
+### `tools/msx1_harvest.py`
+
+**Purpose.** Read the syllable layout of a Korean MSX1 Hangul ROM (모아쓰기 mode) off the running machine in openMSX:
+the emulator types a BASIC program that prints every syllable, and the name table of each screen is dumped (recipes.md,
+Korean MSX fonts, MSX1).
+
+**Status.** Special-purpose (the Daewoo / Goldstar MSX1 family); a template for other machines.
+
+**Inputs.** An openMSX machine name and an output prefix outside the repository; the emulator as `--emu DIR` (an
+openMSX unpacked into `DIR/root`, system ROMs in `DIR/userdata/share/systemroms`) or `--openmsx BIN`. `--first`,
+`--count` pick the syllables (all 11,172 by default).
+
+**Outputs.** `PREFIX.tcl` (the openMSX script), `PREFIX.index` (one hex code point a line), `PREFIX.names` (768 bytes a
+screen of 77 syllables, the last screen padded with its last syllable), `PREFIX.patterns` (2,048 bytes), `PREFIX.png`
+(a raw screenshot of the last screen), for `msxfont.py msx1-verify`.
+
+**Synopsis.** `python3 tools/msx1_harvest.py MACHINE PREFIX (--emu DIR | --openmsx BIN) [--first N] [--count N]
+[--timeout 600] [--script-only]`. It runs `timeout T xvfb-run -a openmsx -machine MACHINE -script PREFIX.tcl`; ROM code
+runs only inside the emulator. Exit 1 with a message on a prefix inside the repository or with a space or Tcl special
+character, no emulator given, or an incomplete harvest (with the emulator's last lines).
+
+**Repository modules imported.** None. **Third-party.** openMSX and `xvfb-run` (the run only). **Test.**
+`tools/test_msx1_harvest.py` (stored bytes, screens and padding, the typed program and the Tcl script, refusals; no
+emulator).
+
 ### `tools/msxfont.py`
 
 **Purpose.** The Korean MSX fonts that are not a plain glyph table: the code-to-slot map of the Daewoo CPC-400 / 400S

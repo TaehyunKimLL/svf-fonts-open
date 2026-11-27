@@ -1117,6 +1117,27 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `--count` ...)는 2. **내부 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`. `tools/test_tiles.py`(`--invert`,
 손으로 만든 타일에 대한 `--gfx` 프리셋과 드라이버의 배치 문자열, `--bg`, `--fg`, 거부).
 
+### `tools/msx1_harvest.py`
+
+**목적.** 한국 MSX1 한글 ROM(모아쓰기 모드)의 음절 배치를 openMSX에서 실행 중인 기계로부터 읽는다: 에뮬레이터가 모든 음절을 찍는 BASIC
+프로그램을 치고, 화면마다 이름 표를 덤프한다(recipes.ko.md, 한국 MSX 폰트, MSX1).
+
+**상태.** 특수 목적(대우 / 금성 MSX1 계열). 다른 기종용 틀이 된다.
+
+**입력.** openMSX 기종 이름과 저장소 밖의 출력 접두어. 에뮬레이터는 `--emu DIR`(`DIR/root`에 푼 openMSX, 시스템 ROM은
+`DIR/userdata/share/systemroms`) 또는 `--openmsx BIN`. `--first`, `--count`가 음절을 고른다(기본은 11,172자 전부).
+
+**출력.** `PREFIX.tcl`(openMSX 스크립트), `PREFIX.index`(한 줄에 16진 코드 하나), `PREFIX.names`(77자 화면마다 768바이트. 마지막
+화면은 그 마지막 음절로 채운다), `PREFIX.patterns`(2,048바이트), `PREFIX.png`(마지막 화면의 날 스크린샷). `msxfont.py msx1-verify`용.
+
+**사용법.** `python3 tools/msx1_harvest.py MACHINE PREFIX (--emu DIR | --openmsx BIN) [--first N] [--count N] [--timeout 600]
+[--script-only]`. `timeout T xvfb-run -a openmsx -machine MACHINE -script PREFIX.tcl`을 실행한다. ROM 코드는 에뮬레이터 안에서만
+돈다. 저장소 안이거나 공백이나 Tcl 특수 문자가 든 접두어, 에뮬레이터 없음, 덜 된 수집(에뮬레이터의 마지막 줄과 함께)에는 메시지와
+함께 종료 코드 1.
+
+**내부 모듈.** 없음. **서드파티.** openMSX와 `xvfb-run`(실행할 때만). **테스트.** `tools/test_msx1_harvest.py`(저장 바이트, 화면과
+채움, 치는 프로그램과 Tcl 스크립트, 거부. 에뮬레이터 없이).
+
 ### `tools/msxfont.py`
 
 **목적.** 평범한 글리프 표가 아닌 한국 MSX 폰트: 대우 CPC-400 / 400S 완성형 폰트 ROM의 코드-슬롯 대응, 그리고 BIOS의 8x8 셀로

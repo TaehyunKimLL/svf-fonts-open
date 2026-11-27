@@ -1190,6 +1190,10 @@ Safety: the ROMs are untrusted data. Run their code only inside openMSX (headles
 MACHINE -script $OUT/s.tcl`, always under `timeout`); read ROM files on the host only with `python3 -I`. Nothing from
 the ROMs goes into the repository (no ROM bytes, dumps, screenshots, BDFs or SVFs).
 
+For a machine of the Daewoo / Goldstar family start with `python3 -I tools/msx1_harvest.py MACHINE $OUT/h --emu EMU`
+(or `--openmsx BIN`), which does steps 1, 3 and 4 below, and go on at step 5. For another machine, read
+tools/msx1_harvest.py and adapt its stored bytes (step 2) and screen geometry in a script of your own in $OUT.
+
 1. Boot the machine from a Tcl script. `set throttle off` makes emulated time run as fast as the host allows (use it
    for typing and dumping; no frames are drawn, so switch it on again before a `screenshot`). Write results to files
    from Tcl: `puts` output does not reach the shell. RAM is the debuggable "Main RAM".
@@ -1329,38 +1333,45 @@ The Korean MSX1 BIOS replaces the standard character table (0x1BBF) with its own
 prints a syllable as 2 text rows of these cells, 1 column wide for a ㅗ ㅛ ㅜ ㅠ ㅡ syllable without a double final, 2
 otherwise. Which cells go where is not stored in a table: it was read from the running machine.
 
-The method (openMSX 19.1, machine `Daewoo_DPC-200`, headless under Xvfb):
+The method (openMSX 19.1, machine `Daewoo_DPC-200`, headless under Xvfb), run by `tools/msx1_harvest.py`. `$EMU` is
+an openMSX unpacked without installing it (the Debian package `dpkg -x` into `$EMU/root`, the system ROMs in
+`$EMU/userdata/share/systemroms`); with an installed openMSX give `--openmsx $(which openmsx)` instead of `--emu`.
+`$HARVEST` is a folder outside the repository:
 
-1. Boot the machine with a Tcl script: `timeout 600 xvfb-run -a openmsx -machine Daewoo_DPC-200 -script
-   harvest.tcl` (end the script with `exit`; `timeout` stops a script that never gets there). With `set
-   throttle off` as the script's first line the emulated machine runs as fast as the host allows (boot, typing and 146
-   screens in about 2 seconds); no frames are drawn, so take screenshots (step 5) with throttle on.
-2. Find the bytes a syllable is stored as: type 2-set keys into a BASIC `REM` line (Han/Eng is key matrix row 6, bit 4:
-   `keymatrixdown 6 0x10`, then `after time 0.3 { keymatrixup 6 0x10 }`, held across a keyboard scan) and read the
-   program back from RAM (`debug read_block "Main
-   RAM" 0 0x10000`, the program from the address at F676h). A syllable is stored as jamo bytes: the initial 0x86 + L,
-   the vowel cell (ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D ㅔ 9E ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6; a compound vowel is two:
-   ㅘ = A1 99, ㅢ = A5 A6), the final as its consonant cells (ㄳ = 86 8F). The ROM composes at print time.
-3. Type a program that prints the syllables placed in RAM: `type "poke -851,0\r"` (모아쓰기), then line by line
-   `10 defint a-z`, `20 if peek(&hbffe)=0 then 20`, `30 poke &hbffe,0:poke &hbfff,0:cls:a=&hc000`, `40 for k=0 to 76`,
-   `50 locate (k mod 7)*4,(k\7)*2`, `60 n=peek(a):a=a+1`, `70 for j=1 to n:print chr$(peek(a));:a=a+1:next`,
-   `80 print " ";`, `90 next`, `100 poke &hbfff,1`, `110 goto 20`, and `run`. 77 syllables a screen (7 to a row: the
-   text window starts 2 columns in, so a row holds 7 slots of 4 columns, not 8).
-4. For each screen the script writes 77 syllables (a length byte and the jamo bytes each) at C000h with `debug
-   write_block "Main RAM" 0xC000 ...`, sets BFFEh to 1, waits until the program sets BFFFh to 1, and appends the
-   SCREEN 1 name table to a file (`debug read_block VRAM 0x1800 768`); once, the pattern table (`debug read_block VRAM
-   0 2048`). 146 screens cover the 11,172 syllables (145 x 77 + 7: the last batch is padded to 77 with copies of its
-   last syllable, else the program reads stale bytes). Write results to files: `puts` output does not reach the shell.
-5. Visual check: `screenshot FILE.png` (throttle on) shows the screen the name table describes.
-6. Derive the rule from the name tables (cell codes per syllable, sorted by vowel kind and final) and check it against
-   all of them: `tools/msxfont.py msx1-verify PREFIX --bios BIOS` reads `PREFIX.index` (the syllables, one hex code a
-   line), `PREFIX.names` and `PREFIX.patterns`:
+    python3 -I tools/msx1_harvest.py Daewoo_DPC-200 $HARVEST/dpc200 --emu $EMU
+    #   wrote .../dpc200.tcl and .../dpc200.index: 11172 syllables in 146 screens
+    #   openMSX exit 0; screens dumped 146 of 146; screenshot .../dpc200.png
+    python3 -I tools/msxfont.py msx1-verify $HARVEST/dpc200 --bios $ROMS/dpc-200_basic-bios1.rom
+    #   layout rule vs the machine: 11172 of 11172 syllables identical
+    #   VRAM pattern table vs the BIOS table: 255 of 256 cells identical (differ: 0xff)
 
-        python3 -I tools/msxfont.py msx1-verify $OUT/dpc200 --bios $ROMS/dpc-200_basic-bios1.rom
-        #   layout rule vs the machine: 11172 of 11172 syllables identical
-        #   VRAM pattern table vs the BIOS table: 255 of 256 cells identical (differ: 0xff)
+The harvest takes 5 seconds of real time (2026-11-27). Cell 0xFF is the cursor. `Goldstar_FC-80U` gives the same
+counts and a byte-identical `.names` file. What the script does, step by step (its Tcl is `$HARVEST/dpc200.tcl`;
+`--script-only` writes it without running the emulator):
 
-   Cell 0xFF is the cursor. The Goldstar FC-80U gives byte-identical name and pattern tables.
+1. It runs `timeout 600 xvfb-run -a openmsx -machine Daewoo_DPC-200 -script $HARVEST/dpc200.tcl` (`--timeout`
+   changes the 600). The script starts with `set throttle off`: emulated time runs as fast as the host allows, and
+   no frames are drawn; it turns throttle on again before its one screenshot and ends with `exit`.
+2. The bytes typed for each syllable were found first by hand: type 2-set keys into a BASIC `REM` line (Han/Eng is key
+   matrix row 6, bit 4: `keymatrixdown 6 0x10`, then `after time 0.3 { keymatrixup 6 0x10 }`, held across a keyboard
+   scan) and read the program back from RAM (`debug read_block "Main RAM" 0 0x10000`, the program from the address
+   at F676h). A syllable is stored as jamo bytes: the initial 0x86 + L, the vowel cell (ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D
+   ㅔ 9E ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6; a compound vowel is two: ㅘ = A1 99, ㅢ = A5 A6), the final as its
+   consonant cells (ㄳ = 86 8F). The ROM composes at print time. The script writes these bytes directly.
+3. It types `poke -851,0` (모아쓰기) and this program, then `run`: `10 defint a-z`, `20 if peek(&hbffe)=0 then 20`,
+   `30 poke &hbffe,0:poke &hbfff,0:cls:a=&hc000`, `40 for k=0 to 76`, `50 locate (k mod 7)*4,(k\7)*2`,
+   `60 n=peek(a):a=a+1`, `70 for j=1 to n:print chr$(peek(a));:a=a+1:next`, `80 print " ";`, `90 next`,
+   `100 poke &hbfff,1`, `110 goto 20`. 77 syllables a screen (7 to a row: the text window starts 2 columns in, so a
+   row holds 7 slots of 4 columns, not 8).
+4. For each screen it writes 77 syllables (a length byte and the jamo bytes each) at C000h with `debug write_block
+   "Main RAM" 0xC000 ...`, sets BFFEh to 1, waits until the program sets BFFFh to 1, and appends the SCREEN 1 name
+   table to `.names` (`debug read_block VRAM 0x1800 768`); once, the pattern table to `.patterns` (`debug read_block
+   VRAM 0 2048`). 146 screens cover the 11,172 syllables (145 x 77 + 7: the last screen is padded to 77 with copies of
+   its last syllable, else the program would print stale bytes). Results go to files: `puts` output does not reach
+   the shell.
+5. Visual check: the last screen as `screenshot -raw -doublesize` in `.png`.
+6. The rule was derived from the name tables (cell codes per syllable, sorted by vowel kind and final);
+   `msxfont.py msx1-verify` checks it against every syllable (above).
 
 The rule (L = initial cell 0x86 + L; v, h = vowel cells; T1, T2 = final cells; _ = blank 0xFC; M(L, h) = merged cell
 0xA7 + 5L + h, h = 0 .. 4 for ㅗ ㅛ ㅜ ㅠ ㅡ, wrapping to 0x02 for ㅍ ㅎ; ext(v) = stem 0C for ㅏ ㅑ ㅣ, 0D for ㅓ ㅕ, 0E for

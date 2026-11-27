@@ -1103,6 +1103,10 @@ ROM에서 얻은 것은 저장소에 넣지 않는다: ROM 바이트, 글리프 
 -script $OUT/s.tcl`, 언제나 `timeout`과 함께). 호스트에서는 ROM 파일을 `python3 -I`로만 읽는다. ROM에서 얻은 것은 저장소에
 넣지 않는다(ROM 바이트, 덤프, 스크린샷, BDF, SVF 모두).
 
+대우 / 금성 계열 기종이면 `python3 -I tools/msx1_harvest.py MACHINE $OUT/h --emu EMU`(또는 `--openmsx BIN`)로 시작한다. 이것이
+아래 1, 3, 4단계를 하므로 5단계로 넘어간다. 다른 기종이면 tools/msx1_harvest.py를 읽고, 저장 바이트(2단계)와 화면 배치를 $OUT에
+쓴 자신의 스크립트에서 맞춘다.
+
 1. Tcl 스크립트로 기계를 켠다. `set throttle off`이면 에뮬레이션 시간이 호스트가 허락하는 만큼 빨리 간다(입력과 덤프에 쓴다.
    프레임을 그리지 않으므로 `screenshot` 전에는 다시 켠다). 결과는 Tcl에서 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
    RAM의 디버그 이름은 "Main RAM"이다.
@@ -1227,34 +1231,41 @@ KS X 1001 밖의 음절은 목록에 든 것만 있으므로 뷁과 힣도 없�
 모아쓰기 모드(`POKE -851,0`)에서 한글 ROM은 음절을 이 셀들의 텍스트 2행으로 찍는다. 너비는 겹받침이 없는 ㅗ ㅛ ㅜ ㅠ ㅡ 음절이면
 1열, 그 밖은 2열이다. 어느 셀이 어디에 가는지는 표로 저장되어 있지 않아서, 실행 중인 기계에서 읽었다.
 
-방법(openMSX 19.1, 기종 `Daewoo_DPC-200`, Xvfb에서 화면 없이):
+방법(openMSX 19.1, 기종 `Daewoo_DPC-200`, Xvfb에서 화면 없이)은 `tools/msx1_harvest.py`가 실행한다. `$EMU`는 설치하지 않고 푼
+openMSX다(데비안 꾸러미를 `dpkg -x`로 `$EMU/root`에, 시스템 ROM은 `$EMU/userdata/share/systemroms`에). 설치된 openMSX라면 `--emu`
+대신 `--openmsx $(which openmsx)`를 준다. `$HARVEST`는 저장소 밖의 폴더다.
 
-1. Tcl 스크립트로 기계를 켠다: `timeout 600 xvfb-run -a openmsx -machine Daewoo_DPC-200 -script harvest.tcl`(스크립트는
-   `exit`로 끝낸다. `timeout`은 거기 이르지 못한 스크립트를 멈춘다). 스크립트 첫 줄에 `set throttle off`를
-   두면 에뮬레이션이 호스트가 허락하는 만큼 빨리 돈다(부팅, 입력, 화면 146개에 약 2초). 이때는 프레임을 그리지 않으므로 스크린샷(5단계)은
-   throttle을 켜고 찍는다.
-2. 음절이 어떤 바이트로 저장되는지 찾는다: BASIC `REM` 줄에 두벌식 키를 친다(한/영은 키 행렬 6행 비트 4: `keymatrixdown 6 0x10`, 이어서
-   키보드 검사를 넘기도록 `after time 0.3 { keymatrixup 6 0x10 }`). 그리고 프로그램을 RAM에서 읽는다(`debug read_block "Main RAM" 0 0x10000`, 프로그램은 F676h의 주소부터).
-   음절은 자모 바이트로 저장된다: 초성 0x86 + L, 모음 셀(ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D ㅔ 9E ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6.
-   겹모음은 둘: ㅘ = A1 99, ㅢ = A5 A6), 받침은 그 자음의 셀(ㄳ = 86 8F). ROM은 찍을 때 조합한다.
-3. RAM에 놓은 음절을 찍는 프로그램을 친다: `type "poke -851,0\r"`(모아쓰기), 그리고 한 줄씩 `10 defint a-z`,
-   `20 if peek(&hbffe)=0 then 20`, `30 poke &hbffe,0:poke &hbfff,0:cls:a=&hc000`, `40 for k=0 to 76`,
-   `50 locate (k mod 7)*4,(k\7)*2`, `60 n=peek(a):a=a+1`, `70 for j=1 to n:print chr$(peek(a));:a=a+1:next`,
-   `80 print " ";`, `90 next`, `100 poke &hbfff,1`, `110 goto 20`, 그리고 `run`. 화면마다 77자(한 행에 7자: 텍스트 창이 2열 안쪽에서
-   시작하므로 4열짜리 칸이 한 행에 8개가 아니라 7개 들어간다).
-4. 화면마다 스크립트가 77자(음절마다 길이 바이트와 자모 바이트)를 `debug write_block "Main RAM" 0xC000 ...`로 C000h에 쓰고, BFFEh를
-   1로 놓고, 프로그램이 BFFFh를 1로 놓을 때까지 기다린 뒤, SCREEN 1 이름 표를 파일에 덧붙인다(`debug read_block VRAM 0x1800 768`).
-   패턴 표는 한 번만(`debug read_block VRAM 0 2048`). 화면 146개가 11,172자를 덮는다(145 x 77 + 7. 마지막 묶음은 그 마지막 음절을
-   되풀이해 77자로 채운다. 아니면 프로그램이 남은 바이트를 읽는다). 결과는 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
-5. 눈으로 확인: `screenshot FILE.png`(throttle 켬)가 이름 표가 말하는 화면을 보여 준다.
-6. 이름 표에서 규칙을 이끌어 내고(음절마다 셀 코드, 모음 종류와 받침별로 모아서) 모든 음절에 대어 본다. `tools/msxfont.py msx1-verify
-   PREFIX --bios BIOS`가 `PREFIX.index`(음절, 한 줄에 16진 코드 하나), `PREFIX.names`, `PREFIX.patterns`를 읽는다.
+    python3 -I tools/msx1_harvest.py Daewoo_DPC-200 $HARVEST/dpc200 --emu $EMU
+    #   wrote .../dpc200.tcl and .../dpc200.index: 11172 syllables in 146 screens
+    #   openMSX exit 0; screens dumped 146 of 146; screenshot .../dpc200.png
+    python3 -I tools/msxfont.py msx1-verify $HARVEST/dpc200 --bios $ROMS/dpc-200_basic-bios1.rom
+    #   layout rule vs the machine: 11172 of 11172 syllables identical
+    #   VRAM pattern table vs the BIOS table: 255 of 256 cells identical (differ: 0xff)
 
-        python3 -I tools/msxfont.py msx1-verify $OUT/dpc200 --bios $ROMS/dpc-200_basic-bios1.rom
-        #   layout rule vs the machine: 11172 of 11172 syllables identical
-        #   VRAM pattern table vs the BIOS table: 255 of 256 cells identical (differ: 0xff)
+수집에는 실제 시간 5초가 걸린다(2026-11-27). 셀 0xFF는 커서다. `Goldstar_FC-80U`도 같은 수치와 바이트까지 같은 `.names` 파일을
+낸다. 스크립트가 하는 일을 단계별로 적으면 다음과 같다(Tcl은 `$HARVEST/dpc200.tcl`. `--script-only`는 에뮬레이터를 돌리지 않고 이것만
+쓴다).
 
-   셀 0xFF는 커서다. 금성 FC-80U도 바이트까지 같은 이름 표와 패턴 표를 낸다.
+1. `timeout 600 xvfb-run -a openmsx -machine Daewoo_DPC-200 -script $HARVEST/dpc200.tcl`을 실행한다(600은 `--timeout`으로 바꾼다).
+   스크립트는 `set throttle off`로 시작한다: 에뮬레이션 시간이 호스트가 허락하는 만큼 빨리 가고 프레임은 그리지 않는다. 스크린샷
+   하나를 찍기 전에 throttle을 다시 켜고, `exit`로 끝난다.
+2. 음절마다 넣을 바이트는 먼저 손으로 찾았다: BASIC `REM` 줄에 두벌식 키를 치고(한/영은 키 행렬 6행 비트 4: `keymatrixdown 6 0x10`,
+   이어서 키보드 검사를 넘기도록 `after time 0.3 { keymatrixup 6 0x10 }`) 프로그램을 RAM에서 읽는다(`debug read_block "Main RAM" 0
+   0x10000`, 프로그램은 F676h의 주소부터). 음절은 자모 바이트로 저장된다: 초성 0x86 + L, 모음 셀(ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D ㅔ 9E
+   ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6. 겹모음은 둘: ㅘ = A1 99, ㅢ = A5 A6), 받침은 그 자음의 셀(ㄳ = 86 8F). ROM은 찍을 때
+   조합한다. 스크립트는 이 바이트를 바로 쓴다.
+3. `poke -851,0`(모아쓰기)과 다음 프로그램을 치고 `run`한다: `10 defint a-z`, `20 if peek(&hbffe)=0 then 20`,
+   `30 poke &hbffe,0:poke &hbfff,0:cls:a=&hc000`, `40 for k=0 to 76`, `50 locate (k mod 7)*4,(k\7)*2`,
+   `60 n=peek(a):a=a+1`, `70 for j=1 to n:print chr$(peek(a));:a=a+1:next`, `80 print " ";`, `90 next`,
+   `100 poke &hbfff,1`, `110 goto 20`. 화면마다 77자(한 행에 7자: 텍스트 창이 2열 안쪽에서 시작하므로 4열짜리 칸이 한 행에 8개가
+   아니라 7개 들어간다).
+4. 화면마다 77자(음절마다 길이 바이트와 자모 바이트)를 `debug write_block "Main RAM" 0xC000 ...`로 C000h에 쓰고, BFFEh를 1로
+   놓고, 프로그램이 BFFFh를 1로 놓을 때까지 기다린 뒤, SCREEN 1 이름 표를 `.names`에 덧붙인다(`debug read_block VRAM 0x1800 768`).
+   패턴 표는 한 번만 `.patterns`에(`debug read_block VRAM 0 2048`). 화면 146개가 11,172자를 덮는다(145 x 77 + 7. 마지막 화면은 그
+   마지막 음절을 되풀이해 77자로 채운다. 아니면 프로그램이 남은 바이트를 찍는다). 결과는 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
+5. 눈으로 확인: 마지막 화면을 `screenshot -raw -doublesize`로 `.png`에.
+6. 규칙은 이름 표에서 이끌어 냈고(음절마다 셀 코드, 모음 종류와 받침별로 모아서), `msxfont.py msx1-verify`가 모든 음절에 대어
+   본다(위).
 
 규칙(L = 초성 셀 0x86 + L. v, h = 모음 셀. T1, T2 = 받침 셀. _ = 빈 셀 0xFC. M(L, h) = 합친 셀 0xA7 + 5L + h, ㅗ ㅛ ㅜ ㅠ ㅡ에 h = 0 .. 4,
 ㅍ ㅎ은 0x02로 넘어간다. ext(v) = 획 끝 0C는 ㅏ ㅑ ㅣ, 0D는 ㅓ ㅕ, 0E는 ㅐ ㅒ ㅔ ㅖ):
