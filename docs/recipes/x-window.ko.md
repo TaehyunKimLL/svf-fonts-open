@@ -38,12 +38,12 @@ KS C 5601 음절 2,350자를 담은 완성형 폰트, 그리고 DOS 드라이버
 | 계열 | 파일 | 출처와 연도 | 인코딩 | 글리프 | 음절 | 그 밖의 KS X 1001 문자 |
 |---|---|---|---|---:|---|---|
 | 대우 고딕, 명조 | `hanglg16.pcf.gz`, `hanglm16.pcf.gz`, `hanglm24.pcf.gz`(X.Org `font-daewoo-misc`) | 대우전자, 1987-1988 | `KSC5601.1987-0` | 8,224 | 2,350 | 기호, 자모, 한자 4,888자 |
-| 백묵 바탕, 돋움, 굴림, 헤드라인 | `baekmuk-2.0`과 `baekmuk-bdf-2.2`(각각 BDF 42개: 10, 12, 14, 16, 18, 20, 24 px, 바탕과 굴림은 굵은꼴도) | 김정환(환 디자인)과 미지리서치, 1986-2002. 2.2는 2004-08-08 | `ksx1001.1997-0`(2.0), `KSX1001.1998-0`(2.2) | 8,224(2.0), 8,226(2.2: + € ®) | 2,350 | 기호, 자모, 한자 |
+| 백묵 바탕, 돋움, 굴림, 헤드라인 | `baekmuk-2.0`과 `baekmuk-bdf-2.2`(각각 BDF 42개: 10, 12, 14, 16, 18, 20, 24 px, 바탕과 굴림은 굵은꼴도) | 김정환(환 디자인)과 미지리서치, 1986-2002. 2.2는 2004-08-08 | `ksx1001.1997-0`(2.0), `KSX1001.1998-0`(2.2) | 2.0: 보통 굵기는 대부분 8,224(바탕 10, 12와 굴림 12는 8,262-8,742), 굵은꼴은 8,309-8,928. 2.2: 8,226(+ € ®. 굴림 14: 8,227) | 2,350 | 기호, 자모, 한자 |
 | 한양 고딕(Kodig), 명조 | `hanyang-font-pcf`(`hgm`과 `hmm`, 10, 12, 14, 16, 18, 20 px) | KAIST ftp `hanfont.pcf`의 한양 폰트를 Netscape용으로 줄 간격을 고친 것 | `KSC5601.1987-0` | 8,223 | 2,350 | 기호, 자모, 한자 |
 | KAIST newmj | `kaist-newmj16.bdf`, `kaist-newmj18.bdf` | 홍훈수(KAIST), 1998-02-10 | `ksc5601.1987-0` | 8,224(18 px: 하나는 인코딩 없음) | 2,350 | 대우 고딕의 것(16). 18: 한자는 HLaTeX 0.97에서 |
 | KAIST iyagi, philgi | `ks_iyagi16.bdf`, `ks_philgi16.bdf` | hanterm 조합형 폰트 `iyagi16`과 `johabp16`을 홍훈수가 완성형으로 바꾼 것, 1997-11 | `ksc5601.1987-0` | 8,224 | 2,350 | 대우 고딕의 것 |
-| KAIST 명조 `h16m` | `han-1.0fb`(`h16m.bdf`, 리눅스 프레임버퍼 콘솔 `han`) | "by ujsung A.I.Lab KAIST", 1991-01-16 | `KSC5601.1987-0` | 2,391 | 2,350(+ 쩆으로 읽히는 코드 하나) | 자모 40자 |
-| 미지 고딕, 명조, 필기, 샘물 | `xfntmizi-1.1-2` RPM(`mz*16h.pcf`, `mzgt16h1.pcf`) | 미지리서치, "HTM에서 생성"(미지의 글꼴 서버). `COPYRIGHT` 1997 서영진. RPM 1999 | `ksc5601.1987-0`, `mzgt16h1`: `-1` | 8,460(234개는 KS X 1001이 비워 둔 코드) | 2,350 | 기호, 자모, 한자 |
+| KAIST 명조 `h16m` | `han-1.0fb`(`h16m.bdf.gz`, 리눅스 프레임버퍼 콘솔 `han`) | "by ujsung A.I.Lab KAIST", 1991-01-16 | `KSC5601.1987-0` | 2,391 | 2,350(+ 쩆으로 읽히는 코드 하나) | 자모 40자 |
+| 미지 고딕, 명조, 필기, 샘물 | `xfntmizi-1.1-2.noarch.rpm`(`mz*16h.pcf.Z`, `mzgt16h1.pcf.Z`) | 미지리서치, "HTM에서 생성"(미지의 글꼴 서버). `COPYRIGHT` 1997 서영진. RPM 1999 | `ksc5601.1987-0`, `mzgt16h1`: `-1` | 8,460(234개는 KS X 1001이 비워 둔 코드) | 2,350 | 기호, 자모, 한자 |
 | jfbterm `ihan_ksc` | `jfbterm-font-pack-1`(`ihan_ksc.pcf.gz`) | `-gnu-kofont-`, jfbterm 한글 폰트 팩 | `ksc5601.1987-0` | 2,444 | 2,350 | 자모 94자 |
 | Pinetree 완성형 | `pinetree.precomposed-1.01-bdf`(`ptpR`, `ptpB` 8, 10, 12, 14, 18, 24 px) | 나래(서울대학교), 1995 | `ksc5601.1987-0`, 비례폭(`P`) | 2,401 | 2,350 | 없음 |
 | zhcon `ksc-16.bpsf` | `zhcon_0.2.6.orig`(`font/ksc-16.bpsf`, 프레임버퍼 콘솔 zhcon) | `getbpsf`(이석민, 2002)로 X 폰트에서 떠낸 것. 음절은 대우 명조 16의 것 | zhcon의 BPSF: 9바이트 머리 뒤에 KS X 1001 94 x 94 격자(0xA1행부터)의 16x16 글리프 | 슬롯 8,742개 | 2,350 | 기호, 자모, 한자 |
@@ -72,6 +72,10 @@ hanyang-font-pcf, baekmuk-2.0, kaist-newmj16/18, ks_iyagi16, ks_philgi16, pinetr
     python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-nohanja']()))" $OUT/ksnh.txt
     for f in 8x16 12x24 6x12; do python3 -I maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/$f.pcf.gz $OUT/$f.bdf; done
 
+몇몇 폰트는 gzip으로 압축되어 온다(`kaist-newmj16.bdf.gz`, `kaist-newmj18.bdf.gz`, `ks_iyagi16.bdf.gz`, `ks_philgi16.bdf.gz`,
+`han-1.0fb.tar.gz` 안의 `h16m.bdf.gz`). `bdfface.py`는 압축하지 않은 BDF만 읽으므로 먼저 푼다(`gzip -d`). 아래 명령은 푼 파일
+이름을 쓴다. `srcprep.py pcf-bdf`는 gzip PCF는 스스로 읽지만 `compress`로 압축한 것(`.pcf.Z`, [미지](#미지) 참고)은 읽지 못한다.
+
 `bdfface.py`는 한글 BDF에서 `--chars-from`이 지정한 음절만 가져온다. `--symbols`를 주면 목록이 지정한 다른 문자(KS X 1001 기호,
 자모, 한자)도 BDF에 있는 것은 가져와, 음절의 기준선에 그 문자 자신의 `DWIDTH`로 놓는다. 아래 페이스는 두 방식으로 만들었다.
 `ks.txt`로(음절과 ASCII, 다른 레시피와 견줄 수 있다), 그리고 `ksnh.txt --symbols`로(샘플이 보여 주는 것).
@@ -88,9 +92,12 @@ KAIST 폰트의 기호는 대우 고딕의 것이다.
     python3 -I tools/bdfface.py --hangul $OUT/hanglg16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/DWGOT16.SVF
     python3 -I tools/bdfface.py --hangul $OUT/hanglm16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/DWMIN16.SVF
     python3 -I tools/bdfface.py --hangul $OUT/hanglm24.bdf --ascii $OUT/12x24.bdf --cell 24x24 --chars-from $OUT/ksnh.txt --symbols -o $OUT/DWMIN24.SVF
-    python3 tools/jamoset.py --layout 844 --from-svf $OUT/DWGOT16.SVF --mask-font none --check -o $OUT/DWGOT16J.SVF
+    python3 -I tools/bdfface.py --hangul $OUT/hanglg16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/DWGOT16K.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/DWGOT16K.SVF --mask-font none --check -o $OUT/DWGOT16J.SVF
 
-PCF는 237,492, 239,529, 353,568바이트이고 BDF는 1,365,300, 1,365,300, 2,089,011바이트, 각각 글리프 8,224개다. 페이스와 맞춤 결과는
+PCF는 237,492, 239,529, 353,568바이트이고 BDF는 1,365,300, 1,365,300, 2,089,011바이트, 각각 글리프 8,224개다. 자모 세트는
+음절과 ASCII만 담은 페이스 `DWGOT16K.SVF`에 맞춘다(`18,192 바이트`). `DWGOT16.SVF`에 맞추면 기호 986개를 함께 실어 `63,272
+바이트`가 된다(IoU는 같은 0.796). 페이스와 맞춤 결과는
 [측정 결과](#측정-결과)의 표에 있다. PCF 속성은 권리자만 적는다: `COPYRIGHT "Copyright (c) 1987, 1988 Daewoo Electronics Co.,Ltd."`.
 [라이선스](#라이선스)를 보라.
 
@@ -111,9 +118,11 @@ PCF는 237,492, 239,529, 353,568바이트이고 BDF는 1,365,300, 1,365,300, 2,0
 ### 백묵
 
 백묵 바탕, 돋움, 굴림, 헤드라인은 2000년대 리눅스 배포판의 자유 한글 폰트이고, 여기서는 X BDF로 다룬다. `baekmuk-2.0`과
-`baekmuk-bdf-2.2`는 같은 폰트 42개를 담는다(`batang`, `gulim`은 10-24 px와 굵은꼴, `dotum`, `hline`은 10-24 px). 2.2는 레지스트리
-이름을 `KSX1001.1998`로 바꾸고 유로 기호와 ®를 더했다(글리프 8,226개). 16 px 바탕, 돋움, 굴림, 헤드라인의 음절 2,350자는 2.0에서
-구우나 2.2에서 구우나 같은 픽셀이다.
+`baekmuk-bdf-2.2`는 같은 이름의 파일 42개를 담는다(`batang`, `gulim`은 10-24 px와 굵은꼴, `dotum`, `hline`은 10-24 px). 2.2는
+레지스트리 이름을 `KSX1001.1998`로 바꾸고 유로 기호와 ®를 더했다(글리프 8,226개). 16 px 바탕, 돋움, 굴림의 음절 2,350자는 두
+판에서 비트맵도 메트릭도 같고, 돋움의 모든 크기와 바탕 12, 16, 18, 20도 같다. 나머지는 판마다 다르다. 음절 비트맵은 굴림 10, 12,
+14, 24와 바탕 10, 14에서 다르고(굵은꼴은 모두 3-2,384자가 다르다), 음절 간격은 바탕 14(2.0: 14, 2.2: 16), 바탕 24(24, 25),
+헤드라인 12(14, 12), 헤드라인 16(18, 14)에서 다르다. 아래 명령은 2.2를 쓴다.
 
 박스가 셀과 같지 않다. 굴림 16은 `FONTBOUNDINGBOX 16 16 0 -2`, `FONT_ASCENT 14`이지만 바탕과 돋움 16은 `FONT_ASCENT 12`이고 음절이
 기준선 위로 13행, 아래로 3-4행까지 간다. 폰트 자신의 ascent로는 16x16 셀에서 음절이 16개(바탕)와 7개(돋움), 기호까지 치면 각각
@@ -127,8 +136,8 @@ PCF는 237,492, 239,529, 353,568바이트이고 BDF는 1,365,300, 1,365,300, 2,0
     python3 -I tools/bdfface.py --hangul $B/gulim12.bdf --ascii $OUT/6x12.bdf --cell 12x12 --chars-from $OUT/ksnh.txt --symbols -o $OUT/BMGUL12.SVF
     python3 -I tools/bdfface.py --hangul $B/batang24.bdf --ascii $OUT/12x24.bdf --cell 24x24 --chars-from $OUT/ksnh.txt --symbols -o $OUT/BMBAT24.SVF
 
-헤드라인 16은 14씩 나아가고(그 `DWIDTH`) 원점보다 한 열 왼쪽까지 그린다(`hline16.bdf`: `--hangul-ascent 13`에서 음절 4개 잘림).
-바탕 24는 25씩 나아간다. 백묵 24 px 페이스를 16 px로 줄인 것은
+2.2의 헤드라인 16은 14씩 나아가고(그 `DWIDTH`. 2.0: 18) 원점보다 한 열 왼쪽까지 그린다(`hline16.bdf`: `--hangul-ascent 13`에서 음절 4개 잘림).
+2.2의 바탕 24는 25씩 나아간다(2.0: 24). 백묵 24 px 페이스를 16 px로 줄인 것은
 [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)에 있다.
 
 ![이 레시피로 만든 백묵 굴림 16과 Sony 8x16 ASCII, 2배](../images/recipes/x-window/baekmuk-gulim16.png)
@@ -239,7 +248,8 @@ ascent로는 16x16 셀에서 `ksnh.txt`가 지정한 글리프 중 341개와 3,1
     python3 -I tools/bdfface.py --hangul $SRC/kaist-newmj18.bdf --ascii $OUT/8x16.bdf --cell 18x18 --ascent 14 --chars-from $OUT/ksnh.txt --symbols -o $OUT/NEWMJ18.SVF
     python3 -I tools/bdfface.py --hangul $SRC/ks_iyagi16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/IYAGI16.SVF
     python3 -I tools/bdfface.py --hangul $SRC/ks_philgi16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/PHILGI16.SVF
-    python3 -I tools/bdfface.py --hangul $SRC/han-1.0fb/h16m.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/H16M.SVF
+    gzip -dc $SRC/han-1.0fb/h16m.bdf.gz > $OUT/h16m.bdf
+    python3 -I tools/bdfface.py --hangul $OUT/h16m.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/H16M.SVF
 
 `kaist-newmj18.bdf`에는 `ENCODING -1`인 글리프가 하나 있다. `bdfface.py`는 이것을 건너뛴다(전에는 `bytes must be in range(0, 256)`으로
 멈췄다). 8x4x4 맞춤이 각 폰트가 만들어진 방식을 보여 준다. hanterm이 자모로 조합한 iyagi와 philgi는 IoU 0.985와 0.961, `h16m`은
@@ -263,10 +273,14 @@ ascent로는 16x16 셀에서 `ksnh.txt`가 지정한 글리프 중 341개와 3,1
 
 `xfntmizi-1.1-2` RPM(미지리서치, 1999)에는 16 px 한글 폰트 네 개, `mzgt16h`(고딕), `mzmj16h`(명조), `mzpg16h`(필기),
 `mzsm16h`(샘물)과 각각의 영문 짝(`mz*16e`), 그리고 Netscape를 위해 고딕을 GR 코드(`ksc5601.1987-1`)로 담은 `mzgt16h1`이 있다.
-README에 따르면 미지의 HTM 글꼴 서버가 주는 글꼴을 비트맵으로 저장한 것이다. `bdfface.py`는 GR 폰트를 GL 폰트와 똑같이 읽는다
-(같은 음절 2,350자, 바이트 단위로 같은 페이스).
+README에 따르면 미지의 HTM 글꼴 서버가 주는 글꼴을 비트맵으로 저장한 것이다. RPM은 폰트를 `compress` 파일(`.pcf.Z`)로 담고,
+`srcprep.py pcf-bdf`는 이것을 읽지 못한다. RPM을 풀고(`rpm2cpio | cpio`, 또는 RPM을 `7z x`로 푼 뒤 나온 `.cpio`를 `cpio -id`)
+`.Z` 형식을 읽는 `gzip -d`로 압축을 푼다. `bdfface.py`는 GR 폰트를 GL 폰트와 똑같이 읽는다(같은 음절 2,350자, 바이트 단위로
+같은 페이스).
 
-    python3 -I maker/srcprep.py pcf-bdf $SRC/xfntmizi/mzgt16h.pcf $OUT/mzgt16h.bdf
+    mkdir -p $SRC/xfntmizi && cd $SRC/xfntmizi && rpm2cpio ../xfntmizi-1.1-2.noarch.rpm | cpio -id --no-absolute-filenames && cd -
+    gzip -dc $SRC/xfntmizi/usr/lib/X11/fonts/misc/mzgt16h.pcf.Z > $OUT/mzgt16h.pcf
+    python3 -I maker/srcprep.py pcf-bdf $OUT/mzgt16h.pcf $OUT/mzgt16h.bdf
     python3 -I tools/bdfface.py --hangul $OUT/mzgt16h.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/MZGOT16.SVF
 
 `FONTBOUNDINGBOX 16 16 0 -3`, `FONT_ASCENT 13`(대우: `16 16 0 -2`, 14). 8x4x4 맞춤은 0.983(정확한 음절 2,116자)이다. HTM

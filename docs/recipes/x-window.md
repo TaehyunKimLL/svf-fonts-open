@@ -39,12 +39,12 @@ Measured on the files (glyph counts are the BDF's `CHARS`; "2,350" means every K
 | Family | Files | Origin and years | Encoding | Glyphs | Syllables | Other KS X 1001 characters |
 |---|---|---|---|---:|---|---|
 | Daewoo Gothic, Mincho | `hanglg16.pcf.gz`, `hanglm16.pcf.gz`, `hanglm24.pcf.gz` (X.Org `font-daewoo-misc`) | Daewoo Electronics, 1987-1988 | `KSC5601.1987-0` | 8,224 | 2,350 | symbols, jamo, 4,888 Hanja |
-| Baekmuk Batang, Dotum, Gulim, Headline | `baekmuk-2.0` and `baekmuk-bdf-2.2` (42 BDFs each: 10, 12, 14, 16, 18, 20, 24 px; Batang and Gulim also bold) | Kim Jeong-Hwan (Hwan Design) with Mizi Research, 1986-2002; 2.2 of 2004-08-08 | `ksx1001.1997-0` (2.0), `KSX1001.1998-0` (2.2) | 8,224 (2.0), 8,226 (2.2: + € ®) | 2,350 | symbols, jamo, Hanja |
+| Baekmuk Batang, Dotum, Gulim, Headline | `baekmuk-2.0` and `baekmuk-bdf-2.2` (42 BDFs each: 10, 12, 14, 16, 18, 20, 24 px; Batang and Gulim also bold) | Kim Jeong-Hwan (Hwan Design) with Mizi Research, 1986-2002; 2.2 of 2004-08-08 | `ksx1001.1997-0` (2.0), `KSX1001.1998-0` (2.2) | 2.0: 8,224 in most regular fonts (8,262-8,742 in Batang 10, 12 and Gulim 12), 8,309-8,928 in the bold ones; 2.2: 8,226 (+ € ®; Gulim 14: 8,227) | 2,350 | symbols, jamo, Hanja |
 | Hanyang Kodig, Myeongjo | `hanyang-font-pcf` (`hgm` and `hmm`, 10, 12, 14, 16, 18, 20 px) | Hanyang fonts of the KAIST ftp `hanfont.pcf`, re-spaced for Netscape | `KSC5601.1987-0` | 8,223 | 2,350 | symbols, jamo, Hanja |
 | KAIST newmj | `kaist-newmj16.bdf`, `kaist-newmj18.bdf` | Hong Hunsoo (KAIST), 1998-02-10 | `ksc5601.1987-0` | 8,224 (18 px: one unencoded) | 2,350 | from the Daewoo Gothic (16); 18: Hanja from HLaTeX 0.97 |
 | KAIST iyagi, philgi | `ks_iyagi16.bdf`, `ks_philgi16.bdf` | the hanterm johab fonts `iyagi16` and `johabp16` converted to wansung by Hong Hunsoo, 1997-11 | `ksc5601.1987-0` | 8,224 | 2,350 | from the Daewoo Gothic |
-| KAIST myungjo `h16m` | `han-1.0fb` (`h16m.bdf`, the Linux framebuffer console `han`) | "by ujsung A.I.Lab KAIST", 1991-01-16 | `KSC5601.1987-0` | 2,391 | 2,350 (+ one code that decodes to 쩆) | 40 jamo |
-| Mizi gothic, myeongjo, philgi, saemmul | `xfntmizi-1.1-2` RPM (`mz*16h.pcf`, `mzgt16h1.pcf`) | Mizi Research, "generated from HTM" (its font server); `COPYRIGHT` 1997 Seo Young-Jin; RPM 1999 | `ksc5601.1987-0`, `mzgt16h1`: `-1` | 8,460 (234 at codes KS X 1001 leaves empty) | 2,350 | symbols, jamo, Hanja |
+| KAIST myungjo `h16m` | `han-1.0fb` (`h16m.bdf.gz`, the Linux framebuffer console `han`) | "by ujsung A.I.Lab KAIST", 1991-01-16 | `KSC5601.1987-0` | 2,391 | 2,350 (+ one code that decodes to 쩆) | 40 jamo |
+| Mizi gothic, myeongjo, philgi, saemmul | `xfntmizi-1.1-2.noarch.rpm` (`mz*16h.pcf.Z`, `mzgt16h1.pcf.Z`) | Mizi Research, "generated from HTM" (its font server); `COPYRIGHT` 1997 Seo Young-Jin; RPM 1999 | `ksc5601.1987-0`, `mzgt16h1`: `-1` | 8,460 (234 at codes KS X 1001 leaves empty) | 2,350 | symbols, jamo, Hanja |
 | jfbterm `ihan_ksc` | `jfbterm-font-pack-1` (`ihan_ksc.pcf.gz`) | `-gnu-kofont-`, jfbterm Korean font pack | `ksc5601.1987-0` | 2,444 | 2,350 | 94 jamo |
 | Pinetree precomposed | `pinetree.precomposed-1.01-bdf` (`ptpR`, `ptpB` 8, 10, 12, 14, 18, 24 px) | Narae (Seoul National University), 1995 | `ksc5601.1987-0`, proportional (`P`) | 2,401 | 2,350 | none |
 | zhcon `ksc-16.bpsf` | `zhcon_0.2.6.orig` (`font/ksc-16.bpsf`, the framebuffer console zhcon) | dumped from an X font by `getbpsf` (Lee Seokmin, 2002): the syllables are Daewoo Mincho 16's | zhcon's BPSF: a 9-byte header, then 16x16 glyphs in the KS X 1001 94 x 94 grid from row 0xA1 | 8,742 slots | 2,350 | symbols, jamo, Hanja |
@@ -76,6 +76,11 @@ with the standard library only):
     python3 -c "import sys; sys.path.insert(0, 'tools'); import mkfont; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in mkfont.NAMED_RANGES['ksx1001-nohanja']()))" $OUT/ksnh.txt
     for f in 8x16 12x24 6x12; do python3 -I maker/srcprep.py pcf-bdf /usr/share/fonts/X11/misc/$f.pcf.gz $OUT/$f.bdf; done
 
+Several fonts come gzipped (`kaist-newmj16.bdf.gz`, `kaist-newmj18.bdf.gz`, `ks_iyagi16.bdf.gz`, `ks_philgi16.bdf.gz`,
+`h16m.bdf.gz` in `han-1.0fb.tar.gz`) and `bdfface.py` reads plain BDF only: decompress them first (`gzip -d`); the
+commands below name the decompressed files. `srcprep.py pcf-bdf` reads a gzipped PCF itself, but not a `compress`ed one
+(`.pcf.Z`, see [Mizi](#mizi)).
+
 `bdfface.py` takes from the Hangul BDF only the syllables `--chars-from` names, unless `--symbols` is given: then it
 also takes the other characters the list names (KS X 1001 symbols, jamo, Hanja) where the BDF has them, on the
 syllables' baseline with their own `DWIDTH`. The faces below are made both ways: with `ks.txt` (syllables and ASCII,
@@ -93,9 +98,12 @@ the X11 core distribution (X.Org `font-daewoo-misc`): KS C 5601 GL, 16x16 and 24
     python3 -I tools/bdfface.py --hangul $OUT/hanglg16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/DWGOT16.SVF
     python3 -I tools/bdfface.py --hangul $OUT/hanglm16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/DWMIN16.SVF
     python3 -I tools/bdfface.py --hangul $OUT/hanglm24.bdf --ascii $OUT/12x24.bdf --cell 24x24 --chars-from $OUT/ksnh.txt --symbols -o $OUT/DWMIN24.SVF
-    python3 tools/jamoset.py --layout 844 --from-svf $OUT/DWGOT16.SVF --mask-font none --check -o $OUT/DWGOT16J.SVF
+    python3 -I tools/bdfface.py --hangul $OUT/hanglg16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ks.txt -o $OUT/DWGOT16K.SVF
+    python3 tools/jamoset.py --layout 844 --from-svf $OUT/DWGOT16K.SVF --mask-font none --check -o $OUT/DWGOT16J.SVF
 
 The PCFs are 237,492, 239,529 and 353,568 bytes; the BDFs 1,365,300, 1,365,300 and 2,089,011 bytes, 8,224 glyphs each.
+The jamo set is fitted to the syllables-and-ASCII face `DWGOT16K.SVF` (`18,192 bytes`); fitted to `DWGOT16.SVF` it
+carries the 986 symbols along and is `63,272 bytes` (the same IoU, 0.796).
 The faces and fits are in the table under [Measured results](#measured-results). The PCF properties name the
 licence holder only: `COPYRIGHT "Copyright (c) 1987, 1988 Daewoo Electronics Co.,Ltd."`; see [Licences](#licences).
 
@@ -116,9 +124,12 @@ licence holder only: `COPYRIGHT "Copyright (c) 1987, 1988 Daewoo Electronics Co.
 ### Baekmuk
 
 Baekmuk (백묵) Batang, Dotum, Gulim and Headline, the free Korean fonts of Linux distributions in the 2000s, as X BDFs:
-`baekmuk-2.0` and `baekmuk-bdf-2.2` hold the same 42 fonts (`batang`, `gulim` 10-24 px with bold; `dotum`, `hline`
-10-24 px). Version 2.2 renames the registry to `KSX1001.1998` and adds the euro sign and ® (8,226 glyphs); the 2,350
-syllables of the 16 px Batang, Dotum, Gulim and Headline bake to the same pixels from 2.0 and 2.2.
+`baekmuk-2.0` and `baekmuk-bdf-2.2` hold the same 42 file names (`batang`, `gulim` 10-24 px with bold; `dotum`, `hline`
+10-24 px). Version 2.2 renames the registry to `KSX1001.1998` and adds the euro sign and ® (8,226 glyphs). The 2,350
+syllables of the 16 px Batang, Dotum and Gulim are the same in both, bitmaps and metrics, and so are every Dotum size
+and Batang 12, 16, 18, 20; elsewhere the versions differ. The syllable bitmaps differ in Gulim 10, 12, 14 and 24 and
+Batang 10 and 14 (and in 3 to 2,384 syllables of every bold font), and the step differs in Batang 14 (2.0: 14, 2.2: 16),
+Batang 24 (24, 25), Headline 12 (14, 12) and Headline 16 (18, 14). The commands below use 2.2.
 
 The boxes are not the cell: Gulim 16 has `FONTBOUNDINGBOX 16 16 0 -2` and `FONT_ASCENT 14`, but Batang and Dotum 16
 have `FONT_ASCENT 12` with syllables reaching 13 rows above the baseline and 3 or 4 below. With the font's own ascent
@@ -133,8 +144,8 @@ reach lower):
     python3 -I tools/bdfface.py --hangul $B/gulim12.bdf --ascii $OUT/6x12.bdf --cell 12x12 --chars-from $OUT/ksnh.txt --symbols -o $OUT/BMGUL12.SVF
     python3 -I tools/bdfface.py --hangul $B/batang24.bdf --ascii $OUT/12x24.bdf --cell 24x24 --chars-from $OUT/ksnh.txt --symbols -o $OUT/BMBAT24.SVF
 
-Headline 16 steps by 14 (its `DWIDTH`) and reaches one column left of its origin (`hline16.bdf`: 4 syllables clipped at
-`--hangul-ascent 13`). Batang 24 steps by 25. The Baekmuk 24 px faces scaled down to 16 px are in
+Headline 16 of 2.2 steps by 14 (its `DWIDTH`; 2.0: 18) and reaches one column left of its origin (`hline16.bdf`: 4 syllables clipped at
+`--hangul-ascent 13`). Batang 24 of 2.2 steps by 25 (2.0: 24). The Baekmuk 24 px faces scaled down to 16 px are in
 [A low-resolution face from a high-resolution bitmap font](bitmap-fonts.md#a-low-resolution-face-from-a-high-resolution-bitmap-font).
 
 ![Baekmuk Gulim 16 with Sony 8x16 ASCII, built by this recipe, x2](../images/recipes/x-window/baekmuk-gulim16.png)
@@ -253,7 +264,8 @@ framebuffer console (han-1.0fb) is a KAIST myungjo of 1991 with 40 jamo and no s
     python3 -I tools/bdfface.py --hangul $SRC/kaist-newmj18.bdf --ascii $OUT/8x16.bdf --cell 18x18 --ascent 14 --chars-from $OUT/ksnh.txt --symbols -o $OUT/NEWMJ18.SVF
     python3 -I tools/bdfface.py --hangul $SRC/ks_iyagi16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/IYAGI16.SVF
     python3 -I tools/bdfface.py --hangul $SRC/ks_philgi16.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/PHILGI16.SVF
-    python3 -I tools/bdfface.py --hangul $SRC/han-1.0fb/h16m.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/H16M.SVF
+    gzip -dc $SRC/han-1.0fb/h16m.bdf.gz > $OUT/h16m.bdf
+    python3 -I tools/bdfface.py --hangul $OUT/h16m.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/H16M.SVF
 
 `kaist-newmj18.bdf` has one glyph with `ENCODING -1`; `bdfface.py` skips it (it stopped with `bytes must be in
 range(0, 256)` before). The 8x4x4 fits show how each font was made: iyagi and philgi, composed by hanterm from jamo,
@@ -279,9 +291,14 @@ the hand-drawn newmj at 0.906.
 The `xfntmizi-1.1-2` RPM (Mizi Research, 1999) holds four 16 px Korean fonts, `mzgt16h` (gothic), `mzmj16h`
 (myeongjo), `mzpg16h` (philgi), `mzsm16h` (saemmul), each with an English partner (`mz*16e`), and `mzgt16h1`, the gothic
 under GR codes (`ksc5601.1987-1`) for Netscape. Its README says the fonts were saved as bitmaps from Mizi's HTM font
-server. `bdfface.py` reads the GR font as it reads the GL one (the same 2,350 syllables, byte for byte the same face):
+server. The RPM holds the fonts as `compress` files (`.pcf.Z`), which `srcprep.py pcf-bdf` does not read: unpack the
+RPM (`rpm2cpio | cpio`, or `7z x` the RPM and `cpio -id` the `.cpio` it gives) and decompress with `gzip -d`, which
+reads the `.Z` format. `bdfface.py` reads the GR font as it reads the GL one (the same 2,350 syllables, byte for byte the
+same face):
 
-    python3 -I maker/srcprep.py pcf-bdf $SRC/xfntmizi/mzgt16h.pcf $OUT/mzgt16h.bdf
+    mkdir -p $SRC/xfntmizi && cd $SRC/xfntmizi && rpm2cpio ../xfntmizi-1.1-2.noarch.rpm | cpio -id --no-absolute-filenames && cd -
+    gzip -dc $SRC/xfntmizi/usr/lib/X11/fonts/misc/mzgt16h.pcf.Z > $OUT/mzgt16h.pcf
+    python3 -I maker/srcprep.py pcf-bdf $OUT/mzgt16h.pcf $OUT/mzgt16h.bdf
     python3 -I tools/bdfface.py --hangul $OUT/mzgt16h.bdf --ascii $OUT/8x16.bdf --cell 16x16 --chars-from $OUT/ksnh.txt --symbols -o $OUT/MZGOT16.SVF
 
 `FONTBOUNDINGBOX 16 16 0 -3`, `FONT_ASCENT 13` (Daewoo: `16 16 0 -2`, 14). The 8x4x4 fit is 0.983 (2,116 syllables
