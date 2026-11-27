@@ -1117,6 +1117,27 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `--count` ...)는 2. **내부 모듈.** 없음. **서드파티.** 없음. **테스트.** `tools/test_extract.py`. `tools/test_tiles.py`(`--invert`,
 손으로 만든 타일에 대한 `--gfx` 프리셋과 드라이버의 배치 문자열, `--bg`, `--fg`, 거부).
 
+### `tools/msxfont.py`
+
+**목적.** 평범한 글리프 표가 아닌 한국 MSX 폰트: 대우 CPC-400 / 400S 완성형 폰트 ROM의 코드-슬롯 대응, 그리고 BIOS의 8x8 셀로
+한글 ROM의 배치 규칙대로 만든 한국 MSX1 음절(recipes.ko.md, 한국 MSX 폰트).
+
+**상태.** 특수 목적(한 기종 계열).
+
+**입력.** `kfn-map`: 64 KB `CPC-400S.U44` 이미지(또는 그 마지막 16 KB, "Kanji control ROM"). `msx1`: 한국 MSX1 BIOS(`--offset`의
+문자 표, 기본 0x1B49). `msx1-verify`: 에뮬레이터 수집 결과 `PREFIX.index`, `PREFIX.names`, `PREFIX.patterns`(셀 검사에는 `--bios`).
+
+**출력.** `kfn-map`: `rawcarve.py bdf --chars map`이 읽는 `SLOT U+XXXX` 줄(드라이버의 목록 A와 B가 닿는 음절). `msx1`: 11,172 음절
+(8x16 또는 16x16, 진행 폭 = 너비)과 ASCII 0x20-0x7E(8x8 셀을 `--ascii-top`행 아래에, 기본 8. `--ascent` 16)의 유니코드 BDF.
+`msx1-verify`: 기계가 규칙대로 셀을 그린 음절 수와 BIOS와 같은 패턴 표 셀 수.
+
+**사용법.** `python3 tools/msxfont.py kfn-map U44 -o MAP.txt`, `python3 tools/msxfont.py msx1 BIOS [--offset O] [--ascii-top N]
+-o OUT.bdf`, `python3 tools/msxfont.py msx1-verify PREFIX [--bios BIOS]`. 크기가 맞지 않는 파일, 정렬된 목록이 아닌 시작 오프셋,
+모자란 수집 결과, 다른 음절에는 메시지와 함께 종료 코드 1.
+
+**내부 모듈.** `binscan.py`, `rawcarve.py`. **서드파티.** 없음. **테스트.** `tools/test_msxfont.py`(합성 제어 ROM, 셀 표, 수집
+결과. 배치의 경우들. `rawcarve.py bdf --chars map`).
+
 ### `tools/nkpspec.py`
 
 **목적.** NKP 한글 TSR(1989년 허큘리스 한글 드라이버 NKP.COM V3.00, NKP3.COM)의 `rawcarve.py compose` 명세를 드라이버 자신의 표에서
@@ -1167,11 +1188,13 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
         [--offset O] [--count N] -o OUT
     python3 tools/rawcarve.py bdf FILE [--offset O] (--glyph WxH | --gfx LAYOUT) [--invert] \
         --chars ascii|ks-hangul|ks-nonhanja|ks-all [--first C] [--count N] [--dense | --grid L0,T0,PITCH] [--ascent A] -o OUT.bdf
+    python3 tools/rawcarve.py bdf FILE [--offset O] --glyph WxH --chars map --map MAP.txt [--ascent A] -o OUT.bdf
     python3 tools/rawcarve.py compose FILE --spec SPEC.json|spc1500 [--invert] [--syllables ks|all] \
         [--eng FILE2 --eng-offset O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
 
 `bdf --chars ks-*`는 각 KS X 1001 코드를 `--dense`(글리프 i = 그 집합의 i번째 코드: 2,350 음절 덤프) 또는 `--grid L0,T0,PITCH`(글리프 =
-(lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). 음수 오프셋,
+(lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). `--chars map`은 `--map`의 `GLYPH U+XXXX` 줄마다
+글리프 GLYPH를 U+XXXX에 놓는다(기계 자신의 순서인 폰트. `msxfont.py kfn-map`이 하나를 쓴다). 음수 오프셋,
 1보다 작은 `--length` / `--stride` / `--count`, 음수 `--first`, 16행을 넘는 `--top` + `--height`는 거부한다. `cut`, `eng`, `bdf`는
 쓰는 바이트만 읽고(글리프보다 짧은 `--stride`여도 마지막 글리프의 전체 범위까지), `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 벌, 셀을 넘는 `--eng-top` +
 `--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 벌(`offset`,

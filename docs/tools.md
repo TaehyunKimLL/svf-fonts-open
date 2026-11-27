@@ -1189,6 +1189,30 @@ ink pen outside the planes, a `--glyph` that is not the tile's, `--fg` without `
 `tools/test_extract.py`; `tools/test_tiles.py` (`--invert`, `--gfx` presets and a driver's layout string against tiles
 built by hand, `--bg`, `--fg`, the refusals).
 
+### `tools/msxfont.py`
+
+**Purpose.** The Korean MSX fonts that are not a plain glyph table: the code-to-slot map of the Daewoo CPC-400 / 400S
+precomposed font ROM, and the Korean MSX1 syllables built from the BIOS's 8x8 cells by the Hangul ROM's layout rule
+(recipes.md, Korean MSX fonts).
+
+**Status.** Special-purpose (one machine family).
+
+**Inputs.** `kfn-map`: the 64 KB `CPC-400S.U44` image (or its last 16 KB, the "Kanji control ROM"). `msx1`: a Korean
+MSX1 BIOS (the character table at `--offset`, default 0x1B49). `msx1-verify`: an emulator harvest `PREFIX.index`,
+`PREFIX.names`, `PREFIX.patterns` (and `--bios` for the cell check).
+
+**Outputs.** `kfn-map`: `SLOT U+XXXX` lines (the syllables the driver's lists A and B reach) for `rawcarve.py bdf
+--chars map`. `msx1`: a Unicode BDF of the 11,172 syllables (8x16 or 16x16, advance = width) and ASCII 0x20-0x7E (the
+8x8 cells, `--ascii-top` rows down, default 8; `--ascent` 16). `msx1-verify`: the number of syllables whose cells the
+machine drew as the rule says, and the pattern-table cells equal to the BIOS's.
+
+**Synopsis.** `python3 tools/msxfont.py kfn-map U44 -o MAP.txt`, `python3 tools/msxfont.py msx1 BIOS [--offset O]
+[--ascii-top N] -o OUT.bdf`, `python3 tools/msxfont.py msx1-verify PREFIX [--bios BIOS]`. Exit 1 with a message on a
+file of the wrong size, start offsets that are not a sorted list, a short harvest, or a syllable that differs.
+
+**Repository modules imported.** `binscan.py`, `rawcarve.py`. **Third-party.** None. **Test.** `tools/test_msxfont.py`
+(synthetic control ROM, cell table and harvest; the layout cases; `rawcarve.py bdf --chars map`).
+
 ### `tools/nkpspec.py`
 
 **Purpose.** Write the `rawcarve.py compose` spec of an NKP Hangul TSR (the 1989 Hercules Hangul drivers NKP.COM V3.00,
@@ -1244,12 +1268,15 @@ are left out.
         [--offset O] [--count N] -o OUT
     python3 tools/rawcarve.py bdf FILE [--offset O] (--glyph WxH | --gfx LAYOUT) [--invert] \
         --chars ascii|ks-hangul|ks-nonhanja|ks-all [--first C] [--count N] [--dense | --grid L0,T0,PITCH] [--ascent A] -o OUT.bdf
+    python3 tools/rawcarve.py bdf FILE [--offset O] --glyph WxH --chars map --map MAP.txt [--ascent A] -o OUT.bdf
     python3 tools/rawcarve.py compose FILE --spec SPEC.json|spc1500 [--invert] [--syllables ks|all] \
         [--eng FILE2 --eng-offset O --eng-height H --eng-top T] [--ascent A] -o OUT.bdf
 
 `bdf --chars ks-*` places each KS X 1001 code by `--dense` (glyph i = the i-th code of the set: a 2,350-syllable dump)
 or `--grid L0,T0,PITCH` (glyph = (lead - L0) x PITCH + (trail - T0): `0xA1,0xA1,94` a full table, `0x80,0x80,128` the
-Korean VGA ROMs; a code whose lead is below L0 or whose trail is outside T0 .. T0 + PITCH - 1 is refused). Negative
+Korean VGA ROMs; a code whose lead is below L0 or whose trail is outside T0 .. T0 + PITCH - 1 is refused); `--chars map`
+places glyph GLYPH at U+XXXX for each `GLYPH U+XXXX` line of `--map` (a font in a machine's own order; `msxfont.py
+kfn-map` writes one). Negative
 offsets, a `--length` / `--stride` / `--count` below 1, a negative `--first` and `--top` + `--height` past 16 rows are
 refused; `cut`, `eng` and `bdf` read only the bytes they use (through the last glyph's whole footprint, also with a
 `--stride` shorter than a glyph), `compose` reads the whole file (up to 64 MiB). A compose

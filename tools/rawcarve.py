@@ -25,11 +25,14 @@ with `python3 -I` on untrusted downloads.
       jamoset.py --layout 844.
   rawcarve.py bdf FILE --offset O --glyph WxH --chars ascii|ks-hangul|ks-nonhanja|ks-all [--dense | --grid L0,T0,PITCH]
                   -o OUT.bdf
+  rawcarve.py bdf FILE --offset O --glyph WxH --chars map --map MAP.txt -o OUT.bdf
       glyphs at an offset as a Unicode BDF (CHARSET_REGISTRY "ISO10646"), for `bdfface.py --hangul / --ascii` and
       `mkfont.py`. ascii: glyph i is code `--first` + i (default 0). ks-*: the KS X 1001 code of each glyph is found by
       `--dense` (glyph i is the i-th code of the set in KS order, the 2,350-syllable dumps) or `--grid L0,T0,PITCH`
       (glyph index = (lead - L0) * PITCH + (trail - T0): 0xA1,0xA1,94 for a full 94 x 94 table, 0x80,0x80,128 for
-      the Korean VGA font ROMs that 86Box reads). Blank glyphs are left out.
+      the Korean VGA font ROMs that 86Box reads). map: MAP.txt lines "GLYPH U+XXXX" (a glyph index and the code point
+      it draws; # starts a comment), for a font in a machine's own order (`msxfont.py kfn-map` writes one). Blank
+      glyphs are left out.
   rawcarve.py compose FILE --spec SPEC.json [--syllables ks|all] [--eng FILE2 --eng-offset O] -o OUT.bdf
       a jamo-piece font with its own set rules (read from the driver's code) composed into syllables, as a Unicode BDF:
       the KS X 1001 2,350 (ks, the default) or all 11,172 (all). See "Compose spec" below.
@@ -181,6 +184,25 @@ def cmd_eng(a):
           f"rows {a.top}..{a.top + h - 1}{', inverted' if a.invert else ''})")
 
 
+def read_map(path):
+    """[(glyph index, code point)] of a map file: "GLYPH U+XXXX" a line, # comments, blank lines skipped."""
+    out = []
+    with open(path, encoding="ascii") as fh:
+        for n, line in enumerate(fh, 1):
+            line = line.split("#", 1)[0].split()
+            if not line:
+                continue
+            if len(line) != 2 or not line[1].upper().startswith("U+"):
+                raise CarveError(f"{path}:{n}: expected GLYPH U+XXXX")
+            idx, cp = binscan.parse_int(line[0]), int(line[1][2:], 16)
+            if idx < 0 or not 0 <= cp <= 0x10FFFF:
+                raise CarveError(f"{path}:{n}: glyph index or code point out of range")
+            out.append((idx, cp))
+    if not out:
+        raise CarveError(f"{path}: no mapping line")
+    return out
+
+
 def cmd_bdf(a):
     if a.grid and (len(a.grid) != 3 or a.grid[2] < 1):
         raise CarveError("--grid is L0,T0,PITCH with PITCH 1 or more")
@@ -198,6 +220,16 @@ def cmd_bdf(a):
             if cp < 0x20:
                 continue
             glyphs[cp] = binscan.decode(d, i * gb, w, h, a.order, a.lsb, a.invert, a.gfx)
+    elif a.chars == "map":
+        if not a.map:
+            raise CarveError("--chars map needs --map MAP.txt")
+        places = read_map(a.map)
+        d = read_range(a.file, a.offset, max(i for i, _ in places) * gb + foot)
+        for idx, cp in places:
+            if idx * gb + foot <= len(d):
+                rows = binscan.decode(d, idx * gb, w, h, a.order, a.lsb, a.invert, a.gfx)
+                if any(map(any, rows)):
+                    glyphs[cp] = rows
     else:
         if not a.dense and not a.grid:
             raise CarveError("ks-* needs --dense or --grid L0,T0,PITCH")
@@ -495,7 +527,8 @@ def main(argv=None):
     p.add_argument("file")
     p.add_argument("--offset", type=binscan.nonneg, default=0)
     geometry(p)
-    p.add_argument("--chars", choices=("ascii", "ks-hangul", "ks-nonhanja", "ks-all"), required=True)
+    p.add_argument("--chars", choices=("ascii", "ks-hangul", "ks-nonhanja", "ks-all", "map"), required=True)
+    p.add_argument("--map", default=None, help="--chars map: lines GLYPH U+XXXX")
     p.add_argument("--first", type=binscan.nonneg, default=0, help="ascii: the code of the glyph at the offset (0)")
     p.add_argument("--count", type=binscan.positive, default=None, help="ascii: glyphs to read (256)")
     p.add_argument("--dense", action="store_true")
