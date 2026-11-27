@@ -1006,7 +1006,9 @@ palette: the same bytes on every run), and one line comparing the two faces over
 
 **Purpose.** Draws the pixel figures of [jamo-split.md](jamo-split.md) (a precomposed syllable with its fitted pieces,
 recomposition and difference; an exact against an approximate fit; the blank medial ㅡ pieces of `NEODG16A`; touching
-strokes of an outline font at 12, 16 and 24 px) and prints the measurements the document quotes.
+strokes of an outline font at 12, 16 and 24 px; mean IoU against bytes for each set system) and prints the measurements
+the document quotes. The set-system chart plots the fit results recorded in the script's `BUDGET` table (measured with
+`jamoset.py --from-ttf`, about 10 minutes); it does not re-run those fits.
 
 **Status.** Special-purpose (documentation).
 
@@ -1015,8 +1017,8 @@ strokes of an outline font at 12, 16 and 24 px) and prints the measurements the 
 labels), `svf/dos/NEODG16A.SVF` and `svf/jamo-extra/NDGPR16.SVF`; it refuses any other path, so no Apple, ROM or
 proprietary data can reach a published figure.
 
-**Outputs.** `split.png`, `exact.png`, `blank.png`, `touch.png` in `docs/images/jamo-split/` (indexed PNG, fixed palette,
-no metadata: the same bytes on every run with the same Pillow and FreeType, both printed), and lines with the fit's bytes,
+**Outputs.** `split.png`, `exact.png`, `blank.png`, `touch.png` (indexed PNG, fixed palette) and `budget.png` (RGB) in
+`docs/images/jamo-split/` (no metadata: the same bytes on every run with the same Pillow and FreeType, both printed), and lines with the fit's bytes,
 exact count and mean IoU over the 2,350 KS X 1001 syllables, the comparison of `NEODG16A` with `NEODG16`, the syllables
 whose medial ㅡ piece is inkless, and the ink component counts of the touch figure.
 

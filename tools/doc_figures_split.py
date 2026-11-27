@@ -18,6 +18,8 @@ Writes into DIR (default docs/images/jamo-split/):
   exact.png     an exact case (NEODG16 against its jamo set NEODG16A) beside an approximate one (the fit of split.png)
   blank.png     the medial ㅡ of NEODG16A: the bar sits in the initial pieces and the medial piece is blank, so the
                 compatibility jamo ㅡ, which the face draws from that piece, is blank; NDGPR16 for comparison
+  budget.png    mean IoU against bytes for each set system on two outline fonts at 16 px: the measured results of the
+                BUDGET table below (RGB; the fits themselves are not re-run)
   touch.png     the outline font at 12, 16 and 24 px as mkfont.py bakes it: FreeType's grey rendering cut at 128 (the
                 default) and its monochrome renderer (--mono-hint), with the 8-connected ink components of each cell
                 (touching strokes merge components)
@@ -468,6 +470,74 @@ def fig_touch(lab):
     return im, stats
 
 
+# ---- (e) budget.png -----------------------------------------------------------------------------------------------
+# Measured with `jamoset.py --layout L --from-ttf FONT --size 16 --binarize threshold --mask-font none --check`
+# (docs/jamo-split.md, section 3): (layout, file bytes, mean IoU, exact) over every syllable the font draws (11,172).
+# The chart plots these numbers; it does not re-run the fits (about 10 minutes).
+BUDGET = {
+    "NanumGothic Regular": [("621", 12232, 0.641, 31), ("844", 18616, 0.707, 133), ("1044-san", 20092, 0.715, 154),
+                            ("adaptive:8,4,4", 25704, 0.749, 274), ("adaptive:12,8,6", 33316, 0.798, 854),
+                            ("adaptive:16,12,8", 40784, 0.836, 1432), ("adaptive:24,16,12", 53688, 0.863, 1994),
+                            ("adaptive:32,24,16", 69084, 0.881, 2769)],
+    "NanumMyeongjo Bold": [("621", 12156, 0.704, 0), ("844", 18652, 0.772, 46), ("1044-san", 20192, 0.779, 42),
+                           ("adaptive:8,4,4", 25956, 0.809, 58), ("adaptive:12,8,6", 33752, 0.852, 189),
+                           ("adaptive:16,12,8", 41320, 0.873, 357), ("adaptive:24,16,12", 53804, 0.905, 866),
+                           ("adaptive:32,24,16", 69428, 0.923, 1542)],
+}
+BUDGET_COLOURS = ((42, 120, 214), (235, 104, 52))  # categorical 1 (blue) and 2 (orange), light surface
+
+
+def fig_budget(lab):
+    """Mean IoU against file bytes for each set system (BUDGET): one line a font, every point labelled."""
+    W, H = 900, 470
+    left, right, top, bottom = 70, 150, 40, 70
+    im = Image.new("RGB", (W, H), (252, 252, 251))
+    d = ImageDraw.Draw(im)
+    ink, muted, grid, base = (11, 11, 11), (137, 135, 129), (225, 224, 217), (195, 194, 183)
+    xs = [b for pts in BUDGET.values() for _, b, _, _ in pts]
+    ys = [q for pts in BUDGET.values() for _, _, q, _ in pts]
+    x0, x1 = 10000, 10000 * ((max(xs) + 9999) // 10000)
+    y0, y1 = 0.6, 0.95
+
+    def px(b):
+        return left + (b - x0) * (W - left - right) / (x1 - x0)
+
+    def py(q):
+        return H - bottom - (q - y0) * (H - top - bottom) / (y1 - y0)
+
+    for i in range(8):
+        q = y0 + i * 0.05
+        y = round(py(q))
+        d.line([left, y, W - right, y], fill=grid if i else base)
+        lab.draw(d, 14, y - 8, f"{q:.2f}", muted)
+    for b in range(x0, x1 + 1, 10000):
+        x = round(px(b))
+        d.line([x, H - bottom, x, H - bottom + 4], fill=base)
+        lab.draw(d, x - 12, H - bottom + 8, f"{b // 1000}K", muted)
+    lab.draw(d, left, H - 28, "바이트 (글꼴 파일 전체)", muted)
+    lab.draw(d, left, 10, "평균 IoU, 16 px, 11,172 음절", muted)
+    for (font, pts), col in zip(BUDGET.items(), BUDGET_COLOURS):
+        if not pts:
+            continue
+        line = [(px(b), py(q)) for _, b, q, _ in pts]
+        d.line(line, fill=col, width=2)
+        for (name, b, q, _), (x, y) in zip(pts, line):
+            d.ellipse([x - 4, y - 4, x + 4, y + 4], fill=col, outline=(252, 252, 251), width=2)
+        name, b, q, _ = pts[-1]
+        lab.draw(d, round(px(b)) + 10, round(py(q)) - 8, font.split()[0], ink)
+    # set-system names once, beside the first font's points: below the line, the 1044-san label to the right of its
+    # point (it sits next to 844)
+    pts = next(p for p in BUDGET.values() if p)
+    for name, b, q, _ in pts:
+        short = name.replace("adaptive:", "a:")
+        x, y = round(px(b)), round(py(q))
+        if name == "1044-san":
+            lab.draw(d, x + 8, y - 8, short, muted)
+        else:
+            lab.draw(d, x - 6, y + 8, short, muted)
+    return im
+
+
 def render_all():
     lab = Labels()
     fit = OutlineFit()
@@ -481,6 +551,7 @@ def render_all():
         "exact.png": to_png(fig_exact(lab, fit, neo_pre, neo)),
         "blank.png": to_png(fig_blank(lab, neo, pro)),
         "touch.png": to_png(touch),
+        "budget.png": to_png(fig_budget(lab)),
     }
     ks = [0xAC00 + s for s in J.ks_x_1001_syllables()]
     lines = []

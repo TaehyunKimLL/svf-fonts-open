@@ -945,7 +945,9 @@ JSET 버전 1 조회)을 그린다.
 ### `tools/doc_figures_split.py`
 
 **목적.** [jamo-split.ko.md](jamo-split.ko.md)의 픽셀 그림(완성형 음절과 맞춘 조각, 다시 합친 결과, 차이; 정확한 맞춤과 근사한
-맞춤의 비교; `NEODG16A`의 빈 중성 ㅡ 조각; 윤곽 글꼴의 12, 16, 24 px에서 닿는 획)을 그리고, 문서가 인용하는 측정값을 출력한다.
+맞춤의 비교; `NEODG16A`의 빈 중성 ㅡ 조각; 윤곽 글꼴의 12, 16, 24 px에서 닿는 획; 벌 체계마다 바이트에 대한 평균 IoU)을 그리고, 문서가 인용하는 측정값을 출력한다.
+벌 체계 그래프는 스크립트의 `BUDGET` 표에 적어 둔 맞춤 결과(`jamoset.py --from-ttf`로 측정, 약 10분)를 그릴 뿐 그 맞춤을
+다시 돌리지는 않는다.
 
 **상태.** 특수 목적(문서).
 
@@ -954,8 +956,8 @@ JSET 버전 1 조회)을 그린다.
 `svf/dos/NEODG16A.SVF`, `svf/jamo-extra/NDGPR16.SVF`. 다른 경로는 거부하므로 Apple, ROM, 독점 글꼴의 데이터가 공개 그림에
 들어갈 수 없다.
 
-**출력.** `docs/images/jamo-split/`의 `split.png`, `exact.png`, `blank.png`, `touch.png`(인덱스 PNG, 고정 팔레트, 메타데이터
-없음: 같은 Pillow와 FreeType이면 실행할 때마다 같은 바이트, 두 버전을 출력한다)와, KS X 1001 음절 2,350자에서 맞춤의
+**출력.** `docs/images/jamo-split/`의 `split.png`, `exact.png`, `blank.png`, `touch.png`(인덱스 PNG, 고정 팔레트)와
+`budget.png`(RGB)(메타데이터 없음: 같은 Pillow와 FreeType이면 실행할 때마다 같은 바이트, 두 버전을 출력한다)와, KS X 1001 음절 2,350자에서 맞춤의
 바이트·정확 개수·평균 IoU, `NEODG16A`와 `NEODG16`의 비교, 중성 ㅡ 조각에 잉크가 없는 음절 수, 닿는 획 그림의 잉크 덩어리
 수를 알리는 줄들.
 
