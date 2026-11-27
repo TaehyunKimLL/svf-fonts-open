@@ -123,6 +123,9 @@ export async function generate(opts) {
     if (prov) {
       const p = provenance[shown.replace(/^_internal\//, '')];
       if (!p || p.sha256 !== sha256(file)) { problems.push('provenance mismatch: ' + shown); }
+      // Windows: the entry must say where the file came from as the build recorded it, so a catch-all ("*.pyd" as
+      // CPython) never claims a file a wheel or a download brought (t_9b8f56f0)
+      else if (win && entry.from && p.origin !== entry.from) problems.push('origin mismatch: ' + shown + ' (map ' + entry.from + ', built from ' + p.origin + ')');
       if (p) { pkg = p.package; if (!version && (entry.from === 'dpkg' || entry.from === 'python')) version = p.version; }
     }
     if (!version && /^(Pillow|fontTools)$/.test(entry.component)) version = distVersion(pysite, entry.wheel) || 'unknown';

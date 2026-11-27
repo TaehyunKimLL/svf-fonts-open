@@ -16,7 +16,17 @@ function resolveLaunch({ resourcesPath, appDir, env, pid, userData, exists = fs.
       repo: P.join(resourcesPath, 'repo'), data: P.join(userData, 'maker') };
   }
   const checkout = env.SVF_MAKER_DEV_REPO || P.dirname(appDir);
-  return { mode: 'dev', cmd: win ? 'python' : 'python3', args: ['-P', P.join(checkout, 'maker', 'server.py'), '--exit-with-parent=' + pid, ...extra],
+  return { mode: 'dev', cmd: win ? winPython(env, exists) : 'python3', args: ['-P', P.join(checkout, 'maker', 'server.py'), '--exit-with-parent=' + pid, ...extra],
     repo: checkout, data: P.join(userData, 'maker-dev') };
+}
+// Windows: `python` resolved on PATH's absolute folders only. A bare name would be looked up in the current folder first
+// (CreateProcess, libuv), so a python.exe planted in the shell's working folder would run.
+function winPython(env, exists) {
+  const dirs = String(env.PATH || env.Path || '').split(';').filter((d) => path.win32.isAbsolute(d) && /^([a-zA-Z]:\\|\\\\)/.test(d));
+  for (const d of dirs) {
+    const exe = path.win32.join(d, 'python.exe');
+    if (exists(exe)) return exe;
+  }
+  return 'python';
 }
 module.exports = { resolveLaunch };

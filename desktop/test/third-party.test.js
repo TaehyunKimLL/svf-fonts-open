@@ -375,4 +375,11 @@ test('win32: dll and pyd attributed, python-origin text, unmatched dll fails clo
   write(electron, 'mystery.dll', 'x');
   const r2 = await generate(opts);
   assert.deepEqual(r2.problems, ['unattributed: mystery.dll']);
+  fs.rmSync(path.join(electron, 'mystery.dll'));
+  // a compiled module a wheel brought, matched only by the "*.pyd" CPython catch-all: refused, not labelled CPython
+  const ext = write(sidecar, '_internal/newpkg/_speedups.cp312-win_amd64.pyd', 'ext');
+  provenance['newpkg/_speedups.cp312-win_amd64.pyd'] = { source: 'C:/pysite/newpkg/_speedups.pyd', sha256: sha(fs.readFileSync(ext)),
+    origin: 'wheel', package: 'newpkg', version: '1.0' };
+  const r3 = await generate(opts);
+  assert.deepEqual(r3.problems, ['origin mismatch: _internal/newpkg/_speedups.cp312-win_amd64.pyd (map python, built from wheel)']);
 });

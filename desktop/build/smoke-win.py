@@ -4,7 +4,7 @@
 DIST is electron-builder's output folder (desktop/dist). Three starts, each with SVF_MAKER_SMOKE=1 (the shell loads
 the page, fetches /api/caps through the packaged sidecar, prints `svf-maker smoke ok <title>` and quits) and its own
 `--user-data-dir`, each judged from the shell's log there (`logs/shell.log`: `sidecar start mode=packaged`, the port
-line, the clean sidecar exit) and, where Windows hands the GUI process's stdout through, the smoke line:
+line, the smoke verdict `svf-maker smoke ok`, `renderer sandbox: on`, the clean sidecar exit) and exit code 0:
 
   1. `win-unpacked/svf-maker.exe`;
   2. the NSIS installer run silently (`/S`, per user: no elevation) - the installed exe under
@@ -63,8 +63,9 @@ def smoke(name, exe, scratch):
     print("---- %s: rc=%s %.1f s\n%s\n---- shell.log\n%s" % (name, rc, seconds, out.strip()[-3000:], log.strip()[-3000:]),
           flush=True)
     sandbox = next((line.split("sandbox ", 1)[1] for line in log.splitlines() if " sandbox renderer sandbox" in line), "no sandbox line")
-    ok = ("sidecar start mode=packaged" in log and "sidecar port=" in log and "sidecar exit code=0" in log
-          and "smoke FAIL" not in out)
+    # the verdict is judged from shell.log (main.js logs it there too): a GUI process's stdout is often not passed on
+    ok = (rc == 0 and "sidecar start mode=packaged" in log and "sidecar port=" in log and "sidecar exit code=0" in log
+          and "svf-maker smoke ok " in log and "smoke FAIL" not in log + out and "renderer sandbox: on" in log)
     check("smoke-" + name, ok, "rc=%s %.1f s; %s; smoke line %s" % (rc, seconds, sandbox,
                                                                    "seen" if "svf-maker smoke ok" in out else "not passed through"))
     return ok

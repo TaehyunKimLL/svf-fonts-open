@@ -166,6 +166,10 @@ test('resolveLaunch', () => {
   const wdev = resolveLaunch({ ...wbase, exists: () => false });
   assert.deepEqual(wdev, { mode: 'dev', cmd: 'python', args: ['-P', 'C:\\co\\maker\\server.py', '--exit-with-parent=42', '--stop-on-eof'],
     repo: 'C:\\co', data: 'C:\\ud\\maker-dev' });
+  // the dev interpreter is the first python.exe in an absolute PATH folder, never one in the working folder
+  const wpath = resolveLaunch({ ...wbase, env: { PATH: '.;py;C:\\Py312;C:\\Other' },
+    exists: (p) => p === 'C:\\Py312\\python.exe' || p === 'py\\python.exe' || p === 'python.exe' });
+  assert.equal(wpath.cmd, 'C:\\Py312\\python.exe');
 });
 
 test('log rotation, redaction, ring', (t) => {

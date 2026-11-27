@@ -6,6 +6,7 @@
   "licence": "LGPL-2.1-or-later",
   "source_url": "https://github.com/fribidi/fribidi",
   "class": "lgpl",
+  "from": "fetched",
   "licence_file": "lgpl-2.1.txt",
   "note": "loaded by Pillow's raqm layout; fetched and sha256-checked by desktop/build/fetch-fribidi-win.py",
   "record": {
