@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Tests of tools/tbmfont.py, the TBM part of docs/recipes/windows.md and tools/doc_figures_windows.py on synthetic
-TBM files built here (no font data).
+"""Tests of tools/tbmfont.py, the TBM part of docs/recipes/windows.md, tools/doc_figures_windows.py and
+tools/doc_figures_hbios.py on synthetic TBM files and a synthetic HBIOS disk built here (no font data).
   python3 -m unittest tools.test_tbmfont
 """
 import os
@@ -171,6 +171,39 @@ class Figures(unittest.TestCase):
             with open(png, "ab") as fh:
                 fh.write(b"x")
             run("tools/doc_figures_windows.py", "--bt16", src, "--out", out, "--check", code=1)
+
+
+class HbiosFigures(unittest.TestCase):
+    def test_check_round_trip(self):
+        """doc_figures_hbios.py on a synthetic HBIOS disk: four images, --check passes, a changed one fails."""
+        try:
+            import PIL  # noqa: F401
+        except ImportError:
+            self.skipTest("Pillow")
+        from test_recipes import eng_8x16, raw_johab
+        blank = {0, 20, 40, 60, 80, 100, 120, 140, 160, 182, 204, 226, 248, 276, 304, 332}   # slot 0 of every set
+        j16 = raw_johab(16, 360, blank)
+        j24 = raw_johab(24, 360, blank)
+        cell30 = b"".join(bytes(9) + j24[i * 72:(i + 1) * 72] + bytes(9) for i in range(360))        # rows 3-26 of 30
+        syl = b"".join(bytes(9) + glyph(i, 24, 24) + bytes(9) for i in range(2350))
+        eng = eng_8x16()
+        eng24 = b"".join(bytes(6) + glyph(c, 16, 24) + bytes(6) for c in range(256))
+        sym16 = b"".join(glyph(i, 16, 16) for i in range(6016))
+        sym24 = b"".join(bytes(9) + glyph(i, 24, 24) + bytes(9) for i in range(6016))
+        with tempfile.TemporaryDirectory() as d:
+            for name, data in (("$KGOZN16.FNT", j16), ("$KMYZN16.FNT", j16), ("$KMYZN24.FNT", cell30 + syl),
+                               ("$KSAHN16.FNT", eng), ("$KROHN16.FNT", eng), ("$KROHN24.FNT", eng24),
+                               ("$KSPHJ16.FNT", sym16), ("$KSPHJ24.FNT", sym24)):
+                wr(os.path.join(d, name), data)
+            self.assertEqual(len(cell30 + syl), 243900)
+            out = os.path.join(d, "png")
+            log = run("tools/doc_figures_hbios.py", "--disk", d, "--out", out)
+            self.assertEqual(sorted(os.listdir(out)), ["hbios-gothic16.png", "hbios-myeongjo16.png",
+                                                       "hbios-myeongjo24-precomposed.png", "hbios-myeongjo24.png"], log)
+            self.assertIn("check: ok", run("tools/doc_figures_hbios.py", "--disk", d, "--out", out, "--check"))
+            with open(os.path.join(out, "hbios-gothic16.png"), "ab") as fh:
+                fh.write(b"x")
+            run("tools/doc_figures_hbios.py", "--disk", d, "--out", out, "--check", code=1)
 
 
 if __name__ == "__main__":

@@ -1445,6 +1445,35 @@ file). The TTC images depend on Pillow and its FreeType (printed); the images in
 **Repository modules imported.** `tbmfont.py`, `svfline.py`, `binscan.py` (and the tools it runs). **Third-party.**
 Pillow (through `mkfont.py`). **Test.** `tools/test_tbmfont.py` (a synthetic BT16), `--check`.
 
+### `tools/doc_figures_hbios.py`
+
+**Purpose.** Draws the sample images of the "IBM PC DOS 한글 (HBIOS V3.0)" section of
+[recipes/dos-fonts.md](recipes/dos-fonts.md#ibm-pc-dos-한글-hbios-v30): the gothic 16 px, myeongjo 16 px and myeongjo
+24 px jamo sets of an IBM Korea HBIOS V3.0 disk, and the 2,350 precomposed syllables of the same 24 px file.
+
+**Status.** Special-purpose (documentation). A sibling of `tools/doc_figures_windows.py`: the same four lines, drawing
+and `--check` (its `draw` and `write_or_check`).
+
+**Inputs.** `--disk DIR`, the folder with the disk's font files under their own names (`$KGOZN16.FNT`, `$KMYZN16.FNT`,
+`$KMYZN24.FNT`, `$KSAHN16.FNT`, `$KROHN16.FNT`, `$KROHN24.FNT`, `$KSPHJ16.FNT`, `$KSPHJ24.FNT`); no path is written in
+the script, and an image whose files are missing is skipped. Each face is built in a temporary directory by the
+recipe's commands (`jamoset.py --layout 844` / `844-hbios24 --eng ... --symbols`, `rawcarve.py bdf`, `bdfface.py`, and
+`tbmfont.py map` + `rawcarve.py bdf --chars map` + `mkfont.py --only-listed` for the symbols), run with `python3 -I`.
+`HBIOS.EXE` and the drivers are never read.
+
+**Outputs.** `hbios-gothic16.png`, `hbios-myeongjo16.png`, `hbios-myeongjo24.png`, `hbios-myeongjo24-precomposed.png`
+in `docs/images/recipes/dos/` (8-bit grey, black on white, x2, no metadata), and one line per image.
+
+**Synopsis.**
+
+    python3 -I tools/doc_figures_hbios.py --disk DIR [--out DIR] [--check]
+
+`--check` renders in memory and compares with the files in `--out` byte for byte (exit 1 on a difference or a missing
+file).
+
+**Repository modules imported.** `doc_figures_windows.py` (and through it `tbmfont.py`, `svfline.py`, `binscan.py`).
+**Third-party.** Pillow (through `mkfont.py`). **Test.** `tools/test_tbmfont.py` (a synthetic HBIOS disk), `--check`.
+
 ## 8. Legacy format readers
 
 ### `tools/macfbit3.py`

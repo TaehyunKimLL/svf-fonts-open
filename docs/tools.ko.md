@@ -1336,6 +1336,31 @@ FreeType에 따라 달라진다(출력한다). 저장소의 그림은 Pillow 10.
 **내부 모듈.** `tbmfont.py`, `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow(`mkfont.py`를 거쳐).
 **테스트.** `tools/test_tbmfont.py`(합성 BT16), `--check`.
 
+### `tools/doc_figures_hbios.py`
+
+**목적.** [recipes/dos-fonts.ko.md](recipes/dos-fonts.ko.md#ibm-pc-dos-한글-hbios-v30)의 "IBM PC DOS 한글 (HBIOS V3.0)" 절의 샘플
+그림을 그린다: 한국IBM HBIOS V3.0 디스크의 고딕 16 px, 명조 16 px, 명조 24 px 자모 세트와 같은 24 px 파일의 완성형 음절 2,350자.
+
+**상태.** 특수 목적(문서). `tools/doc_figures_windows.py`의 짝으로, 같은 네 줄, 그리기, `--check`(그 `draw`와 `write_or_check`)를 쓴다.
+
+**입력.** `--disk DIR`: 디스크의 폰트 파일이 제 이름으로 든 폴더(`$KGOZN16.FNT`, `$KMYZN16.FNT`, `$KMYZN24.FNT`, `$KSAHN16.FNT`,
+`$KROHN16.FNT`, `$KROHN24.FNT`, `$KSPHJ16.FNT`, `$KSPHJ24.FNT`). 스크립트에는 경로가 없고, 파일이 없는 그림은 건너뛴다. 페이스마다
+임시 폴더에서 레시피의 명령(`jamoset.py --layout 844` / `844-hbios24 --eng ... --symbols`, `rawcarve.py bdf`, `bdfface.py`, 기호는
+`tbmfont.py map` + `rawcarve.py bdf --chars map` + `mkfont.py --only-listed`)을 `python3 -I`로 실행해 만든다. `HBIOS.EXE`와
+드라이버는 읽지 않는다.
+
+**출력.** `docs/images/recipes/dos/`의 `hbios-gothic16.png`, `hbios-myeongjo16.png`, `hbios-myeongjo24.png`,
+`hbios-myeongjo24-precomposed.png`(8비트 회색, 흰 바탕에 검은 글자, 2배, 메타데이터 없음)와 그림마다 한 줄.
+
+**사용법.**
+
+    python3 -I tools/doc_figures_hbios.py --disk DIR [--out DIR] [--check]
+
+`--check`는 메모리에서 그려 `--out`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없으면 종료 코드 1).
+
+**내부 모듈.** `doc_figures_windows.py`(그리고 그것을 거쳐 `tbmfont.py`, `svfline.py`, `binscan.py`). **서드파티.** Pillow
+(`mkfont.py`를 거쳐). **테스트.** `tools/test_tbmfont.py`(합성 HBIOS 디스크), `--check`.
+
 ## 8. 레거시 포맷 리더
 
 ### `tools/macfbit3.py`

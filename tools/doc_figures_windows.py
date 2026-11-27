@@ -162,12 +162,18 @@ def main(argv=None):
     images = render(args)
     if not images:
         ap.error("no font given")
+    return write_or_check(images, args.out, args.check)
+
+
+def write_or_check(images, out, check):
+    """Write {file: PNG bytes} into @p out, or with @p check compare them; returns the exit code (1 on a difference or a
+    missing file). Also used by tools/doc_figures_hbios.py."""
     bad = 0
-    if not args.check:
-        os.makedirs(args.out, exist_ok=True)
+    if not check:
+        os.makedirs(out, exist_ok=True)
     for png, data in images.items():
-        dest = os.path.join(args.out, png)
-        if args.check:
+        dest = os.path.join(out, png)
+        if check:
             try:
                 with open(dest, "rb") as fh:
                     same = fh.read() == data
@@ -179,7 +185,7 @@ def main(argv=None):
         else:
             with open(dest, "wb") as fh:
                 fh.write(data)
-    if args.check:
+    if check:
         print("check: " + ("ok" if not bad else f"{bad} image(s) differ or are missing"))
     return 1 if bad else 0
 
