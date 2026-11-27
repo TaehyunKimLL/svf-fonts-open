@@ -1040,8 +1040,10 @@ CD의 비트맵 서체 설치 폴더, `NAME/NAME[FFIL].rsrc`), `--kh85 DIR`(Mac 
 경로가 없고, 파일이 없는 페이스는 건너뛴다. 페이스마다 임시 폴더에서 레시피의 명령(`jamoset.py --layout mac-fbit-45sets --check`;
 `srcprep.py mac-htbl`, `macfbit3.py unpack` / `fbit`, `macfbit_svf.py build --latin`과 `verify`; `macsfnt.py extract` / `unicode`와
 스트라이크 크기에서의 `mkfont.py --size N --bpp 1`. 스트라이크 크기는 스크립트가 폰트의 `bloc` / `EBLC` 표를 경계 검사하는
-읽기 함수로 읽는다)을 `python3 -I`로 실행해 만든다. 짧은 부트스트랩이 도구의 경로에 사용자 site-packages를 더해 `macsfnt.py`와
-`mkfont.py`가 사용자 설치 fontTools를 찾게 한다(폰트 폴더와 작업 폴더는 경로에 들어가지 않는다).
+읽기 함수로 읽는다)을 `python3 -I`로 실행해 만든다. 짧은 부트스트랩이 도구의 경로 맨 앞에 도구 자신의 폴더를,
+맨 뒤에 사용자 site-packages 폴더를 넣어 `macsfnt.py`와 `mkfont.py`가 사용자 설치 fontTools를 찾게 한다. 그 폴더는 스크립트가
+계산해(`site.getusersitepackages()`. `PYTHONUSERBASE`와 홈 폴더를 따르므로 호출한 쪽의 환경에서 온다) 인수로 넘긴다. 작업 폴더는
+경로에 들어가지 않는다.
 
 **출력.** `docs/images/recipes/mac/`의 PNG 파일(8비트 회색, 흰 바탕에 검은 글자, 픽셀마다 2배, 메타데이터 없음): 페이스마다
 `tools/doc_figures_x11.py`의 네 줄. 페이스에 없는 문자는 그 줄에서 빼고 출력하며, 비게 된 줄은 뺀다(HangulTalk 1.0 폰트에는 한글만
@@ -1058,7 +1060,7 @@ CD의 비트맵 서체 설치 폴더, `NAME/NAME[FFIL].rsrc`), `--kh85 DIR`(Mac 
 
 **내부 모듈.** `doc_figures_x11.py`, `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow와
 fontTools(`mkfont.py`와 `macsfnt.py`를 거쳐). **테스트.** `tools/test_doc_figures_mac.py`(합성 표와 잘린 표에 대한 스트라이크
-읽기, 건너뜀 보고), `--check`.
+읽기, 건너뜀 보고, 부트스트랩의 경로: 모듈을 심어 둔 작업 폴더에서 실행해도 그 폴더가 경로에 없고 사용자 site가 맨 뒤에 온다), `--check`.
 
 ## 5. 빌드 스크립트
 

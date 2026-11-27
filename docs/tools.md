@@ -1110,8 +1110,10 @@ whose files are not there is skipped. Each face is built in a temporary director
 (`jamoset.py --layout mac-fbit-45sets --check`; `srcprep.py mac-htbl`, `macfbit3.py unpack` / `fbit`,
 `macfbit_svf.py build --latin` and `verify`; `macsfnt.py extract` / `unicode` and `mkfont.py --size N --bpp 1` at a
 strike's size, which the script reads from the font's `bloc` / `EBLC` table with a bounds-checked reader), run with
-`python3 -I`; a short bootstrap adds the user site-packages to the tools' path so that `macsfnt.py` and `mkfont.py`
-find a user-installed fontTools (the font folders and the working directory never enter the path).
+`python3 -I`; a short bootstrap puts the tool's own folder first on its path and appends the user site-packages
+folder, so that `macsfnt.py` and `mkfont.py` find a user-installed fontTools. The script computes that folder
+(`site.getusersitepackages()`, which follows `PYTHONUSERBASE` and the home folder, so it comes from the caller's
+environment) and passes it in; the working directory is not on the path.
 
 **Outputs.** PNG files in `docs/images/recipes/mac/` (8-bit grey, black on white, every pixel doubled, no metadata): per
 face the four lines of `tools/doc_figures_x11.py`. A character the face lacks is left out of its line and printed, and
@@ -1130,7 +1132,8 @@ its FreeType (printed); the images in the repository were made with Pillow 10.2.
 
 **Repository modules imported.** `doc_figures_x11.py`, `svfline.py`, `binscan.py` (and the tools it runs).
 **Third-party.** Pillow and fontTools (through `mkfont.py` and `macsfnt.py`). **Test.** `tools/test_doc_figures_mac.py`
-(the strike reader on synthetic and truncated tables, the skip report), `--check`.
+(the strike reader on synthetic and truncated tables, the skip report, the bootstrap's path: run from a working
+directory with a planted module, the directory is not on the path and the user site comes last), `--check`.
 
 ## 5. Build scripts
 

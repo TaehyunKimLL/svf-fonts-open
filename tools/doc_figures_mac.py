@@ -33,8 +33,10 @@ Each face is built in a temporary directory with the commands of the recipes, ru
                             (read from its 'bloc' / 'EBLC' table here), so FreeType draws the strike's pixels
 
 macsfnt.py unicode and mkfont.py need fontTools (mkfont.py takes a bitmap-only font's advances from it); `python3 -I`
-hides a user-site install, so the tools are started with a two-line bootstrap that adds the user site-packages
-directory (never the font's folder or the working directory) to their path.
+hides a user-site install, so the tools are started with a short bootstrap (BOOT) that adds two folders to their path:
+the tool's own folder and the user site-packages folder, which this script computes (site.getusersitepackages(); it
+follows PYTHONUSERBASE and the home folder, so it comes from the caller's environment) and passes in as an argument.
+It is appended last, and only when it is a folder; the working directory is never on the path.
 
 Writes into DIR (default docs/images/recipes/mac/), one PNG per face: four lines (two Korean pangrams, an English line,
 ASCII symbols and the KS X 1001 symbols of doc_figures_x11.SYMBOLS) drawn with svfline.py as doc_figures_x11 draws
@@ -86,16 +88,25 @@ FACES = (
     ("kh85-hangang16.png", "kh85", ("한강체[FFIL].rsrc",), "sfnt", 16),
 )
 
-# Started as `python3 -I -c BOOT TOOL ARGS...`: -I keeps the working directory and the environment out of the path;
-# the tool's own folder and the user site-packages (fontTools may be installed there) are added explicitly.
-BOOT = ("import os, runpy, site, sys; t = sys.argv[1]; sys.argv = sys.argv[1:]; "
-        "sys.path.insert(0, os.path.dirname(t)); u = site.getusersitepackages(); "
-        "(isinstance(u, str) and os.path.isdir(u)) and sys.path.append(u); "
+# Started as `python3 -I -c BOOT USERSITE TOOL ARGS...`: -I keeps the working directory and PYTHONPATH out of the
+# path; the tool's own folder goes first, USERSITE (fontTools may be installed there; "" for none) last when it is a
+# folder.
+BOOT = ("import os, runpy, sys; u, t = sys.argv[1], sys.argv[2]; sys.argv = sys.argv[2:]; "
+        "sys.path.insert(0, os.path.dirname(t)); "
+        "u and os.path.isdir(u) and u not in sys.path and sys.path.append(u); "
         "runpy.run_path(t, run_name='__main__')")
 
 
+def user_site():
+    """The user site-packages folder as this Python reports it (from PYTHONUSERBASE or the home folder), or ""."""
+    import site
+    u = site.getusersitepackages()
+    return u if isinstance(u, str) else ""
+
+
 def tool(script, *args):
-    r = subprocess.run([sys.executable, "-I", "-c", BOOT, os.path.join(ROOT, script)] + [str(a) for a in args],
+    r = subprocess.run([sys.executable, "-I", "-c", BOOT, user_site(), os.path.join(ROOT, script)]
+                       + [str(a) for a in args],
                        capture_output=True, text=True)
     if r.returncode:
         raise SystemExit(f"doc_figures_mac: {script} exit {r.returncode}\n{r.stdout}{r.stderr}")

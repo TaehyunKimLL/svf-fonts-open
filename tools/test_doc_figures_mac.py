@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""tools/doc_figures_mac.py on synthetic data: the bounds-checked 'bloc' / 'EBLC' strike reader and the skip report of
---check when a font folder or file is not given or not there."""
+"""tools/doc_figures_mac.py on synthetic data: the bounds-checked 'bloc' / 'EBLC' strike reader, the skip report of
+--check when a font folder or file is not given or not there, and the bootstrap the tools are started with."""
 import contextlib
 import io
+import json
 import os
+import subprocess
 import struct
 import sys
 import tempfile
@@ -86,6 +88,51 @@ class SkipTest(unittest.TestCase):
             self.assertEqual(images, {})
             self.assertIn("ht712-seoul12.png", skipped)
             self.assertIn("kh85-hangang16.png", skipped)                          # its file is not there
+
+
+PROBE = """import json, os, sys
+print(json.dumps({"path": sys.path, "cwd": os.getcwd(), "argv": sys.argv}))
+"""
+
+
+class BootTest(unittest.TestCase):
+    def run_boot(self, usersite):
+        """sys.path, cwd and argv a probe script sees when started by BOOT from a temporary working directory."""
+        with tempfile.TemporaryDirectory() as tools, tempfile.TemporaryDirectory() as cwd:
+            probe = os.path.join(tools, "probe.py")
+            with open(probe, "w") as fh:
+                fh.write(PROBE)
+            with open(os.path.join(cwd, "json.py"), "w") as fh:      # a planted module in the working directory
+                fh.write("raise SystemExit('planted json.py imported')\n")
+            r = subprocess.run([sys.executable, "-I", "-c", D.BOOT, usersite, probe, "a", "b"], cwd=cwd,
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            return out, tools, os.path.realpath(cwd)
+
+    def test_cwd_not_on_path(self):
+        out, tools, cwd = self.run_boot("")
+        self.assertEqual(os.path.realpath(out["cwd"]), cwd)
+        real = [os.path.realpath(p) if p else p for p in out["path"]]
+        self.assertNotIn(cwd, real)
+        self.assertNotIn("", out["path"])
+        self.assertEqual(out["path"][0], tools)                                  # the tool's own folder first
+        self.assertEqual(out["argv"][1:], ["a", "b"])
+
+    def test_user_site_last(self):
+        with tempfile.TemporaryDirectory() as site:
+            out, _, _ = self.run_boot(site)
+            self.assertEqual(out["path"][-1], site)
+            self.assertEqual(out["path"].count(site), 1)
+
+    def test_user_site_absent(self):
+        missing = os.path.join(tempfile.gettempdir(), "no-such-user-site-for-doc-figures-mac")
+        out, _, _ = self.run_boot(missing)
+        self.assertNotIn(missing, out["path"])
+
+    def test_user_site_from_this_python(self):
+        u = D.user_site()
+        self.assertIsInstance(u, str)
 
 
 if __name__ == "__main__":
