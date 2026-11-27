@@ -94,8 +94,8 @@ half width (SBCS, English), ZN full width (DBCS, Hangul), SPHJ symbols and hanja
 | `SPHJ1616` | `$KSPHJ16.FNT` | 192,512 | 16x16: the 1,128 symbol slots + 4,888 hanja (KS X 1001 order, 32 bytes) |
 | `SPHJ2424` | `$KSPHJ24.FNT` | 541,440 | 24x30 cells: the 1,128 symbol slots + 4,888 hanja (90 bytes) |
 
-`$KGOZN24.FNT` (gothic 24) is named in the configuration but not on the disk. `HJSPC.TBL` (12,508 bytes) is a code
-table with no glyphs; the `*.DRV` files are display and keyboard drivers. The driver composes syllables from a jamo
+`$KGOZN24.FNT` (gothic 24) is named in the font list of `HCONFIG.EXE` (the configuration program) but is not on the
+disk. `HJSPC.TBL` (12,508 bytes) is a code table with no glyphs; the `*.DRV` files are display and keyboard drivers. The driver composes syllables from a jamo
 set, so the 16 px files are the raw 8x4x4 of [the table above](#other-dos-era-korean-fonts) and the 24 px file is the
 `844-hbios24` layout (the layout of Taebaek 3.5's `GOTHIC24.FNT` and `MY24.FNT`). The English half is the disk's SBCS
 file: the 8x16 ones are raw 4,096-byte fonts, and `--eng` knows the 12x24 one in 16x30 cells by its size (15,360).
