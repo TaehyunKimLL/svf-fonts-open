@@ -75,7 +75,7 @@ HangulTalk 1.0 `fbit`, HangulTalk 7.1.x type-3 `fbit`, System 7.5.3–Mac OS 8.5
 ### Mac OS 7.6.1 (1997), 8.5 (1998), 8.6 (1999)
 
 - **7.6.1:** 한글 `sfnt`(비트맵 전용과 윤곽선 사본) 모두 7.5.3과 바이트까지 같다. `자형 폴더`에는 AppleGothic, AppleMyungjo, Seoul, #신명조, #궁서체, #필기체가 있다.
-- **8.5:** AppleGothic, AppleMyungjo는 7.5.3의 `bdat`, `bloc`을 그대로 쓰고 `cmap`(유니코드 하위 표 추가), `head`, `hhea`만 바뀌었다. Seoul은 새로 그렸다: 글리프 9,912개, 새 `bdat`. 한강체가 새로 들어왔다: 완성형, 스트라이크 9–24(8개), 글리프 9,914개, 음절 2,350, 자모 94, 한자 4,888(KS X 1001 집합. Mac cmap에는 한자 행 안이지만 KS X 1001 밖인 코드 DBA0, E162 두 개도 있다), 유니코드 코드 8,474개. System 파일의 `.Last Resort` 폰트는 11,172음절 모두를 대체 글리프(전체 247개)에 대응시킬 뿐 한글 페이스가 아니다. 이 폴더의 `AppleGothic [fbit]`, `AppleMyungjo [fbit]`, `Seoul [fbit]`, `한강체 [fbit]` 파일(16–19 KB)은 스트라이크 설명 파일이다: 각 1,367–1,966 B의 `fbit` 레코드 8개와, Seoul을 뺀 나머지에 `fdef` 42 `Main`(6,418 B). 글리프는 없다.
+- **8.5:** AppleGothic, AppleMyungjo는 7.5.3의 `bdat`, `bloc`을 그대로 쓰고 `cmap`(유니코드 하위 표 추가), `head`, `hhea`만 바뀌었다. Seoul은 새로 그렸다: 글리프 9,912개, 새 `bdat`. 한강체가 새로 들어왔다: 완성형, 스트라이크 9–24(8개), 글리프 9,914개, 음절 2,350, 자모 94, 한자 4,888(KS X 1001 집합. Mac cmap에는 한자 행 안이지만 KS X 1001 밖인 코드 DBA0, E162 두 개도 있다. 글리프 `uniDBA0`/`uniE162`이고 유니코드 cmap이 가리키지 않으므로 한자가 더 있는 것이 아니다), 유니코드 코드 8,474개. System 파일의 `.Last Resort` 폰트는 11,172음절 모두를 대체 글리프(전체 247개)에 대응시킬 뿐 한글 페이스가 아니다. 이 폴더의 `AppleGothic [fbit]`, `AppleMyungjo [fbit]`, `Seoul [fbit]`, `한강체 [fbit]` 파일(16–19 KB)은 스트라이크 설명 파일이다: 각 1,367–1,966 B의 `fbit` 레코드 8개와, Seoul을 뺀 나머지에 `fdef` 42 `Main`(6,418 B). 글리프는 없다.
 - **8.6:** 폰트 suitcase와 System 파일 중 한글은 `자형 폴더/Seoul`뿐이고, 8.5와 바이트까지 같다.
 
 <a id="클래식-mac-한글-비트맵-폰트"></a>

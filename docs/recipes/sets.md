@@ -40,7 +40,7 @@ longer gains: at least 0.05 % of the starting cost, at least 4 syllables a side,
 are 12 × 12 for `jamoset.py --layout adaptive` (even with `--jset-big`, which only lets a source's own larger tables be written).
 `jamovec.py master --adaptive NI,NM,NF` and `--class-limit N` do the same for a vector master (counts above the standard limits require `jamovec.py render --jset-big` and a renderer built with `SVF_JSET_BIG`;
 counts beyond the BIG limits can only be simulated). After a fit, `jamomerge.py merge --points BYTES ...` merges variants, sets and classes
-down to byte budgets ([Classic Mac Korean bitmap fonts](classic-mac.md#classic-mac-hangultalk-71) has a run), and
+down to byte budgets ([HangulTalk 7.1.x type-3 `fbit` fonts](classic-mac.md#classic-mac-hangultalk-71) has a run), and
 `jamoexc.py` stores a few frequent syllables whole (LIST exceptions) instead of adding sets.
 
 **Measured** (2026-11-22): every layout fitted with `jamoset.py --layout L --from-svf FACE --mask-font none --check` to
