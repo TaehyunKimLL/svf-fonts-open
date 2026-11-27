@@ -32,6 +32,7 @@
 - [비트맵 폰트](#비트맵-폰트)
 - [DOS 시대 원시 폰트](#dos-시대-원시-폰트)
 - [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기)
+- [한국 MSX 폰트 (MSX2와 MSX1)](#한국-msx-폰트-msx2와-msx1)
 - [MAME 세트의 한글 폰트 ROM](#mame-세트의-한글-폰트-rom)
 - [OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)
 - [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)
@@ -69,6 +70,7 @@
 | HWP 3.0 `HAN*.FNT`(음절 2,350개, 16 px는 8x4x4 벌 체계 추가) | `hwpfont.py bdf` 다음 `mkfont.py` | `jamoset.py --layout 844-hwp3`(16 px), 그 밖에는 `--from-svf` | [HWP 3.0 FNT 폰트](#hwp-30-fnt-폰트) |
 | KS X 1001 원시 덤프(코드 순서의 음절 2,350개, 또는 94 x 94 표) | `hwpfont.py bdf`(16-48 px 덤프), 또는 `rawcarve.py bdf --dense` / `--grid`; 다음 `mkfont.py`나 `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
 | 프로그램이나 ROM 안의 폰트(DOS 드라이버나 TSR, 워드프로세서, 한글 VGA BIOS + 폰트 ROM) | 찾기는 `binscan.py`, 잘라 내기는 `rawcarve.py`(원시, BDF, 또는 드라이버 규칙대로 조합), 다음 `bdfface.py` | 잘라 낸 원시 폰트에 `jamoset.py --layout 844`, 또는 `--from-svf` | [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기) |
+| 한국 MSX ROM(대우, 금성: MSX2 SUB-ROM, CPC-400S 폰트 ROM, MSX1 BIOS) | `msxfont.py kfn-map` + `rawcarve.py bdf --chars map`(CPC-400S), `msxfont.py msx1` + `mkfont.py`(MSX1), 그다음 `bdfface.py` | `jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json`(MSX2, 정확) | [한국 MSX 폰트](#한국-msx-폰트-msx2와-msx1) |
 | MAME 세트에 든 한국 기계나 아케이드 게임의 ROM(반전된 자모 ROM, 여러 비트 스프라이트 타일) | `rawcarve.py region` + `ink --gfx`(또는 `--invert`), `rawcarve.py bdf --dense`, 그다음 `bdfface.py` | `jamoset.py --layout spec`(자체 규칙이 있는 폰트, 정확), 잘라 낸 8x4x4 폰트에 `--layout 844`, 또는 `--from-svf` | [MAME 세트의 한글 폰트 ROM](#mame-세트의-한글-폰트-rom) |
 | OS/2 한글 System DBCS 폰트(`$korZN16.FNT`, `$korZN24.FNT`, 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 한글 폰트(완성형)](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) |
 | 자모 글리프가 있는 TTF(첫가끝 자모, PUA 조각, GSUB `ljmo`) | 다른 TTF와 같이 | 합성 글리프는 `jamovec.py --components`, 변형은 `--mask-font`, 그 밖에는 맞춤 | [이미 자모를 가진 TrueType 폰트](#이미-자모를-가진-truetype-폰트) |
@@ -1004,10 +1006,9 @@ strips`). 가(B0A1)는 슬롯 0x1821이며, 세 ROM 모두 렌더가 가 각 간
 ROM에는 KS X 1001 표 전체가 있다. `--chars ks-nonhanja`는 기호와 자모를, `ks-all`은 한자까지 더한다(BDF를 그대로 두는 `mkfont.py`용.
 `bdfface.py`는 음절과 ASCII만 남긴다). `rawcarve.py eng tgkorvga.bin --offset 0x4a2d`는 같은 영문 폰트를 원시 `--eng` 파일로 준다.
 
-확인한 다른 ROM 묶음: openMSX 시스템 ROM 묶음(file-hunter의 RomDB, 파일 1,241개)에는 한글 폰트가 하나 있다. 대우 CPC-400S의
-`400skfn.rom`(131,072 바이트: 16x16, 글리프당 32 바이트, 256 KB 폰트의 앞 절반, KS 기호와 기계 자신의 순서로 된 음절 1,316개.
-johab-fonts `notes/msx.md`). 다른 한국 MSX ROM(`cpc-300_hangul`, `dpc-200_hangul`, `cpc-400s_hangul`)은 한글 BASIC 코드이고, MSX1의
-자모 폰트는 BIOS의 8x8 문자표다. 88emuplayer ROM 묶음(`88emuplayer-roms.zip`)에는 Roland 음원 모듈 ROM(SC-55, SC-88, SC-8850, CM-300)만 있고 폰트는
+확인한 다른 ROM 묶음: openMSX 시스템 ROM 묶음(file-hunter의 RomDB, 파일 1,241개)에는 한글 폰트가 셋 있다. 대우 MSX2 SUB-ROM의
+자모 세트 폰트, CPC-400S의 256 KB 완성형 폰트, 한국 MSX1 BIOS의 8x8 자모 셀이다. 한글 BASIC ROM(`cpc-300_hangul`, `dpc-200_hangul`)에는
+드라이버만 있고 글리프는 없다([한국 MSX 폰트](#한국-msx-폰트-msx2와-msx1)). 88emuplayer ROM 묶음(`88emuplayer-roms.zip`)에는 Roland 음원 모듈 ROM(SC-55, SC-88, SC-8850, CM-300)만 있고 폰트는
 없다. MAME 롬셋은 [MAME 세트의 한글 폰트 ROM](#mame-세트의-한글-폰트-rom)에 있다.
 
 데스크톱 앱은 세 쌍을 크기와 SHA-256으로 알아본다(내장 레시피 `maker/recipes/86box-tgkorvga.json`, `86box-kasan16.json`,
@@ -1015,6 +1016,182 @@ johab-fonts `notes/msx.md`). 다른 한국 MSX ROM(`cpc-300_hangul`, `dpc-200_ha
 페이스 `TGVGA16` / `KASAN16` / `ATIVGA16`(경로 `bdfface`)과 자모 세트 `TGVGA16J` / `KASAN16J` / `ATIVG16J`(`bdfface + from-svf fit`,
 experimental)를 위의 명령으로 만든다. `SVF_MAKER_REAL_86BOX`가 내려받은 파일을 가리키게 하고 실행하면(`maker/test/test_recipe.py`)
 표의 모든 페이스가 바이트 단위로 그 크기가 된다.
+
+<a id="한국-msx-폰트-msx2와-msx1"></a>
+
+### 6.5. 한국 MSX 폰트 (MSX2와 MSX1)
+
+한국 MSX 컴퓨터(대우, 금성. 1984-1988)는 한글 폰트 세 가지를 ROM에 두고, 저마다 다른 규칙으로 그린다.
+
+| 기종 | 폰트의 위치 | 종류 | 결과 |
+|---|---|---|---|
+| 대우 CPC-300, CPC-300E, CPC-330K, CPC-400S (MSX2) | SUB-ROM(`cpc-300_msx2sub.rom`)의 위쪽 16 KB. CPC-400S는 `CPC-400S.U44`의 앞 16 KB | 16x16 자모 조각: 초성 6벌 x 20, 중성 2벌 x 28, 종성 2벌 x 29 | 정확한 자모 세트, 11,172자 전부 |
+| 대우 CPC-400, CPC-400S (MSX2) | I/O 포트 D8h/D9h 뒤의 256 KB 폰트 ROM `cpc-400s_hangulfont.rom` | 16x16 완성형, 기계 자신의 순서. 코드 -> 슬롯 표는 "Kanji control ROM"(`CPC-400S.U44`의 마지막 16 KB)에 | 드라이버가 그릴 수 있는 2,591자의 완성형 페이스 |
+| 대우 DPC-100, DPC-180, DPC-200, 금성 FC-80U (MSX1) | BIOS 문자 표 0x1B49(`dpc-200_basic-bios1.rom`) | 8x8 자모 셀, 음절 하나 = 텍스트 2행 x 1열 또는 2열 | 완성형 페이스. 배치 규칙은 실행 중인 기계에서 읽었다 |
+
+한글 BASIC ROM(`cpc-300_hangul.rom`, `dpc-200_hangul.rom`, `fc-80u_hangul.rom`)에는 드라이버(조합 코드와 MSX-TUTOR 프로그램)가 있고
+글리프는 없다. 아래 파일 이름은 openMSX 시스템 ROM의 이름이고, `$ROMS`는 그 파일들이 든 폴더다.
+
+**출처와 라이선스.** 이 폰트들은 독점 ROM 칩의 덤프에 든 대우와 금성의 펌웨어 디자인이다. 연구용으로만 쓰며, `svf/`의 페이스는
+이것으로 만들지 않는다. openMSX 시스템 ROM 묶음은 file-hunter의 내려받기 서버(폴더 `System ROMs/RomDB SystemROMs OpenMSX`)에 있다.
+서버는 curl의 기본 User-Agent를 HTTP 405로 거부하고, 브라우저 User-Agent에 그 폴더를 Referer로 주면 받을 수 있다. openMSX의 기종
+파일(`share/machines/Daewoo_CPC-300.xml`, `Daewoo_CPC-400S.xml`, `Daewoo_DPC-200.xml`, `Goldstar_FC-80U.xml`)에 ROM마다 파일 이름과
+SHA1이 있으니, 쓰기 전에 `sha1sum`으로 확인한다.
+
+| 파일 | 바이트 | SHA1 |
+|---|---:|---|
+| `cpc-300_msx2sub.rom` | 32,768 | `fb51c505adfbc174df94289fa894ef969f5357bc` |
+| `cpc-300e_msx2sub.rom` | 32,768 | `09f7d788698a23aa7eec140237e907d4c37cbfe0` |
+| `CPC-400S.U44` | 65,536 | `6b640c1d8cbeda6ca7d6facd16a206b62e059eee` |
+| `cpc-400s_hangulfont.rom` | 262,144 | `22d5f4e522250dc5eb17e15b68f4a51bb752cba1` |
+| `dpc-200_basic-bios1.rom` (= DPC-100, DPC-180, FC-80U BIOS) | 32,768 | `171b587bd5a947a13f3114120b6e7baca3b57d78` |
+
+도구는 ROM을 읽기만 한다(`python3 -I`). 기계는 에뮬레이터(openMSX) 안에서만 돌린다([한국 MSX 기종과 openMSX](#ref-msx) 참고).
+
+#### MSX2: 대우 자모 세트 폰트(정확)
+
+SUB-ROM 머리의 4014h, 4016h, 4018h, 401Ah에 포인터 워드 네 개가 있다(CPU 주소 = 파일 오프셋): 초성 조각 0x59DE, 중성 0x68DE,
+종성 0x6FDE, 8x16 영문 폰트 0x771E(코드 0x10부터라서 코드 0은 0x761E. `binscan.py ascii`도 0x761e를 찾는다). 조각은 32바이트(16x16,
+행 우선, MSB가 왼쪽)이고 음절은 세 조각의 OR이다. `cpc-300_hangul.rom`의 한글 BASIC 루틴 4DC4h가 조합형 코드로 벌을 고른다(M = 중성
+코드).
+
+| 음절 | 초성 벌 | 중성 벌 | 종성 벌 |
+|---|---|---|---|
+| 받침 없음, 세로 모음(ㅏ .. ㅣ) | 1 | 7 | - |
+| 받침 없음, ㅗ ㅛ ㅜ ㅠ ㅡ | 2 | 7 | - |
+| 받침 없음, ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ ㅢ | 5 | 7 | - |
+| 받침, 세로 모음 | 3 | 8 | ㅏ ㅑ ㅣ는 10, 그 밖은 9 |
+| 받침, ㅗ ㅛ ㅜ ㅠ ㅡ | 4 | 8 | 9 |
+| 받침, ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ ㅢ | 6 | 8 | ㅘ ㅚ ㅟ ㅢ는 10, 그 밖은 9 |
+
+조각 번호: 초성 (벌 - 1) x 20 + 코드 - 1(조합형 초성 2 .. 20), 중성 (벌 - 7) x 28 + M - 2, 종성 (벌 - 9) x 29 + 코드 - 1. 조합형
+종성 코드는 18을 건너뛰므로 종성 벌은 받침 27개에 칸이 29개다. 폰트 블록 전체는 0x59DE .. 0x7E1E, 9,280바이트(조각 290개)다.
+이 규칙이 compose 명세 `tools/specs/msx2-daewoo.json`이다. 오프셋은 블록 시작에서 재고, 종성 벌은 쓰는 칸을 적어 두므로(`"slots"`)
+명세 하나로 모든 기종의 블록을 읽는다.
+
+    python3 -I tools/rawcarve.py cut $ROMS/cpc-300_msx2sub.rom --offset 0x59DE --length 9280 -o $OUT/cpc300-font.bin
+    python3 -I tools/rawcarve.py cut $ROMS/CPC-400S.U44 --offset 0x19E8 --length 9280 -o $OUT/cpc400s-font.bin
+    cmp $OUT/cpc300-font.bin $OUT/cpc400s-font.bin        # 같다(CPC-300E의 0x59DE도)
+    python3 -I tools/rawcarve.py eng $ROMS/cpc-300_msx2sub.rom --offset 0x761E -o $OUT/cpc300-eng.bin
+    python3 -I tools/jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json $OUT/cpc300-font.bin \
+        --eng $OUT/cpc300-eng.bin --check -o $OUT/CPC300J.SVF
+    #   ... 10584 bytes, 210 pieces of 16x16 ... by the spec's rule (6/2/2 sets, 1x2 classes)
+    #   check: all 11172 syllables identical to rawcarve.py compose
+    python3 -I tools/rawcarve.py compose $OUT/cpc300-font.bin --spec tools/specs/msx2-daewoo.json --syllables all \
+        --ascent 14 -o $OUT/cpc300-hangul.bdf
+    python3 -I tools/rawcarve.py bdf $ROMS/cpc-300_msx2sub.rom --offset 0x761E --glyph 8x16 --chars ascii --ascent 14 \
+        -o $OUT/cpc300-ascii.bdf
+    python3 -I tools/bdfface.py --hangul $OUT/cpc300-hangul.bdf --ascii $OUT/cpc300-ascii.bdf --cell 16x16 \
+        --chars-from $OUT/ks.txt -o $OUT/CPC300.SVF
+
+CPC-400S에서는 같은 블록이 SUB-ROM 절반의 사본에서 10바이트 뒤에 있고(포인터 59E8h, 68E8h, 6FE8h, 7728h), 그 사본이 4000h에 놓이는
+`CPC-400S.U44`의 앞 16 KB이므로 0x19E8이다. 결과(2026-11-27): 자모 세트 `10,584 bytes`, 글리프 305개(조각 210, ASCII 95), JSET
+707바이트, `width=144 ascent=14 descent=2`, 잉크 333. 완성형 `125,012 bytes`, 글리프 2,447개, 같은 줄과 잉크. 명세로 조합한 11,172자는
+루틴 4DC4h를 따로 구현한 것과 모두 같다(CPC-300과 CPC-400S ROM 모두).
+
+#### MSX2: CPC-400S 완성형 폰트
+
+`cpc-400s_hangulfont.rom`은 262,144바이트, 32바이트 슬롯 8,192개(16x16, 행 우선)다. 드라이버는 슬롯의 아래 6비트를 포트 D8h에,
+위 7비트를 D9h에 쓰고 D9h에서 32바이트를 읽는다(openMSX의 `MSXKanji` 장치, 종류 `hangul`). 슬롯 배치: 0-1408 KS X 1001 기호(슬롯 =
+(행 - 1) x 94 + 열 - 1, 1-15행), 1410-2725 한글 목록 A(1,316자), 2726-4416 한자 1군, 4417-5693 한글 목록 B(1,275자), 그 뒤 한자 두 군.
+음절이 기계 자신의 순서로 있으므로 드라이버의 표를 거쳐 읽는다. Kanji control ROM(`CPC-400S.U44`의 마지막 16 KB, 8000h에 놓임)의
+루틴 8A96h는 조합형 코드를 받아 trail 바이트를 목록 A(lead 88h .. D3h별 시작 오프셋 97BFh, trail 바이트 98F3h)나 목록 B(9859h, 9E18h)에서
+찾고, 슬롯 0581h + 순번(A) 또는 1141h + 순번(B)을 그린다. `tools/msxfont.py kfn-map`이 그 표를 슬롯 목록으로 읽고
+`rawcarve.py bdf --chars map`이 글리프를 잘라 낸다.
+
+    python3 -I tools/msxfont.py kfn-map $ROMS/CPC-400S.U44 -o $OUT/cpc400s-map.txt
+    #   2591 syllables (2217 of the 2,350 KS X 1001), slots 1410..5692
+    python3 -I tools/rawcarve.py bdf $ROMS/cpc-400s_hangulfont.rom --glyph 16x16 --chars map --map $OUT/cpc400s-map.txt \
+        --ascent 14 -o $OUT/cpc400s-hangul.bdf
+    python3 -I tools/rawcarve.py bdf $ROMS/CPC-400S.U44 --offset 0x3628 --glyph 8x16 --chars ascii --ascent 14 \
+        -o $OUT/cpc400s-ascii.bdf
+    python3 -c "import sys; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in range(0xAC00, 0xD7A4)))" $OUT/all.txt
+    python3 -I tools/bdfface.py --hangul $OUT/cpc400s-hangul.bdf --ascii $OUT/cpc400s-ascii.bdf --cell 16x16 \
+        --chars-from $OUT/all.txt -o $OUT/CPC400S.SVF
+
+결과: `137,416 bytes`, 글리프 2,688개(음절 2,591, ASCII 95, U+2026, U+25A1), `width=144 ascent=14 descent=2`, 잉크 437.
+`--chars-from $OUT/ks.txt`로는 음절 2,217자, `117,976 bytes`(KS 음절 133자, 그 가운데 뷁과 힣은 ROM에 없다). 이 페이스의 8x4x4 맞춤
+(`jamoset.py --layout 844 --from-svf`)은 IoU 0.794(`19,900 bytes`, 정확히 맞은 음절 83자)에 그친다. 완성형 디자인이 자모 조각으로
+짜여 있지 않기 때문이다. 한자 군은 KS X 1001이 아닌 드라이버 자신의 코드(lead 바이트 D4h 이상)를 쓰며, 여기서는 뺀다.
+
+#### MSX1: BIOS의 자모 셀을 기계처럼 배치하기
+
+한국 MSX1 BIOS는 표준 문자 표(0x1BBF) 대신 0x1B49에 자신의 표를 둔다: 8x8 셀 256개, 0x20-0x7E에 라틴 문자, 0x86-0x98에 초성 19개,
+0x99-0xA6에 모음, 0xA7-0xFB에 "ㅗ ㅛ ㅜ ㅠ ㅡ 위의 초성" 셀 85개(마지막 10개는 0x02-0x0B로 이어진다), 0x0C-0x0E에 획 끝 조각.
+모아쓰기 모드(`POKE -851,0`)에서 한글 ROM은 음절을 이 셀들의 텍스트 2행으로 찍는다. 너비는 겹받침이 없는 ㅗ ㅛ ㅜ ㅠ ㅡ 음절이면
+1열, 그 밖은 2열이다. 어느 셀이 어디에 가는지는 표로 저장되어 있지 않아서, 실행 중인 기계에서 읽었다.
+
+방법(openMSX 19.1, 기종 `Daewoo_DPC-200`, Xvfb에서 화면 없이):
+
+1. Tcl 스크립트로 기계를 켠다: `xvfb-run -a openmsx -machine Daewoo_DPC-200 -script harvest.tcl`. 스크립트 첫 줄에 `set throttle off`를
+   두면 에뮬레이션이 호스트가 허락하는 만큼 빨리 돈다(부팅, 입력, 화면 146개에 약 2초). 이때는 프레임을 그리지 않으므로 스크린샷(5단계)은
+   throttle을 켜고 찍는다.
+2. 음절이 어떤 바이트로 저장되는지 찾는다: BASIC `REM` 줄에 두벌식 키를 친다(한/영은 키 행렬 6행 비트 4: `keymatrixdown 6 0x10`, 이어서
+   `keymatrixup 6 0x10`). 그리고 프로그램을 RAM에서 읽는다(`debug read_block "Main RAM" 0 0x10000`, 프로그램은 F676h의 주소부터).
+   음절은 자모 바이트로 저장된다: 초성 0x86 + L, 모음 셀(ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D ㅔ 9E ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6.
+   겹모음은 둘: ㅘ = A1 99, ㅢ = A5 A6), 받침은 그 자음의 셀(ㄳ = 86 8F). ROM은 찍을 때 조합한다.
+3. RAM에 놓은 음절을 찍는 프로그램을 친다: `type "poke -851,0\r"`(모아쓰기), 그리고 한 줄씩 `10 defint a-z`,
+   `20 if peek(&hbffe)=0 then 20`, `30 poke &hbffe,0:poke &hbfff,0:cls:a=&hc000`, `40 for k=0 to 76`,
+   `50 locate (k mod 7)*4,(k\7)*2`, `60 n=peek(a):a=a+1`, `70 for j=1 to n:print chr$(peek(a));:a=a+1:next`,
+   `80 print " ";`, `90 next`, `100 poke &hbfff,1`, `110 goto 20`, 그리고 `run`. 화면마다 77자(한 행에 7자: 텍스트 창이 2열 안쪽에서
+   시작하므로 4열짜리 칸이 한 행에 8개가 아니라 7개 들어간다).
+4. 화면마다 스크립트가 77자(음절마다 길이 바이트와 자모 바이트)를 `debug write_block "Main RAM" 0xC000 ...`로 C000h에 쓰고, BFFEh를
+   1로 놓고, 프로그램이 BFFFh를 1로 놓을 때까지 기다린 뒤, SCREEN 1 이름 표를 파일에 덧붙인다(`debug read_block VRAM 0x1800 768`).
+   패턴 표는 한 번만(`debug read_block VRAM 0 2048`). 화면 146개가 11,172자를 덮는다. 결과는 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
+5. 눈으로 확인: `screenshot FILE.png`(throttle 켬)가 이름 표가 말하는 화면을 보여 준다.
+6. 이름 표에서 규칙을 이끌어 내고(음절마다 셀 코드, 모음 종류와 받침별로 모아서) 모든 음절에 대어 본다. `tools/msxfont.py msx1-verify
+   PREFIX --bios BIOS`가 `PREFIX.index`(음절, 한 줄에 16진 코드 하나), `PREFIX.names`, `PREFIX.patterns`를 읽는다.
+
+        python3 -I tools/msxfont.py msx1-verify $OUT/dpc200 --bios $ROMS/dpc-200_basic-bios1.rom
+        #   layout rule vs the machine: 11172 of 11172 syllables identical
+        #   VRAM pattern table vs the BIOS table: 255 of 256 cells identical (differ: 0xff)
+
+   셀 0xFF는 커서다. 금성 FC-80U도 바이트까지 같은 이름 표와 패턴 표를 낸다.
+
+규칙(L = 초성 셀 0x86 + L. v, h = 모음 셀. T1, T2 = 받침 셀. _ = 빈 셀 0xFC. M(L, h) = 합친 셀 0xA7 + 5L + h, ㅗ ㅛ ㅜ ㅠ ㅡ에 h = 0 .. 4,
+ㅍ ㅎ은 0x02로 넘어간다. ext(v) = 획 끝 0C는 ㅏ ㅑ ㅣ, 0D는 ㅓ ㅕ, 0E는 ㅐ ㅒ ㅔ ㅖ):
+
+| 모음 | 받침 없음 | 받침 |
+|---|---|---|
+| 세로 v | `[L v] / [_ ext(v)]` | `[L v] / [T1 T2 또는 _]` |
+| ㅗ ㅛ ㅜ ㅠ ㅡ (h) | `[L] / [h]` | 셀 하나 `[M(L,h)] / [T1]`, 둘 `[M(L,h) _] / [T1 T2]` |
+| 겹모음 h + v | `[L v] / [h ext(v)]` | `[M(L,h) v] / [T1 T2 또는 _]` |
+
+규칙을 얻은 뒤에는 에뮬레이터가 필요 없다. `tools/msxfont.py msx1`이 BIOS 표만으로 폰트를 만들고, `mkfont.py`는 글리프마다 자신의
+진행 폭(8 또는 16)을 지킨다.
+
+    python3 -I tools/msxfont.py msx1 $ROMS/dpc-200_basic-bios1.rom -o $OUT/msx1.bdf
+    #   11172 syllables (1615 8x16, 9557 16x16) + 95 ASCII (8x8 at row 8), ascent 16
+    python3 tools/mkfont.py $OUT/msx1.bdf $OUT/MSX1.SVF --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+
+결과: `106,504 bytes`, 글리프 2,445개, `width=136 ascent=16 descent=0`, 잉크 238. ASCII는 화면이 그리는 대로 16행 한글 옆 기준선에 놓인
+8x8 셀이다(`--ascii-top 8`). `bdfface.py`는 음절마다 16픽셀씩 나아가므로 여기서는 `mkfont.py`를 쓴다. DPC-100, DPC-180, FC-80U의 BIOS
+ROM은 DPC-200의 것과 바이트까지 같다.
+
+#### TrueType 파일
+
+페이스마다 TrueType 비트맵 폰트로 이어 갈 수 있다([SVF 페이스를 다시 TTF 비트맵 폰트로](#svf-페이스를-다시-ttf-비트맵-폰트로)).
+
+    python3 tools/svf2ttf.py ttf $OUT/CPC300J.SVF $OUT/CPC300J.ttf --composite --licence none
+    python3 tools/svf2ttf.py ttf $OUT/CPC400S.SVF $OUT/CPC400S.ttf --licence none
+    python3 tools/svf2ttf.py ttf $OUT/MSX1.SVF $OUT/MSX1.ttf --licence none
+
+결과: `671,640 bytes`(조각 210, 합성 음절 11,172, 글리프 11,318개), `623,164 bytes`(글리프 2,688개), `374,680 bytes`(글리프 2,445개).
+모두 16 px 스트라이크가 있다. 이 폰트들에는 따라갈 라이선스 문서가 없으므로 `--licence none`이다.
+
+#### 정답으로서의 에뮬레이터
+
+풀어 낸 ROM 폰트는 기계가 그리는 것과 대어 본다.
+
+- **입력한 글의 스크린샷.** 입력하고 찍는 Tcl 스크립트(`set renderer SDL`, `after time 12 { type "print 1\r"; after time 3 { screenshot
+  OUT.png; exit } }`. 시간은 에뮬레이션 초이고 throttle은 켜 둔다). CPC-300은 MSX-TUTOR로 부팅하고, 그 첫 화면("아이큐 교실은 컴퓨터를
+  처음 배우는 분을 위하여 ...")을 SUB-ROM의 자모 폰트로 그린다. 같은 글을 `CPC300J.SVF`로 `svfline.py line`해 비교한다. CPC-400S는
+  부팅에 약 20초가 걸리고 한글은 SCREEN 9에서 나온다. 문자열은 조합형 코드이므로 `type "screen 9\rprint
+  chr\$(\&H88)+chr\$(\&H61)+chr\$(\&H88)+chr\$(\&H62)+chr\$(\&HB7)+chr\$(\&H65)\r"`(Tcl에서 `$`와 `&`는 이스케이프)가 256 KB 폰트로
+  가각은을 찍는다. 스크린샷은 크기가 바뀐 화면이므로(512픽셀 줄에서 640 x 480으로) 모양은 눈으로 비교한다.
+- **VRAM 덤프.** 텍스트 화면이라면 이름 표와 패턴 표가 셀을 정확히 준다(`debug read_block VRAM ...`, MSX1 수집처럼). 스크린샷과 달리
+  픽셀까지 정확하다.
+- **RAM 덤프.** `debug read_block "Main RAM" ...`이 입력한 키에 대해 드라이버가 저장한 것을 보여 준다(위 2단계).
 
 <a id="mame-세트의-한글-폰트-rom"></a>
 
@@ -1874,6 +2051,7 @@ EUC-KR / 완성형 바이트 쌍 = GL 코드 + 0x8080 (`가` = B0A1 = GL 3021). 
 - <a id="ref-bdf"></a>**BDF 형식**: [Adobe BDF 2.2](https://adobe-type-tools.github.io/font-tech-notes/pdfs/5005.BDF_Spec.pdf).
 - <a id="ref-apple"></a>**Apple 폰트 표와 리소스 포크**: [TrueType reference manual](https://developer.apple.com/fonts/TrueType-Reference-Manual/), [Resource Manager](https://dev.os9.ca/techpubs/mac/MoreToolbox/MoreToolbox-9.html).
 - <a id="ref-86box"></a>**86Box 한글 VGA ROM 메타데이터와 렌더링**: [ROM set](https://github.com/86Box/roms), [SVGA renderer](https://raw.githubusercontent.com/86Box/86Box/master/src/video/vid_svga_render.c).
+- <a id="ref-msx"></a>**한국 MSX 기종과 openMSX**: MSX Wiki [Daewoo CPC-300](https://www.msx.org/wiki/Daewoo_CPC-300), [Daewoo CPC-400S](https://www.msx.org/wiki/Daewoo_CPC-400S), [Daewoo DPC-200](https://www.msx.org/wiki/Daewoo_DPC-200), [Goldstar FC-80U](https://www.msx.org/wiki/Goldstar_FC-80U), [Daewoo machines](https://www.msx.org/wiki/Category:Daewoo). [openMSX MSXKanji.cc](https://raw.githubusercontent.com/openMSX/openMSX/master/src/MSXKanji.cc)(`hangul` 폰트 장치), [openMSX console commands](https://openmsx.org/manual/commands.html). msx.org 포럼 [Daewoo CPC-400S hanja display bug](https://www.msx.org/forum/msx-talk/openmsx/daewoo-cpc-400s-hanja-display-bug)(256 KB 폰트 ROM). [file-hunter system ROMs](https://download.file-hunter.com/System%20ROMs/).
 - <a id="ref-mame"></a>**MAME 기종 정보, ROM 로드, 타일 배치**: [SPC-1500](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/samsung/spc1500.cpp), [tumbleb](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/dataeast/tumbleb.cpp), [raiden2](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/seibu/raiden2.cpp), [midas](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/snk/midas.cpp), [neogeo](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/snk/neogeo.cpp), [Neo Geo sprites](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/snk/neogeo_spr.cpp).
 - <a id="ref-fonts"></a>**폰트 원본과 라이선스**: [Noto CJK](https://github.com/notofonts/noto-cjk), [Google Fonts](https://github.com/google/fonts/tree/main/ofl), [Un fonts (Debian)](https://sources.debian.org/src/fonts-unfonts-core/), [X11 bitmap fonts](https://www.cl.cam.ac.uk/~mgk25/ucs-fonts.html), [HBF](https://www.ibiblio.org/pub/packages/ccic/software/fonts/README), [SIL OFL 1.1](https://openfontlicense.org/open-font-license-official-text/).
 - <a id="ref-fontconfig"></a>**fontconfig 설치와 언어 일치**: [User guide](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-user.html), [Korean orthography](https://gitlab.freedesktop.org/fontconfig/fontconfig/-/blob/main/fc-lang/ko.orth).

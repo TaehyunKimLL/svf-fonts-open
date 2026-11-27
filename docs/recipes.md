@@ -33,6 +33,7 @@ Contents:
 - [Bitmap fonts](#bitmap-fonts)
 - [DOS-era raw fonts](#dos-era-raw-fonts)
 - [Finding a font inside a program or data file, with Claude](#finding-a-font-inside-a-program-or-data-file-with-claude)
+- [Korean MSX fonts (MSX2 and MSX1)](#korean-msx-fonts-msx2-and-msx1)
 - [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets)
 - [OS/2 Korean fonts (완성형) to a precomposed face and a jamo set](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)
 - [A low-resolution face from a high-resolution bitmap font](#a-low-resolution-face-from-a-high-resolution-bitmap-font)
@@ -70,6 +71,7 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | HWP 3.0 `HAN*.FNT` (2,350 syllables, + an 8x4x4 set at 16 px) | `hwpfont.py bdf`, then `mkfont.py` | `jamoset.py --layout 844-hwp3` (16 px), else `--from-svf` | [HWP 3.0 FNT fonts](#hwp-30-fnt-fonts) |
 | KS X 1001 raw dump (2,350 syllables in code order, or a 94 x 94 table) | `hwpfont.py bdf` (16-48 px dumps), or `rawcarve.py bdf --dense` / `--grid`; then `mkfont.py` or `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
 | A font inside a program or ROM (DOS driver or TSR, word processor, Korean VGA BIOS + font ROM) | `binscan.py` to find, `rawcarve.py` to cut (raw, BDF, or composed by the driver's rule), then `bdfface.py` | `jamoset.py --layout 844` on a cut raw font, or `--from-svf` | [Finding a font inside a program or data file, with Claude](#finding-a-font-inside-a-program-or-data-file-with-claude) |
+| Korean MSX ROMs (Daewoo, Goldstar: MSX2 SUB-ROM, CPC-400S font ROM, MSX1 BIOS) | `msxfont.py kfn-map` + `rawcarve.py bdf --chars map` (CPC-400S), `msxfont.py msx1` + `mkfont.py` (MSX1), then `bdfface.py` | `jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json` (MSX2, exact) | [Korean MSX fonts](#korean-msx-fonts-msx2-and-msx1) |
 | A Korean machine's or arcade game's ROMs in a MAME set (inverted jamo ROMs, multi-bit sprite tiles) | `rawcarve.py region` + `ink --gfx` (or `--invert`), `rawcarve.py bdf --dense`, then `bdfface.py` | `jamoset.py --layout spec` (a font with its own rule, exact), `--layout 844` on a cut 8x4x4 font, or `--from-svf` | [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets) |
 | OS/2 Korean System DBCS font (`$korZN16.FNT`, `$korZN24.FNT`; 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 Korean fonts (완성형)](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set) |
 | TTF with jamo glyphs (conjoining jamo, PUA pieces, GSUB `ljmo`) | as any TTF | composites `jamovec.py --components`; variants `--mask-font`; else a fit | [TrueType fonts that already carry jamo](#truetype-fonts-that-already-carry-jamo) |
@@ -1070,10 +1072,10 @@ The ROMs hold the whole KS X 1001 table: `--chars ks-nonhanja` adds the symbols 
 `mkfont.py` on the BDF, which keeps them; `bdfface.py` keeps only syllables and ASCII). `rawcarve.py eng tgkorvga.bin
 --offset 0x4a2d` gives the same English font as a raw `--eng` file.
 
-Other ROM sets checked: the openMSX system ROM set (file-hunter's RomDB, 1,241 files) holds one Korean font,
-the Daewoo CPC-400S `400skfn.rom` (131,072 bytes: 16x16, 32 bytes a glyph, the first half of a 256 KB font, KS symbols
-and 1,316 syllables in the machine's own order; johab-fonts `notes/msx.md`); the other Korean MSX ROMs (`cpc-300_hangul`,
-`dpc-200_hangul`, `cpc-400s_hangul`) are Hangul BASIC code, and the MSX1 jamo font is the BIOS's 8x8 character table.
+Other ROM sets checked: the openMSX system ROM set (file-hunter's RomDB, 1,241 files) holds three Korean fonts,
+the jamo-set font in the Daewoo MSX2 SUB-ROMs, the 256 KB precomposed font of the CPC-400S and the 8x8 jamo cells of the
+Korean MSX1 BIOS; the Hangul BASIC ROMs (`cpc-300_hangul`, `dpc-200_hangul`) hold the drivers, no glyphs
+([Korean MSX fonts](#korean-msx-fonts-msx2-and-msx1)).
 An 88emuplayer ROM pack (`88emuplayer-roms.zip`) holds Roland sound-module ROMs (SC-55, SC-88, SC-8850, CM-300) and no font. The MAME romsets
 are in [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets).
 
@@ -1083,6 +1085,198 @@ files and the font ROM is one row with the faces `TGVGA16` / `KASAN16` / `ATIVGA
 `TGVGA16J` / `KASAN16J` / `ATIVG16J` (`bdfface + from-svf fit`, experimental), made by the commands above. A run with
 `SVF_MAKER_REAL_86BOX` pointing at the downloaded files (`maker/test/test_recipe.py`) gives every face of the table byte
 for byte its size.
+
+<a id="korean-msx-fonts-msx2-and-msx1"></a>
+
+### 6.5. Korean MSX fonts (MSX2 and MSX1)
+
+The Korean MSX computers (Daewoo, Goldstar; 1984-1988) keep three Hangul fonts in ROM, each drawn by a different
+rule:
+
+| Machines | Where the font is | Kind | Result |
+|---|---|---|---|
+| Daewoo CPC-300, CPC-300E, CPC-330K, CPC-400S (MSX2) | upper 16 KB of the SUB-ROM (`cpc-300_msx2sub.rom`), on the CPC-400S the first 16 KB of `CPC-400S.U44` | 16x16 jamo pieces: 6 initial sets x 20, 2 medial x 28, 2 final x 29 | exact jamo set, all 11,172 syllables |
+| Daewoo CPC-400, CPC-400S (MSX2) | 256 KB font ROM `cpc-400s_hangulfont.rom` behind I/O ports D8h/D9h | 16x16 precomposed, the machine's own order; code -> slot tables in the "Kanji control ROM" (last 16 KB of `CPC-400S.U44`) | precomposed face of the 2,591 syllables the driver can draw |
+| Daewoo DPC-100, DPC-180, DPC-200, Goldstar FC-80U (MSX1) | BIOS character table at 0x1B49 (`dpc-200_basic-bios1.rom`) | 8x8 jamo cells, a syllable = 2 text rows x 1 or 2 columns | precomposed face; the layout rule was read off the running machine |
+
+The Hangul BASIC ROMs (`cpc-300_hangul.rom`, `dpc-200_hangul.rom`, `fc-80u_hangul.rom`) hold the drivers (the
+composing code and the MSX-TUTOR program), no glyphs. File names below are the openMSX system ROM names; `$ROMS` is the
+folder holding them.
+
+**Source and licence.** The fonts are Daewoo and Goldstar firmware designs in dumps of proprietary ROM chips. Use them
+for research; no face of `svf/` is made from them. The openMSX system ROM set is on file-hunter's download server
+(folder `System ROMs/RomDB SystemROMs OpenMSX`; the server refuses curl's default User-Agent with HTTP 405, a browser
+User-Agent with the folder as Referer works). The openMSX machine files (`share/machines/Daewoo_CPC-300.xml`,
+`Daewoo_CPC-400S.xml`, `Daewoo_DPC-200.xml`, `Goldstar_FC-80U.xml`) give each ROM's file name and SHA1; check the files
+with `sha1sum` before use:
+
+| File | Bytes | SHA1 |
+|---|---:|---|
+| `cpc-300_msx2sub.rom` | 32,768 | `fb51c505adfbc174df94289fa894ef969f5357bc` |
+| `cpc-300e_msx2sub.rom` | 32,768 | `09f7d788698a23aa7eec140237e907d4c37cbfe0` |
+| `CPC-400S.U44` | 65,536 | `6b640c1d8cbeda6ca7d6facd16a206b62e059eee` |
+| `cpc-400s_hangulfont.rom` | 262,144 | `22d5f4e522250dc5eb17e15b68f4a51bb752cba1` |
+| `dpc-200_basic-bios1.rom` (= DPC-100, DPC-180, FC-80U BIOS) | 32,768 | `171b587bd5a947a13f3114120b6e7baca3b57d78` |
+
+The tools only read the ROMs (`python3 -I`); the machine is run only inside the emulator (openMSX) [Korean MSX machines
+and openMSX](#ref-msx).
+
+#### MSX2: the Daewoo jamo-set font (exact)
+
+The SUB-ROM's header holds four pointer words at 4014h, 4016h, 4018h and 401Ah (CPU address = file offset): the initial
+pieces at 0x59DE, the medial at 0x68DE, the final at 0x6FDE and the 8x16 English font at 0x771E (code 0x10, so code 0
+is at 0x761E; `binscan.py ascii` finds 0x761e). Pieces are 32 bytes (16x16, row-major, MSB left) and a syllable is the
+OR of three. The Hangul BASIC routine 4DC4h of `cpc-300_hangul.rom` picks the sets by Johab code (M = the medial code):
+
+| Syllable | Initial set | Medial set | Final set |
+|---|---|---|---|
+| no final, vertical vowel (ㅏ .. ㅣ) | 1 | 7 | - |
+| no final, ㅗ ㅛ ㅜ ㅠ ㅡ | 2 | 7 | - |
+| no final, ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ ㅢ | 5 | 7 | - |
+| final, vertical vowel | 3 | 8 | 10 for ㅏ ㅑ ㅣ, else 9 |
+| final, ㅗ ㅛ ㅜ ㅠ ㅡ | 4 | 8 | 9 |
+| final, ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ ㅢ | 6 | 8 | 10 for ㅘ ㅚ ㅟ ㅢ, else 9 |
+
+Piece numbers: initial (set - 1) x 20 + code - 1 (Johab initial 2 .. 20), medial (set - 7) x 28 + M - 2, final
+(set - 9) x 29 + code - 1. Johab final codes skip 18, so a final set has 29 slots for 27 finals. The whole font block
+is 0x59DE .. 0x7E1E, 9,280 bytes (290 pieces). The rule is the compose spec `tools/specs/msx2-daewoo.json`: its
+offsets are from the block's start, its final sets list their used slots (`"slots"`), so the one spec reads the block
+of every model:
+
+    python3 -I tools/rawcarve.py cut $ROMS/cpc-300_msx2sub.rom --offset 0x59DE --length 9280 -o $OUT/cpc300-font.bin
+    python3 -I tools/rawcarve.py cut $ROMS/CPC-400S.U44 --offset 0x19E8 --length 9280 -o $OUT/cpc400s-font.bin
+    cmp $OUT/cpc300-font.bin $OUT/cpc400s-font.bin        # identical (also the CPC-300E's at 0x59DE)
+    python3 -I tools/rawcarve.py eng $ROMS/cpc-300_msx2sub.rom --offset 0x761E -o $OUT/cpc300-eng.bin
+    python3 -I tools/jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json $OUT/cpc300-font.bin \
+        --eng $OUT/cpc300-eng.bin --check -o $OUT/CPC300J.SVF
+    #   ... 10584 bytes, 210 pieces of 16x16 ... by the spec's rule (6/2/2 sets, 1x2 classes)
+    #   check: all 11172 syllables identical to rawcarve.py compose
+    python3 -I tools/rawcarve.py compose $OUT/cpc300-font.bin --spec tools/specs/msx2-daewoo.json --syllables all \
+        --ascent 14 -o $OUT/cpc300-hangul.bdf
+    python3 -I tools/rawcarve.py bdf $ROMS/cpc-300_msx2sub.rom --offset 0x761E --glyph 8x16 --chars ascii --ascent 14 \
+        -o $OUT/cpc300-ascii.bdf
+    python3 -I tools/bdfface.py --hangul $OUT/cpc300-hangul.bdf --ascii $OUT/cpc300-ascii.bdf --cell 16x16 \
+        --chars-from $OUT/ks.txt -o $OUT/CPC300.SVF
+
+On the CPC-400S the same block sits 10 bytes further in its copy of the SUB-ROM half (pointers 59E8h, 68E8h, 6FE8h,
+7728h), which is the first 16 KB of `CPC-400S.U44`, mapped at 4000h: hence 0x19E8. Results (2026-11-27): jamo set
+`10,584 bytes`, 305 glyphs (210 pieces, 95 ASCII), JSET 707 bytes, `width=144 ascent=14 descent=2`, ink 333;
+precomposed `125,012 bytes`, 2,447 glyphs, the same line and ink. All 11,172 syllables composed by the spec are
+identical to an independent implementation of routine 4DC4h, for the CPC-300 and the CPC-400S ROM alike.
+
+#### MSX2: the CPC-400S precomposed font
+
+`cpc-400s_hangulfont.rom` is 262,144 bytes, 8,192 slots of 32 bytes (16x16, row-major). The driver writes the slot's
+low 6 bits to port D8h and the high 7 bits to D9h and reads 32 bytes from D9h (openMSX's `MSXKanji` device, type
+`hangul`). Slot map: 0-1408 KS X 1001 symbols (slot = (row - 1) x 94 + column - 1, rows 1-15), 1410-2725 Hangul list A
+(1,316 syllables), 2726-4416 hanja group 1, 4417-5693 Hangul list B (1,275 syllables), then two more hanja groups.
+The syllables are in the machine's own order, so the font is read through the driver's tables: routine 8A96h of the
+Kanji control ROM (the last 16 KB of `CPC-400S.U44`, mapped at 8000h) takes the Johab code, finds the trail byte in
+list A (start offsets per lead byte 88h .. D3h at 97BFh, trail bytes at 98F3h) or list B (9859h, 9E18h), and draws slot
+0581h + index (A) or 1141h + index (B). `tools/msxfont.py kfn-map` reads those tables into a slot list and
+`rawcarve.py bdf --chars map` cuts the glyphs:
+
+    python3 -I tools/msxfont.py kfn-map $ROMS/CPC-400S.U44 -o $OUT/cpc400s-map.txt
+    #   2591 syllables (2217 of the 2,350 KS X 1001), slots 1410..5692
+    python3 -I tools/rawcarve.py bdf $ROMS/cpc-400s_hangulfont.rom --glyph 16x16 --chars map --map $OUT/cpc400s-map.txt \
+        --ascent 14 -o $OUT/cpc400s-hangul.bdf
+    python3 -I tools/rawcarve.py bdf $ROMS/CPC-400S.U44 --offset 0x3628 --glyph 8x16 --chars ascii --ascent 14 \
+        -o $OUT/cpc400s-ascii.bdf
+    python3 -c "import sys; open(sys.argv[1], 'w', encoding='utf-8').write(''.join(chr(c) for c in range(0xAC00, 0xD7A4)))" $OUT/all.txt
+    python3 -I tools/bdfface.py --hangul $OUT/cpc400s-hangul.bdf --ascii $OUT/cpc400s-ascii.bdf --cell 16x16 \
+        --chars-from $OUT/all.txt -o $OUT/CPC400S.SVF
+
+Results: `137,416 bytes`, 2,688 glyphs (2,591 syllables, 95 ASCII, U+2026, U+25A1), `width=144 ascent=14 descent=2`,
+ink 437. With `--chars-from $OUT/ks.txt`: 2,217 syllables, `117,976 bytes` (133 KS syllables, among them 뷁 and 힣, are
+not in the ROM). An 8x4x4 fit of the face (`jamoset.py --layout 844 --from-svf`) reaches only IoU 0.794 (`19,900
+bytes`, 83 syllables exact): the precomposed design is not built from jamo pieces. The hanja groups use the driver's
+own codes (lead byte D4h and up), not KS X 1001, and are left out.
+
+#### MSX1: the jamo cells of the BIOS, laid out as the machine does
+
+The Korean MSX1 BIOS replaces the standard character table (0x1BBF) with its own at 0x1B49: 256 cells of 8x8, Latin at
+0x20-0x7E, the 19 initials at 0x86-0x98, the vowels at 0x99-0xA6 and 85 "initial over ㅗ ㅛ ㅜ ㅠ ㅡ" cells at
+0xA7-0xFB (the last 10 continue at 0x02-0x0B), stem pieces at 0x0C-0x0E. In 모아쓰기 mode (`POKE -851,0`) the Hangul ROM
+prints a syllable as 2 text rows of these cells, 1 column wide for a ㅗ ㅛ ㅜ ㅠ ㅡ syllable without a double final, 2
+otherwise. Which cells go where is not stored in a table: it was read from the running machine.
+
+The method (openMSX 19.1, machine `Daewoo_DPC-200`, headless under Xvfb):
+
+1. Boot the machine with a Tcl script: `xvfb-run -a openmsx -machine Daewoo_DPC-200 -script harvest.tcl`. With `set
+   throttle off` as the script's first line the emulated machine runs as fast as the host allows (boot, typing and 146
+   screens in about 2 seconds); no frames are drawn, so take screenshots (step 5) with throttle on.
+2. Find the bytes a syllable is stored as: type 2-set keys into a BASIC `REM` line (Han/Eng is key matrix row 6, bit 4:
+   `keymatrixdown 6 0x10`, then `keymatrixup 6 0x10`) and read the program back from RAM (`debug read_block "Main
+   RAM" 0 0x10000`, the program from the address at F676h). A syllable is stored as jamo bytes: the initial 0x86 + L,
+   the vowel cell (ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D ㅔ 9E ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6; a compound vowel is two:
+   ㅘ = A1 99, ㅢ = A5 A6), the final as its consonant cells (ㄳ = 86 8F). The ROM composes at print time.
+3. Type a program that prints the syllables placed in RAM: `type "poke -851,0\r"` (모아쓰기), then line by line
+   `10 defint a-z`, `20 if peek(&hbffe)=0 then 20`, `30 poke &hbffe,0:poke &hbfff,0:cls:a=&hc000`, `40 for k=0 to 76`,
+   `50 locate (k mod 7)*4,(k\7)*2`, `60 n=peek(a):a=a+1`, `70 for j=1 to n:print chr$(peek(a));:a=a+1:next`,
+   `80 print " ";`, `90 next`, `100 poke &hbfff,1`, `110 goto 20`, and `run`. 77 syllables a screen (7 to a row: the
+   text window starts 2 columns in, so a row holds 7 slots of 4 columns, not 8).
+4. For each screen the script writes 77 syllables (a length byte and the jamo bytes each) at C000h with `debug
+   write_block "Main RAM" 0xC000 ...`, sets BFFEh to 1, waits until the program sets BFFFh to 1, and appends the
+   SCREEN 1 name table to a file (`debug read_block VRAM 0x1800 768`); once, the pattern table (`debug read_block VRAM
+   0 2048`). 146 screens cover the 11,172 syllables. Write results to files: `puts` output does not reach the shell.
+5. Visual check: `screenshot FILE.png` (throttle on) shows the screen the name table describes.
+6. Derive the rule from the name tables (cell codes per syllable, sorted by vowel kind and final) and check it against
+   all of them: `tools/msxfont.py msx1-verify PREFIX --bios BIOS` reads `PREFIX.index` (the syllables, one hex code a
+   line), `PREFIX.names` and `PREFIX.patterns`:
+
+        python3 -I tools/msxfont.py msx1-verify $OUT/dpc200 --bios $ROMS/dpc-200_basic-bios1.rom
+        #   layout rule vs the machine: 11172 of 11172 syllables identical
+        #   VRAM pattern table vs the BIOS table: 255 of 256 cells identical (differ: 0xff)
+
+   Cell 0xFF is the cursor. The Goldstar FC-80U gives byte-identical name and pattern tables.
+
+The rule (L = initial cell 0x86 + L; v, h = vowel cells; T1, T2 = final cells; _ = blank 0xFC; M(L, h) = merged cell
+0xA7 + 5L + h, h = 0 .. 4 for ㅗ ㅛ ㅜ ㅠ ㅡ, wrapping to 0x02 for ㅍ ㅎ; ext(v) = stem 0C for ㅏ ㅑ ㅣ, 0D for ㅓ ㅕ, 0E for
+ㅐ ㅒ ㅔ ㅖ):
+
+| Vowel | No final | Final |
+|---|---|---|
+| vertical v | `[L v] / [_ ext(v)]` | `[L v] / [T1 T2 or _]` |
+| ㅗ ㅛ ㅜ ㅠ ㅡ (h) | `[L] / [h]` | one cell `[M(L,h)] / [T1]`, two `[M(L,h) _] / [T1 T2]` |
+| compound h + v | `[L v] / [h ext(v)]` | `[M(L,h) v] / [T1 T2 or _]` |
+
+With the rule the emulator is no longer needed: `tools/msxfont.py msx1` builds the font from the BIOS table alone, and
+`mkfont.py` keeps each glyph's own advance (8 or 16):
+
+    python3 -I tools/msxfont.py msx1 $ROMS/dpc-200_basic-bios1.rom -o $OUT/msx1.bdf
+    #   11172 syllables (1615 8x16, 9557 16x16) + 95 ASCII (8x8 at row 8), ascent 16
+    python3 tools/mkfont.py $OUT/msx1.bdf $OUT/MSX1.SVF --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
+
+Results: `106,504 bytes`, 2,445 glyphs, `width=136 ascent=16 descent=0`, ink 238. ASCII is the machine's 8x8 cell on
+the baseline (`--ascii-top 8`), next to 16-row Hangul, as the screen draws it. `bdfface.py` would step every syllable
+by 16 pixels; use `mkfont.py` here. The DPC-100, DPC-180 and FC-80U BIOS ROMs are byte-identical to the DPC-200's.
+
+#### TrueType files
+
+Each face goes on to a TrueType bitmap font ([An SVF face back to a TTF bitmap font](#an-svf-face-back-to-a-ttf-bitmap-font)):
+
+    python3 tools/svf2ttf.py ttf $OUT/CPC300J.SVF $OUT/CPC300J.ttf --composite --licence none
+    python3 tools/svf2ttf.py ttf $OUT/CPC400S.SVF $OUT/CPC400S.ttf --licence none
+    python3 tools/svf2ttf.py ttf $OUT/MSX1.SVF $OUT/MSX1.ttf --licence none
+
+Results: `671,640 bytes` (210 pieces, 11,172 composite syllables, 11,318 glyphs), `623,164 bytes` (2,688 glyphs),
+`374,680 bytes` (2,445 glyphs), each with a 16 px strike. `--licence none` because no licence note goes with these
+fonts.
+
+#### The emulator as ground truth
+
+A decoded ROM font is checked against what the machine draws:
+
+- **Screenshot of typed text.** A Tcl script that types and shoots (`set renderer SDL`, `after time 12 { type
+  "print 1\r"; after time 3 { screenshot OUT.png; exit } }`; times are emulated seconds, keep throttle on). The CPC-300
+  boots into MSX-TUTOR, whose first screen ("아이큐 교실은 컴퓨터를 처음 배우는 분을 위하여 ...") is drawn with the
+  SUB-ROM jamo font: compare it with `svfline.py line` of the same text from `CPC300J.SVF`. The CPC-400S needs about 20
+  seconds to boot and Hangul output needs SCREEN 9; strings are Johab codes, so `type "screen 9\rprint
+  chr\$(\&H88)+chr\$(\&H61)+chr\$(\&H88)+chr\$(\&H62)+chr\$(\&HB7)+chr\$(\&H65)\r"` (in Tcl `$` and `&` escaped) prints
+  가각은 from the 256 KB font. The screenshot is scaled (640 x 480 from 512-pixel lines), so compare shapes by eye.
+- **VRAM dump.** For a text screen, the name table and pattern table give the cells exactly (`debug read_block VRAM
+  ...`, as in the MSX1 harvest): this is pixel-exact where a screenshot is not.
+- **RAM dump.** `debug read_block "Main RAM" ...` shows what the driver stored for typed keys (step 2 above).
 
 <a id="korean-font-roms-in-mame-sets"></a>
 
@@ -2008,6 +2202,7 @@ tables (`build-<id>/LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`
 - <a id="ref-bdf"></a>**BDF format**: [Adobe BDF 2.2](https://adobe-type-tools.github.io/font-tech-notes/pdfs/5005.BDF_Spec.pdf).
 - <a id="ref-apple"></a>**Apple font tables and resource forks**: [TrueType reference manual](https://developer.apple.com/fonts/TrueType-Reference-Manual/), [Resource Manager](https://dev.os9.ca/techpubs/mac/MoreToolbox/MoreToolbox-9.html).
 - <a id="ref-86box"></a>**86Box Korean VGA ROM metadata and rendering**: [ROM set](https://github.com/86Box/roms), [SVGA renderer](https://raw.githubusercontent.com/86Box/86Box/master/src/video/vid_svga_render.c).
+- <a id="ref-msx"></a>**Korean MSX machines and openMSX**: MSX Wiki [Daewoo CPC-300](https://www.msx.org/wiki/Daewoo_CPC-300), [Daewoo CPC-400S](https://www.msx.org/wiki/Daewoo_CPC-400S), [Daewoo DPC-200](https://www.msx.org/wiki/Daewoo_DPC-200), [Goldstar FC-80U](https://www.msx.org/wiki/Goldstar_FC-80U), [Daewoo machines](https://www.msx.org/wiki/Category:Daewoo); [openMSX MSXKanji.cc](https://raw.githubusercontent.com/openMSX/openMSX/master/src/MSXKanji.cc) (the `hangul` font device), [openMSX console commands](https://openmsx.org/manual/commands.html); msx.org forum [Daewoo CPC-400S hanja display bug](https://www.msx.org/forum/msx-talk/openmsx/daewoo-cpc-400s-hanja-display-bug) (the 256 KB font ROM); [file-hunter system ROMs](https://download.file-hunter.com/System%20ROMs/).
 - <a id="ref-mame"></a>**MAME machine metadata, ROM loading and tile layouts**: [SPC-1500](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/samsung/spc1500.cpp), [tumbleb](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/dataeast/tumbleb.cpp), [raiden2](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/seibu/raiden2.cpp), [midas](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/snk/midas.cpp), [neogeo](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/snk/neogeo.cpp), [Neo Geo sprites](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/snk/neogeo_spr.cpp).
 - <a id="ref-fonts"></a>**Font sources and licences**: [Noto CJK](https://github.com/notofonts/noto-cjk), [Google Fonts](https://github.com/google/fonts/tree/main/ofl), [Un fonts (Debian)](https://sources.debian.org/src/fonts-unfonts-core/), [X11 bitmap fonts](https://www.cl.cam.ac.uk/~mgk25/ucs-fonts.html), [HBF](https://www.ibiblio.org/pub/packages/ccic/software/fonts/README), [SIL OFL 1.1](https://openfontlicense.org/open-font-license-official-text/).
 - <a id="ref-fontconfig"></a>**fontconfig installation and language matching**: [User guide](https://fontconfig.pages.freedesktop.org/fontconfig/fontconfig-user.html), [Korean orthography](https://gitlab.freedesktop.org/fontconfig/fontconfig/-/blob/main/fc-lang/ko.orth).

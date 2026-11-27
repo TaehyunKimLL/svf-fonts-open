@@ -439,7 +439,7 @@ flowchart TD
 | 한메 한글 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (한 글자체) | 초성: 모음 5종; 중성: 받침; 종성: 모음 3종 | `notes/hanme-dokkaebi.md` 1절 |
 | Kyrandia `MK15.BIT` | 10 / 4 / 4 (자모 순 배치) | 385 | 11,550 (15x15) | 8x4x4 규칙, 초성 벌 = 2 x 모음 종류 + 받침 | [docs/recipes.ko.md](recipes.ko.md) `kyra-lok`, `jamoset.py` `_kyra` |
 | HWP 1.x `HANGUL.SFT` | 10/4/4, 7/2/2, 6/2/2 (글자체별) | 1,193 (세 글자체) | | 초성 클래스(ㄱㅋ/그 밖), 받침, 모음 모양 15종 | `notes/hwp1.md` |
-| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 | ROM | 초성: 모음 3종 x 받침; 종성: 모음 | `notes/msx.md` |
+| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 (210 사용) | 9,280 (SUB-ROM 안) | 초성: 모음 3종 x 받침; 종성: 모음 | [docs/recipes.ko.md](recipes.ko.md#한국-msx-폰트-msx2와-msx1) "한국 MSX 폰트" |
 | Samsung SPC-1500 | 6 / 2 / 2 (ROM에는 초성 8벌) | 210 | ROM 4개 | 초성: 모음 3종 x 받침 | [docs/recipes.ko.md](recipes.ko.md) "삼성 SPC-1500" |
 | NKP (Hercules TSR) | 8 / 2 (모양별로 넷으로 자름) / 1 | 잘린 조각 | | 초성: 모음 4종 x 받침 | [docs/recipes.ko.md](recipes.ko.md) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR" |
 | Mac HangulTalk 1.0 `fbit` | 45개 글리프 set; SVF로는 20 / 15 / 4, 8 x 4 클래스 | 688 (12 px) | | 'fdef' 코드의 18개 표 | `notes/mac.md` "Format 1", [docs/recipes.ko.md](recipes.ko.md) "클래식 Mac 한글 비트맵 폰트" |
@@ -515,8 +515,11 @@ flowchart LR
 - **Samsung SPC-1500**(1987, MAME `spc1500`): 초성, 중성, 종성 조각이 ROM 세 개에 있고, MAME 드라이버가 세 조각을 **AND**한다.
   ROM은 반전되어 있다(0 비트가 잉크). 쓰이는 벌은 초성 6, 중성 2, 종성 2이고, JSET 하나(lead 클래스 1개, 6/2/2 벌)로 정확히
   표현된다. 결과는 10,652바이트, 조각 210개이며 11,172자가 모두 MAME의 AND와 같다([docs/recipes.ko.md](recipes.ko.md) "삼성 SPC-1500").
-- **Daewoo MSX CPC-300/400S**: 확장 ROM의 위쪽 16 KB에 초성 6벌 x 20, 중성 2벌 x 28, 종성 2벌 x 29 조각이 있다. 선택 규칙은
-  Hangul BASIC ROM의 루틴에서 읽었다(`notes/msx.md`).
+- **Daewoo MSX CPC-300/400S**: MSX2 SUB-ROM의 위쪽 16 KB에 초성 6벌 x 20, 중성 2벌 x 28, 종성 2벌 x 29 조각이 있다. 선택 규칙은
+  한글 BASIC ROM의 루틴 4DC4h에서 읽었다. compose 명세 `tools/specs/msx2-daewoo.json`이 그 규칙이고, JSET 하나(lead 클래스 1개,
+  6/2/2 벌)로 정확히 표현된다. 결과는 10,584바이트, 조각 210개다([docs/recipes.ko.md](recipes.ko.md#한국-msx-폰트-msx2와-msx1) "한국 MSX 폰트").
+  CPC-400S에는 256 KB 완성형 폰트 ROM도 있고, 한국 MSX1 기종은 실행 중인 기계에서 읽어 낸 배치 규칙으로 BIOS의 8x8 셀을 모아 음절을
+  만든다(같은 절).
 - **OS/2 Warp 4 한국어판**의 시스템 DBCS 글꼴은 완성형(KS X 1001 전체)을 Huffman과 예측 부호로 압축해 담는다(`notes/os2-dbcs.md`).
   이를 풀어 완성형 페이스로 만들고, 거기에 자모 세트를 맞춘다([docs/recipes.ko.md](recipes.ko.md) "OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기").
 
