@@ -187,14 +187,19 @@ def cmd_eng(a):
 def read_map(path):
     """[(glyph index, code point)] of a map file: "GLYPH U+XXXX" a line, # comments, blank lines skipped."""
     out = []
-    with open(path, encoding="ascii") as fh:
+    if os.path.getsize(path) > MAX_FILE:
+        raise CarveError(f"{path}: larger than {MAX_FILE} bytes")
+    with open(path, encoding="utf-8") as fh:
         for n, line in enumerate(fh, 1):
             line = line.split("#", 1)[0].split()
             if not line:
                 continue
             if len(line) != 2 or not line[1].upper().startswith("U+"):
                 raise CarveError(f"{path}:{n}: expected GLYPH U+XXXX")
-            idx, cp = binscan.parse_int(line[0]), int(line[1][2:], 16)
+            try:
+                idx, cp = binscan.parse_int(line[0]), int(line[1][2:], 16)
+            except ValueError:
+                raise CarveError(f"{path}:{n}: expected GLYPH U+XXXX")
             if idx < 0 or not 0 <= cp <= 0x10FFFF:
                 raise CarveError(f"{path}:{n}: glyph index or code point out of range")
             out.append((idx, cp))
@@ -224,6 +229,11 @@ def cmd_bdf(a):
         if not a.map:
             raise CarveError("--chars map needs --map MAP.txt")
         places = read_map(a.map)
+        size = os.path.getsize(a.file)
+        fit = (size - a.offset - foot) // gb + 1 if size - a.offset >= foot else 0  # whole glyphs in the file
+        past = [i for i, _ in places if i >= fit]
+        if past:
+            raise CarveError(f"--map: glyph {past[0]} is past the {fit} whole glyphs from {a.offset:#x} in {a.file}")
         d = read_range(a.file, a.offset, max(i for i, _ in places) * gb + foot)
         for idx, cp in places:
             if idx * gb + foot <= len(d):
@@ -303,7 +313,7 @@ class Composer:
         key = (name, k)
         if key not in self._cache:
             s = self.sets[name]
-            if "slots" in s:
+            if s.get("slots") is not None:
                 if k >= len(s["slots"]):
                     raise CarveError(f"set {name}: piece {k} is past its {len(s['slots'])} slots")
                 k = s["slots"][k]

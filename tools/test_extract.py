@@ -276,8 +276,9 @@ class Rawcarve(unittest.TestCase):
 
 
 def msx2_block():
-    """A synthetic font block in the Daewoo MSX2 layout (initial 6 x 20, medial 2 x 28, final 2 x 29 pieces of 32 B,
-    9,280 bytes): piece i draws row i % 16 with the bits of i + 1 and row (i // 16) % 16 with 0x8001."""
+    """A synthetic font block in the Daewoo MSX2 layout, 9,280 bytes as cut from the ROM: initial 6 x 20, medial 2 x 28,
+    final 2 x 29 pieces of 32 B (234 pieces, 7,488 B), then 1,792 B where the ROM keeps its 8x16 English font, here
+    filled as 56 more 32-byte slots. Slot i draws row i % 16 with the bits of i + 1 and row (i // 16) % 16 with 0x8001."""
     out = bytearray()
     for i in range(290):
         rows = [0] * 16
@@ -301,8 +302,8 @@ def msx2_reference(block, cp):
     else:
         si, sm, sf = (6 if mi in comp else 4 if mi in horiz else 3), 8, (9 if mi in horiz else 10 if mi in right else 9)
     idx = [(si - 1) * 20 + li - 1, 120 + (sm - 7) * 28 + mi - 2] + ([176 + (sf - 9) * 29 + ti - 1] if t else [])
-    if not t:  # the final fill piece (code 1) is blank in the ROM: no third piece
-        idx.append(idx[0])
+    if not t:  # the final fill piece (code 1) is blank in the ROM: no third piece; ORing the initial piece again
+        idx.append(idx[0])  # changes nothing and keeps the three-way zip below
     return bytes(a | b | c for a, b, c in zip(*(block[i * 32:i * 32 + 32] for i in idx)))
 
 
@@ -336,6 +337,10 @@ class Msx2Spec(unittest.TestCase):
         for bad in ([-1], "0,1", [1.5], [True]):
             with self.assertRaisesRegex(rawcarve.CarveError, "slots must be"):
                 rawcarve.Composer(block, {"sets": {"a": {"offset": 0, "stride": 32, "slots": bad}}})
+        # "slots": null is the same as no "slots"
+        plain = rawcarve.Composer(block, {"sets": {"a": {"offset": 0, "stride": 32}}})
+        none = rawcarve.Composer(block, {"sets": {"a": {"offset": 0, "stride": 32, "slots": None}}})
+        self.assertEqual(none.piece("a", 3), plain.piece("a", 3))
 
 
 def nkp_like():

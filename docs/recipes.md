@@ -71,7 +71,7 @@ syllable a glyph, 1 or 2 bpp), "jamo" a jamo set (pieces and a table, 1 bpp or 2
 | HWP 3.0 `HAN*.FNT` (2,350 syllables, + an 8x4x4 set at 16 px) | `hwpfont.py bdf`, then `mkfont.py` | `jamoset.py --layout 844-hwp3` (16 px), else `--from-svf` | [HWP 3.0 FNT fonts](#hwp-30-fnt-fonts) |
 | KS X 1001 raw dump (2,350 syllables in code order, or a 94 x 94 table) | `hwpfont.py bdf` (16-48 px dumps), or `rawcarve.py bdf --dense` / `--grid`; then `mkfont.py` or `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 raw dumps](#ks-x-1001-raw-dumps) |
 | A font inside a program or ROM (DOS driver or TSR, word processor, Korean VGA BIOS + font ROM) | `binscan.py` to find, `rawcarve.py` to cut (raw, BDF, or composed by the driver's rule), then `bdfface.py` | `jamoset.py --layout 844` on a cut raw font, or `--from-svf` | [Finding a font inside a program or data file, with Claude](#finding-a-font-inside-a-program-or-data-file-with-claude) |
-| Korean MSX ROMs (Daewoo, Goldstar: MSX2 SUB-ROM, CPC-400S font ROM, MSX1 BIOS) | `msxfont.py kfn-map` + `rawcarve.py bdf --chars map` (CPC-400S), `msxfont.py msx1` + `mkfont.py` (MSX1), then `bdfface.py` | `jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json` (MSX2, exact) | [Korean MSX fonts](#korean-msx-fonts-msx2-and-msx1) |
+| Korean MSX ROMs (Daewoo, Goldstar: MSX2 SUB-ROM, CPC-400S font ROM, MSX1 BIOS) | `rawcarve.py compose` + `bdfface.py` (MSX2), `msxfont.py kfn-map` + `rawcarve.py bdf --chars map` + `bdfface.py` (CPC-400S), `msxfont.py msx1` + `mkfont.py` (MSX1) | `jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json` (MSX2, exact) | [Korean MSX fonts](#korean-msx-fonts-msx2-and-msx1) |
 | A Korean machine's or arcade game's ROMs in a MAME set (inverted jamo ROMs, multi-bit sprite tiles) | `rawcarve.py region` + `ink --gfx` (or `--invert`), `rawcarve.py bdf --dense`, then `bdfface.py` | `jamoset.py --layout spec` (a font with its own rule, exact), `--layout 844` on a cut 8x4x4 font, or `--from-svf` | [Korean font ROMs in MAME sets](#korean-font-roms-in-mame-sets) |
 | OS/2 Korean System DBCS font (`$korZN16.FNT`, `$korZN24.FNT`; 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 Korean fonts (완성형)](#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set) |
 | TTF with jamo glyphs (conjoining jamo, PUA pieces, GSUB `ljmo`) | as any TTF | composites `jamovec.py --components`; variants `--mask-font`; else a fit | [TrueType fonts that already carry jamo](#truetype-fonts-that-already-carry-jamo) |
@@ -1194,13 +1194,15 @@ the ROMs goes into the repository (no ROM bytes, dumps, screenshots, BDFs or SVF
    for typing and dumping; no frames are drawn, so switch it on again before a `screenshot`). Write results to files
    from Tcl: `puts` output does not reach the shell. RAM is the debuggable "Main RAM".
 2. Find how a typed syllable is stored: `type "poke -851,0\r"` (모아쓰기), type `10 rem ` and 2-set keys in Hangul
-   mode (the Han/Eng key is key matrix row 6 bit 4: `keymatrixdown 6 0x10`, then `keymatrixup 6 0x10`), dump RAM
+   mode (the Han/Eng key is key matrix row 6 bit 4: `keymatrixdown 6 0x10`, then `after time 0.3 { keymatrixup 6
+   0x10 }`: a press shorter than a keyboard scan is missed), dump RAM
    (`debug read_block "Main RAM" 0 0x10000`) and read the BASIC line (the program starts at the word at F676h).
 3. Type a BASIC program that waits for a flag in RAM, PRINTs the syllables a Tcl procedure has written at C000h (one
    length byte and the jamo bytes per syllable), 77 to a screen at LOCATE positions (the text window starts 2 columns
    in, so 7 slots of 4 columns a row), then sets a done flag. For each screen dump the SCREEN 1 name table
    (`debug read_block VRAM 0x1800 768`) and once the pattern table (`debug read_block VRAM 0 2048`); 146 screens
-   cover all 11,172 syllables. Take one `screenshot` (throttle on) as a visual check.
+   cover all 11,172 syllables (145 x 77 + 7: pad the last batch to 77 with copies of its last syllable, or the
+   program prints stale bytes from the batch before). Take one `screenshot` (throttle on) as a visual check.
 4. Write $OUT/h.index (the syllables in order, one hex code point a line), $OUT/h.names and $OUT/h.patterns, and
    derive the rule: group the syllables by vowel kind (vertical, ㅗㅛㅜㅠㅡ, compound) and by final (none, one cell,
    two cells) and read which cell codes fill each position.
@@ -1233,8 +1235,9 @@ nothing from the ROMs, the screens or the dumps goes into the repository.
    distinguishes (each vowel kind with and without a final, double finals, ㅍ/ㅎ initials).
 2. Read what was drawn exactly: in a text mode the name and pattern tables (`debug read_block VRAM ...`); in a bitmap
    mode (SCREEN 5-8; the Daewoo SCREEN 9 is built on SCREEN 6) the VRAM pixels of the text area. `screenshot -raw
-   -size auto FILE.png` gives the raw MSX screen at a size that follows the screen mode (the CPC-300's MSX-TUTOR runs
-   in SCREEN 7); a plain `screenshot` is scaled and filtered, use it only to look.
+   FILE.png` gives the raw MSX screen at 320x240, `screenshot -raw -doublesize FILE.png` at 640x480, which keeps
+   every pixel of a 512-wide mode (SCREEN 6, 7 and the Daewoo SCREEN 9; the CPC-300's MSX-TUTOR runs in SCREEN 7);
+   a plain `screenshot` is scaled and filtered, use it only to look.
 3. Draw the same text from the face (`svfline.py line`, or the glyph rows from jamoset.parse_svfn) and compare pixel
    by pixel at the position the machine used.
 
@@ -1264,7 +1267,8 @@ OR of three. The Hangul BASIC routine 4DC4h of `cpc-300_hangul.rom` picks the se
 
 Piece numbers: initial (set - 1) x 20 + code - 1 (Johab initial 2 .. 20), medial (set - 7) x 28 + M - 2, final
 (set - 9) x 29 + code - 1. Johab final codes skip 18, so a final set has 29 slots for 27 finals. The whole font block
-is 0x59DE .. 0x7E1E, 9,280 bytes (290 pieces). The rule is the compose spec `tools/specs/msx2-daewoo.json`: its
+is 0x59DE .. 0x7E1E, 9,280 bytes: the 234 pieces (7,488 bytes, to 0x771E), then the 8x16 English font (codes
+0x10-0x7F, 1,792 bytes). The rule is the compose spec `tools/specs/msx2-daewoo.json`: its
 offsets are from the block's start, its final sets list their used slots (`"slots"`), so the one spec reads the block
 of every model:
 
@@ -1312,8 +1316,8 @@ list A (start offsets per lead byte 88h .. D3h at 97BFh, trail bytes at 98F3h) o
         --chars-from $OUT/all.txt -o $OUT/CPC400S.SVF
 
 Results: `137,416 bytes`, 2,688 glyphs (2,591 syllables, 95 ASCII, U+2026, U+25A1), `width=144 ascent=14 descent=2`,
-ink 437. With `--chars-from $OUT/ks.txt`: 2,217 syllables, `117,976 bytes` (133 KS syllables, among them 뷁 and 힣, are
-not in the ROM). An 8x4x4 fit of the face (`jamoset.py --layout 844 --from-svf`) reaches only IoU 0.794 (`19,900
+ink 437. With `--chars-from $OUT/ks.txt`: 2,217 syllables, `117,976 bytes` (133 of the 2,350 KS syllables, among them 갊 걜 곌,
+are not in the ROM; of the syllables outside KS X 1001 it has only those its lists name, so 뷁 and 힣 are absent too). An 8x4x4 fit of the face (`jamoset.py --layout 844 --from-svf`) reaches only IoU 0.794 (`19,900
 bytes`, 83 syllables exact): the precomposed design is not built from jamo pieces. The hanja groups use the driver's
 own codes (lead byte D4h and up), not KS X 1001, and are left out.
 
@@ -1327,11 +1331,13 @@ otherwise. Which cells go where is not stored in a table: it was read from the r
 
 The method (openMSX 19.1, machine `Daewoo_DPC-200`, headless under Xvfb):
 
-1. Boot the machine with a Tcl script: `xvfb-run -a openmsx -machine Daewoo_DPC-200 -script harvest.tcl`. With `set
+1. Boot the machine with a Tcl script: `timeout 600 xvfb-run -a openmsx -machine Daewoo_DPC-200 -script
+   harvest.tcl` (end the script with `exit`; `timeout` stops a script that never gets there). With `set
    throttle off` as the script's first line the emulated machine runs as fast as the host allows (boot, typing and 146
    screens in about 2 seconds); no frames are drawn, so take screenshots (step 5) with throttle on.
 2. Find the bytes a syllable is stored as: type 2-set keys into a BASIC `REM` line (Han/Eng is key matrix row 6, bit 4:
-   `keymatrixdown 6 0x10`, then `keymatrixup 6 0x10`) and read the program back from RAM (`debug read_block "Main
+   `keymatrixdown 6 0x10`, then `after time 0.3 { keymatrixup 6 0x10 }`, held across a keyboard scan) and read the
+   program back from RAM (`debug read_block "Main
    RAM" 0 0x10000`, the program from the address at F676h). A syllable is stored as jamo bytes: the initial 0x86 + L,
    the vowel cell (ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D ㅔ 9E ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6; a compound vowel is two:
    ㅘ = A1 99, ㅢ = A5 A6), the final as its consonant cells (ㄳ = 86 8F). The ROM composes at print time.
@@ -1343,7 +1349,8 @@ The method (openMSX 19.1, machine `Daewoo_DPC-200`, headless under Xvfb):
 4. For each screen the script writes 77 syllables (a length byte and the jamo bytes each) at C000h with `debug
    write_block "Main RAM" 0xC000 ...`, sets BFFEh to 1, waits until the program sets BFFFh to 1, and appends the
    SCREEN 1 name table to a file (`debug read_block VRAM 0x1800 768`); once, the pattern table (`debug read_block VRAM
-   0 2048`). 146 screens cover the 11,172 syllables. Write results to files: `puts` output does not reach the shell.
+   0 2048`). 146 screens cover the 11,172 syllables (145 x 77 + 7: the last batch is padded to 77 with copies of its
+   last syllable, else the program reads stale bytes). Write results to files: `puts` output does not reach the shell.
 5. Visual check: `screenshot FILE.png` (throttle on) shows the screen the name table describes.
 6. Derive the rule from the name tables (cell codes per syllable, sorted by vowel kind and final) and check it against
    all of them: `tools/msxfont.py msx1-verify PREFIX --bios BIOS` reads `PREFIX.index` (the syllables, one hex code a

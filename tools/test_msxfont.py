@@ -44,6 +44,11 @@ def control_rom(a_lists, b_lists):
     return bytes(0xC000) + bytes(c)
 
 
+def rd(path):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
 def cell_table():
     """A 256 x 8-byte table at 0x1B49 of a 32 KB BIOS: cell k has byte k in every row."""
     d = bytearray(0x8000)
@@ -61,6 +66,13 @@ class KfnMap(unittest.TestCase):
         self.assertEqual(msxfont.kfn_map(u44[0xC000:]), m)   # the 16 KB control ROM alone
         with self.assertRaises(msxfont.MsxError):
             msxfont.kfn_map(bytes(1000))
+        bad = bytearray(u44)                                # list A's start offsets out of order
+        at = 0xC000 + 0x97BF - 0x8000 + 2
+        bad[at:at + 2] = (0xFFFF).to_bytes(2, "little")
+        with self.assertRaisesRegex(msxfont.MsxError, "not a sorted list"):
+            msxfont.kfn_map(bytes(bad))
+        # a syllable in both lists keeps its list A slot
+        self.assertEqual(msxfont.kfn_map(control_rom({0x88: [0x61]}, {0x88: [0x61]})), {0xAC00: 0x582})
 
     def test_map_to_bdf(self):
         u44 = control_rom({0x88: [0x61, 0x62]}, {})
@@ -79,6 +91,18 @@ class KfnMap(unittest.TestCase):
             self.assertEqual(sorted(glyphs), [0xAC00, 0xAC01])
             self.assertEqual(glyphs[0xAC00][4][0], 0x8000)
             self.assertEqual(glyphs[0xAC01][4][15], 0x0001)
+            # comments (also non-ASCII), hex indices and blank glyphs
+            wr(m, "# 가 각\n0x582 U+AC00  # 가\n\n0x584 U+AC02\n".encode())
+            run(os.path.join(HERE, "rawcarve.py"), "bdf", f, "--glyph", "16x16", "--chars", "map", "--map", m, "-o", b)
+            self.assertEqual(sorted(bdfface.read_bdf(b)[1]), [0xAC00])     # slot 0x584 is blank: left out
+            # an index past the file is refused before anything is read; bad lines name the file and line
+            for text, msg in ((b"99999999999 U+AC00\n", "past the 8192 whole glyphs"),
+                              (b"1410 U+ZZZZ\n", "map.txt:1: expected GLYPH U+XXXX"),
+                              (b"1410 U+110000\n", "out of range"),
+                              (b"# nothing\n", "no mapping line")):
+                wr(m, text)
+                self.assertIn(msg, run(os.path.join(HERE, "rawcarve.py"), "bdf", f, "--glyph", "16x16",
+                                       "--chars", "map", "--map", m, "-o", b, code=1))
             wr(m, b"1410 AC00\n")
             self.assertIn("GLYPH U+XXXX", run(os.path.join(HERE, "rawcarve.py"), "bdf", f, "--glyph", "16x16",
                                               "--chars", "map", "--map", m, "-o", b, code=1))
@@ -100,6 +124,27 @@ class Msx1(unittest.TestCase):
         self.assertEqual(L(0xACFC), [[0x86, 0x99], [0xA1, 0x0C]])          # 과: compound, no final
         self.assertEqual(L(0xACFD), [[0xA7, 0x99], [0x86, 0xFC]])          # 곽
         self.assertEqual(L(0xC758), [[0x86 + 11, 0xA6], [0xA5, 0x0C]])     # 의
+
+    def test_layout_refuses_a_non_syllable(self):
+        for cp in (0xABFF, 0xD7A4, 0x41):
+            with self.assertRaises(msxfont.MsxError):
+                msxfont.layout(cp)
+
+    def test_msx1_refusals(self):
+        with tempfile.TemporaryDirectory() as d:
+            p, b = os.path.join(d, "bios.rom"), os.path.join(d, "o.bdf")
+            wr(p, cell_table()[:0x1B49 + 1000])
+            self.assertIn("no 256 x 8-byte table", run(os.path.join(HERE, "msxfont.py"), "msx1", p, "-o", b, code=1))
+            wr(p, cell_table())
+            self.assertIn("--ascii-top is 0..8", run(os.path.join(HERE, "msxfont.py"), "msx1", p, "--ascii-top", "9",
+                                                    "-o", b, code=1))
+            self.assertIn("--ascent is 0..16", run(os.path.join(HERE, "msxfont.py"), "msx1", p, "--ascent", "17",
+                                                  "-o", b, code=1))
+            big = os.path.join(d, "big.rom")
+            with open(big, "wb") as fh:
+                fh.truncate(0x10001)
+            self.assertIn("more than the 65536", run(os.path.join(HERE, "msxfont.py"), "kfn-map", big, "-o", b,
+                                                     code=1))
 
     def test_bdf_from_cells(self):
         with tempfile.TemporaryDirectory() as d:
@@ -139,6 +184,22 @@ class Msx1(unittest.TestCase):
             out = run(os.path.join(HERE, "msxfont.py"), "msx1-verify", pre, "--bios", os.path.join(d, "bios.rom"))
             self.assertIn("80 of 80 syllables identical", out)
             self.assertIn("255 of 256 cells identical (differ: 0xff)", out)
+            # input errors: an empty or non-syllable index, short names, a short pattern table, a wrong BIOS
+            bios_arg = ["--bios", os.path.join(d, "bios.rom")]
+            for files, args, msg in (({".index": b""}, [], "no syllable"),
+                                     ({".index": b"0041\n"}, [], "U+0041 is not a Hangul syllable"),
+                                     ({".index": b"zz\n"}, [], "one hex code point a line"),
+                                     ({".names": bytes(names[:768])}, [], "short of 80 syllables"),
+                                     ({".patterns": bytes(pat[:1024])}, bios_arg, "not the 2,048-byte pattern table")):
+                saved = {k: rd(pre + k) for k in files}
+                for k, v in files.items():
+                    wr(pre + k, v)
+                self.assertIn(msg, run(os.path.join(HERE, "msxfont.py"), "msx1-verify", pre, *args, code=1))
+                for k, v in saved.items():
+                    wr(pre + k, v)
+            wr(os.path.join(d, "other.rom"), bytes(0x8000))
+            self.assertIn("cells other than the cursor", run(os.path.join(HERE, "msxfont.py"), "msx1-verify", pre,
+                                                             "--bios", os.path.join(d, "other.rom"), code=1))
             names[0 * 32 + 2 + 1] ^= 1                      # 가's top right cell changed
             wr(pre + ".names", bytes(names))
             self.assertIn("1 syllables differ, first U+AC00",

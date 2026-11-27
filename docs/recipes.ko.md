@@ -70,7 +70,7 @@
 | HWP 3.0 `HAN*.FNT`(음절 2,350개, 16 px는 8x4x4 벌 체계 추가) | `hwpfont.py bdf` 다음 `mkfont.py` | `jamoset.py --layout 844-hwp3`(16 px), 그 밖에는 `--from-svf` | [HWP 3.0 FNT 폰트](#hwp-30-fnt-폰트) |
 | KS X 1001 원시 덤프(코드 순서의 음절 2,350개, 또는 94 x 94 표) | `hwpfont.py bdf`(16-48 px 덤프), 또는 `rawcarve.py bdf --dense` / `--grid`; 다음 `mkfont.py`나 `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 원시 덤프](#ks-x-1001-원시-덤프) |
 | 프로그램이나 ROM 안의 폰트(DOS 드라이버나 TSR, 워드프로세서, 한글 VGA BIOS + 폰트 ROM) | 찾기는 `binscan.py`, 잘라 내기는 `rawcarve.py`(원시, BDF, 또는 드라이버 규칙대로 조합), 다음 `bdfface.py` | 잘라 낸 원시 폰트에 `jamoset.py --layout 844`, 또는 `--from-svf` | [Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기](#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기) |
-| 한국 MSX ROM(대우, 금성: MSX2 SUB-ROM, CPC-400S 폰트 ROM, MSX1 BIOS) | `msxfont.py kfn-map` + `rawcarve.py bdf --chars map`(CPC-400S), `msxfont.py msx1` + `mkfont.py`(MSX1), 그다음 `bdfface.py` | `jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json`(MSX2, 정확) | [한국 MSX 폰트](#한국-msx-폰트-msx2와-msx1) |
+| 한국 MSX ROM(대우, 금성: MSX2 SUB-ROM, CPC-400S 폰트 ROM, MSX1 BIOS) | `rawcarve.py compose` + `bdfface.py`(MSX2), `msxfont.py kfn-map` + `rawcarve.py bdf --chars map` + `bdfface.py`(CPC-400S), `msxfont.py msx1` + `mkfont.py`(MSX1) | `jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json`(MSX2, 정확) | [한국 MSX 폰트](#한국-msx-폰트-msx2와-msx1) |
 | MAME 세트에 든 한국 기계나 아케이드 게임의 ROM(반전된 자모 ROM, 여러 비트 스프라이트 타일) | `rawcarve.py region` + `ink --gfx`(또는 `--invert`), `rawcarve.py bdf --dense`, 그다음 `bdfface.py` | `jamoset.py --layout spec`(자체 규칙이 있는 폰트, 정확), 잘라 낸 8x4x4 폰트에 `--layout 844`, 또는 `--from-svf` | [MAME 세트의 한글 폰트 ROM](#mame-세트의-한글-폰트-rom) |
 | OS/2 한글 System DBCS 폰트(`$korZN16.FNT`, `$korZN24.FNT`, 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 한글 폰트(완성형)](#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) |
 | 자모 글리프가 있는 TTF(첫가끝 자모, PUA 조각, GSUB `ljmo`) | 다른 TTF와 같이 | 합성 글리프는 `jamovec.py --components`, 변형은 `--mask-font`, 그 밖에는 맞춤 | [이미 자모를 가진 TrueType 폰트](#이미-자모를-가진-truetype-폰트) |
@@ -1107,12 +1107,14 @@ ROM에서 얻은 것은 저장소에 넣지 않는다: ROM 바이트, 글리프 
    프레임을 그리지 않으므로 `screenshot` 전에는 다시 켠다). 결과는 Tcl에서 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
    RAM의 디버그 이름은 "Main RAM"이다.
 2. 입력한 음절이 어떻게 저장되는지 찾는다: `type "poke -851,0\r"`(모아쓰기), `10 rem `과 한글 모드의 두벌식 키를 친다(한/영 키는
-   키 행렬 6행 비트 4: `keymatrixdown 6 0x10`, 이어서 `keymatrixup 6 0x10`). RAM을 덤프하고(`debug read_block "Main RAM" 0
+   키 행렬 6행 비트 4: `keymatrixdown 6 0x10`, 이어서 `after time 0.3 { keymatrixup 6 0x10 }`. 키보드 검사 한 번보다 짧게 누르면
+   놓친다). RAM을 덤프하고(`debug read_block "Main RAM" 0
    0x10000`) BASIC 줄을 읽는다(프로그램은 F676h의 워드가 가리키는 곳에서 시작한다).
 3. BASIC 프로그램을 친다: RAM의 깃발을 기다리고, Tcl 프로시저가 C000h에 써 둔 음절(음절마다 길이 바이트와 자모 바이트)을 화면마다
    77자씩 LOCATE 자리에 PRINT하고(텍스트 창이 2열 안쪽에서 시작하므로 한 행에 4열짜리 칸 7개), 끝 깃발을 놓는다. 화면마다 SCREEN 1
    이름 표(`debug read_block VRAM 0x1800 768`)를, 한 번은 패턴 표(`debug read_block VRAM 0 2048`)를 덤프한다. 화면 146개가
-   11,172자를 모두 덮는다. 눈으로 확인할 `screenshot`을 하나 찍는다(throttle 켬).
+   11,172자를 모두 덮는다(145 x 77 + 7. 마지막 묶음은 그 마지막 음절을 되풀이해 77자로 채운다. 아니면 프로그램이 앞 묶음의
+   남은 바이트를 찍는다). 눈으로 확인할 `screenshot`을 하나 찍는다(throttle 켬).
 4. $OUT/h.index(음절 순서, 한 줄에 16진 코드 하나), $OUT/h.names, $OUT/h.patterns를 쓰고 규칙을 이끌어 낸다: 음절을 모음 종류(세로,
    ㅗㅛㅜㅠㅡ, 겹모음)와 받침(없음, 셀 하나, 셀 둘)으로 모아서 자리마다 어떤 셀 코드가 오는지 읽는다.
 5. `python3 -I tools/msxfont.py msx1-verify $OUT/h --bios BIOS`로 규칙을 확인한다. tools/msxfont.py의 layout()과 다르면 어디가 왜
@@ -1140,8 +1142,9 @@ ROM에서 얻은 것은 저장소에 넣지 않는다: ROM 바이트, 글리프 
    chr$(&H88)+chr$(&H61)`은 가. Tcl에서 `$`는 `\$`, `&`는 `\&`로. MSX1: `poke -851,0` 뒤 모아쓰기). 규칙이 가르는 모든 벌을 쓰는
    음절을 20자 이상 고른다(모음 종류마다 받침 있고 없음, 겹받침, 초성 ㅍ/ㅎ).
 2. 그려진 것을 정확히 읽는다: 텍스트 모드는 이름 표와 패턴 표(`debug read_block VRAM ...`), 비트맵 모드(SCREEN 5-8. 대우 SCREEN 9는
-   SCREEN 6 위에 만든 것)는 글이 있는 곳의 VRAM 픽셀. `screenshot -raw -size auto FILE.png`는 화면 모드에 따른 크기의 날 MSX
-   화면이다(CPC-300의 MSX-TUTOR는 SCREEN 7). 그냥 `screenshot`은 크기가 바뀌고 걸러지므로 보는 데만 쓴다.
+   SCREEN 6 위에 만든 것)는 글이 있는 곳의 VRAM 픽셀. `screenshot -raw FILE.png`는 날 MSX 화면을 320x240으로,
+   `screenshot -raw -doublesize FILE.png`는 640x480으로 찍으며, 후자는 너비 512 모드(SCREEN 6, 7, 대우 SCREEN 9. CPC-300의
+   MSX-TUTOR는 SCREEN 7)의 픽셀을 모두 지킨다. 그냥 `screenshot`은 크기가 바뀌고 걸러지므로 보는 데만 쓴다.
 3. 같은 글을 페이스로 그리고(`svfline.py line`, 또는 jamoset.parse_svfn의 글리프 행) 기계가 쓴 자리에서 픽셀마다 비교한다.
 
 합격: 음절마다 다른 픽셀 수, 모두 0. 아니면 차이를 보이고(두 비트맵) 페이스가 틀렸는지 비교가 틀렸는지(화면 위치, 확대,
@@ -1167,7 +1170,7 @@ SUB-ROM 머리의 4014h, 4016h, 4018h, 401Ah에 포인터 워드 네 개가 있�
 | 받침, ㅘ ㅙ ㅚ ㅝ ㅞ ㅟ ㅢ | 6 | 8 | ㅘ ㅚ ㅟ ㅢ는 10, 그 밖은 9 |
 
 조각 번호: 초성 (벌 - 1) x 20 + 코드 - 1(조합형 초성 2 .. 20), 중성 (벌 - 7) x 28 + M - 2, 종성 (벌 - 9) x 29 + 코드 - 1. 조합형
-종성 코드는 18을 건너뛰므로 종성 벌은 받침 27개에 칸이 29개다. 폰트 블록 전체는 0x59DE .. 0x7E1E, 9,280바이트(조각 290개)다.
+종성 코드는 18을 건너뛰므로 종성 벌은 받침 27개에 칸이 29개다. 폰트 블록 전체는 0x59DE .. 0x7E1E, 9,280바이트다: 조각 234개(7,488바이트, 0x771E까지), 그 뒤 8x16 영문 폰트(코드 0x10-0x7F, 1,792바이트).
 이 규칙이 compose 명세 `tools/specs/msx2-daewoo.json`이다. 오프셋은 블록 시작에서 재고, 종성 벌은 쓰는 칸을 적어 두므로(`"slots"`)
 명세 하나로 모든 기종의 블록을 읽는다.
 
@@ -1212,7 +1215,8 @@ CPC-400S에서는 같은 블록이 SUB-ROM 절반의 사본에서 10바이트 �
         --chars-from $OUT/all.txt -o $OUT/CPC400S.SVF
 
 결과: `137,416 bytes`, 글리프 2,688개(음절 2,591, ASCII 95, U+2026, U+25A1), `width=144 ascent=14 descent=2`, 잉크 437.
-`--chars-from $OUT/ks.txt`로는 음절 2,217자, `117,976 bytes`(KS 음절 133자, 그 가운데 뷁과 힣은 ROM에 없다). 이 페이스의 8x4x4 맞춤
+`--chars-from $OUT/ks.txt`로는 음절 2,217자, `117,976 bytes`(KS 음절 2,350자 가운데 갊 걜 곌 등 133자가 ROM에 없다.
+KS X 1001 밖의 음절은 목록에 든 것만 있으므로 뷁과 힣도 없다). 이 페이스의 8x4x4 맞춤
 (`jamoset.py --layout 844 --from-svf`)은 IoU 0.794(`19,900 bytes`, 정확히 맞은 음절 83자)에 그친다. 완성형 디자인이 자모 조각으로
 짜여 있지 않기 때문이다. 한자 군은 KS X 1001이 아닌 드라이버 자신의 코드(lead 바이트 D4h 이상)를 쓰며, 여기서는 뺀다.
 
@@ -1225,11 +1229,12 @@ CPC-400S에서는 같은 블록이 SUB-ROM 절반의 사본에서 10바이트 �
 
 방법(openMSX 19.1, 기종 `Daewoo_DPC-200`, Xvfb에서 화면 없이):
 
-1. Tcl 스크립트로 기계를 켠다: `xvfb-run -a openmsx -machine Daewoo_DPC-200 -script harvest.tcl`. 스크립트 첫 줄에 `set throttle off`를
+1. Tcl 스크립트로 기계를 켠다: `timeout 600 xvfb-run -a openmsx -machine Daewoo_DPC-200 -script harvest.tcl`(스크립트는
+   `exit`로 끝낸다. `timeout`은 거기 이르지 못한 스크립트를 멈춘다). 스크립트 첫 줄에 `set throttle off`를
    두면 에뮬레이션이 호스트가 허락하는 만큼 빨리 돈다(부팅, 입력, 화면 146개에 약 2초). 이때는 프레임을 그리지 않으므로 스크린샷(5단계)은
    throttle을 켜고 찍는다.
 2. 음절이 어떤 바이트로 저장되는지 찾는다: BASIC `REM` 줄에 두벌식 키를 친다(한/영은 키 행렬 6행 비트 4: `keymatrixdown 6 0x10`, 이어서
-   `keymatrixup 6 0x10`). 그리고 프로그램을 RAM에서 읽는다(`debug read_block "Main RAM" 0 0x10000`, 프로그램은 F676h의 주소부터).
+   키보드 검사를 넘기도록 `after time 0.3 { keymatrixup 6 0x10 }`). 그리고 프로그램을 RAM에서 읽는다(`debug read_block "Main RAM" 0 0x10000`, 프로그램은 F676h의 주소부터).
    음절은 자모 바이트로 저장된다: 초성 0x86 + L, 모음 셀(ㅏ 99 ㅐ 9A ㅑ 9B ㅒ 9C ㅓ 9D ㅔ 9E ㅕ 9F ㅖ A0 ㅗ A1 ㅛ A2 ㅜ A3 ㅠ A4 ㅡ A5 ㅣ A6.
    겹모음은 둘: ㅘ = A1 99, ㅢ = A5 A6), 받침은 그 자음의 셀(ㄳ = 86 8F). ROM은 찍을 때 조합한다.
 3. RAM에 놓은 음절을 찍는 프로그램을 친다: `type "poke -851,0\r"`(모아쓰기), 그리고 한 줄씩 `10 defint a-z`,
@@ -1239,7 +1244,8 @@ CPC-400S에서는 같은 블록이 SUB-ROM 절반의 사본에서 10바이트 �
    시작하므로 4열짜리 칸이 한 행에 8개가 아니라 7개 들어간다).
 4. 화면마다 스크립트가 77자(음절마다 길이 바이트와 자모 바이트)를 `debug write_block "Main RAM" 0xC000 ...`로 C000h에 쓰고, BFFEh를
    1로 놓고, 프로그램이 BFFFh를 1로 놓을 때까지 기다린 뒤, SCREEN 1 이름 표를 파일에 덧붙인다(`debug read_block VRAM 0x1800 768`).
-   패턴 표는 한 번만(`debug read_block VRAM 0 2048`). 화면 146개가 11,172자를 덮는다. 결과는 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
+   패턴 표는 한 번만(`debug read_block VRAM 0 2048`). 화면 146개가 11,172자를 덮는다(145 x 77 + 7. 마지막 묶음은 그 마지막 음절을
+   되풀이해 77자로 채운다. 아니면 프로그램이 남은 바이트를 읽는다). 결과는 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
 5. 눈으로 확인: `screenshot FILE.png`(throttle 켬)가 이름 표가 말하는 화면을 보여 준다.
 6. 이름 표에서 규칙을 이끌어 내고(음절마다 셀 코드, 모음 종류와 받침별로 모아서) 모든 음절에 대어 본다. `tools/msxfont.py msx1-verify
    PREFIX --bios BIOS`가 `PREFIX.index`(음절, 한 줄에 16진 코드 하나), `PREFIX.names`, `PREFIX.patterns`를 읽는다.

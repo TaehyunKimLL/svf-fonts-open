@@ -18,7 +18,7 @@ Nothing here runs the machine's code: it reads bytes. Run it with `python3 -I` o
   msxfont.py msx1-verify PREFIX [--bios BIOS --offset 0x1B49]
       the rule against an emulator harvest: PREFIX.index (one hex code point a line), PREFIX.names (768-byte SCREEN 1
       name tables, 77 syllables each, 7 to a row 4 columns apart from column 2, 2 rows apart), PREFIX.patterns (the
-      2,048-byte pattern table). Exit 1 on a difference.
+      2,048-byte pattern table). Exit 1 when a syllable differs, or (with --bios) a cell other than the cursor 0xFF.
 
 The MSX1 layout (found by printing every syllable on the machine and reading the name table; cell codes of the table):
   initial L 0..18 = 0x86 + L;  vertical vowel cells ㅏ99 ㅐ9A ㅑ9B ㅒ9C ㅓ9D ㅔ9E ㅕ9F ㅖA0 ㅣA6;  ㅗA1 ㅛA2 ㅜA3 ㅠA4 ㅡA5;
@@ -50,6 +50,18 @@ class MsxError(Exception):
 CTRL_BASE = 0x8000                       # the control ROM's CPU address
 LISTS = ((0x97BF, 0x98F3, 0x0581), (0x9859, 0x9E18, 0x1141))   # (start-offset words, trail bytes, first slot): A, B
 LEADS = 76                               # lead bytes 0x88 .. 0xD3
+
+
+MAX_HARVEST = 4 << 20          # a full harvest is 146 x 768 bytes of name tables; any input file is capped
+
+
+def read_capped(path, cap):
+    """The bytes of @p path, refused (before reading) when it is larger than @p cap."""
+    size = os.path.getsize(path)
+    if size > cap:
+        raise MsxError(f"{path}: {size} bytes, more than the {cap} this input can be")
+    with open(path, "rb") as fh:
+        return fh.read()
 
 
 def control_rom(data):
@@ -88,12 +100,10 @@ def kfn_map(data):
 
 
 def cmd_kfn_map(a):
-    with open(a.file, "rb") as fh:
-        m = kfn_map(fh.read())
+    m = kfn_map(read_capped(a.file, 0x10000))
     if not m:
         raise MsxError("no syllable found: not the CPC-400S control ROM")
-    ks = {ord(bytes((le, tr)).decode("euc_kr")) for le in range(0xB0, 0xC9) for tr in range(0xA1, 0xFF)
-          if not (le == 0xC8 and tr > 0xFE)}
+    ks = {ord(bytes((le, tr)).decode("euc_kr")) for le in range(0xB0, 0xC9) for tr in range(0xA1, 0xFF)}
     with open(a.output, "w", encoding="ascii") as fh:
         for cp, slot in sorted(m.items(), key=lambda kv: kv[1]):
             fh.write(f"{slot} U+{cp:04X}\n")
@@ -121,6 +131,8 @@ def merged(L, h):
 
 def layout(cp):
     """The two rows of cell codes (one or two columns) the Hangul ROM prints for syllable @p cp."""
+    if not 0xAC00 <= cp <= 0xD7A3:
+        raise MsxError(f"U+{cp:04X} is not a Hangul syllable")
     s = cp - 0xAC00
     L, V, T = s // 588, s % 588 // 28, s % 28
     fin = [0x86 + c for c in FINALS[T]]
@@ -156,10 +168,11 @@ def syllable_rows(table, cp):
 
 
 def cmd_msx1(a):
-    with open(a.file, "rb") as fh:
-        table = cells(fh.read(), a.offset)
     if not 0 <= a.ascii_top <= 8:
         raise MsxError("--ascii-top is 0..8")
+    if not 0 <= a.ascent <= 16:
+        raise MsxError("--ascent is 0..16")
+    table = cells(rawcarve.read_range(a.file, a.offset, 2048), 0)
     glyphs, advance = {}, {}
     for cp in range(0xAC00, 0xD7A4):
         glyphs[cp] = syllable_rows(table, cp)
@@ -176,14 +189,21 @@ def cmd_msx1(a):
 
 
 PER, COLS = 77, 7
+CURSOR = 0xFF                  # the cell BASIC redefines as the cursor
 
 
 def harvest(prefix):
     """{code point: rows of cell codes} read from a harvest's name tables (the slot's trailing blank columns cut)."""
-    with open(prefix + ".index") as fh:
-        idx = [int(x, 16) for x in fh.read().split()]
-    with open(prefix + ".names", "rb") as fh:
-        nt = fh.read()
+    try:
+        idx = [int(x, 16) for x in read_capped(prefix + ".index", MAX_HARVEST).decode("ascii").split()]
+    except (UnicodeDecodeError, ValueError):
+        raise MsxError(f"{prefix}.index: expected one hex code point a line")
+    if not idx:
+        raise MsxError(f"{prefix}.index: no syllable")
+    for cp in idx:
+        if not 0xAC00 <= cp <= 0xD7A3:
+            raise MsxError(f"{prefix}.index: U+{cp:04X} is not a Hangul syllable")
+    nt = read_capped(prefix + ".names", MAX_HARVEST)
     if len(nt) < (len(idx) + PER - 1) // PER * 768:
         raise MsxError(f"{prefix}.names: {len(nt)} bytes, short of {len(idx)} syllables")
     out = {}
@@ -201,16 +221,20 @@ def cmd_msx1_verify(a):
     got = harvest(a.prefix)
     bad = [cp for cp, rows in got.items() if rows != layout(cp)]
     print(f"layout rule vs the machine: {len(got) - len(bad)} of {len(got)} syllables identical")
+    cell_diff = []
     if a.bios:
-        with open(a.prefix + ".patterns", "rb") as fh:
-            pat = fh.read()
-        with open(a.bios, "rb") as fh:
-            table = cells(fh.read(), a.offset)
+        pat = read_capped(a.prefix + ".patterns", MAX_HARVEST)
+        if len(pat) != 2048:
+            raise MsxError(f"{a.prefix}.patterns: {len(pat)} bytes, not the 2,048-byte pattern table")
+        table = cells(rawcarve.read_range(a.bios, a.offset, 2048), 0)
         diff = [k for k in range(256) if pat[k * 8:k * 8 + 8] != table[k]]
         print(f"VRAM pattern table vs the BIOS table: {256 - len(diff)} of 256 cells identical"
               + (f" (differ: {', '.join(f'{k:#04x}' for k in diff)})" if diff else ""))
+        cell_diff = [k for k in diff if k != CURSOR]
     if bad:
         raise MsxError(f"{len(bad)} syllables differ, first U+{bad[0]:04X}: machine {got[bad[0]]}, rule {layout(bad[0])}")
+    if cell_diff:
+        raise MsxError(f"{len(cell_diff)} cells other than the cursor ({CURSOR:#04x}) differ from the BIOS table")
 
 
 def main(argv=None):

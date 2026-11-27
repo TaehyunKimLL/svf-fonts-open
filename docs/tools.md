@@ -1208,7 +1208,10 @@ machine drew as the rule says, and the pattern-table cells equal to the BIOS's.
 
 **Synopsis.** `python3 tools/msxfont.py kfn-map U44 -o MAP.txt`, `python3 tools/msxfont.py msx1 BIOS [--offset O]
 [--ascii-top N] -o OUT.bdf`, `python3 tools/msxfont.py msx1-verify PREFIX [--bios BIOS]`. Exit 1 with a message on a
-file of the wrong size, start offsets that are not a sorted list, a short harvest, or a syllable that differs.
+file of the wrong size (refused before it is read), start offsets that are not a sorted list, an `--ascii-top` outside
+0..8 or `--ascent` outside 0..16, an empty harvest index or one naming a code point that is not a syllable, short name
+tables, a pattern table that is not 2,048 bytes, a syllable that differs, or (with `--bios`) a cell other than the
+cursor 0xFF that differs.
 
 **Repository modules imported.** `binscan.py`, `rawcarve.py`. **Third-party.** None. **Test.** `tools/test_msxfont.py`
 (synthetic control ROM, cell table and harvest; the layout cases; `rawcarve.py bdf --chars map`).
@@ -1276,7 +1279,8 @@ are left out.
 or `--grid L0,T0,PITCH` (glyph = (lead - L0) x PITCH + (trail - T0): `0xA1,0xA1,94` a full table, `0x80,0x80,128` the
 Korean VGA ROMs; a code whose lead is below L0 or whose trail is outside T0 .. T0 + PITCH - 1 is refused); `--chars map`
 places glyph GLYPH at U+XXXX for each `GLYPH U+XXXX` line of `--map` (a font in a machine's own order; `msxfont.py
-kfn-map` writes one). Negative
+kfn-map` writes one; UTF-8, `#` comments; a malformed line or a glyph past the file's end is refused with the file and
+line). Negative
 offsets, a `--length` / `--stride` / `--count` below 1, a negative `--first` and `--top` + `--height` past 16 rows are
 refused; `cut`, `eng` and `bdf` read only the bytes they use (through the last glyph's whole footprint, also with a
 `--stride` shorter than a glyph), `compose` reads the whole file (up to 64 MiB). A compose

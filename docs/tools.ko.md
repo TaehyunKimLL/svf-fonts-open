@@ -1132,8 +1132,9 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 `msx1-verify`: 기계가 규칙대로 셀을 그린 음절 수와 BIOS와 같은 패턴 표 셀 수.
 
 **사용법.** `python3 tools/msxfont.py kfn-map U44 -o MAP.txt`, `python3 tools/msxfont.py msx1 BIOS [--offset O] [--ascii-top N]
--o OUT.bdf`, `python3 tools/msxfont.py msx1-verify PREFIX [--bios BIOS]`. 크기가 맞지 않는 파일, 정렬된 목록이 아닌 시작 오프셋,
-모자란 수집 결과, 다른 음절에는 메시지와 함께 종료 코드 1.
+-o OUT.bdf`, `python3 tools/msxfont.py msx1-verify PREFIX [--bios BIOS]`. 크기가 맞지 않는 파일(읽기 전에 거부), 정렬된 목록이 아닌 시작 오프셋,
+0..8 밖의 `--ascii-top`이나 0..16 밖의 `--ascent`, 비었거나 음절이 아닌 코드가 든 수집 색인, 모자란 이름 표, 2,048바이트가 아닌 패턴 표,
+다른 음절, (`--bios`가 있으면) 커서 0xFF가 아닌 다른 셀에는 메시지와 함께 종료 코드 1.
 
 **내부 모듈.** `binscan.py`, `rawcarve.py`. **서드파티.** 없음. **테스트.** `tools/test_msxfont.py`(합성 제어 ROM, 셀 표, 수집
 결과. 배치의 경우들. `rawcarve.py bdf --chars map`).
@@ -1194,7 +1195,8 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 
 `bdf --chars ks-*`는 각 KS X 1001 코드를 `--dense`(글리프 i = 그 집합의 i번째 코드: 2,350 음절 덤프) 또는 `--grid L0,T0,PITCH`(글리프 =
 (lead - L0) x PITCH + (trail - T0): 전체 표는 `0xA1,0xA1,94`, 한글 VGA ROM은 `0x80,0x80,128`)로 놓는다(lead가 L0보다 작거나 trail이 T0 .. T0 + PITCH - 1 밖인 코드는 거부한다). `--chars map`은 `--map`의 `GLYPH U+XXXX` 줄마다
-글리프 GLYPH를 U+XXXX에 놓는다(기계 자신의 순서인 폰트. `msxfont.py kfn-map`이 하나를 쓴다). 음수 오프셋,
+글리프 GLYPH를 U+XXXX에 놓는다(기계 자신의 순서인 폰트. `msxfont.py kfn-map`이 하나를 쓴다. UTF-8, `#` 주석. 잘못된 줄이나
+파일 끝을 넘는 글리프는 파일과 줄을 밝혀 거부한다). 음수 오프셋,
 1보다 작은 `--length` / `--stride` / `--count`, 음수 `--first`, 16행을 넘는 `--top` + `--height`는 거부한다. `cut`, `eng`, `bdf`는
 쓰는 바이트만 읽고(글리프보다 짧은 `--stride`여도 마지막 글리프의 전체 범위까지), `compose`는 파일 전체(64 MiB까지)를 읽는다. 1..256 밖의 셀, 음수 조각, 없는 벌, 셀을 넘는 `--eng-top` +
 `--eng-height`인 compose 명세는 메시지와 함께 거부한다. compose 명세는 조각 벌(`offset`,
