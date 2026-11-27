@@ -34,9 +34,12 @@ Windows 계열의 한글 비트맵 폰트: Windows 3.1 한글판의 `BT16.TBM`�
 | XP와 지금의 Windows | `gulim.ttc`, `batang.ttc`(TrueType, 스트라이크 11 px도) | 11,172 |
 
 이 모음에서 음절 11,172자가 모두 처음 나오는 것은 Windows 95 한글판의 TrueType 굴림과 바탕이고, 같은 Windows 95의 TBM 파일은
-Windows 3.1의 KS X 1001 2,350자 그대로다. 이는 CP949(UHC, 확장 완성형)가 한글 Windows 95와 함께 들어왔다는 것과 맞는다(그 내력은
-[자모 세트의 EUC-KR과 CP949](../jamo-sets.ko.md#111-euc-kr과-cp949)). 한계: 여기서 비교한 파일만 본 것이고, 센 것은 한글 음절뿐이다
-(CP949는 한자와 기호도 다룬다).
+Windows 3.1의 KS X 1001 2,350자 그대로다. 측정한 Windows 95 CD는 첫 출시판이 아니라 1996년 말(OSR2 무렵)의 빌드다: `README.TXT`에
+"1996년 8월", `LAYOUT.INF`에 1996년 11월 12일 생성으로 적혀 있고, 두 TTC 파일의 날짜는 1996년 10월 30일이다.
+
+한계: 여기서 비교한 파일만 본 것이고, 센 것은 한글 음절뿐이다(CP949는 한자와 기호도 다룬다). 보지 않은 것: Windows 3.1 한글판의
+TrueType `BATANG`, `DOTUM`, `GULIM`, `GUNGSUH`(디스크에 SZDD로 나뉜 파일 `BATANG.1T_`, `BATANG.2T_`, ...로 들어 있고 여기서는
+이어 붙이지 않았다), Windows 95 `MINI1` CAB의 `GULIM.TTF`, 그리고 1995년의 Windows 95 한글판 첫 출시판.
 
 **출처와 라이선스.** 모두 Microsoft의 독점 폰트다(글리프 디자인은 한양정보통신). 연구용으로만 쓰며, `svf/`의 페이스는 이것으로
 만들지 않는다. 이 문서의 그림은 레시피가 만든 페이스를 작은 샘플로 보여 줄 뿐이고, 폰트 자체나 거기서 만든 BDF와 SVF는 배포하지

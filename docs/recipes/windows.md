@@ -34,10 +34,14 @@ Up: [Recipes index](../recipes.md) · Related: [Bitmap fonts](bitmap-fonts.md) (
 | XP and current Windows | `gulim.ttc`, `batang.ttc` (TrueType, strikes also at 11 px) | 11,172 |
 
 Within this collection, all 11,172 syllables first appear in the TrueType Gulim and Batang of Korean Windows 95, while
-the TBM files of the same Windows 95 keep the KS X 1001 set of 2,350 from Windows 3.1. This matches CP949 (UHC,
-extended Wansung) arriving with Korean Windows 95 (for that history see [EUC-KR and CP949 in Jamo
-sets](../jamo-sets.md#111-euc-kr-and-cp949)). Limits: only the files compared here were looked at, and only Hangul
-syllables were counted (CP949 also covers hanja and symbols).
+the TBM files of the same Windows 95 keep the KS X 1001 set of 2,350 from Windows 3.1. The Windows 95 CD measured is a
+late-1996 (OSR2-era) build, not the first release: its `README.TXT` is dated "1996년 8월", its `LAYOUT.INF` was
+generated on 12 November 1996, and the two TTC files are dated 30 October 1996.
+
+Limits: only the files compared here were looked at, and only Hangul syllables were counted (CP949 also covers hanja and
+symbols). Not examined: the TrueType `BATANG`, `DOTUM`, `GULIM` and `GUNGSUH` of Korean Windows 3.1 (stored on its disks
+as split SZDD files `BATANG.1T_`, `BATANG.2T_`, ..., not reassembled here), the `GULIM.TTF` of the Windows 95 `MINI1`
+cabinet, and the original 1995 release of Korean Windows 95.
 
 **Source and licence.** All are proprietary Microsoft fonts (glyph design HanYang I&C). They are for research only;
 no face in `svf/` is made from them. The images in this document show faces the recipe built as small samples only;
