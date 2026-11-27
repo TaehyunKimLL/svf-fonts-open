@@ -169,6 +169,33 @@ class BdfFaceTest(unittest.TestCase):
         self.assertEqual([y for y, r in enumerate(box) if r], list(range(6, 22)))
         self.assertTrue(box[6] and box[21])
 
+    def test_an_unencoded_glyph_is_skipped(self):
+        # ENCODING -1 (an unencoded glyph, as kaist-newmj18.bdf has) and a code past two bytes are not KS X 1001 codes
+        bdf(self.path("h.bdf"), [(-1, 1, 1, 0, 0, [1]), (0x12345, 1, 1, 0, 0, [1]),
+                                 (KS_GA, 4, 3, 2, -5, [0b1111, 0b1001, 0b1111])])
+        _, glyphs = bdfface.read_bdf(self.path("h.bdf"))
+        self.assertEqual(sorted(glyphs), [0xAC00])
+
+    def test_symbols_come_from_the_hangul_face_only_when_asked(self):
+        # KS X 1001 0x2158 is U+203B (reference mark), 0x2160 U+25A1 (white square), 0x2421 U+3131 (compatibility g)
+        bdf(self.path("h.bdf"), [(KS_GA, 4, 3, 2, -5, [0b1111, 0b1001, 0b1111]), (0x2158, 2, 2, 1, 0, [0b11, 0b01]),
+                                 (0x2160, 3, 1, 0, 1, [0b101]), (0x2421, 1, 1, 0, 0, [1])])
+        hbf(self.path("a.hbf"), "a.bin", {0x41: [0xFFF] * 24, 0x20: [0] * 24})
+        chars = {0xAC00, 0x203B, 0x25A1, 0x3131}
+        data, info = self.build(chars)
+        f = jamoset.parse_svfn(data)
+        self.assertNotIn(0x203B, f.glyphs)
+        self.assertNotIn(0x3131, f.glyphs)
+        self.assertEqual(len([r for r in self.rows(f, 0x25A1) if r]), 16)	# the drawn box
+        data, info = self.build(chars, symbols=True)
+        f = jamoset.parse_svfn(data)
+        self.assertEqual(info["symbols"], 3)
+        # on the Hangul baseline (row 19), 2 rows tall from y offset 0: rows 17-18, x from bx = 1
+        self.assertEqual(self.rows(f, 0x203B)[17:19], [0b11 << 21, 0b01 << 21])
+        self.assertEqual(f.metrics[0x203B][0], 24)	# the glyph's own DWIDTH
+        self.assertEqual([r for r in self.rows(f, 0x25A1) if r], [0b101 << 21])	# the face's square, not the box
+        self.assertIn(0x3131, f.glyphs)
+
     def test_requested_syllable_the_face_lacks_is_reported(self):
         self.make()
         data, info = self.build({0xAC00, 0xB098})

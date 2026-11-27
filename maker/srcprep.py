@@ -31,7 +31,6 @@ import zlib
 
 import macfbit3
 import macsfnt
-from fontTools.ttLib import TTFont, TTLibError
 
 MAX_ROWS = 1 << 20            # glyph rows one PCF may convert to BDF (a CJK 24 px face is about 270,000)
 JM_CAP = 4 << 20               # a JM archive's declared unpacked size (a type-3 fbit is ~10 KB)
@@ -51,6 +50,7 @@ def ttc_face_bytes(data, index):
     total = struct.unpack_from(">I", data, 8)[0]
     if not 0 <= index < total:
         raise PrepError("face %d out of range (the collection has %d faces)" % (index, total))
+    from fontTools.ttLib import TTFont  # here, not at the top: pcf-bdf and the Mac fork steps need no fontTools
     buf = io.BytesIO()
     try:
         TTFont(io.BytesIO(data), fontNumber=index).save(buf)
@@ -246,6 +246,7 @@ def _apply_op(data, op):
     if kind == "ttc-face":
         return ttc_face_bytes(data, op["index"])
     if kind == "mac-cmap":
+        from fontTools.ttLib import TTFont, TTLibError
         try:
             font = TTFont(io.BytesIO(data))
             macsfnt.add_unicode(font)
@@ -257,6 +258,7 @@ def _apply_op(data, op):
             raise PrepError("not an sfnt font (%s)" % e)
         return buf.getvalue()
     if kind == "instance":
+        from fontTools.ttLib import TTFont
         from fontTools.varLib import instancer
         font = TTFont(io.BytesIO(data))
         pinned = instancer.instantiateVariableFont(font, {tag: float(v) for tag, v in op["coords"].items()},

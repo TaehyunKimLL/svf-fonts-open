@@ -14,7 +14,8 @@ section 3, docs/johab/2026-10-14-johab-font-formats.md section 2):
   844-hbios24      the jamo half of a 24x30 HBIOS / Taebaek 3.5 face ($KMYZN24, GOTHIC24, MY24, PILGI24; 243,900 bytes)
   1044-san         10x4x4 of san-1.0 (12,800 bytes)
   621              6x2x1, Apple II (6,144 bytes, byte-column glyphs)
-  hanterm-johab    hanterm johab-1 BDF, 10x(3|4)x4
+  hanterm-johab    hanterm johab-1 BDF, 10x(3|4)x4 (hanterm-font 10-6-6, 10-6-6-nz; 529 glyphs)
+  hanterm-844      hanterm johab844-1 BDF (hanterm-font 8-4-4; 360 glyphs in the DOS 8x4x4 order)
   dkb-printer-7x2x2    Dokkaebi printer HANGUL16/24.FNT (--face 0|1)
   dkb-printer-12x4x4   Dokkaebi printer HANGUL40/48.FNT (--face 0|1)
   kyra-lok         Kyra LoK MK15.BIT, jamo-major 10x4x4, 15x15
@@ -272,7 +273,28 @@ def open_hwp3_844(d, face=0, path=""):
 
 
 def open_bdf_glyphs(d, face=0, path=""):
-    """A hanterm BDF whose ENCODING is the glyph number (johab-1); cells are the font's box."""
+    """A hanterm BDF whose ENCODING is the glyph number (johab-1, 529 glyphs); cells are the font's box."""
+    return bdf_glyph_source(d, 529, "johab-1")
+
+
+def open_bdf844(d, face=0, path=""):
+    """A hanterm johab844-1 BDF (hanterm-font 3.1, 8-4-4/*.bdf): 360 glyphs whose ENCODING is the glyph number of the
+    DOS 8x4x4 order (hanterm's convert_3_to_jo844font draws initial type * 20 + L, 160 + medial type * 22 + V,
+    248 + final type * 28 + T), so the font is a raw 8x4x4 font in BDF form."""
+    src = bdf_glyph_source(d, 360, "johab844-1")
+    bad = [i for i in slots_of(8, 4, 4, 160, 248) if any(src.glyph(i).rows)]
+    if len(bad) > 2:
+        raise SourceError(f"not this layout: fill slots {bad[:4]} are not blank")
+    return src
+
+
+def raw_of(src):
+    """The glyphs of a Source one after another, row major (the raw font a BDF of glyph numbers stands for)."""
+    return b"".join(src.glyph(i).to_bytes() for i in range(src.count))
+
+
+def bdf_glyph_source(d, count, what):
+    """A BDF whose ENCODING is the glyph number 0..@p count - 1 (@p what names the encoding in errors)."""
     t = d.decode("latin-1")
     if not t.startswith("STARTFONT"):
         raise SourceError("not a BDF")
@@ -301,9 +323,9 @@ def open_bdf_glyphs(d, face=0, path=""):
         if len(lines) < bhh or any(len(x) < nb * 2 for x in lines[:bhh]):
             raise SourceError(f"BDF glyph {enc}: BITMAP has {len(lines)} of {bhh} rows")
         chars[enc] = (bw, bhh, bx, by, [int(x[:nb * 2], 16) >> (nb * 8 - bw) for x in lines[:bhh]])
-    missing = [i for i in range(529) if i not in chars]
+    missing = [i for i in range(count) if i not in chars]
     if missing:
-        raise SourceError(f"BDF lacks glyph ENCODING {missing[0]} of the 529 johab-1 glyphs ({len(missing)} missing)")
+        raise SourceError(f"BDF lacks glyph ENCODING {missing[0]} of the {count} {what} glyphs ({len(missing)} missing)")
 
     def get(i):
         c = chars.get(i)
@@ -318,7 +340,7 @@ def open_bdf_glyphs(d, face=0, path=""):
                     out[y] = (r << sh) if sh >= 0 else (r >> -sh)
         return Glyph(w, h, out)
 
-    return Source(w, h, 529, get)
+    return Source(w, h, count, get)
 
 
 # ---- layouts ----------------------------------------------------------------
@@ -435,7 +457,7 @@ def _dkb12():
 
 
 LAYOUTS = {l.name: l for l in (_844("844", 0), _844("844-ihnm", 1), _844("844-hbios24", 0, open_hbios24),
-                               _844("844-hwp3", 0, open_hwp3_844), _san1044(), _621(), _hanterm(), _dkb7(),
+                               _844("844-hwp3", 0, open_hwp3_844), _844("hanterm-844", 0, open_bdf844), _san1044(), _621(), _hanterm(), _dkb7(),
                                _dkb12(), _kyra())}
 
 
@@ -2421,9 +2443,11 @@ def check(out_bytes, layout, src_bytes, bold=False):
             if getattr(t, attr) != getattr(want, attr):
                 raise ValueError(f"the written JSET {attr} differs from the adaptive layout")
         msg += f"; tables are the adaptive layout's ({t.ni}/{t.nm}/{t.nf} sets, {t.lc}x{t.tc} classes)"
-    if layout.name in ("844", "844-hwp3") and (f.cell_w, f.cell_h) == (16, 16) and src_bytes is not None:
+    if layout.name in ("844", "844-hwp3", "hanterm-844") and (f.cell_w, f.cell_h) == (16, 16) and src_bytes is not None:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))	# python -I drops the script's directory
         import johab844
+        if layout.name == "hanterm-844":
+            src_bytes = raw_of(open_bdf844(src_bytes))
         off = 2 if len(src_bytes) == 11522 else HWP3_JAMO_OFFSET if layout.name == "844-hwp3" else 0
         jamo = src_bytes[off:off + 360 * 32]
         want = johab844.compose
