@@ -646,6 +646,9 @@ printf("faces=%u width=%d scratch=%zu\n", (unsigned)chain.count, extent.width,
 - `MONO_*`는 커버리지가 `t.mono_threshold`(기본값 128) 이상일 때 비트를 설정하며 비트를 지우지 않는다.
 - 클립 사각형(`t.clip_x0..clip_y1`, 반개구간, 기본값은 타깃 전체) 안의 픽셀만 쓰인다. 이웃 픽셀의 바이트나 행 패딩은 건드리지 않는다.
 
+2 bpp 단계가 종류마다 어떤 색이 되는지(정확한 섞기 식과 반올림, 단계별 mono 임계값)와 어떤 화면에 어떤 bpp가 맞는지는 그림과 함께
+[안티앨리어싱](anti-aliasing.ko.md#23-단계가-색이-되는-과정)에 있다.
+
 ### 8.1 32비트 서피스 위의 컬러 텍스트
 
 ```c

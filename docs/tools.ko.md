@@ -935,6 +935,31 @@ JSET 버전 1 조회)을 그린다.
 
 **import하는 저장소 모듈.** `jamoset.py`. **서드파티.** Pillow. **테스트.** `--check`.
 
+### `tools/doc_figures_aa.py`
+
+**목적.** [anti-aliasing.ko.md](anti-aliasing.ko.md)의 픽셀 그림(한 음절의 1/2/8 bpp, 타깃별 2 bpp 단계, 2 bpp 자모 조합의 최댓값과
+OR, 윤곽에서 coverage와 단계로, 36 px 페이스의 축소, MONO, GRAY, GRAY8, RGB565, XRGB8888에 그린 한 줄)을 그린다.
+
+**상태.** 특수 목적(문서).
+
+**입력.** 이 저장소의 OFL 글꼴만 읽는다. `svf/jamo-extra/GOTHA16.SVF`, `GOTHA16A.SVF`, `SGDAY16A.SVF`, `NSQRR16.SVF`,
+`svf/dos/NSQRR36.SVF`, `NSQRR16A.SVF`, `PAPLG16.SVF`, `PAPLG18.SVF`, `NEODG16.SVF`(라벨),
+`ttf/nanumgothic/NanumGothic-Regular.ttf`. 다른 경로는 거부하므로 Apple 데이터나 ROM 데이터가 공개 그림에 들어갈 수 없다.
+글리프는 `svfline.py`(페이스, 줄 배치, `Target`)로 읽고 그리며, 윤곽 그림은 `mkfont.py`의 `render()`로 그려
+`jamoset.pack_svfn`으로 묶는다.
+
+**출력.** `docs/images/anti-aliasing/`의 `bpp.png`, `levels.png`, `compose.png`, `outline.png`, `downscale.png`, `targets.png`
+(RGB PNG, 메타데이터 없음: 같은 Pillow와 FreeType이면 실행할 때마다 같은 바이트, 두 버전을 출력한다)와, 2 bpp 축소 결과가
+그릴 때 배율을 4단계로 양자화한 것과 같은지 알리는 한 줄.
+
+**개요(Synopsis).**
+
+    python3 -I tools/doc_figures_aa.py [--out DIR] [--check]
+
+`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르면 종료 코드 1).
+
+**import하는 저장소 모듈.** `jamoset.py`, `svfline.py`, `mkfont.py`, `svfscale.py`. **서드파티.** Pillow. **테스트.** `--check`.
+
 ## 빌드 스크립트
 
 ### `tools/build/build_faces.py`

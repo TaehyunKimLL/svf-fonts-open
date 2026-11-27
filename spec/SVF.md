@@ -466,6 +466,10 @@ height (byte 15) pixels, `pitch * cell height` bytes with
 `pitch = (cell width * bpp + 7) / 8`, rows MSB first. Bits past the cell width
 in the last byte of a row are written 0 and masked by readers.
 
+A reader expands a stored pixel to 8-bit coverage: 1 bpp ink is 255, a 2 bpp level k (0..3) is k * 85, an 8 bpp byte is
+itself. What the levels are for, how they become colours on each target and when to choose 1, 2 or 8 bpp:
+[Anti-aliasing](../docs/anti-aliasing.md).
+
 **Layout bytes (9 and 10)** give the alignment units, each a power of two stored
 as its log2, 0..6 (1..64 bytes):
 

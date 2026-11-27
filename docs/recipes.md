@@ -363,6 +363,9 @@ jamo set the `aa:` line's level error and IoU at level 2) and by looking at it: 
 than in the precomposed glyph. A 1 bpp target (MONO_PAGE) thresholds 2 bpp faces at draw time (`threshold` of the
 target); give a mono display a 1 bpp face. `--bpp 8` (mkfont only) keeps full coverage for hosts.
 
+Background (coverage, gamma, why no subpixel rendering), the level-to-colour rules of each target, the maximum against
+OR in jamo sets, and a table of which bpp to choose: [Anti-aliasing](anti-aliasing.md).
+
 ### Baseline, vertical shift and clipping
 
 The ascent field of a face is the baseline row from the cell top; the renderer puts a line's baseline at the pen y and

@@ -26,6 +26,7 @@ Mac) to SVF, by input kind.
 ### Fonts and formats
 
 - [Johab and jamo sets](docs/jamo-sets.md) — Hangul encodings, jamo-set rules and SVF JSET worked examples.
+- [Anti-aliasing](docs/anti-aliasing.md) — coverage and grey levels, 1/2/8 bpp, how levels become colours on each target, making AA faces, choosing a bpp.
 
 ### Tools and recipes
 
@@ -55,6 +56,7 @@ Mac) to SVF, by input kind.
 | `docs/c-renderer-guide.md` | integration guide for the C renderer: build, open faces, draw lines, targets, scaling, Hangul, memory, troubleshooting |
 | [docs/web-renderer-guide.md](docs/web-renderer-guide.md) | web renderer guide: emsdk build, WASM loading, canvas and Node examples, colours, measurement, memory, picker API |
 | `docs/jamo-sets.md` | johab (조합형) explained: the character set, the font technique and its set systems (8x4x4 and others), SVF's JSET v1/v2/BIG/JMAP/LIST with a worked example, and the constraints on MCUs |
+| `docs/anti-aliasing.md` | anti-aliasing: coverage, gamma, no subpixel rendering; 1/2/8 bpp and the 2 bpp levels; level-to-colour rules of each target; maximum (not OR) in 2 bpp jamo sets; making AA faces from outlines and by downscaling; memory, speed and choice of bpp (figures from `tools/doc_figures_aa.py`) |
 | `docs/recipes.md` | the recipes chapter: a quick start by input kind (outline, bitmap, DOS raw, classic Mac, existing SVF), each recipe re-run with its numbers, the maker's route table (route to command line), and how each face of `svf/` is made |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | design documents and implementation plans, one pair per feature, named by date; they are the working record and still name faces, tools and paths of the original working repository that this one leaves out |
 | `svf/dos/` | precomposed and jamo-set faces (first made for the ScummVM Korean maps), with their licence `.TXT` files |

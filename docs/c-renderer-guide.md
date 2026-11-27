@@ -671,6 +671,9 @@ How the kinds treat existing pixels is exact and documented above `svf_target` i
 - Only pixels inside the clip rectangle (`t.clip_x0..clip_y1`, half-open, default the whole target) are written; no byte
   of a neighbouring pixel and no row padding is touched.
 
+How a 2 bpp level becomes a colour on each kind (the exact blend and rounding, the mono threshold per level), with
+figures, and which bpp suits which display: [Anti-aliasing](anti-aliasing.md#23-from-level-to-colour).
+
 ### 8.1 Colour text on a 32-bit surface
 
 ```c

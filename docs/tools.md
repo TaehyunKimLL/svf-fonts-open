@@ -999,6 +999,33 @@ palette: the same bytes on every run), and one line comparing the two faces over
 
 **Repository modules imported.** `jamoset.py`. **Third-party.** Pillow. **Test.** `--check`.
 
+### `tools/doc_figures_aa.py`
+
+**Purpose.** Draws the pixel figures of [anti-aliasing.md](anti-aliasing.md) (one syllable at 1/2/8 bpp, the 2 bpp
+levels on each target, 2 bpp jamo composition by maximum against OR, outline to coverage to levels, downscaling from a
+36 px face, one line on MONO, GRAY, GRAY8, RGB565 and XRGB8888).
+
+**Status.** Special-purpose (documentation).
+
+**Inputs.** Only OFL fonts of this repository: `svf/jamo-extra/GOTHA16.SVF`, `GOTHA16A.SVF`, `SGDAY16A.SVF`,
+`NSQRR16.SVF`, `svf/dos/NSQRR36.SVF`, `NSQRR16A.SVF`, `PAPLG16.SVF`, `PAPLG18.SVF`, `NEODG16.SVF` (labels) and
+`ttf/nanumgothic/NanumGothic-Regular.ttf`; it refuses any other path, so no Apple or ROM data can reach a published
+figure. Glyphs are read and drawn through `svfline.py` (faces, line layout, `Target`) and, for the outline figures,
+`mkfont.py`'s `render()` packed by `jamoset.pack_svfn`.
+
+**Outputs.** `bpp.png`, `levels.png`, `compose.png`, `outline.png`, `downscale.png`, `targets.png` in
+`docs/images/anti-aliasing/` (RGB PNG, no metadata: the same bytes on every run with the same Pillow and FreeType,
+both printed), and one line saying whether the 2 bpp downscale equals the draw-time scale quantised to 4 levels.
+
+**Synopsis.**
+
+    python3 -I tools/doc_figures_aa.py [--out DIR] [--check]
+
+`--check` renders in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference).
+
+**Repository modules imported.** `jamoset.py`, `svfline.py`, `mkfont.py`, `svfscale.py`. **Third-party.** Pillow.
+**Test.** `--check`.
+
 ## Build scripts
 
 ### `tools/build/build_faces.py`
