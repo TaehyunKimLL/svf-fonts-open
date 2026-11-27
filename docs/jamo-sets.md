@@ -1360,7 +1360,7 @@ In order:
 | [docs/c-renderer-guide.md](c-renderer-guide.md) chapters 10-13 | Hangul, memory, switches, platforms |
 | [c/cross/SIZES.md](../c/cross/SIZES.md), [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) | size and speed measurements |
 | [docs/recipes.md](recipes.md) | recipes per font (the index of the [recipe documents](recipes.md#recipe-documents)) and [Choosing the number of sets (벌 수)](recipes/sets.md) |
-| [docs/jamo-split.md](jamo-split.md) | jamo splitting: a jamo set from a precomposed font (the fit, cases, weaknesses, history) |
+| [docs/jamo-split.md](jamo-split.md) | jamo splitting: a jamo set from a precomposed font (the fit, cases, weaknesses, history, the 2026-11 learned split in research) |
 | [docs/tools.md](tools.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | the set system tables (`I844_*`, `F844`, `_844` and others), `pack`, `unpack`, `pieces_of` |
 | [Renderer design](../spec/renderer-design.md) | layout, scaling and memory model |
