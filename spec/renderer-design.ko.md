@@ -46,7 +46,7 @@ flowchart LR
     S --> T["클리핑과 출력 타깃"]
 ```
 
-파일의 셀·메트릭·피복도(coverage) 정의는 [형식 명세](SVF.ko.md#layout)를 따른다.
+파일의 셀·메트릭·커버리지(coverage) 정의는 [형식 명세](SVF.ko.md#layout)를 따른다.
 조합형의 배경과 벌 선택 예는 [자모 세트](../docs/jamo-sets.ko.md)에 있다.
 
 ## 3. 페이스 열기와 조회

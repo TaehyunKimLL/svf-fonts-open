@@ -4,7 +4,7 @@
 
 폰트 읽기, SVFN 페이스 생성·변환, 검사에 쓰는 명령줄 도구의 참조 문서이다.
 포맷과 용어는 [SVF 명세](../spec/SVF.ko.md)와 [용어집](../spec/SVF.ko.md#glossary),
-조합 원리는 [자모 세트](jamo-sets.ko.md), 피복도와 비트 깊이는 [안티앨리어싱](anti-aliasing.ko.md)을 참고한다.
+조합 원리는 [자모 세트](jamo-sets.ko.md), 커버리지와 비트 깊이는 [안티앨리어싱](anti-aliasing.ko.md)을 참고한다.
 
 입력 종류별 실행 예는 [레시피](recipes.ko.md)에 있다. 생성한 페이스를 사용하는 방법은
 [C 렌더러 가이드](c-renderer-guide.ko.md), [렌더러 설계](../spec/renderer-design.ko.md),
@@ -27,7 +27,7 @@
 도구는 두 종류를 쓴다.
 
 - **완성형 페이스**는 코드 포인트마다 글리프 하나를 저장한다(한글 음절, ASCII 문자, 기호). **1, 2, 8 bpp**로
-  쓴다(1 bpp는 스텐실, 2 bpp는 4단계 피복도, 8 bpp는 256단계). 4 bpp는 없다. 페이스는 글리프별 advance, 왼쪽 베어링,
+  쓴다(1 bpp는 스텐실, 2 bpp는 4단계 커버리지, 8 bpp는 256단계). 4 bpp는 없다. 페이스는 글리프별 advance, 왼쪽 베어링,
   잉크 폭을 가진 메트릭 표(헤더 플래그 비트 0)를 가질 수 있으며, 이 경우 가변 폭이 된다.
   코드 포인트 목록에서 `mkfont.py`가 쓴 페이스는 플래그 비트 2도 설정한다(결합 표시는 펜을
   `max(0, -bearingX)`에 둔 채 저장된다).
@@ -141,8 +141,8 @@ hanterm BDF, Kyra `.BIT`, Dokkaebi FNT, HWP 3.0 HAN16 FNT 파일), `mac-fbit-45s
 | `--report FILE.json` (없음) | `mac-fbit-45sets`, `--from-ttf`, `--from-svf`, `--bpp 2` | 품질 보고서를 쓴다 |
 | `--bpp {1,2}` (1) | `--from-ttf` | 2 = 안티앨리어싱된 조각(fontTools 필요) |
 | `--aa-refine N` (2) | `--from-ttf --bpp 2` | 레벨 오차 개선 패스(0 = 중앙값만) |
-| `--binarize {mono,threshold,ridge}` (mono) | `--from-ttf` 1 bpp | FreeType 모노크롬, 정확한 면적 피복도, 또는 그것에 희미한 능선을 더한 것(fontTools) |
-| `--threshold F` (0.5) | `--from-ttf --binarize threshold\|ridge` | 피복도 컷 |
+| `--binarize {mono,threshold,ridge}` (mono) | `--from-ttf` 1 bpp | FreeType 모노크롬, 정확한 면적 커버리지, 또는 그것에 희미한 능선을 더한 것(fontTools) |
+| `--threshold F` (0.5) | `--from-ttf --binarize threshold\|ridge` | 커버리지 컷 |
 | `--clean` / `--no-clean` (auto) | `--from-ttf`, `--from-svf`, `--bpp 2` | 노이즈 정리(`--bpp 2`와 `--layout adaptive`에서는 켜짐, 그 외에는 꺼짐) |
 
 **JSET 버전.** 버전 1은 일반 빌더의 기본값이다(`svf_synth.py`는 테스트용으로 기본값 2를 쓴다). 버전 2(compact)는 메모리가 제한된 대상을 겨냥한 빌드와
@@ -208,7 +208,7 @@ v1 옵션 `--codepage`, `--count`, `--shadow`, `--center`, `--fixed`, `--fullwid
 | `--size N` (필수) | - | 렌더링할 픽셀 크기 |
 | `--cell N` | 0 (= `--size`) | 셀 높이 |
 | `--width N` | 0 (= 셀 높이) | 셀 폭 |
-| `--bpp {1,2,8}` | 8 | 1 스텐실, 2 네 단계, 8 피복도 |
+| `--bpp {1,2,8}` | 8 | 1 스텐실, 2 네 단계, 8 커버리지 |
 | `--mono-hint` | 꺼짐 | 1 bpp: FreeType 모노크롬 렌더러와 폰트의 힌팅 |
 | `--latin` | 꺼짐 | Latin 기준선 규칙(ascent)을 고른다. `--fit-cell`/`--clip-cell`에서도 적용된다 |
 | `--ink-advance` | 꺼짐 | 가변 폭을 폰트 메트릭이 아니라 잉크에서 가져온다 |
@@ -431,7 +431,7 @@ dy에 대응시킨 JSON 객체를 읽는다.
 ### `tools/svfscale.py`
 
 **목적.** 비트맵 페이스를 더 작은 픽셀 크기로 그린다(40 / 48 px DOS나 프린터 페이스, 24 px BDF를 16 px로). 1 bpp는 임계값으로, 2 bpp는
-피복도를 네 단계로 양자화한다. 비트맵 축소로 중간 피복도를 만든다.
+커버리지를 네 단계로 양자화한다. 비트맵 축소로 중간 커버리지를 만든다.
 
 **상태.** 범용이다.
 
@@ -442,7 +442,7 @@ BDF(`bdfface.read_bdf`: KS X 1001 또는 유니코드 인코딩).
 아니다). 높이(ascent, 글리프별 dy)는 h / H, 너비(전진 폭, 결합 부호의 음수
 bearing_x)는 w / W로 비례해 반올림한다(w = `round(W x h / H)`). 글리프마다 자기 비트맵(`svfline.Face.coverage`: dy 이동도 부호 원점도
 없고 잘리지도 않는다)에서 다시 샘플링한다. 출력 픽셀은 원본 영역 중 잉크가 차지한 정확한 비율이다. 1 bpp는 비율 >= `--threshold`
-(0 < threshold <= 1)를 남기고, 2 bpp는 비율을 0..255의 피복도 c로 반올림한 뒤 `(c x 3 + 127) // 255`를 저장한다(mkfont의 규칙).
+(0 < threshold <= 1)를 남기고, 2 bpp는 비율을 0..255의 커버리지 c로 반올림한 뒤 `(c x 3 + 127) // 255`를 저장한다(mkfont의 규칙).
 64 MiB를 넘는 원본은 거부한다. `--compare`는 두 페이스를 한 기준선에, 모든 글리프의 dy까지 담는 화면에 그린다.
 
 **사용법.** `python3 tools/svfscale.py SRC --size H [--bpp 1|2] [--threshold 0.5] [--chars ks|face|all|FILE] [--compare FACE.SVF] [--profile NAME] -o OUT.SVF`
@@ -518,7 +518,7 @@ BDF(참고 문헌 11). 그리고 두 페이스를 글리프마다 비교한다(�
 
 **출력.**
 
-- `ttf`: `unitsPerEm` = ppem x 64인 TrueType 폰트(ppem의 기본은 셀 높이). `glyf`: 각 글리프에서 피복도가 `--threshold`(기본
+- `ttf`: `unitsPerEm` = ppem x 64인 TrueType 폰트(ppem의 기본은 셀 높이). `glyf`: 각 글리프에서 커버리지가 `--threshold`(기본
   128: 1 bpp는 모든 픽셀, 2 bpp는 단계 2와 3) 이상인 픽셀을 윤곽선으로 추적한 것. ppem과 그 정수배에서 정확하며 힌팅은 없다(no-op 하나의
   `prep`이 FreeType의 자동 힌팅을 막아 다른 크기의 아웃라인은 FreeType의 래스터라이저로 그려진다).
   `EBLC`/`EBDT`: 페이스의 비트 깊이(1, 2, 8)로 ppem의 스트라이크 하나(이미지 형식 1, 인덱스 형식 1). 각 글리프는 잉크 상자로
@@ -539,7 +539,7 @@ BDF(참고 문헌 11). 그리고 두 페이스를 글리프마다 비교한다(�
   `POINT_SIZE`는 ppem x 10, `SWIDTH`는 advance x 1000 / ppem), `AVERAGE_WIDTH`, 라이선스 노트는 `COMMENT` 줄, 저작권은 `COPYRIGHT`, UTF-8로.
 - `compare`: 한 줄 `compared N glyphs: mismatches M (pixels P, advance A, inked only in A X, only in B Y); blank glyphs only
   one face has Z`와, 이어서 처음 다른 코드 포인트들. 글리프는 `svfline.py`가 놓는 대로 놓는다(펜과 기준선에 대한 픽셀의
-  피복도, 그리고 advance). 한쪽에만 있는 빈 글리프는 따로 세지만 U+0020, U+00A0, U+3000은 불일치이다.
+  커버리지, 그리고 advance). 한쪽에만 있는 빈 글리프는 따로 세지만 U+0020, U+00A0, U+3000은 불일치이다.
 - `cps`: 페이스의 코드 포인트를 `mkfont.py --unicode` 범위로.
 
 **사용법.**
@@ -557,7 +557,7 @@ BDF(참고 문헌 11). 그리고 두 페이스를 글리프마다 비교한다(�
 | `--style S` | `Regular` | 스타일 이름. "Bold" / "Italic" / "Oblique"에 따라 OS/2와 `head`의 스타일 비트를 설정한다. 굵기는 Bold일 때 700, 그 외에는 400 |
 | `--version V` | `1.000` | name 5. 숫자 형식이면 `head.fontRevision`도 그 값, 그 외에는 1.0 |
 | `--ppem N` | 셀 높이 | 스트라이크의 크기이자 em(1..255) |
-| `--threshold C` | 128 (1..255) | 아웃라인(과 `--bpp1` BDF)에 들어갈 픽셀의 피복도 |
+| `--threshold C` | 128 (1..255) | 아웃라인(과 `--bpp1` BDF)에 들어갈 픽셀의 커버리지 |
 | `--licence FILE\|없음` | 페이스 옆의 노트 | 넣을 라이선스 노트. `없음`은 넣지 않는다 |
 | `--no-strike` (ttf) | 꺼짐 | 아웃라인만 |
 | `--apple` (ttf) | 꺼짐 | 스트라이크를 `bloc`/`bdat`으로도 쓴다 |
@@ -773,7 +773,7 @@ syllables`와 같음. `default`와 `dos` 원본에 대한 레이아웃, 메트�
 
 **입력.** fontTools로 읽는 아웃라인 폰트(glyf 또는 CFF, 컴포짓 분해). fontTools pen을 통한다.
 
-**출력.** 직접 쓰는 것은 없다. 호출자가 쓰는 피복도 래스터, 묶인 레벨, 맞춘 조각, 표를 돌려준다.
+**출력.** 직접 쓰는 것은 없다. 호출자가 쓰는 커버리지 래스터, 묶인 레벨, 맞춘 조각, 표를 돌려준다.
 
 **명령줄.** 없음. 함수는 `jamoset.main_aa`와 `jamovec.py`가 호출한다.
 
@@ -945,7 +945,7 @@ JSET 버전 1 조회)을 그린다.
 ### `tools/doc_figures_aa.py`
 
 **목적.** [anti-aliasing.ko.md](anti-aliasing.ko.md)의 픽셀 그림(한 음절의 1/2/8 bpp, 타깃별 2 bpp 단계, 2 bpp 자모 조합의 최댓값과
-OR, 윤곽에서 피복도와 단계로, 36 px 페이스의 축소, MONO, GRAY, GRAY8, RGB565, XRGB8888에 그린 한 줄)을 그린다.
+OR, 윤곽에서 커버리지와 단계로, 36 px 페이스의 축소, MONO, GRAY, GRAY8, RGB565, XRGB8888에 그린 한 줄)을 그린다.
 
 **상태.** 특수 목적(문서).
 
@@ -957,7 +957,7 @@ OR, 윤곽에서 피복도와 단계로, 36 px 페이스의 축소, MONO, GRAY, 
 
 **출력.** `docs/images/anti-aliasing/`의 `bpp.png`, `levels.png`, `compose.png`, `outline.png`, `downscale.png`, `targets.png`
 (RGB PNG, 메타데이터 없음: 같은 Pillow와 FreeType이면 실행할 때마다 같은 바이트, 두 버전을 출력한다)와, 2 bpp 축소 결과가
-그릴 때 축소한 피복도를 4단계로 양자화한 것과 같은지 알리는 한 줄.
+그릴 때 축소한 커버리지를 4단계로 양자화한 것과 같은지 알리는 한 줄.
 
 **사용법.**
 
@@ -1384,13 +1384,13 @@ TTF/OTF, TTC, 가변 폰트, Mac 폰트, BDF/PCF/HBF, DOS 원시 폰트와 기�
 - `mkfont.py`가 FreeType으로 여는 비트맵 폰트는 내장 스트라이크 크기를 사용한다.
   더 작은 비트맵이 필요하면 `svfscale.py`를 쓴다. 스트라이크 탐지는 `maker/detect.py`의 `bitmap_strikes`가 담당한다.
 - `hwpfont.py`는 HWP `.HFT`를 지원하지 않는다. 지원하는 `.SFT`, `.PFT`, `.FNT`와 원시 덤프의 조건은 위 표를 참고한다.
-- `svfscale.py --bpp 2`는 더 큰 1 bpp 비트맵을 축소한다. 같은 크기의 1 bpp 비트맵에서 중간 피복도를 복원하는 기능은 없다.
+- `svfscale.py --bpp 2`는 더 큰 1 bpp 비트맵을 축소한다. 같은 크기의 1 bpp 비트맵에서 중간 커버리지를 복원하는 기능은 없다.
   `mkfont.py --bpp 2`는 BDF/PCF도 열지만, 원래 이진 비트맵에 없던 가장자리 정보를 복원하지는 않는다.
   `jamoset.py --bpp 2`는 `--from-ttf`만 받으므로 비트맵에서 2 bpp 자모 세트를 직접 맞추지는 못한다.
 - `mkfont.py --probe`는 주어진 크기의 잉크에 맞는 셀을 구하고, `--fit-cell`은 주어진 셀에 맞게 크기를 줄인다.
   대상 디스플레이의 줄 간격과 셀 크기는 호출자가 정해야 한다.
 - 공통 라이브러리 API는 없다. `bdfface.build`, `jamoexc.build`, `svf2ttf.build_ttf`처럼 반환값을 주는 개별 함수는 있다.
-  Maker는 `maker/toolrun.py`를 통해 도구를 하위 프로세스로 실행한다. 입력 탐지와 피복도 보고는
+  Maker는 `maker/toolrun.py`를 통해 도구를 하위 프로세스로 실행한다. 입력 탐지와 커버리지 보고는
   `maker/detect.py` 및 [Maker 데스크톱](maker-desktop.ko.md)을 참고한다.
 
 ## 11. 참고 문헌

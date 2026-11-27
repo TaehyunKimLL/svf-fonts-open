@@ -34,7 +34,7 @@ Wide, 18 px)([BDF 형식](../recipes.ko.md#ref-bdf) 참고).
     python3 tools/mkfont.py /usr/share/fonts/X11/misc/18x18ko.pcf.gz $OUT/pcf18-2bpp.svf --size 18 --bpp 2 --unicode ascii,ksx1001-hangul
 
 Verified, shim 없이: BDF `115,684 바이트`, 글리프 2,446개, `width=156 ascent=12 descent=4`, 잉크 348; PCF 1 bpp `116,552 바이트`, 글리프
-2,446개(18x18 셀), `width=234 ascent=15 descent=3`, 잉크 366; PCF 2 bpp `181,108 바이트`. 이 비트맵에는 흑백 피복도만 있으므로 `--bpp 2`의 단계는 0과
+2,446개(18x18 셀), `width=234 ascent=15 descent=3`, 잉크 366; PCF 2 bpp `181,108 바이트`. 이 비트맵에는 흑백 커버리지만 있으므로 `--bpp 2`의 단계는 0과
 3뿐이다. 같은 모노크롬 픽셀을 2 bpp로 담을 뿐 부드러운 페이스가 아니다. 이 페이스의 자모 세트는 완성형 결과에 대한 맞춤이다:
 `jamoset.py --layout 844 --from-svf $OUT/bdf16-1bpp.svf --mask-font none --check -o ...`(수치는 다음 소절의 bdfface 페이스에 있다).
 
@@ -92,7 +92,7 @@ Baekmuk 2.0 X11 BDF 세트의 Baekmuk 바탕 24(`batang24.bdf`, KS C 5601)를 �
 
 `206,872 바이트`, 음절 2,350자, ascent 22, step 24, 잘린 글리프 없음, `width=216 ascent=22 descent=2`(24 px 음절 다섯 개와 12 px 문자 일곱 개),
 잉크 746. `.hbf` 옆에 `.bin`을 풀어 두면 페이스가 바이트 단위로 같다. maker의 `detect.scan`(사본에서 확인, 업로드와 로컬
-모드 모두)은 `12x24.bin.gz`와 함께 있는 `12x24.hbf`를 형식 `hbf`, 레이블 "HBF", 24 px, ASCII 피복도 95로 나열하고 자기 경로는 주지 않는다.
+모드 모두)은 `12x24.bin.gz`와 함께 있는 `12x24.hbf`를 형식 `hbf`, 레이블 "HBF", 24 px, ASCII 커버리지 95로 나열하고 자기 경로는 주지 않는다.
 HBF는 페이스의 라틴 절반일 뿐이다. 라틴 절반으로 쓸 수 없는 HBF에는 이유를 말하는 레이블이 붙는다: 2 바이트 코드 범위(`uni24.hbf`,
 `unihan16.hbf`: "HBF: two-byte code range not supported"), gzip으로 압축된 HBF 자체("HBF: gzipped HBF not supported"), 없는 비트맵 파일
 ("HBF: bitmap file missing").
@@ -157,7 +157,7 @@ descent=2`, 잉크 298. `svf2to3.py --profile default --check`는 두 크기 모
 24, 40, 48 px 비트맵 폰트(DOS나 프린터 폰트, BDF, ROM)를 16 px로, 또는 2 bpp 페이스로 쓰고 싶을 때다. 지금 도구가 하는 일:
 `mkfont.py`는 BDF나 PCF를 그 자신의 크기로만 연다(다른 크기에서는 `OSError: invalid pixel size`,
 [ISO 10646 BDF와 PCF](#iso-10646-bdf와-pcf)). `jamoset.py --from-svf`는 원본의 셀을 유지한다. C 렌더러와 `svfline.py`는 그리는 시점에
-페이스를 축소한다(`scale_num / scale_den`, 8비트 피복도로 가는 박스 필터). `tools/svfscale.py`는 더 작은 페이스를 쓴다. 1 bpp 페이스(자모 세트는 음절을 조합해서)나 BDF에서 선택한 글리프를 그리고, 새 셀로 박스 필터를
+페이스를 축소한다(`scale_num / scale_den`, 8비트 커버리지로 가는 박스 필터). `tools/svfscale.py`는 더 작은 페이스를 쓴다. 1 bpp 페이스(자모 세트는 음절을 조합해서)나 BDF에서 선택한 글리프를 그리고, 새 셀로 박스 필터를
 걸어(출력 픽셀마다 원본 영역 중 잉크가 차지한 정확한 비율) 완성형 페이스를 쓴다. 1 bpp는 임계값으로, 2 bpp는 네 단계로:
 
     python3 tools/svfscale.py $OUT/OS2ZN24.SVF --size 16 -o $OUT/ZN24TO16.SVF --compare $OUT/OS2ZN16.SVF   # 1 bpp, 비율 >= 0.5
@@ -168,7 +168,7 @@ descent=2`, 잉크 298. `svf2to3.py --profile default --check`는 두 크기 모
 `8x16.bdf`), `jamoset.py --layout 844 GHANC40.PFT --eng GASCII40.PFT --symbols --check -o $OUT/GHANC40J.SVF`(비교용은 `GOTHIC16.FNT --eng ROMAN16.FNT`). 각각 그다음
 `svfscale.py --size 16`.
 
-2 bpp 결과는 렌더러가 24 px 페이스를 2/3로 축소해 그리고 피복도를 네 단계로 양자화한 것과 정확히 같다([OS/2 페이스](os2.ko.md)의 2,350
+2 bpp 결과는 렌더러가 24 px 페이스를 2/3로 축소해 그리고 커버리지를 네 단계로 양자화한 것과 정확히 같다([OS/2 페이스](os2.ko.md)의 2,350
 음절 모두에서 확인: 전부 같음). 이 비교에서는 저장한 2 bpp 페이스와 그리는 시점의 축소를 양자화한 결과가 같은 픽셀을 내며, 저장한 페이스는 메모리를,
 축소해 그리기는 시간을 쓴다. 자모 세트는 1 bpp 결과에만 맞출 수 있다. `jamoset.py --bpp 2`는 아웃라인 폰트만 받으므로(`--bpp 2 works
 from an outline font (--from-ttf)`) 비트맵 원본에서 2 bpp 자모 세트를 만드는 길은 없다.
@@ -192,6 +192,6 @@ from an outline font (--from-ttf)`) 비트맵 원본에서 2 bpp 자모 세트�
 **함정.** 24 px의 1 픽셀 획은 16 px 픽셀의 3분의 2를 덮으므로, 위치가 맞을 때만 0.5 임계값에서 살아남는다. 40, 48 px의 가는 획은 비율
 0.4인 픽셀이 되어 1 bpp에서 사라진다. 다시 샘플링은 다시 그리기가 아니다: 그린 16 px 페이스(위 표의 마지막 열)가 더 선명하고,
 아웃라인 폰트에서 만든 2 bpp 페이스([2 bpp 안티앨리어싱 페이스](outline-fonts.ko.md#truetypeopentype-폰트에서-2-bpp-안티앨리어싱-페이스-만들기))는
-비트맵 계단의 피복도가 아니라 진짜 피복도를 가진다.
+비트맵 계단의 커버리지가 아니라 진짜 커버리지를 가진다.
 
 [레시피 색인](../recipes.ko.md) · [도구 설명서](../tools.ko.md)

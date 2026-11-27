@@ -780,7 +780,7 @@ also support that Korean ordering and its lookup boundaries.
 | <a id="term-jmap"></a>음절 매핑 / JMAP | Version 3 of the JSET block: maps syllables directly to pieces. |
 | <a id="term-compat"></a>호환 자모 / compatibility jamo | Standalone characters U+3131..U+3163 handled by compat entries; distinct from conjoining jamo. |
 | <a id="term-bpp"></a>픽셀당 비트 / bpp levels | 1 bpp has 0/255 coverage; 2 bpp has 0/85/170/255; 8 bpp has 0..255. |
-| <a id="term-coverage"></a>피복도 / coverage | The amount of ink at a pixel. Composition takes the maximum, not a sum. |
+| <a id="term-coverage"></a>커버리지 / coverage | The amount of ink at a pixel. Composition takes the maximum, not a sum. |
 | <a id="term-streaming"></a>스트리밍 / streaming | Keep tables in RAM and obtain glyph records by offset reads as needed. |
 | <a id="term-record"></a>레코드 / record | A stored glyph box header, rows and layout padding. |
 | <a id="term-profile"></a>프로파일 / profile | A writer’s choice of layout units, boxes and offset width; pixels stay the same. |
