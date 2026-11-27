@@ -7,7 +7,7 @@ open a slot, then draw UTF-8 text into a pixel buffer. Convert that buffer into 
 See the [C guide](c-renderer-guide.md) for direct-memory and streaming C applications, the [SVF specification](../spec/SVF.md)
 for file structure, and [jamo sets](jamo-sets.md) for composition.
 
-## Build and arrange the files
+## 1. Build and arrange the files
 
 Install and activate emsdk. `EMSDK` is the SDK root containing `upstream/emscripten/emcc` and `.emscripten`.
 These commands use the default installation path; skip installation if it is already present.
@@ -16,12 +16,12 @@ These commands use the default installation path; skip installation if it is alr
 sh c/cross/install-toolchains.sh "$HOME/opt" emsdk
 . "$HOME/opt/emsdk/emsdk_env.sh"
 EMSDK="$HOME/opt/emsdk" bash web/build.sh /tmp/svf-picker
-python3 -m http.server 8000 --directory /tmp/svf-picker
+python3 -I -m http.server 8000 --directory /tmp/svf-picker
 ```
 
 Open `http://localhost:8000/` for the complete picker. [web/build.sh](../web/build.sh) outputs `svf.js`, `svf.wasm`,
 the page and a face index. A separate application needs the JS/WASM pair and its chosen faces and licence files.
-Keep JS and WASM together, or supply a WASM URL through the module factory’s `locateFile` option.
+Keep JS and WASM together, or supply a WASM URL through the module factory’s `locateFile` option.[1]
 
 To build only the module, use the shared [emcc-flags.sh](../c/ports/web/emcc-flags.sh). Create the output directory first.
 
@@ -33,10 +33,10 @@ svf_web_compile "$PWD" /tmp/svf-module
 
 The flags enable the ES module factory `SvfModule`, the `web,node` environments, `_malloc`/`_free`,
 `HEAPU8`/`HEAP16`/`HEAP32`, and memory growth. Call the API after `await SvfModule()`.
-Copying only `svf.js` leaves the WASM unavailable. Serve over HTTP(S), with `.wasm` as `application/wasm`;
+Copying only `svf.js` leaves the WASM unavailable. Serve over HTTP(S), with `.wasm` as `application/wasm`;[3]
 open the page through the server rather than `file://`.
 
-## Minimal complete HTML page
+## 2. Minimal complete HTML page
 
 Save this as `example.html` alongside `svf.js`, `svf.wasm` and `NEODG16A.SVF`.
 Open `/example.html` through the server to see amber text and its measurements. A slot acts as the face handle.
@@ -119,11 +119,12 @@ try {
 
 `svfw_measure` writes three `int16` values (advance width, ascent, descent): allocate 6 bytes and read `HEAP16`.
 Width is not the ink bounds. Allow for the last cell’s overhang and leading combining marks, and split very long lines.
-The x coordinate and baseline are in output pixels; each call draws one line. The application handles newlines and line placement.
+The x coordinate and baseline are in output pixels. `_svfw_draw` converts them to `int16_t`; pass integers in
+-32,768..32,767. Measured width saturates at 32,767. Each call draws one line. The application handles newlines and line placement.
 GRAY8 keeps the maximum of existing coverage and new coverage, so clear the mask to 0 for each frame.
-For transparent text, another option is to set RGB to the foreground and alpha to coverage, then composite in canvas.
+For transparent text, another option is to set RGB to the foreground and alpha to coverage, then composite in canvas.[4]
 
-## Colours and RGB565 output
+## 3. Colours and RGB565 output
 
 The GRAY8 example produces coverage rather than colour, allowing JavaScript to choose foreground and background.
 To draw RGB565 directly, allocate `2*w*h` bytes, fill the entire buffer with the background’s low/high bytes, then call
@@ -152,7 +153,7 @@ RGB565 reduces colour precision to 5 red, 6 green and 5 blue bits. This wrapper 
 XRGB8888/RGB888 targets; convert GRAY8 for 24/32-bit canvas colour. MONO_PAGE is kind 1, stride `w`, length
 `w*ceil(h/8)`; MONO_ROW is kind 2, stride `ceil(w/8)`, length `stride*h`. Monochrome output uses the threshold.
 
-## Render under Node
+## 4. Render under Node
 
 Save this as `example.mjs`. It uses the same module as the browser, copying file bytes in place of `fetch`.
 
@@ -199,9 +200,10 @@ node web/test/render.mjs /tmp/svf-module '{"faces":["svf/dos/NEODG16A.SVF"],"tex
 
 The first command prints measurements and the number of ink pixels. The second is a complete invocation of
 [render.mjs](../web/test/render.mjs), writing 4096 raw coverage bytes. It also accepts a JSON file path or an array
-of specs processed in one module instance. Errors go to stderr: argument errors exit 2 and API errors exit 3.
+of specs processed in one module instance. Unknown target kinds, missing face files and missing required arguments exit 2; API errors exit 3.
+JSON parsing and file-read exceptions are uncaught Node exceptions, so not every argument error exits 2.
 
-## API and lifetimes
+## 5. API and lifetimes
 
 The contracts are in [svf_web.c](../c/ports/web/svf_web.c); see the [Web port reference](../c/ports/web/README.md)
 for the complete list. The leading `_` is Emscripten’s JavaScript export name. Most functions return 0 for success
@@ -225,7 +227,7 @@ For Hangul plus Latin, retain each face’s bytes and open slots 0 and 1. The fi
 Use `_svfw_order` to change priority for shared characters. The picker switches order per Hangul/Latin run, using
 the same order for measuring and drawing. This is not automatic font shaping.
 
-## The complete picker and window.picker
+## 6. The complete picker and window.picker
 
 The [font picker](../web/README.md) is a complete application showing lazy loading, face pairing, multiline canvas,
 colours, scaling and selection export. In its developer console, wait for `window.picker.ready` before using these APIs.
@@ -254,7 +256,7 @@ console.log(result, p.faceMemory());
 This API belongs to the picker page, not the WASM module. Keys come from `faces.json` and are distinct from file URLs.
 See [picker.js](../web/picker.js) and [check.mjs](../web/test/check.mjs) for complete options and test hooks.
 
-## Performance, memory and browsers
+## 7. Performance, memory and browsers
 
 | Item | Budget and usage |
 |---|---|
@@ -265,13 +267,27 @@ See [picker.js](../web/picker.js) and [check.mjs](../web/test/check.mjs) for com
 | Cache | The glue does not attach the core’s syllable cache. The picker retains loaded faces under a memory budget. |
 
 WASM memory growth from `_malloc` or a draw’s internal allocation can invalidate old typed-array views.
-Reacquire `M.HEAPU8` and other views after allocation/drawing. `slice` copies; `subarray` is a live view.
+Reacquire `M.HEAPU8` and other views after allocation/drawing.[2] `slice` copies; `subarray` is a live view.
 Reuse the module, faces, text and targets across frames, clearing and redrawing when needed. Each module has global
 chain/target state: serialize asynchronous work or use independent module instances. Reset closes slots but does not
 reset scale, target or scratch. After freeing a target, configure a new one before drawing. Dynamic scratch is retained
 for the module’s lifetime.
 
-Modern Chrome, Edge, Firefox and Safari need WebAssembly, ES modules, async/await, fetch, TextEncoder and Canvas 2D.
-This build uses no threads or SharedArrayBuffer, so it does not require COOP/COEP isolation. Cross-origin faces and WASM
-need CORS permission. There is no separate JavaScript fallback for old browsers. Minimum versions have not been exhaustively
-tested; check the devices you intend to support. Use a Node version supporting ES modules and WebAssembly.
+The browser example requires WebAssembly, ES modules, async/await, fetch, TextEncoder and Canvas 2D.[3][4]
+Cross-origin face and WASM requests need CORS permission.[5] No JavaScript fallback is provided for older browsers.
+Use a Node version supporting ES modules and WebAssembly.[6]
+
+## 8. Related documents
+
+The [renderer design](../spec/renderer-design.md) and [anti-aliasing guide](anti-aliasing.md) explain scaling, coverage and colour conversion.
+Use [recipes](recipes.md), [tools](tools.md) and the [maker app](maker-desktop.md) to create and convert faces;
+use the [desktop app](desktop-app.md) for local inspection. See the [project overview](../README.md) for the full workflow.
+
+## 참고 문헌 / References
+
+1. Emscripten, modular output and module options: https://emscripten.org/docs/compiling/Modularized-Output.html ; https://emscripten.org/docs/api_reference/module.html
+2. Emscripten, JavaScript memory access and growth: https://emscripten.org/docs/porting/connecting_cpp_and_javascript/Interacting-with-code.html
+3. MDN, WebAssembly loading and MIME type: https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface/instantiateStreaming_static
+4. MDN, ImageData and Canvas 2D: https://developer.mozilla.org/en-US/docs/Web/API/ImageData ; https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/putImageData
+5. MDN, CORS: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS
+6. Node.js, ES modules: https://nodejs.org/api/esm.html

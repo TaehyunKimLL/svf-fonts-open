@@ -4,7 +4,7 @@
 
 This guide shows how to put the SVF C renderer (`c/`) into your own program: how to get the source, open faces, embed a face in
 firmware, choose a face that fits your target, draw UTF-8 text with Hangul syllables composed from jamo sets, choose a
-drawing target, budget memory, build for each platform the repository has an example for, and what to check when
+drawing target, budget memory, build for supported platforms, and what to check when
 something draws wrong. It is a tutorial. The reference is [c/README.md](../c/README.md) (API tables, compile-time
 switches, ports) and, above all, the comments in [c/include/svf.h](../c/include/svf.h), which state the exact contract
 of every function. The file format is [spec/SVF.md](../spec/SVF.md); the design is
@@ -33,6 +33,7 @@ For browser integration, continue with the [web renderer guide](web-renderer-gui
 14. Integrating into an application with its own text path
 15. Testing your integration
 16. Troubleshooting
+17. Related documents
 
 ## 1. The model in five words
 
@@ -43,15 +44,15 @@ For browser integration, continue with the [web renderer guide](web-renderer-gui
   allocates.
 - A **chain** (`svf_chain`) is an ordered list of faces. Each code point is drawn by the first face that has it, so
   `{ ascii_face, hangul_face }` draws a mixed line with two faces.
-- A **target** (`svf_target`) is where pixels go: a byte buffer in one of ten pixel formats, or a callback that receives
+- A **target** (`svf_target`) is where pixels go: a byte buffer in one of nine buffer formats, or a callback that receives
   one `(x, y, coverage)` per pixel.
-- **Scratch** is a caller-supplied byte buffer big enough for one cell; `svf_chain_scratch_bytes()` says how big.
+- **Scratch** is a caller-supplied temporary byte buffer for glyph decoding, composition and scaling; `svf_chain_scratch_bytes()` says how big.
 - A **line** is one call, `svf_draw_utf8()`: UTF-8 bytes in, pixels out, drawn along a baseline.
 
 Everything is C99, uses only `<stdint.h>`, `<stddef.h>` and `<string.h>`, never calls `malloc`, and draws byte-identical
 pixels to the Python reference (`tools/jamoset.py`, `tools/svfline.py`).
 
-Vocabulary used below: a **cell** is the stored bitmap of one glyph (`cell_w x cell_h` pixels); **coverage** is how much
+Vocabulary used below: a **cell** is the reconstructed bitmap of one glyph (`cell_w x cell_h` pixels); **coverage** is how much
 ink a pixel has, 0..255 (a 1 bpp ink pixel is 255, a 2 bpp level `k` is `k * 85`, an 8 bpp pixel is its byte); the
 **baseline** is the row under the ascent: a cell's top row is `y_baseline - ascent + dy`.
 
@@ -69,8 +70,8 @@ Three ways to use it:
 
        gcc -std=c99 -I c/include my_app.c c/src/*.c -o my_app
 
-2. **Build the static library** with the repository's Makefile: `make -C c` writes `libsvf.a` (and the `svfdump` tool) to `c/build`; `O=DIR` moves them.
-3. **Vendor or submodule it.** The repository is public and MIT-licensed for code (the faces under `svf/` are OFL; see
+2. **Build the static library** with the supplied Makefile: `make -C c` writes `libsvf.a` (and the `svfdump` tool) to `c/build`; `O=DIR` moves them.
+3. **Vendor or submodule it.** The code is MIT-licensed (the faces under `svf/` are OFL; see
    [NOTICE.md](../NOTICE.md)). A project such as ScummVM can add the repository as a git submodule and compile the
    sources with its own build system.
 
@@ -85,7 +86,7 @@ small-device defaults**: an MCU, bare metal, or a compiler that defines none of 
 LIST) jamo block and no BIG limits, so a face that needs them opens plain; set what you need explicitly (`-DSVF_JMAP=1`
 and the others of section 12). `-DSVF_SMALL` has the same effect on a desktop (section 12).
 
-### Setting options in CMake and Makefiles
+### 2.1 Setting options in CMake and Makefiles
 
 Propagate definitions from a CMake library target with `PUBLIC` so the application and library agree on header struct sizes.
 Set `SVF_ROOT` to the absolute path of the SVF sources. This target builds the library alone.
@@ -165,7 +166,7 @@ int main(int argc, char **argv)
 	svf_target t;
 	if (svf_target_init(&t, SVF_T_GRAY8, pix, (size_t)w * h, (int16_t)w, (int16_t)h, (uint16_t)w) != SVF_OK) return 1;
 	err = svf_draw_utf8(&chain, text, strlen(text), 1, (int16_t)(1 + e.ascent), &t, scratch, need);
-	/* err is SVF_OK, or SVF_E_IO if a streamed read failed part-way */
+	/* Check every error; streamed glyphs can also fail record validation. */
 
 	for (int y = 0; y < h; y++) {
 		for (int x = 0; x < w; x++) putchar(pix[y * w + x] > 127 ? '#' : pix[y * w + x] ? '+' : '.');
@@ -204,11 +205,11 @@ Output (a 16x16 jamo-set face; its Hangul is composed from pieces at draw time):
 
 What it shows, step by step:
 
-- `svf_open_mapped` validates the whole file; a face that opens is safe to draw. The return value says why a file was
+- `svf_open_mapped` validates the whole file; a face that opens with the default validation settings is safe to draw. The return value says why a file was
   refused (`SVF_E_MAGIC`, `SVF_E_VERSION`, ...).
 - `svf_measure_utf8` gives the line's extent without reading a glyph: `e.width` is the **pen's travel** (the sum of the
   advances), not the width of the ink; `e.ascent` and `e.descent` are the rows the cells reach above and below the
-  baseline (whole cells, not only the rows that have ink). Here 64 x (12 + 4).
+  baseline (whole cells, not only the rows that have ink). Here 64 x (12 + 4); glyph `dy` also affects the vertical extent. `e.width` saturates at 32,767, so split long lines.
 - That is why the buffer is `e.width + svf_cell_w(&face) + 2` wide, not `e.width + 2`: a glyph can have ink beyond its
   advance (PAPLG16's `f` reaches 3 pixels past it, measured), so the last cell can need up to a cell width more, and a
   combining mark first in a line can start left of `x`. The library clips to the target, so nothing outside is
@@ -241,7 +242,7 @@ On a desktop you can `fread` the file into a heap buffer (section 3), or `mmap` 
 
 You supply a read callback, a buffer for the file's tables (the header, the code point table, metrics, the jamo block, the
 glyph offset table) and optionally a block cache. Glyph rows are read when drawn. This is what the DOS programs do, so a
-1 MB face does not need 1 MB of RAM.
+1 MiB face does not need 1 MiB of RAM.
 
 ```c
 #include <stdio.h>
@@ -310,13 +311,13 @@ Rules worth knowing:
 - The block cache is optional (`cache_len` 0 means none). With one, the library reads whole `block_size`-byte blocks
   (a power of two from 64 to 4096) and keeps the most recently used ones. A slot is `block_size + 8` bytes and the cache
   must hold at least two slots. Pass `sizeof cache` as `cache_len`.
-- The face keeps pointers to your `tables`, `cache`, `rd` and `ctx`: keep them alive. One face (with its cache) must not
+- The face keeps pointers to your `tables`, `cache`, `rd` and `ctx`: keep them alive. One streamed face must not
   be drawn from two threads at once.
 - A failed or short read returns `SVF_E_IO` for the glyph being drawn only; the line continues and the error is returned at
-  the end. `svf_stream_reads(&face)` counts callback calls (handy for tuning cache size).
+  the end. Invalid streamed records can also return `SVF_E_RANGE`. `svf_stream_reads(&face)` counts callback calls (handy for tuning cache size).
 - Composing a syllable of a streamed face **without** a cache needs `2 * svf_cell_bytes` of scratch (the second half holds
   the piece being read). `svf_chain_scratch_bytes` already accounts for it.
-- A build with `-DSVF_NO_STREAM` does not even declare these functions: a call is a compile error, not a run-time failure.
+- `-DSVF_NO_STREAM` omits the streaming declarations and definitions: calls fail compilation with strict warnings or fail at link time.
 
 External SPI flash uses the same streaming interface: keep device state in `ctx` and make `rd` read `len` bytes at `off` relative to the start of the face. Return exactly `len` on success, or a negative/short result on failure. Memory-mapped flash is simpler to use with `svf_open_mapped`, like the `const` array in section 5.
 
@@ -329,7 +330,7 @@ vertical offset of a glyph.
 
 `svf_status(f)` is easy to miss and important: a face can open successfully and still carry **status bits** saying what
 was dropped, for example `SVF_FACE_JSET_BAD` (the jamo block failed validation: the face is plain and will not compose
-Hangul) or `SVF_FACE_JSET_UNREAD` (the jamo block is fine but this build does not read that version). A Hangul face whose
+Hangul) or `SVF_FACE_JSET_UNREAD` (a version 1 or 2 header is valid but its reader is absent). A Hangul face whose
 status is non-zero is the first thing to check when syllables do not appear (section 16).
 
 An open can return `SVF_OK` with these status bits. Stored glyphs can still be drawn, so check `svf_has` for
@@ -348,37 +349,35 @@ characters the application needs and log both the error code and status for diag
 A microcontroller has no file system (or none you want to depend on), and a program that ships one face is simpler with
 the face inside it. `c/bench/mkface.py` writes a face as a C array:
 
-    python3 c/bench/mkface.py svf/dos/NEODG16G.SVF face.c --name neodg16g --profile mcu-strict
+    python3 -I c/bench/mkface.py svf/dos/NEODG16G.SVF face.c --name neodg16g --profile mcu-strict
 
-It needs Python 3 and the repository's `tools/` (it imports `tools/jamoset.py` by a path relative to itself, so run it
-from a checkout) and writes nothing but the output file. `--name` must be a C identifier. The output, abridged:
+It needs Python 3 and `tools/jamoset.py`. The import path is relative to the script, so it can run from other working
+directories; the paths below assume the project root. `--name` must be a C identifier. The output exposes these symbols:
 
 `face.c` defines `const uint8_t neodg16g[]` and `const uint32_t neodg16g_len`.
 On AVR the array has `PROGMEM`; its alignment follows the selected layout.
 
-- The array is `const`, so it stays in flash (read-only data) and costs no RAM; on AVR it is `PROGMEM`, which puts it in
+- With a linker configuration that places the array in flash, it needs no RAM copy; on AVR it is `PROGMEM`, which puts it in
   flash's own address space (the library then reads it through `SVF_RD8`, section 4.1). `NAME_len` is the face's size
   in bytes: pass both to `svf_open_mapped`.
 - `aligned(A)` is `A = 2^max(REC, TAB)` bytes of the written layout (4 for `mcu-strict`; left out when it is 1), so a
   record's offset in the file is its address alignment. Alignment is **only speed**. `svf_open_mapped` checks the
   alignment of the offsets *inside the file* against the layout, never the address of the array: a face opens and
-  draws the same from an odd address (tested).
+  draws the same from an odd address .
 - `--profile mcu-strict` rewrites the face in the layout of `SVF_LAYOUT_MCU_STRICT` (record and table units 4 bytes, row
-  unit 1 byte, 16-bit offsets where they fit); the pixels are the same. **Every face under `svf/` already has that
-  layout** (the units; all 117 files checked with `svfdump FACE info`), so a build with
+  unit 1 byte, 16-bit offsets where they fit); the pixels are the same. The 117 shipped faces all use
+  4/1/4-byte layout units, so a build with
   `-DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT` opens the shipped files as they are, and the profile only shrinks the
   offsets: NEODG16G goes from 10,684 to 10,124 bytes. Without `--profile` the bytes are the file's own. A face in the
-  `tight` profile (1/1/1) is refused by such a build with `SVF_E_LAYOUT`.
-- **Do not use `xxd -i`.** It writes `unsigned char name[]`, which is not `const`: the array is placed in `.data`, a
-  copy in RAM (measured with arm-none-eabi-gcc 15.2.1: 10,688 bytes of `.data` for NEODG16G, five times an Uno's whole
-  RAM), it has no `PROGMEM` on AVR, no alignment, and `unsigned int name_len` is 16 bits on AVR. It is fine on a
-  desktop, where a RAM copy is the point.
+  `dos` or `wasm` profile (1/1/1-byte layout units) is refused by such a build with `SVF_E_LAYOUT`.
+- **Use `mkface.py` for embedded faces.** Default `xxd -i` output defines `unsigned char name[]` without `const`;
+  linking it unchanged can create a RAM copy. AVR `PROGMEM` and layout alignment also need separate declarations.
 
 ### 5.1 Where the array goes, per platform
 
 | Target | Where the face lives | Notes |
 |---|---|---|
-| AVR (Arduino Uno) | `PROGMEM` flash | build the library with `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'`. Without `SVF_RD8` the library reads flash addresses as RAM and `svf_open_mapped` returns `SVF_E_MAGIC` (run on simavr: 0 with the override, 1 without). The text passed to `svf_draw_utf8` is read with plain loads: keep it in RAM (copy a `PROGMEM` string with `strncpy_P` first) |
+| AVR (Arduino Uno) | `PROGMEM` flash | build the library with `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'`. Without `SVF_RD8` the library reads flash addresses as RAM and `svf_open_mapped` returns `SVF_E_MAGIC` . The text passed to `svf_draw_utf8` is read with plain loads: keep it in RAM (copy a `PROGMEM` string with `strncpy_P` first) |
 | Other Arduino cores (ARM, ESP32, RP2040) | `const` array in flash | flash is memory-mapped, so no `SVF_RD8` override and no `PROGMEM` (`mkface` adds it on `__AVR__` only) |
 | ESP32 (ESP-IDF) | `const` array (`.rodata` in flash), **or** a data partition mapped with `esp_partition_mmap`, **or** a file on SPIFFS streamed | the partition keeps the face out of the app image and its size; SPIFFS + `svf_open_stream` keeps it out of the address space too (section 13.4) |
 | Raspberry Pi Pico / Pico 2 | `const` array in flash, executed in place (XIP) | the faces are read through the XIP cache: a first touch of a block is a flash read (section 13.5) |
@@ -459,8 +458,8 @@ int main(void)
 ```
 
 `svf_is_jamo` is 1 for a face that composes Hangul and `svf_status` is 0 when nothing was dropped (section 4.3). A face
-that opens but is plain (`JSET_BAD`, `JSET_UNREAD`, `JMAP_UNREAD`) draws Latin and silently no Hangul; this check is
-how you find out on the bench, not in the field. A precomposed face has no jamo block, so check `svf_has(&face, 0xD55C)`
+can still draw stored glyphs when its composition block is unusable. `JMAP_UNREAD` alone does not imply a plain
+face: a supported fallback can still compose syllables. A precomposed face has no jamo block, so check `svf_has(&face, 0xD55C)`
 for it instead.
 
 Build `text_cb.c` with `face.c` and run it. The host pixel routine counts lit-pixel calls; replace it with display writes on a device.
@@ -474,7 +473,7 @@ cc -std=c99 -Wall -Wextra -Ic/include text_cb.c face.c c/src/*.c -o text_cb
 ### 5.3 C++ and Arduino: keep `face.c` a C file
 
 Generate the array into a `.c` file and let the C compiler build it. In C++ a namespace-scope `const` array has
-internal linkage and a C++ name, so the linker would not find it from another file; the Arduino build compiles `.c`
+internal linkage unless declared with external linkage, so another translation unit cannot refer to it.[9] The Arduino build compiles `.c`
 files in the sketch folder as C. Declare it in the C++ side with C linkage (as `c/ports/arduino/arduino.ino` does):
 
 ```cpp
@@ -497,7 +496,7 @@ int main() { return face_ok() ? 0 : 1; }
 
 ### 5.4 Licences to ship
 
-A program or image with a face in it distributes font software. Ship with it: the face's own licence text (for NEODG16G,
+A program or image with a face in it distributes font software.[10] Ship with it: the face's own licence text (for NEODG16G,
 `svf/dos/OFL.TXT` and `svf/dos/NEODGM.TXT`; for PAPLG16 and PAPLG18 `svf/dos/OFLPAPLG.TXT`; `web/LICENCES.tsv` maps every
 face under `svf/` to its licence files), [NOTICE.md](../NOTICE.md) (what is under which licence), and
 [LICENSE](../LICENSE) (MIT, for the library's code). `c/ports/FACES.md` names the source, copyright and licence of each
@@ -507,10 +506,10 @@ face the ports embed; the Pico, ESP32 and CH582 builds copy it and the licence t
 
 A face is a file; its size, not its pixel size, decides where it fits. Measure the one you mean to use:
 
-    python3 c/bench/mkface.py svf/dos/NEODG16A.SVF x.c --name x --profile mcu-strict && tail -2 x.c
+    python3 -I c/bench/mkface.py svf/dos/NEODG16A.SVF x.c --name x --profile mcu-strict && tail -2 x.c
 
 The last line, `const uint32_t x_len = 15528u;`, is the number in the table below: the bytes you link. Measured on this
-repository's faces, `mcu-strict`:
+faces: array bytes use `mcu-strict` output; stream tables use the original file and default host build:
 
 | Face | Cell, bits | Hangul | Array bytes | Cell bytes | Stream tables | Uno | CH582 | Pico | ESP32 |
 |---|---|---|---:|---:|---:|---|---|---|---|
@@ -527,24 +526,18 @@ repository's faces, `mcu-strict`:
 | `NGOTB15` | 16x16, 2 | precomposed (2,446 glyphs) | 178,352 | 64 | 39,148 | no | yes | yes | yes |
 | `GBATB47` | 46x54, 2 | precomposed (2,446 glyphs) | 1,162,764 | 648 | 39,148 | no | no | yes | needs a bigger partition |
 
-- **Hangul.** A jamo-set face stores a few hundred pieces and composes every syllable; a precomposed face stores one
-  glyph per syllable it covers (the common 2,350 of KS X 1001 and a few more), so it is several times larger for the same
-  pixel size (NEODG16 against NEODG16A: 8 times) and cannot draw the rest. For a small device take a jamo face.
-- **Uno** (ATmega328P, 32,256 bytes of flash with Optiboot, 2 KB of RAM): the NEODG16G sketch is 23,694 bytes of flash
-  with its 10,124 byte face, so 13,570 bytes are code; the face must be at most 18,686 bytes (13,570 + 15,528 = 29,098
-  fits, 13,570 + 19,088 = 32,658 does not). The jamo faces open and compose with the Uno switches (checked on the
-  host with them: `SVF_JSET_V2=0`, no `JMAP`, no `BIG`).
-- **CH582**: 448 KB of CodeFlash; the image is about 12 KB of code without its face, so a face up to about 400 KB fits.
-  RAM (32 KB) is not the limit for a mapped face.
-- **Pico**: 2 MB of flash on the Pico board (4 MB on the Pico 2), executed in place; the whole mono image is 35,484
-  bytes with its 10,124 byte face (section 13.5). Every face above fits; the larger the face, the more the XIP cache
-  (16 KB on the RP2040) misses.
-- **ESP32-C3 / S3**: module flash is typically 4 MB and the default partition table has a 1 MB application partition:
-  the mono image is 229,648 bytes with its face (about 220 KB without), so every face but GBATB47 fits it; GBATB47
-  goes in its own data partition (section 13.4).
+- **Hangul.** The jamo-set faces in the table compose pieces; coverage depends on the composition block (section 10).
+  A precomposed face stores a glyph per supported syllable. The arrays above make NEODG16 about 8.24 times the size
+  of NEODG16A. For a small device, choose a jamo face that supports the required syllables.
+- **Uno.** The ATmega328P provides 2 KiB SRAM.[3] The table assumes faces embedded in flash. Check final code,
+  face, globals and stack together; use the AVR flash reads and build switches in section 13.1.
+- **CH582.** The port's `link.ld` allocates 448 KiB flash and 32 KiB RAM. Include code and data copied from flash as well as the face.
+- **Pico.** The Pico board has 2 MiB flash and Pico 2 has 4 MiB.[6] These face sizes fit that capacity, but check the entire image.
+- **ESP32.** Embedded capacity depends on the partition table. The table assumes a 1 MiB app partition;
+  GBATB47 alone exceeds it. Use a larger app partition or a separate data partition (section 13.4).[5]
 - **Streaming** (a file on SD, SPIFFS or disk) needs RAM for the tables (the column above, for the shipped file) plus
-  a block cache; the Uno cannot (`NEODG16G` alone needs 5,129 bytes of tables, and the Uno build leaves the reader out).
-- **RAM** for drawing is small: scratch is one cell (`Cell bytes`, section 11) plus your frame buffer.
+  an optional block cache; the Uno cannot (`NEODG16G` alone needs 5,129 bytes of tables, and the Uno build leaves the reader out).
+- **RAM** for drawing is small: scratch is one cell for an unscaled mapped face (`Cell bytes`, section 11) plus your frame buffer; scaling and streaming can need more scratch (sections 9 and 11).
 
 ## 7. Lines of text: chains, metrics, measuring
 
@@ -627,8 +620,9 @@ Run the complete chain example as `./chain svf/dos/NEODG16A.SVF svf/dos/PAPLG16.
 
 - Advances come from the face's metrics table (variable width); a face without one advances by the cell width. A composed
   syllable advances by the jamo block's syllable advance (or the cell width).
-- Combining marks advance 0 and are drawn over the previous glyph. The default predicate is U+0300..U+036F; the core
-  carries no Unicode tables, so pass your own `chain.is_mark` for more.
+- Supported combining marks do not advance. They start at the current pen, shifted left by `min(-bearing_x, cell_w)`
+  only when face flag bit 2 is set and `bearing_x < 0`. The default predicate covers U+0300..U+036F;
+  supply `chain.is_mark` for other ranges. A code point absent from every face advances `missing_advance`, even if it is a mark.
 - Invalid UTF-8 never crashes and never reads past `len`: each bad subpart is drawn as U+FFFD if a face has it, else skipped
   without advancing. NUL is an ordinary code point (`len` bytes are drawn, not a C string).
 
@@ -722,9 +716,15 @@ int main(int argc, char **argv)
     (void)chain;
 
 svf_target t;
-svf_target_init(&t, SVF_T_XRGB8888, surface_pixels, (size_t)pitch * height, width, height, (uint16_t)pitch);
+if (svf_target_init(&t, SVF_T_XRGB8888, surface_pixels, (size_t)pitch * height,
+                    (int16_t)width, (int16_t)height, (uint16_t)pitch) != SVF_OK) return 1;
 t.fg888 = 0x00FFC000;      /* amber text */
 t.bg888 = 0x00000020;      /* the background colour the caller knows */
+for (size_t i = 0; i < sizeof pix; i += 4) {
+    pix[i] = 0x20; pix[i + 1] = 0; pix[i + 2] = 0; pix[i + 3] = 0;
+}
+if (svf_draw_utf8(&chain, "SVF 한글", strlen("SVF 한글"), 0, 20,
+                  &t, scratch, scratch_len) != SVF_OK) return 1;
 printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
     free(bytes);
     return 0;
@@ -732,16 +732,13 @@ printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch
 ```
 
 `stride` is a `uint16_t` number of bytes, so a 32-bit target is at most 16,383 pixels wide. The pixel's **memory order is
-B, G, R, X on every host**; as one native 32-bit value that is `0x00RRGGBB` only on a little-endian machine (x86, ARM,
-RISC-V, WebAssembly). On a big-endian host write the four bytes yourself.
+B, G, R, X on every host**; as one native 32-bit value that is `0x00RRGGBB` only on a little-endian host. The core writes the same four bytes on a big-endian host.
 
 ### 8.2 The callback target: the universal adapter
 
 When your pixel format is not one of the above, or you want to blend over existing content, or the destination is another
-library's surface, use the callback. The library calls `plot(ctx, x, y, coverage)` once for each pixel with coverage above
-0 inside the clip, row by row, with no buffer involved. This example blends white text over a 32-bit surface that already
-contains a picture (compiled and run against `NEODG16A.SVF`; it reads and writes the pixel as one little-endian
-`uint32_t`, B in the low byte, matching the memory order B, G, R, X):
+library's surface, use the callback. The library calls `plot(ctx, x, y, coverage)` once per cell for each pixel with coverage above
+0 inside the clip, row by row, with no buffer involved. This example blends white text with existing pixels in a 32-bit surface (it reads and writes memory bytes B, G, R, X directly):
 
 ```c
 #include <stdio.h>
@@ -771,13 +768,11 @@ typedef struct { uint8_t *pix; int pitch; uint32_t fg; } Surf;      /* your surf
 static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
 {
 	Surf *s = ctx;
-	uint32_t *px = (uint32_t *)(s->pix + y * s->pitch) + x;
-	uint32_t bg = *px, out = 0;
-	for (int sh = 0; sh <= 16; sh += 8) {                       /* B, G, R */
-		uint32_t b = (bg >> sh) & 255, f = (s->fg >> sh) & 255;
-		out |= ((b * (255 - cov) + f * cov + 127) / 255) << sh;
+	uint8_t *px = s->pix + (size_t)y * s->pitch + 4 * (size_t)x;
+	for (int c = 0; c < 3; ++c) {                              /* B, G, R */
+		uint32_t b = px[c], f = (s->fg >> (8 * c)) & 255;
+		px[c] = (uint8_t)((b * (255 - cov) + f * cov + 127) / 255);
 	}
-	*px = out;
 }
 
 int main(int argc, char **argv)
@@ -804,10 +799,10 @@ int main(int argc, char **argv)
 
 Surf s = { pix, 64 * 4, 0x00FFFFFF };
 svf_target t;
-svf_target_init(&t, SVF_T_COVERAGE_CB, NULL, 0, 64, 24, 0);    /* w, h still define the bounds and clip */
+if (svf_target_init(&t, SVF_T_COVERAGE_CB, NULL, 0, 64, 24, 0) != SVF_OK) return 1;
 t.plot = plot;
 t.ctx = &s;
-svf_draw_utf8(&chain, "가A", 4, 2, 16, &t, scratch, scratch_len);
+if (svf_draw_utf8(&chain, "가A", strlen("가A"), 2, 16, &t, scratch, scratch_len) != SVF_OK) return 1;
 printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
     free(bytes);
     return 0;
@@ -842,8 +837,8 @@ scaler's stack frame is about 610 to 680 bytes; see `svf.h` "Scaling" before usi
 
 A **precomposed** face stores one glyph per syllable it covers. A **jamo-set** face (header flag bit 1, `svf_is_jamo(f)`)
 stores a few hundred small pieces and a table that says which pieces form each syllable. `svf_draw_utf8` composes
-U+AC00..U+D7A3 (and compatibility jamo U+3131..U+3163) from the pieces on the fly: the maximum coverage of two or three
-pieces. You do nothing special; just draw Hangul text. One qualification: the syllable table can be partial. A version 3 JMAP block
+U+AC00..U+D7A3 from two or three pieces, taking the maximum coverage per pixel. Compatibility jamo U+3131..U+3163
+use their single designated piece. You do nothing special; just draw Hangul text. One qualification: the syllable table can be partial. A version 3 JMAP block
 that is SPARSE (a bitmap and its entries) or LIST (a sorted list of up to 255 exceptions) and has **no fallback** block
 composes only the syllables it lists: `svf_has` is 0 for the others and they are drawn as missing glyphs
 (`missing_advance`); with a fallback block, a syllable the table does not list goes to the fallback. Dense JMAP and
@@ -900,8 +895,12 @@ if (svf_is_jamo(&face)) {
 	for (int i = 0; i < n; i++)
 		printf("piece %u\n", (unsigned)pieces[i]);               /* glyph U+F0000 + number in the face */
 }
-uint8_t cell[64];                                      /* >= svf_cell_bytes(&face) */
-svf_glyph(&face, 0xD55C, cell, sizeof cell);           /* the composed cell, MSB first, rows padded to bytes */
+size_t cell_len = svf_chain_scratch_bytes(&chain);
+uint8_t *cell = malloc(cell_len);
+if (!cell || svf_glyph(&face, 0xD55C, cell, cell_len) != SVF_OK) {
+    free(cell); free(bytes); return 1;
+}
+free(cell);
 printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
     free(bytes);
     return 0;
@@ -915,8 +914,8 @@ atlas.
 
 Jamo blocks come in versions 1, 2 and 3 (JMAP, with a LIST form). The default desktop/DOS/WASM/SDL build reads them
 all (but not under `-DSVF_SMALL`, section 12). A small-MCU build reads fewer (see the table in [c/README.md](../c/README.md), "Jamo sets: what each build reads").
-A face the build cannot read still opens, as a **plain** face with a status bit; it simply does not compose Hangul. Faces
-for your own application: build the faces the same way the repository's tools do, and check `svf_status` at load time.
+An unread composition block sets a status bit. A supported JSET fallback still composes syllables; without one, the
+face opens **plain**. Check `svf_status`, `svf_is_jamo` and `svf_has` for the required code points at load time.
 
 ### 10.2 The composed-syllable cache
 
@@ -993,8 +992,7 @@ for (unsigned k = 0; k < 3; ++k) {
 ```
 
 Pixels are identical with or without it. It matters most for streamed faces: a cached syllable causes no reads at all.
-Measured on a streamed 16x16 face, a first draw of "한글 ab" at 3/2 made 10 read calls and the second, cached, made no
-more. The cache is round robin with a linear lookup: tens of slots suit small targets; thousands do not. Call
+Non-composed cells, such as Latin glyphs, do not use this cache and can still cause reads on a repeated line. The cache is round robin with a linear lookup: tens of slots suit small targets; thousands do not. Call
 `svf_chain_cache` again after you change `chain.faces` or reopen a face.
 
 ## 11. Memory budget
@@ -1003,13 +1001,13 @@ All memory is yours. Add up:
 
 | Item | Size |
 |---|---|
-| `svf_face` | `sizeof(svf_face)`: 96 bytes on a 64-bit host with `SVF_JMAP` (80 without; smaller on MCUs; 96 is the cap) |
+| `svf_face` | `sizeof(svf_face)`: 96 bytes on a 64-bit host with `SVF_JMAP` (80 without; smaller on MCUs; use `sizeof` for the actual ABI) |
 | `svf_chain`, `svf_target` | a few tens of bytes each |
 | Scratch | `svf_chain_scratch_bytes(&chain)`: one cell (`svf_cell_bytes`), twice that for a streamed face without a block cache; when scaling, **twice the cell plus the scaled cell** (section 9) |
 | Streamed face | `svf_stream_tables_size(...)` for the tables, plus `slots * (block_size + 8)` for the optional cache |
 | Syllable cache | `slots * (8 + largest cell bytes)` |
 | Target buffer | `rows * stride` (or none for the callback kind) |
-| Mapped face | the file itself, in RAM or flash (a `const` array or PROGMEM face costs no RAM, section 5) |
+| Mapped face | the file itself, in RAM or flash (a flash-resident `const` array or PROGMEM face needs no RAM copy, section 5) |
 | Stack | the scaler's own frame: about 610 bytes on AVR, 680 on Cortex-M0+ with the default fast scaler |
 
 A 16x16 1 bpp cell is 32 bytes; a 24x24 2 bpp cell is 144 bytes.
@@ -1026,8 +1024,8 @@ matter for choosing a recipe:
   offsets, section 5). The Arduino Uno build uses exactly this: see [c/ports/arduino/README.md](../c/ports/arduino/README.md).
 - **Smallest code on any CPU:** `-DSVF_SMALL` turns off the speed-oriented fast paths (word merge, the GRAY8 table, the
   fast scaler, the nibble popcount table); pixels are identical, only speed is lost. **It also changes what the build
-  reads**: it flips the *defaults* of `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG` and `SVF_JSET_BIG` to 0 (they are 1 by
-  default only without `SVF_SMALL`; measured with `gcc -dM -E`). A `SVF_SMALL` build on a desktop, DOS or WASM therefore
+  reads**: it flips the *defaults* of `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG` and `SVF_JSET_BIG` to 0 (they are 1 in
+  default desktop/DOS/WASM builds). A `SVF_SMALL` build on a desktop, DOS or WASM therefore
   no longer reads version 3 (JMAP, LIST) jamo blocks or the BIG limits: a face that needs them opens **plain**, with
   `SVF_FACE_JSET_BAD` set (`SVF_FACE_JMAP_UNREAD` only with `-DSVF_JMAP_RECOG=1`), and draws no Hangul. Add `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`
   (`SVF_JMAP_LIST` follows `SVF_JMAP`) if you need them.
@@ -1042,7 +1040,7 @@ the sizes each configuration produces are in `c/cross/SIZES.md`.
 | `SVF_JMAP_LIST` | Follows `SVF_JMAP`. LIST reader; 1 without JMAP is a compile error. |
 | `SVF_JMAP_RECOG` | 1 on desktop/DOS/WASM, 0 on MCU/SMALL. Recognizes JMAP and uses its fallback even without the JMAP reader. |
 | `SVF_JSET_BIG` | 1 on desktop/DOS/WASM, 0 on MCU/SMALL. Widens class and set limits. |
-| `SVF_JSET_V1`, `SVF_JSET_V2` | V1 is 1; V2 is 0 on AVR and 1 elsewhere. At least one must be enabled. The CH582 port explicitly disables V2. |
+| `SVF_JSET_V1`, `SVF_JSET_V2` | V1 is 1; V2 is 0 on AVR and 1 elsewhere. At least one of V1, V2 or JMAP must be enabled. The CH582 port explicitly disables V2. |
 | `SVF_JSET_TRUSTED` | 0. Use 1 only for validated embedded faces; skips table-content validation. |
 | `SVF_JSET_POP4` | Normally 1, 0 on AVR/SMALL. Selects the V2 popcount implementation. |
 | `SVF_NO_STREAM`, `SVF_NO_SCALE` | Undefined; defining either removes that feature. |
@@ -1053,217 +1051,136 @@ the sizes each configuration produces are in `c/cross/SIZES.md`.
 
 ## 13. Platforms
 
-One subsection per platform: the toolchain and versions the example was built with here, how to build it, what to take
-into a project of your own (files and flags), the glue between `svf_target` and the platform's pixels, the measured
-memory, and the limits. The port READMEs under `c/ports/<port>/` have the rest. The ports were built here and, for Pico
-and ESP32 (colour), run on emulators; none has been run on its board (each README says what was checked), and the
-Arduino instructions were never run through `arduino-cli`. A figure marked "measured" was printed by a build made for this
-guide from a clean `git archive` of the repository.
+Use each port's build settings and display driver as a starting point. Commands below start at the project root.
+Check both the build and the actual panel. Memory use depends on the toolchain, SDK, faces and flags; inspect `size`
+and the link map for the final image. See the [build size tables](../c/cross/SIZES.md) for individual configurations.
 
 ### 13.1 Arduino Uno and other Arduino cores
 
-- **Toolchain.** avr-gcc 16.1.0 with AVR-LibC 2.3.2 (the Zak Kemble build that `sh c/cross/install-toolchains.sh "$HOME/opt" avr`
-  installs under `~/opt`), `-Os`. arduino-cli is not installed here, so the commands below were not run against a stock
-  AVR core: they are the settings `c/cross/build-all.sh --ports` uses for the same sources, which it compiles and links
-  against `c/ports/arduino/stub/`. Record your own core's avr-gcc version; the library is C99 and needs no more.
-- **Build** (from the repository root; the library goes in as an Arduino library, the generated `face.c` into the sketch
-  folder, not committed):
+Arduino compiles `.c` files in the sketch folder as C.[1] This Uno configuration enables `MONO_PAGE` only.
+Install `arduino-cli` and the `arduino:avr` core first.
 
-      mkdir -p ~/Arduino/libraries/svf && cp c/include/svf.h c/src/*.c c/src/*.h ~/Arduino/libraries/svf/
-      python3 c/bench/mkface.py svf/dos/NEODG16G.SVF c/ports/arduino/face.c --name svf_face_data --profile mcu-strict
-      F='-include avr/pgmspace.h "-DSVF_RD8(p)=pgm_read_byte(p)" -DSVF_NO_SCALE -DSVF_TARGETS=0x02 -DSVF_NO_STREAM -DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT -DSVF_JSET_V2=0'
-      arduino-cli compile -b arduino:avr:uno c/ports/arduino \
-          --build-property "compiler.c.extra_flags=$F" --build-property "compiler.cpp.extra_flags=$F"
+```sh
+mkdir -p ~/Arduino/libraries/svf
+cp c/include/svf.h c/src/*.c c/src/*.h ~/Arduino/libraries/svf/
+python3 -I c/bench/mkface.py svf/dos/NEODG16G.SVF c/ports/arduino/face.c --name svf_face_data --profile mcu-strict
+F='-include avr/pgmspace.h "-DSVF_RD8(p)=pgm_read_byte(p)" -DSVF_NO_SCALE -DSVF_TARGETS=0x02 -DSVF_NO_STREAM -DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT -DSVF_JSET_V2=0'
+arduino-cli compile -b arduino:avr:uno c/ports/arduino \
+    --build-property "compiler.c.extra_flags=$F" --build-property "compiler.cpp.extra_flags=$F"
+```
 
-- **For your own sketch.** Copy `svf.h`, `svf_internal.h` and `svf_*.c` into a library folder, put the generated `face.c`
-  beside your `.ino`, declare it `extern "C"` (section 5.3), and give the C and C++ compiles the flags above. They go to
-  `compiler.c.extra_flags` and `compiler.cpp.extra_flags`, **not** to `build.extra_flags`: the AVR core passes that to its
-  assembler sources too, and `-include avr/pgmspace.h` fails there. `-DSVF_JSET_V2=0` builds the version 1 reader alone
-  (NEODG16G is a version 1 face; the version 2 reader would cost about 2.4 KB), `-DSVF_TARGETS=0x02` compiles only
-  `MONO_PAGE`, `-DSVF_NO_STREAM` drops the stream reader, `-DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT` makes the layout units
-  constants.
-- **Pixel glue.** A 128 x 64 SSD1306 page buffer is 1,024 bytes; the target writes straight into the controller's layout,
-  and `Wire` sends it 16 bytes at a time (its buffer is 32 bytes):
+Put generated `face.c` beside the `.ino` and declare its symbols with C linkage as in section 5.3.
+Pass the same flags through `compiler.c.extra_flags` and `compiler.cpp.extra_flags`. Avoid `build.extra_flags` for
+`-include avr/pgmspace.h`: it also reaches assembler sources. AVR `PROGMEM` reads require the `SVF_RD8` override.[2]
+Keep text in RAM or copy it with a function such as `strncpy_P` before drawing.
 
-  Initialize the 1024-byte page buffer with `svf_target_init(&t, SVF_T_MONO_PAGE, page, sizeof page, 128, 64, 128)`.
-  After drawing, send `Wire.beginTransmission(0x3C)`, the control byte `Wire.write(0x40)`, 16 data bytes with
-  `Wire.write(page + i, 16)`, then `Wire.endTransmission()`. See the complete [arduino.ino](../c/ports/arduino/arduino.ino).
-
-  Text kept in `PROGMEM` is copied to RAM before drawing (`strncpy_P(text, lines[i], sizeof text - 1)`): the library reads
-  the string with plain loads.
-- **Memory (measured, ATmega328P).** `c/cross/build-all.sh --ports`: 23,694 bytes of flash (text 23,676 plus data 18) of
-  32,256, the face being 10,124; 1,103 bytes of RAM before the stack, of which the page buffer is 1,024. The real `Wire`
-  adds about 200 bytes of buffers and the core a few dozen, leaving about 700 bytes of stack.
-- **Limits.** Scaling is off (`-DSVF_NO_SCALE`): a scaled draw needs about 864 bytes of stack beside a 1 KB page buffer,
-  so build with `-DSVF_SCALE_FAST=0` (451 bytes, measured statically) if you must. A version 2 face opens plain without
-  the version 2 reader; a version 3 face opens **plain** (`SVF_FACE_JSET_BAD`: `SVF_JMAP` and `SVF_JMAP_RECOG` are 0 on AVR); add `-DSVF_JMAP_RECOG=1` to recognise the block (`JMAP_UNREAD`) and read a version 1 fallback JSET it carries (from `svf.h` and `c/README.md`; not built here). Streaming does not fit: the tables
-  alone are 5,129 bytes. **Arduino Mega 2560**: the same sketch links for the ATmega2560 (23,820 bytes of flash), but faces
-  and data above 64 KB of flash need far reads (`pgm_read_byte_far`), which the library does not do: not supported, not
-  tested (the build prints a `FLAG` line when a Mega image's flash end reaches 65,536). **Other cores** (SAMD, RP2040,
-  ESP32 under the Arduino IDE): flash is memory-mapped, so build the library as ordinary C with no `SVF_RD8` override
-  and no `PROGMEM`; `mkface.py` already emits a plain `const` array there. Not tried here. Details:
-  [c/ports/arduino/README.md](../c/ports/arduino/README.md).
+[arduino.ino](../c/ports/arduino/arduino.ino) draws into a 128 x 64, 1,024-byte page buffer and sends 16-byte chunks
+through `Wire`. The Uno has 2 KiB SRAM,[3] shared by the frame buffer, Wire buffers, globals and stack. The flags above
+remove scaling and streaming. On the Mega, this port cannot read faces outside the address range of `pgm_read_byte`.
+Do not apply the AVR `SVF_RD8` flags to other cores with memory-mapped flash. See the
+[Arduino port](../c/ports/arduino/README.md) for details.
 
 ### 13.2 WCH CH582 (RISC-V, bare metal)
 
-- **Toolchain.** `riscv32-esp-elf-gcc` 16.1.0 (crosstool-NG esp-16.1.0_20260609, `sh c/cross/install-toolchains.sh "$HOME/opt" esp`),
-  the WCH CH583 EVT sources that this port uses for the CH582M (commit `bd508ad` of
-  github.com/openwch/ch583) and `wchisp` 0.3.0 to flash. xPack `riscv-none-elf-gcc` 15.2.0-1 is documented as an
-  alternative (`CROSS=riscv-none-elf-`), not installed here.
-- **Build and flash** (24 MHz; the board's BOOT button held while plugging in the Type-C cable):
+The [CH582 port](../c/ports/ch582/README.md) uses WCH CH583 EVT startup and peripheral code with
+`riscv32-esp-elf-gcc`. Set `CH583_SDK` and `CROSS` in the [Makefile](../c/ports/ch582/Makefile) to change the SDK
+and compiler paths.
 
-      sh c/cross/install-toolchains.sh "$HOME/opt" esp ch583 wchisp
-      make -C c/ports/ch582            # build/svf_ch582_mono.{elf,bin,hex,map}, build/licences/
-      make -C c/ports/ch582 flash
+```sh
+sh c/cross/install-toolchains.sh "$HOME/opt" esp ch583 wchisp
+make -C c/ports/ch582
+# BOOT held while connecting USB / USB 연결 시 BOOT 버튼 누름
+make -C c/ports/ch582 flash
+```
 
-- **For your own project.** Compile `c/src/*.c` and your generated `face.c` with
-  `-march=rv32imac_zicsr_zifencei -mabi=ilp32 -mcmodel=medany -msmall-data-limit=8 -mstrict-align -Os -std=c99` and
-  `-DSVF_NO_SCALE -DSVF_NO_STREAM -DSVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT -DSVF_TARGETS=0x02 -DSVF_JSET_V2=0` (the same
-  switches as the Uno: mapped face, one layout, `MONO_PAGE`, the version 1 reader). The WCH start-up code, the SDK
-  sources (`CH58x_gpio.c`, `CH58x_i2c.c`, `CH58x_sys.c`) and `link.ld` come from the EVT tree; read the port's Makefile for
-  their flags (`-DINT_SOFT -w`, `-std=gnu99` for the port's own files). The face is a `const` array in CodeFlash.
-- **Pixel glue.** The panel is a 128 x 64 SH1106 on hardware I2C (PB20 SDA, PB21 SCL, address 0x3C), driven through the
-  port's `display_show(const uint8_t *buf, int16_t y, int16_t rows)` over `int ch582_i2c_write(uint8_t addr, const
-  uint8_t *buf, size_t n)` (0 on success, -1 on a timeout or NACK, bounded by `CH582_I2C_SPIN`). The frame is a 1,024
-  byte `MONO_PAGE` buffer as in section 13.1: `svf_target_init(&t, SVF_T_MONO_PAGE, frame, sizeof frame, 128, 64, 128)`.
-- **Memory (measured).** `.bin` 21,068 bytes; text 22,456 (faces 10,124), data 20, bss 1,232, `.highcode` 2,576 (it lives in
-  RAM); RAM used 5,876 of 32,768 with a 2,048 byte stack; stack peak of `main` 640.
-- **Limits.** The image runs at 24 MHz (the I2C module clock must be 2..36 MHz); `FREQ_SYS` in the Makefile must match
-  `SetSysClock`. **Not yet tried on a panel**: the pin mapping, panel variants (SH1106 or a real SSD1306, column offset)
-  and the LED outcome codes are in the README. Details: [c/ports/ch582/README.md](../c/ports/ch582/README.md).
+The library uses `-std=c99`; the port uses `-std=gnu99`. Library switches match the Uno:
+`SVF_NO_SCALE`, `SVF_NO_STREAM`, `SVF_LAYOUTS=SVF_LAYOUT_MCU_STRICT`, `SVF_TARGETS=0x02`, `SVF_JSET_V2=0`.
+The face is a flash `const` array. [link.ld](../c/ports/ch582/link.ld) allocates 448 KiB flash, 32 KiB RAM and a
+2,048-byte stack. `.highcode` lives in RAM, so include it in both flash and RAM budgets.
+
+The 128 x 64 SH1106 uses I2C on PB20 (SDA) and PB21 (SCL), address 0x3C, with a 1,024-byte `MONO_PAGE` buffer.
+`display_show(buf, y, rows)` sends it through the bounded `ch582_i2c_write`.
+`FREQ_SYS=24000000` must match `SetSysClock(CLK_SOURCE_PLL_24MHz)` in `main.c`.
 
 ### 13.3 DOS (DJGPP)
 
-- **Toolchain.** DJGPP `i586-pc-msdosdjgpp-gcc` 12.2.0 with binutils 2.30 (build-djgpp v3.4) in `~/opt/djgpp`; DOSBox-X
-  2026.08.31 to run it. The program is a 32-bit protected-mode `.EXE` that needs a DPMI host: **`CWSDPMI.EXE`** must be in
-  the program's directory or on `PATH` on real DOS (DOSBox-X has one built in).
-- **Build** (measured: `SVFDEMO.EXE` 266,265 bytes, `SVFVESA.EXE` 294,345):
+DJGPP produces 32-bit protected-mode executables. Real DOS needs a DPMI host; `CWSDPMI.EXE` can be placed beside
+the executable or on `PATH`.[4]
 
-      DJ=~/opt/djgpp/bin/i586-pc-msdosdjgpp
-      $DJ-gcc -std=gnu99 -O2 -Ic/include c/ports/dos/svfdemo.c c/src/*.c -o SVFDEMO.EXE
-      $DJ-gcc -std=gnu99 -O2 -Ic/include -Ic/ports/dos c/ports/dos/svfvesa.c c/ports/dos/vbe_select.c \
-          c/ports/dos/vesa_lines.c c/src/*.c -o SVFVESA.EXE
+```sh
+DJ="$HOME/opt/djgpp/bin/i586-pc-msdosdjgpp"
+"$DJ-gcc" -std=gnu99 -O2 -Ic/include c/ports/dos/svfdemo.c c/src/*.c -o SVFDEMO.EXE
+"$DJ-gcc" -std=gnu99 -O2 -Ic/include -Ic/ports/dos c/ports/dos/svfvesa.c c/ports/dos/vbe_select.c \
+    c/ports/dos/vesa_lines.c c/src/*.c -o SVFVESA.EXE
+```
 
-- **For your own project.** `c/src/*.c` and `-I c/include`, no switches: `__DJGPP__` selects the full defaults (every
-  target kind, streaming, scaling, JMAP, BIG). `-std=gnu99`, not `-std=c99`: under strict `-std=c99` DJGPP's headers
-  hide POSIX names such as `lseek` (measured: an implicit-declaration warning). **8.3 names:** on a DOS without long file names the face file must be a bare 8.3 name
-  in upper case (`NEODG16A.SVF`; every face under `svf/dos` already is), and a data file such as `vesa-lines.txt` must
-  be copied as `VESALINE.TXT`. Open files with **`O_BINARY`** (DJGPP defaults to text mode).
-- **Streamed or mapped.** `svfdemo.c` streams both faces (`svf_open_stream`, a `read_file` callback with `lseek` + `read`,
-  1 KB blocks in a block cache: PAPLG16 16 slots, PAPLG18 64 slots), so a 1 MB face does not need 1 MB of RAM. To map
-  instead, read the file whole and open it in place :
+The library uses the full `__DJGPP__` defaults. Use `-std=gnu99` so the headers declare the port's POSIX functions.
+Without long-filename support use 8.3 names such as `NEODG16A.SVF` and `VESALINE.TXT`.
+Open with `fopen(path, "rb")`, or `O_RDONLY | O_BINARY` for the low-level file API.[4]
 
-  The complete stdio example in section 3 selects binary mode with `fopen(path, "rb")` and uses the same mapped
-  approach on DJGPP. An application using low-level `open` must pass `O_RDONLY | O_BINARY`. Keep ownership of the
-  file bytes in the application and free them after the face is no longer used. Section 4.2 is a complete streaming
-  example that retains the file handle.
-
-- **Pixel glue.** Mode 13h: draw into a 320 x 200 `GRAY8` buffer, set the palette to a grey ramp so a coverage byte is its
-  own colour index (`outportb(0x3C8, 0)` then three `outportb(0x3C9, i >> 2)` per entry), set the mode with
-  `__dpmi_int(0x10, &regs)` (`regs.x.ax = 0x13`; `0x03` returns to text) and copy the buffer with
-  `dosmemput(screen, sizeof screen, 0xA0000)`. For VBE 2.0 linear-framebuffer modes (8, 15, 16, 24, 32 bits) use
-  `svfvesa.c`: the packed target kinds, mode chosen by geometry and channel layout, rows copied with `movedata`.
-- **Memory.** `svfdemo.c`: tables 4,096 + 32,768 bytes, caches 16 x 1,032 + 64 x 1,032 bytes, scratch 180, the 64,000 byte
-  screen buffer. Cache slots must cover the blocks one line touches, or the same blocks are read again and again.
-- **Limits.** A mapped face is a `malloc` in DJGPP's protected-mode heap, bounded by the machine's extended memory; stream
-  big ones. The headless run and the exact-pixel checks are in [c/ports/dos/README.md](../c/ports/dos/README.md).
+`svfdemo.c` streams PAPLG16 and PAPLG18 with 16 and 64 cache slots respectively, using 1 KiB blocks.
+Its 320 x 200 GRAY8 screen is 64,000 bytes, copied to VGA mode 13h with a grey palette.
+`svfvesa.c` supports 8, 15, 16, 24 and 32 bpp VBE targets. Use section 4.2 for large streamed faces.
+See the [DOS port](../c/ports/dos/README.md) for execution details.
 
 ### 13.4 ESP32 (ESP-IDF)
 
-- **Toolchain.** ESP-IDF **v5.5.6** (the version built here, in `~/opt/esp-idf-v5.5.6`; export its environment with
-  `. $IDF_PATH/export.sh`, or pass `-DIDF_PATH=`), with the toolchains it installs. The port covers the **ESP32-C3**
-  (RISC-V) and **ESP32-S3** (Xtensa); the original ESP32 has size rows (`xtensa-esp32-elf-gcc` 16.1.0) but no port image
-  (its flash pins and the usual boards' wiring differ from the port's pin tables).
-- **Build** (one build directory per profile and chip; `main/CMakeLists.txt` generates the face arrays with `mkface.py`):
+The [ESP32 port](../c/ports/esp32/README.md) targets ESP32-C3 and ESP32-S3. Activate the ESP-IDF environment first.
+Use a build directory per profile and chip; also check the shared `sdkconfig` when switching chips.
 
-      cd c/ports/esp32
-      idf.py -B build-colour -DSVF_PROFILE=colour set-target esp32c3 && idf.py -B build-colour build flash monitor
-      idf.py -B build-grey   -DSVF_PROFILE=grey   set-target esp32s3 && idf.py -B build-grey build
-      idf.py -B build-mono   -DSVF_PROFILE=mono   set-target esp32c3 && idf.py -B build-mono build
+```sh
+cd c/ports/esp32
+idf.py -B build-colour -DSVF_PROFILE=colour set-target esp32c3
+idf.py -B build-colour build flash monitor
+```
 
-  `idf.py` writes `sdkconfig` and `sdkconfig.old` into the project directory (`c/ports/esp32/.gitignore` lists them).
-- **For your own project.** Make the library a component: copy `svf.h`, `svf_internal.h` and `svf_*.c` into `main/svf/` and
-  generate `face.c`:
+`main/CMakeLists.txt` generates face arrays with `mkface.py --profile mcu-strict`.
+A custom component includes `svf.h`, `svf_internal.h`, `svf_*.c` and generated `face.c`, all with the same definitions.
+Use `PUBLIC` definitions and include paths if other components also include `svf.h`.[5]
 
-  ```cmake
-  # main/CMakeLists.txt
-  file(GLOB SVF_SRCS svf/*.c)
-  idf_component_register(SRCS main.c face.c ${SVF_SRCS} INCLUDE_DIRS svf REQUIRES esp_partition spiffs)
-  target_compile_definitions(${COMPONENT_LIB} PRIVATE SVF_NO_SCALE SVF_TARGETS=0x08)   # one kind: RGB565 here
-  ```
+```cmake
+# main/CMakeLists.txt; svf/ contains headers and sources / 헤더와 소스는 svf/에 둔다
+file(GLOB SVF_SRCS svf/*.c)
+idf_component_register(SRCS main.c face.c ${SVF_SRCS} INCLUDE_DIRS svf)
+target_compile_definitions(${COMPONENT_LIB} PUBLIC SVF_NO_SCALE SVF_TARGETS=0x08)
+```
 
-  Every source that includes `svf.h` must see the same `-D` switches (section 2): `target_compile_definitions` on the
-  component does that. This component form was built here with ESP-IDF v5.5.6 for the ESP32-S3.
-- **The face.** A `const` array in flash needs nothing else. A face in its own data partition is memory-mapped with no RAM
-  copy; a face on SPIFFS is streamed through stdio (tables and block cache in RAM). Use the ESP-IDF partition and VFS APIs:
+Open flash `const` arrays with `svf_open_mapped`. For a data partition, use `esp_partition_find_first`, then
+`esp_partition_mmap(..., ESP_PARTITION_MMAP_DATA, &ptr, &handle)` and open with the actual file length.
+Call `esp_partition_munmap(handle)` after the face is no longer used. Mount SPIFFS with `esp_vfs_spiffs_register`
+and stream through the stdio callback in section 4.2. Declare `esp_partition` and `spiffs` dependencies when the
+custom component uses those APIs.[5]
 
-  For mapped flash, find the partition with `esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "font")`,
-  map it with `esp_partition_mmap(..., ESP_PARTITION_MMAP_DATA, &ptr, &handle)`, then pass the address and actual file
-  length to `svf_open_mapped`. After the face is no longer used, release it with `esp_partition_munmap(handle)`.
-  For SPIFFS, mount with `esp_vfs_spiffs_register` and use `/spiffs/FACE.SVF` with the complete stdio streaming example
-  in section 4.2. Retain tables, cache and FILE for the face’s lifetime. See the [ESP32 port](../c/ports/esp32/README.md)
-  for a complete display and component configuration.
-
-- **Pixel glue.** The port draws a colour band (320 x 24 `RGB565`, 15,360 bytes) and sends it with
-  `spi_device_polling_transmit(spi_device_handle_t, spi_transaction_t *)` (ILI9341 on SPI2). The ILI9341 takes the high byte
-  first, so set `t.flags = SVF_TF_RGB16_BIGENDIAN` (the older name `SVF_TF_565_BIGENDIAN` is the same bit); the QEMU RGB
-  panel takes native words (flag 0). The port's `display_show(const uint8_t *buf, int16_t y, int16_t rows)` is the
-  boundary a profile draws against.
-- **Memory (measured, ESP-IDF v5.5.6, Release).** `.bin` of the colour profile on ESP32-C3 294,960 bytes (faces 74,660), grey
-  on ESP32-S3 317,856, mono on ESP32-C3 229,648 (face 10,124); each in the default 1 MB application partition (72 %, 70 % and
-  78 % free). `idf.py size`, colour on C3: flash code 109,930, `.rodata` 117,180, DRAM `.bss` 19,320 and `.data` 6,920;
-  mono: `.bss` 4,920.
-- **Limits.** Nothing here has run on an ESP32 board (the `esp_rgb` panel has run on QEMU 9.2.2); wiring, `MADCTL` and the
-  panel variants are listed in the README. Details: [c/ports/esp32/README.md](../c/ports/esp32/README.md).
+The colour profile sends 320 x 24 RGB565 bands (15,360 bytes) to an ILI9341 through `spi_device_polling_transmit`.
+Set `SVF_TF_RGB16_BIGENDIAN` to match the driver; the QEMU `esp_rgb` driver uses flags 0.
+Check the final image against the selected partition table to determine whether the face fits.
 
 ### 13.5 Raspberry Pi Pico and Pico 2 (pico-sdk)
 
-- **Toolchain.** pico-sdk **2.3.1**, arm-none-eabi-gcc 15.2.1 (Arm GNU Toolchain 15.2.Rel1), CMake, Python 3 for the face
-  arrays; picotool 2.3.1 to make a `.uf2` (see the port README).
-- **Build.** One directory per profile; `-DPICO_NO_PICOTOOL=1` makes the `.elf` only. For a **Pico 2** (RP2350, Arm
-  cores) add `-DPICO_BOARD=pico2`:
+Set the pico-sdk path; add `-DPICO_BOARD=pico2` for the Pico 2's Arm cores. With `PICO_NO_PICOTOOL=1`, this project
+skips `pico_add_extra_outputs`, so it does not produce a `.uf2`.[6]
 
-      cmake -S c/ports/pico -B build-pico-mono  -DSVF_PROFILE=mono -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
-      cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
-      cmake --build build-pico-mono
+```sh
+cmake -S c/ports/pico -B build-pico-mono -DSVF_PROFILE=mono -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
+cmake --build build-pico-mono
+cmake -S c/ports/pico -B build-pico2-mono -DSVF_PROFILE=mono -DPICO_BOARD=pico2 -DPICO_SDK_PATH="$HOME/opt/pico-sdk-2.3.1" -DPICO_NO_PICOTOOL=1 -DCMAKE_BUILD_TYPE=Release
+cmake --build build-pico2-mono
+```
 
-- **For your own project.** The port's `CMakeLists.txt` is the template: generate the face with an `add_custom_command`
-  running `mkface.py`, add `c/src/*.c`, link `pico_stdlib` and the bus library, and define the switches on the target
-  (this form was built here for the Pico and, with `-DPICO_BOARD=pico2`, the Pico 2; 33,988 and 32,340 bytes of text
-  with a `main.c` that draws into an RGB565 band):
+For a custom target, add `c/src/*.c` and generated `face.c`, with `c/include` on the include path. Use
+`target_compile_definitions` to give the app and library the same switches, then link `pico_stdlib` and the bus
+library. The [port's CMakeLists.txt](../c/ports/pico/CMakeLists.txt) is a complete example.
 
-  ```cmake
-  file(GLOB SVF_SRCS svf/c/src/*.c)
-  add_executable(app main.c face.c ${SVF_SRCS})
-  target_include_directories(app PRIVATE svf/c/include)
-  target_compile_definitions(app PRIVATE SVF_NO_SCALE SVF_TARGETS=0x08)      # RGB565 only
-  target_link_libraries(app pico_stdlib hardware_spi)
-  ```
-
-- **Pixel glue.** I2C panels: `i2c_write_blocking(i2c0, addr, buf, len, false)` (SSD1306 mono at GP4/GP5, address 0x3C); SPI
-  colour: `spi_write_blocking(spi0, buf, len)` (ST7789 on GP16..GP20). The ST7789 takes RGB565 high byte first:
-  `t.flags = SVF_TF_RGB16_BIGENDIAN`. The port draws the colour profile in 24-row bands (240 x 24 x 2 = 11,520 bytes) and
-  calls `display_show(band, y, 24)`.
-- **Memory (measured, `arm-none-eabi-size`, Release, the faces included).**
-
-  | Image | Pico (RP2040) text / bss | Pico 2 (RP2350) text / bss |
-  |---|---|---|
-  | mono (NEODG16G, 10,124) | 35,484 / 2,384 | 33,636 / 2,000 |
-  | grey (PAPLG16 + PAPLG18, 74,660) | 99,256 / 17,936 | 97,420 / 17,552 |
-  | colour (PAPLG16 + PAPLG18) | 99,828 / 12,812 | 98,176 / 12,428 |
-
-  The Pico column equals the "Pico SDK images" table of `c/cross/SIZES.md`.
-- **Limits.** The faces sit in flash behind the **XIP cache** (16 KB on the RP2040); the emulators used here (rp2040js,
-  the bench) do not model it, so real drawing times are the emulated ones or slower, by an amount nothing here measures. The
-  hardware has not been run. Pico 2 was built, not run. Details: [c/ports/pico/README.md](../c/ports/pico/README.md).
+SSD1306 uses I2C on GP4/GP5 (`i2c_write_blocking`); ST7789 uses SPI on GP16..GP20 (`spi_write_blocking`).
+The colour profile uses 240 x 24 RGB565 bands (11,520 bytes), with `SVF_TF_RGB16_BIGENDIAN`.
+Faces are read from XIP flash.[6] Emulator execution time alone does not establish real flash, cache or bus timings.
+See the [Pico port](../c/ports/pico/README.md) for wiring and flashing.
 
 ### 13.6 SDL2 and SDL3
 
-- **Toolchain.** The host gcc 13.3.0; SDL 2.30.0 or newer (`libsdl2-dev`) or SDL3 (3.5.0-dev from the user's fork in
-  `~/opt/sdl3`: any SDL3 that `pkg-config sdl3` finds builds the example). `c/ports/sdl/svfsdl.c` is one source for both
-  (`sdl_compat.h`) and covers every SDL pixel format the kinds match.
-- **A minimal sample** (SDL3; a face mapped from disk, one line at 2/1 scale in an `XRGB8888` surface, saved as BMP).
-  Built and run here with SDL 3.5.0-dev under `SDL_VIDEODRIVER=dummy`:
+The [SDL port](../c/ports/sdl/README.md) supports SDL2 and SDL3 through `sdl_compat.h`.
+This SDL3 example loads a face, draws at scale 2/1 and saves `out.bmp`.
+`SDL_PIXELFORMAT_BGRX32` specifies memory bytes B, G, R, X regardless of host byte order.[7]
 
   ```c
   /* sdl_min.c - SDL3: a face file mapped from disk, one line drawn into an XRGB8888 surface, saved as BMP. */
@@ -1273,86 +1190,66 @@ guide from a clean `git archive` of the repository.
 
   int main(int argc, char **argv)
   {
-  	size_t len;
-  	void *bytes = SDL_LoadFile(argc > 1 ? argv[1] : "NEODG16A.SVF", &len);   /* keep it while the face is used */
-  	static svf_face face;
-  	svf_face *faces[1] = {&face};
-  	svf_chain chain = {0};
-  	svf_target t;
-  	uint8_t scratch[2048];                               /* 2/1 of 16x16: 2*32 + 32*32 = 1,088 */
-  	const char *s = "SDL 한글 렌더링";
+      size_t len;
+      void *bytes = SDL_LoadFile(argc > 1 ? argv[1] : "NEODG16A.SVF", &len);   /* keep it while the face is used */
+      static svf_face face;
+      svf_face *faces[1] = {&face};
+      svf_chain chain = {0};
+      svf_target t;
+      uint8_t scratch[2048];                               /* 2/1 of 16x16: 2*32 + 32*32 = 1,088 */
+      const char *s = "SDL 한글 렌더링";
 
-  	if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK)
-  		return 1;
-  	chain.faces = faces;
-  	chain.count = 1;
-  	chain.scale_num = 2;                                   /* 2/1: crisp double size */
-  	chain.scale_den = 1;
-  	if (svf_chain_scratch_bytes(&chain) > sizeof scratch)
-  		return 1;
-  	SDL_Surface *surf = SDL_CreateSurface(320, 48, SDL_PIXELFORMAT_XRGB8888); /* memory B G R X on little-endian */
-  	if (!surf || !SDL_FillSurfaceRect(surf, NULL, SDL_MapSurfaceRGB(surf, 0, 0, 0x20)) || !SDL_LockSurface(surf))
-  		return 1;
-  	if (svf_target_init(&t, SVF_T_XRGB8888, surf->pixels, (size_t)surf->pitch * surf->h, (int16_t)surf->w,
-  	                    (int16_t)surf->h, (uint16_t)surf->pitch) != SVF_OK)
-  		return 1;
-  	t.fg888 = 0x00FFC000;
-  	t.bg888 = 0x00000020;                                  /* the colour the surface was filled with */
-  	svf_err e = svf_draw_utf8(&chain, s, strlen(s), 4, (int16_t)(4 + 2 * svf_ascent(&face)), &t, scratch, sizeof scratch);
-  	SDL_UnlockSurface(surf);
-  	SDL_SaveBMP(surf, "out.bmp");
-  	SDL_DestroySurface(surf);
-  	SDL_free(bytes);
-  	return e == SVF_OK ? 0 : 1;
+      if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK)
+          return 1;
+      chain.faces = faces;
+      chain.count = 1;
+      chain.scale_num = 2;                                   /* 2/1: crisp double size */
+      chain.scale_den = 1;
+      if (svf_chain_scratch_bytes(&chain) > sizeof scratch)
+          return 1;
+      SDL_Surface *surf = SDL_CreateSurface(320, 48, SDL_PIXELFORMAT_BGRX32); /* memory bytes B G R X */
+      if (!surf || !SDL_FillSurfaceRect(surf, NULL, SDL_MapSurfaceRGB(surf, 0, 0, 0x20)) || !SDL_LockSurface(surf))
+          return 1;
+      if (svf_target_init(&t, SVF_T_XRGB8888, surf->pixels, (size_t)surf->pitch * surf->h, (int16_t)surf->w,
+                          (int16_t)surf->h, (uint16_t)surf->pitch) != SVF_OK)
+          return 1;
+      t.fg888 = 0x00FFC000;
+      t.bg888 = 0x00000020;                                  /* the colour the surface was filled with */
+      svf_err e = svf_draw_utf8(&chain, s, strlen(s), 4, (int16_t)(4 + 2 * svf_ascent(&face)), &t, scratch, sizeof scratch);
+      SDL_UnlockSurface(surf);
+      bool saved = SDL_SaveBMP(surf, "out.bmp");
+      SDL_DestroySurface(surf);
+      SDL_free(bytes);
+      return e == SVF_OK && saved ? 0 : 1;
   }
   ```
+```sh
+export PKG_CONFIG_PATH="$HOME/opt/sdl3/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+cc -std=c99 -Wall -Wextra -Ic/include sdl_min.c c/src/*.c $(pkg-config --cflags --libs sdl3) \
+    -Wl,-rpath,$(pkg-config --variable=libdir sdl3) -o sdl_min
+SDL_VIDEODRIVER=dummy ./sdl_min svf/dos/NEODG16A.SVF
+```
 
-      export PKG_CONFIG_PATH=~/opt/sdl3/lib/pkgconfig
-      cc -std=c99 -Wall -Wextra -I c/include sdl_min.c c/src/*.c $(pkg-config --cflags --libs sdl3) \
-          -Wl,-rpath,$(pkg-config --variable=libdir sdl3) -o sdl_min
-      SDL_VIDEODRIVER=dummy ./sdl_min svf/dos/NEODG16A.SVF
+Pass `surf->pitch` as the stride. Lock the surface while drawing and first fill it with the colour used for `bg888`.
+16-bit SDL surfaces follow host byte order; set `SVF_TF_RGB16_BIGENDIAN` on a big-endian host.
+`make -C c/ports/sdl SDL=2` or `SDL=3` builds the complete example;
+`sh c/ports/sdl/check.sh` compares the supported surface formats against Python output.
 
-- **The full example.** `make -C c/ports/sdl SDL=2` or `SDL=3` builds `svfsdl2` / `svfsdl3`
-  (`c/build/ports/sdl/`); `sh c/ports/sdl/check.sh` proves the surface bytes against `tools/svfline.py` on both SDLs for
-  every format (the dump, not the screenshot, is the proof).
-- **Pixel glue.** `stride` is the surface's `pitch` (SDL rounds a row up to 4 bytes) and the surface must be locked
-  (`SDL_LockSurface`) while you draw; clear it first (the library never writes padding, and the grey and indexed kinds
-  keep the maximum of the old and new value). Name formats by **memory order**: `SDL_PIXELFORMAT_BGRX32` is
-  `SVF_T_XRGB8888` (B, G, R, X in memory on every host; as a native `uint32_t` it is `0x00RRGGBB` only on a
-  little-endian machine); `SDL_PIXELFORMAT_RGB24` has no matching kind. 16-bit kinds follow the host: add
-  `SVF_TF_RGB16_BIGENDIAN` when `SDL_BYTEORDER` is big-endian.
-- **Limits.** A 32-bit target is at most 16,383 pixels wide (a `uint16_t` stride); only little-endian was run. SDL2 and SDL3
-  differ in how they widen RGB565 for display, not in the bytes the library writes. Details:
-  [c/ports/sdl/README.md](../c/ports/sdl/README.md).
+### 13.7 Web (WebAssembly, Emscripten)
 
-### 13.7 Web (WebAssembly, emscripten)
+The [web renderer guide](web-renderer-guide.md) has HTML and Node examples and memory cleanup order.
+The shared build function includes `EMSCRIPTEN_KEEPALIVE` APIs, `_malloc`, `_free`, heap views and memory growth.[8]
 
-The [web renderer guide](web-renderer-guide.md) provides complete HTML and Node examples and cleanup order.
+```sh
+mkdir -p /tmp/svf-module
+. c/ports/web/emcc-flags.sh
+svf_web_compile "$PWD" /tmp/svf-module
+```
 
-- **Toolchain.** emsdk tag **6.0.13** (emcc 6.0.13, installed by `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`, with
-  node 24.19.0), `-O2`, `-std=c99 -Wall -Wextra -Werror`.
-- **Build** (the line `web/build.sh` runs, kept in `c/ports/web/emcc-flags.sh`; measured `svf.wasm` 39,808 bytes,
-  `svf.js` 6,937):
-
-      EM_CONFIG=~/opt/emsdk/.emscripten ~/opt/emsdk/upstream/emscripten/emcc -std=c99 -Wall -Wextra -Werror -O2 \
-          -Ic/include c/ports/web/svf_web.c c/src/*.c -o svf.js -sMODULARIZE -sEXPORT_ES6 -sEXPORT_NAME=SvfModule \
-          -sENVIRONMENT=web,node -sEXPORTED_FUNCTIONS=_malloc,_free -sEXPORTED_RUNTIME_METHODS=HEAPU8,HEAP16,HEAP32 \
-          -sALLOW_MEMORY_GROWTH
-
-  `web/build.sh [OUT]` does that and also writes `faces.json` and copies the faces and licences for the picker page.
-- **For your own project.** Compile `c/ports/web/svf_web.c` with `c/src/*.c` and keep its exports
-  (`svfw_open(slot, data, len)`, `svfw_target2(kind, buf, buf_len, w, h, stride, fg565, bg565, threshold, flags)`,
-  `svfw_scale`, `svfw_measure(text, len, out)`, `svfw_draw(text, len, x, baseline)`, `svfw_reset`, ... listed in
-  [c/ports/web/README.md](../c/ports/web/README.md)), or write your own `EMSCRIPTEN_KEEPALIVE` glue over the C API. No
-  switches: `__EMSCRIPTEN__` selects the full defaults.
-- **Pixel glue.** JavaScript owns the target buffer (a view of the module's memory) and the face bytes; the C side
-  draws into it. The kinds the glue exposes are `GRAY8`, `MONO_PAGE`, `MONO_ROW` and `RGB565` (flags 0 or
-  `SVF_TF_RGB16_BIGENDIAN`, whose older name is `SVF_TF_565_BIGENDIAN`); copy the buffer to a `<canvas>` `ImageData` yourself.
-- **Memory.** `svfw_draw` needs `svf_chain_scratch_bytes`: a static 64 KB first, then a `malloc` of exactly the need (a
-  large scaled cell, e.g. GBATB47 at 16/1, needs 637 KB). This port is the only code that allocates; `c/src` never does.
-- **Limits.** Face bytes must stay in the module's memory while a slot uses them: call `svfw_reset` before freeing them.
-  At most four faces in the chain. `-sALLOW_MEMORY_GROWTH` moves the heap: re-take your `HEAPU8` view after any call
-  that may grow it.
+The wrapper exposes GRAY8, MONO_PAGE, MONO_ROW and RGB565, with up to four face slots.
+`svfw_draw` starts with 65,536 bytes of static scratch and allocates dynamically if more is needed. GBATB47 at 16/1
+needs `2*648 + (46*16)*(54*16) = 637200` bytes. The C core does not allocate dynamically.
+Call `svfw_reset` before freeing face memory; reacquire heap views after calls that may grow WASM memory.[8]
 
 ## 14. Integrating into an application with its own text path
 
@@ -1381,21 +1278,21 @@ Points that routinely cause trouble:
    with an integer ratio, which keeps pixels crisp.
 5. **Face lifetime.** The face struct, the data buffer (mapped) or tables/cache/`ctx` (streamed) must outlive every draw.
    Do not put a `svf_face` in memory you will move.
-6. **Threads.** Independent faces/chains can be used in parallel. One face (with its cache) and one chain (with its
-   syllable cache) are not used from two threads at once.
+6. **Threads.** Independent faces/chains can be used in parallel. Do not share mutable state such as a streamed face or
+   syllable cache concurrently. Use independent scratch and targets for each call.
 7. **Clipping.** Set the target's clip rectangle (`clip_x0..clip_y1`) to your dialogue box; the library will not write
    outside it and does not read glyphs for cells wholly outside.
 8. **Validate user-supplied faces.** `svf_open_*` is built to reject hostile files (it is fuzz-tested), but never build
    with `-DSVF_JSET_TRUSTED=1` for faces that do not come from your own build.
 9. **Same switches everywhere** (section 2).
 
-A typical wrapper is about thirty lines: an object holding the face, chain, scratch and syllable cache, with `width(str)`
+A wrapper can hold the face, chain, scratch and syllable cache, with `width(str)`
 and `draw(str, x, y_top)` methods calling `svf_measure_utf8` and `svf_draw_utf8`.
 
 ## 15. Testing your integration
 
 - **The reference.** `tools/svfline.py` draws the same line in Python; its output must equal the C output byte for byte.
-  `tools/test_c_renderer.py` is the repository's own comparison; read it for how to drive both sides.
+  [tools/test_c_renderer.py](../tools/test_c_renderer.py) shows how to drive and compare both renderers.
 - **The gate.** `make -C c check` runs the unit programs under sanitizers, verifies that no object references `malloc`,
   `calloc`, `realloc` or `free`, and runs the Python comparison.
 - **Your own checks.** A tiny program that draws a known string into a `SVF_T_GRAY8` buffer and prints it (section 3) is
@@ -1404,7 +1301,7 @@ and `draw(str, x, y_top)` methods calling `svf_measure_utf8` and `svf_draw_utf8`
   bits `jset_bad`, `jset_unread`, `jmap_bad`, `jmap_unread`; `svfdump FACE has U+AC00 U+D55C` says whether each code
   point draws; `svfdump FACE syllables` dumps every composed syllable cell, the C side of the Python identity tests), or
   `jamoset.parse_svfn` in Python. `tools/facecheck.py` is **not** a face checker: it checks manifests and the faces
-  a font map names. The maker app checks every face it writes and draws it before counting it done.
+  a font map names. See the [maker app](maker-desktop.md) for production and the [desktop app](desktop-app.md) for inspection and previews.
 
 ## 16. Troubleshooting
 
@@ -1421,10 +1318,31 @@ and `draw(str, x, y_top)` methods calling `svf_measure_utf8` and `svf_draw_utf8`
 | Text is missing on an `INDEXED8` target | the background index is not below the ink ramp (max rule) | renumber the palette |
 | Colour text has a halo | `bg565`/`bg888` is not the real background | set the true background, or use the callback target |
 | Glyphs one row too high or low | passed the top row instead of the baseline | `y_baseline = top + ascent` |
-| `svf_open_mapped` returns `SVF_E_MAGIC` on an AVR build, the face being a `PROGMEM` array | the library was built without `-DSVF_RD8(p)=pgm_read_byte(p)`, so it reads flash addresses as RAM | build every library source with `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'` (section 5.1; simavr: 1 without, 0 with) |
+| `svf_open_mapped` returns `SVF_E_MAGIC` on an AVR build, the face being a `PROGMEM` array | the library was built without `-DSVF_RD8(p)=pgm_read_byte(p)`, so it reads flash addresses as RAM | build every library source with `-include avr/pgmspace.h '-DSVF_RD8(p)=pgm_read_byte(p)'` (section 5.1) |
 | The face array eats RAM, or the link overflows RAM | the array was made with `xxd -i` (not `const`, so `.data`) | generate it with `c/bench/mkface.py` (section 5); check `size` shows the face under text, not data |
 | Hangul draws nothing after adding `-DSVF_SMALL` | `SVF_SMALL` turns the defaults of `SVF_JMAP`, `SVF_JMAP_LIST`, `SVF_JMAP_RECOG` and `SVF_JSET_BIG` off: a version 3 or BIG face opens plain (`JSET_BAD`; `JMAP_UNREAD` only with `-DSVF_JMAP_RECOG=1`) | add `-DSVF_JMAP=1 -DSVF_JSET_BIG=1`, or write the face in a form the build reads (section 10.1, section 12) |
 | Only some Hangul syllables draw, the rest are missing | the face's JMAP is SPARSE or LIST with no fallback block: it composes only the syllables it lists | `svf_has(face, cp)` per syllable; rebuild the face with a fallback or a dense table (section 10) |
 | Text ends cut off at the right of the buffer | the buffer was sized from `e.width`, the pen's travel, but the last glyph's ink reaches past it | `e.width + svf_cell_w(face)` (section 3) |
 | Crashes or garbage after upgrading | translation units built with different `-D` switches (`SVF_JMAP` changes `svf_face`) | rebuild everything with one flag set |
 | `SVF_E_IO` on a streamed face | the read callback returned a short or negative count | return exactly `len` bytes or a negative value; check the file position logic |
+
+## 17. Related documents
+
+Start with the [project overview](../README.md), [SVF glossary](../spec/SVF.md#glossary),
+[renderer design](../spec/renderer-design.md) and [jamo sets](jamo-sets.md) for data and composition rules.
+Use [recipes](recipes.md) and the [tools guide](tools.md) to create and convert faces,
+and [anti-aliasing](anti-aliasing.md) to choose coverage, colours and output depth.
+The [web guide](web-renderer-guide.md), [desktop app](desktop-app.md) and [maker app](maker-desktop.md) describe application workflows.
+
+## 참고 문헌 / References
+
+1. Arduino, Sketch build process: https://docs.arduino.cc/cli/sketch-build-process/
+2. AVR-LibC, Program Space Utilities: https://avrdudes.github.io/avr-libc/avr-libc-user-manual/group__avr__pgmspace.html
+3. Arduino Uno Rev3: https://docs.arduino.cc/hardware/uno-rev3/
+4. DJGPP FAQ (DPMI, binary files): https://www.delorie.com/djgpp/v2faq/
+5. ESP-IDF v5.5, build system and partition API: https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-guides/build-system.html ; https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32/api-reference/storage/partition.html
+6. Raspberry Pi, Pico SDK and hardware documentation: https://www.raspberrypi.com/documentation/microcontrollers/c_sdk.html ; https://www.raspberrypi.com/documentation/microcontrollers/raspberry-pi-pico.html
+7. SDL3, pixel formats and surfaces: https://wiki.libsdl.org/SDL3/SDL_PixelFormat ; https://wiki.libsdl.org/SDL3/SDL_LockSurface ; https://wiki.libsdl.org/SDL3/SDL_SaveBMP
+8. Emscripten, module options and memory access: https://emscripten.org/docs/api_reference/module.html ; https://emscripten.org/docs/porting/connecting_cpp_and_javascript/Interacting-with-code.html
+9. C++ linkage: https://en.cppreference.com/w/cpp/language/storage_duration.html#Linkage
+10. SIL Open Font License 1.1: https://openfontlicense.org/open-font-license-official-text/
