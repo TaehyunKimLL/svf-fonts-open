@@ -499,6 +499,28 @@ class UnpackTest(unittest.TestCase):
 
     # ---- fix round 1: duplicate members (P3) ------------------------------------------------------------------
 
+    @unittest.skipUnless(os.name == "nt", "Windows only: names that differ only in case name one file there")
+    def test_case_duplicate_member_stops_and_keeps_the_first_on_windows(self):
+        p = os.path.join(self.d, "case.zip")
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("Font.ttf", "first"); z.writestr("font.ttf", "second")
+        dest = os.path.join(self.d, "case")
+        r = archive.unpack(p, dest)
+        self.assertEqual(r["stopped"], "font.ttf: duplicate member"); self.assertEqual(r["files"], 1)
+        with open(os.path.join(dest, "Font.ttf")) as f: self.assertEqual(f.read(), "first")
+        # any other alias (an 8.3 short name, a case the fold misses) is refused by the new-file-only open, and a
+        # member stopped before its file was made never removes the file its name aliases
+        with self.assertRaises(archive._Stop) as cm:
+            archive._output(os.path.join(dest, "FONT.TTF"), "FONT.TTF")
+        self.assertEqual(cm.exception.reason, "FONT.TTF: duplicate member")
+        nested = io.BytesIO()
+        with zipfile.ZipFile(nested, "w") as z:
+            z.writestr("x", "x")
+        with self.assertRaises(archive._Stop):
+            archive._copy(lambda: io.BytesIO(nested.getvalue()), "FONT.TTF", dest, dict(archive.LIMITS, packed=1 << 20),
+                          {"files": 0, "bytes": 0, "counted": 0, "members": 0, "stopped": None}, peek=True)
+        with open(os.path.join(dest, "Font.ttf")) as f: self.assertEqual(f.read(), "first")
+
     def test_duplicate_member_stops_and_keeps_the_first(self):
         p = os.path.join(self.d, "dup.zip")
         with warnings.catch_warnings():

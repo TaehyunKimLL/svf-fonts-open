@@ -359,6 +359,12 @@ def unpack(path, dest, limits=LIMITS):
     return {"files": state["files"], "bytes": state["bytes"], "stopped": state["stopped"]}
 
 
+def _seen_key(name):
+    """The key a member name is checked for duplicates under: the name itself; Windows, where names differ only in
+    case name one file, its case-folded form (`_output` refuses any other alias, an 8.3 short name too)."""
+    return name.casefold() if oscompat.WINDOWS else name
+
+
 def _unpack_zip(path, dest, limits, state):
     """A zip: the central directory is counted first, then every member through `ZipFile.open`, directories skipped."""
     seen = set()
@@ -381,9 +387,9 @@ def _unpack_zip(path, dest, limits, state):
                 raise _Stop("%s: unsupported compression" % _short(name))
             if info.flag_bits & 0x1:
                 raise _Stop("%s: encrypted" % _short(name))
-            if name in seen:
+            if _seen_key(name) in seen:
                 raise _Stop("%s: duplicate member" % _short(name))
-            seen.add(name)
+            seen.add(_seen_key(name))
             try:
                 _copy(lambda: zf.open(info), name, dest, limits, state, peek=True)
             except NotImplementedError:
@@ -432,9 +438,9 @@ def _unpack_tar(path, dest, limits, state, kind):
                     raise _Stop("%s: not a regular file" % _short(name))
                 if member.issparse():
                     raise _Stop("%s: sparse member" % _short(name))
-                if name in seen:
+                if _seen_key(name) in seen:
                     raise _Stop("%s: duplicate member" % _short(name))
-                seen.add(name)
+                seen.add(_seen_key(name))
                 stream.member()
                 src = tf.extractfile(member)
                 if src is None:
@@ -512,15 +518,18 @@ def _copy(reader, name, dest, limits, state, peek=False):
     open when the reader itself fails.
     """
     out_path = os.path.join(dest, *name.split("/"))
+    created = not oscompat.WINDOWS          # Windows: only a file this member made is removed (another name may alias it)
     try:
         with reader() as src:
             first = src.read(PEEK_RAW) if peek else b""
             if _nested_from(first):
                 raise _Stop("nested archive %s (listed, not opened)" % _short(name))
             with _output(out_path, name) as out:
+                created = True
                 _pump(src, out, name, limits, state, first=first)
     except BaseException:
-        _remove(out_path)
+        if created:
+            _remove(out_path)
         raise
     state["files"] += 1
 
@@ -546,7 +555,13 @@ def _output(out_path, name):
     except OSError as exc:
         raise _Stop("%s: %s" % (_short(name), exc.strerror or type(exc).__name__))
     try:
-        return open(out_path, "wb")
+        # Windows: a new file only. Names there are case-insensitive and may have 8.3 aliases (LONGNA~1.TTF), so a
+        # member can name an earlier member's file under another spelling: it is refused, never written over.
+        return open(out_path, "xb" if oscompat.WINDOWS else "wb")
+    except FileExistsError:                                             # Windows only ("xb")
+        if os.path.isdir(out_path):
+            raise _Stop("%s: is a directory" % _short(name))
+        raise _Stop("%s: duplicate member" % _short(name))
     except IsADirectoryError:
         raise _Stop("%s: is a directory" % _short(name))
     except OSError as exc:
