@@ -146,6 +146,12 @@ test('non-OFL file under repo/svf fails; FACES.TSV and listed .TXT pass', async 
     assert.ok(r.problems.includes('not OFL-listed: svf/' + rel), rel + ': ' + r.problems.join('|'));
   }
   assert.ok(!r.problems.some((p) => p.includes('FACES.TSV') || p.includes('OFL.TXT') || p.includes('A.SVF')));
+  // a listed licence file with a lower-case .txt (svf/iolo/LICENSE-MIT.txt) passes as well
+  write(f.repo, 'svf/iolo/C.SVF', 'face');
+  write(f.repo, 'svf/iolo/LICENSE-MIT.txt', 'MIT');
+  fs.appendFileSync(path.join(f.repo, 'web', 'LICENCES.tsv'), 'iolo/C.SVF\tiolo/LICENSE-MIT.txt\n');
+  const r2 = await generate(f.opts);
+  assert.ok(!r2.problems.some((p) => p.includes('iolo/')), r2.problems.join('|'));
 });
 
 test('package.json dependencies make a problem', async (t) => {

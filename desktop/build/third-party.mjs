@@ -170,7 +170,7 @@ export async function generate(opts) {
   const metadataAllow = new Set(['jamo-extra/FACES.TSV']);
   for (const [, rel] of walk(svf)) {
     const posix = rel.split(path.sep).join('/');
-    const ok = (posix.endsWith('.SVF') && rows.some((r) => r.re.test(posix))) || (posix.endsWith('.TXT') && named.has(posix)) || metadataAllow.has(posix);
+    const ok = (posix.endsWith('.SVF') && rows.some((r) => r.re.test(posix))) || (/\.txt$/i.test(posix) && named.has(posix)) || metadataAllow.has(posix);
     if (!ok) problems.push('not OFL-listed: svf/' + posix);
   }
 
