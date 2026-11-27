@@ -2,16 +2,39 @@
 
 # SVF (SVFN) bitmap font format
 
-Copied on 2026-10-19 from ScummVM branch `jamo` at 40ffd1479a4, `graphics/hires_text/README.md`, sections "Bitmap fonts
-(G2)" through "Per-glyph dy", and maintained here since. This file is the master copy of the format; the ScummVM README
-links here.
-How ScummVM loads a face (`[load]`, `[preload]` in a map) is in the appendix at the end. The portable C renderer's API
-is `c/include/svf.h`; it reads version 3 files only.
+## What SVF is and why to use it
+
+SVF is a bitmap font format: it stores the pixels of letters ahead of time. Use it to draw the same shapes on a small
+MCU LCD, a DOS screen, a game's dialogue box or a web `<canvas>` without running an outline font engine.
+The file magic is `SVFN`; the file format described here is version 3.
+
+A **precomposed face** stores a glyph for each Hangul syllable it covers. A **jamo-set face** stores positional initial,
+medial and final [pieces](#term-piece) and selection tables, composing syllables at draw time to save storage.
+Both look up characters by Unicode code point. Readers can access a whole file in memory or flash, or use
+[streaming](#term-streaming) to keep only tables in RAM and read glyphs as needed.
+[1, 2 and 8 bpp](#term-bpp) range from crisp monochrome bitmaps to precomputed antialiased coverage.
+
+### Reading guide
+
+| What you want to do | Start here |
+|---|---|
+| Draw text in an application or firmware | [C renderer guide](../docs/c-renderer-guide.md), [web renderer guide](../docs/web-renderer-guide.md) |
+| Understand composition and memory choices | [Jamo-set background and examples](../docs/jamo-sets.md), [jamo blocks](#jamo-block) below |
+| Implement a reader or writer | [Header and dy](#header), [cells and layout](#layout), [validation](#validation), then the jamo block version you need |
+| Convert, subset or reprofile a face | [Tools](../docs/tools.md), [recipes](../docs/recipes.md) |
+| Configure face loading in a ScummVM map | [Loading appendix](#scummvm-loading), separate from the file format |
+
+See the [bilingual glossary](#glossary) for unfamiliar terms. The portable C API is
+[svf.h](../c/include/svf.h) and reads version 3 files only. Engine-specific behavior names ScummVM explicitly.
 
 SVFN is at **version 3**. Versions 1 and 2 are retired (see "Retired: versions 1 and 2" below); `tools/svf2to3.py`
 converts a v2 face.
 
+<a id="bitmap-fonts"></a>
+
 ## Bitmap fonts (G2)
+
+A face separates character lookup from pixel storage: the same drawing code can use a Latin glyph, a stored Hangul syllable or composed pieces. [svf_face.c](../c/src/svf_face.c) opens the face and resolves stored glyphs; [svf_draw.c](../c/src/svf_draw.c) places them on a target.
 
 `HiResBitmapFont` reads the "SVFN" bitmap font format: 1bpp stencil, or 8bpp or
 2bpp coverage, optional per-glyph metrics. The coverage forms carry anti-aliased
@@ -36,7 +59,24 @@ Korean targets): U+AC00 maps to glyph 0 and U+D79D to glyph 2349 in the 2350
 glyph Korean sets, 'A' maps to glyph 65 in the Latin sets, and the engine's own
 legacy `.fnt` files are rejected so the caller can fall back.
 
+<a id="jamo-block"></a>
+
 ### Jamo-set fonts (flags bit 1)
+
+A jamo block answers “which shape of each jamo fits this syllable?” A [class](#term-class) groups neighboring jamo contexts; a [set](#term-set) selects positional shapes. [svf_jamo.c](../c/src/svf_jamo.c) reads these choices and merges the [coverage](#term-coverage) of their pieces. The block version is separate from the SVFN file version.
+
+```mermaid
+flowchart TD
+    U["Unicode code point"] --> Q{"Usable jamo block and composable character?"}
+    Q -->|Yes| J["JSET selection or JMAP lookup and fallback"]
+    J --> P["Piece numbers to stored glyphs"]
+    P --> X["Merge coverage into one cell"]
+    Q -->|No| C["Code point table to glyph index"]
+    C --> O["Offset table to record"]
+    O --> B["Restore box into a cleared cell"]
+    X --> T["Metrics, scale, clip, target"]
+    B --> T
+```
 
 A face holding every syllable precomposed is large (DOTT's 1bpp faces total
 1,954 KB); a DOS Hangul system held positional jamo pieces and drew a syllable
@@ -118,7 +158,11 @@ is still a bad JSET (the face loads plain; `SVF_FACE_JSET_BAD`). Every face with
 standard limits is byte-identical either way.
 Version 1 sizes: `12 + 19 + 28 + 3 * LC * 21 * TC + 2 * (NI*19 + NM*21 + NF*27 + 51)` bytes.
 
+<a id="jset-v2"></a>
+
 #### JSET block version 2 (compact; exception-only)
+
+This encoding packs the same selection information more tightly. It trades decoding work for fewer table bytes; the drawn shapes stay the same. Read version 1 first to understand the tables being compressed.
 
 Version 2 holds the same tables in fewer bytes: the three set tables are bit-packed, the piece numbers are implicit
 (a presence bit per slot, a base per set, pieces numbered in order) with an alias escape for a piece shared between
@@ -201,7 +245,11 @@ presence bits, `abase + popcount(alias) <= NA`; (6) every drawn slot (fresh or a
 (7) every compat byte is 0xFF or has `c & 0x7F` below its table's count, with bit 7 only on a lead-capable consonant
 with a final form (not ㄸ ㅃ ㅉ), and that set's slot for the character is present.
 
+<a id="choose-v2"></a>
+
 #### When to use version 2
+
+Choose a block encoding together with the reader build: saving flash helps only when the intended device can decode that encoding. [jamoset.py](../tools/jamoset.py) handles the tables; [svf2to3.py](../tools/svf2to3.py) handles old file conversion.
 
 Version 1 is the standard: every writer and `tools/svf2to3.py` write it unless asked, the maker keeps an uploaded face's
 version (version 2 only through its explicit `--jset-version` option), and `svf/` stays version 1. Use version 2 only
@@ -229,7 +277,11 @@ version 2 reader trusts its counts), so a streamed face loads no more than its r
 Python `jamoset.unpack` reads all three versions (1, 2 and the JMAP of version 3). Every writer takes `--jset-version 1|2|auto` (default 1; see
 `docs/tools.md`).
 
+<a id="jmap"></a>
+
 #### Version 3: mapping table (JMAP)
+
+Some faces need syllable-specific choices that class rules cannot express. [JMAP](#term-jmap) records those choices directly; sparse and LIST forms avoid storing a full mapping when only some syllables need entries. A fallback supplies the remaining choices when present.
 
 Version 3 replaces the class and set tables by a direct map from a syllable to its pieces, for faces whose selection
 rule is not a function of the jamo classes (the Mac HangulTalk 7.1.x faces, or a font with an exception list). All
@@ -339,7 +391,21 @@ usable and the fallback part is `SVF_FACE_JSET_UNREAD`. The same holds in a buil
 A build of this tree that predates LIST sees a LIST face as plain, its fallback included (R1 fails before R4 finds the fallback); the JMAP reader is not deployed outside this tree. The Python reference is `jamoset.unpack_jmap`, whose ValueError text starts
 `JMAP Rn` (for a LIST `JMAP R1`, `JMAP L2`, `JMAP L3`, `JMAP R4` or `JMAP L6`).
 
+<a id="header"></a>
+
 ### Per-glyph dy (header bytes 17 and 18, metrics byte 3)
+
+The header tells a reader where each table lives and how to interpret it. [Ascent](#term-ascent) sets a common baseline; [dy](#term-dy) moves an individual glyph without changing its stored cell. [svfdy.py](../tools/svfdy.py) adjusts this placement.
+
+```mermaid
+flowchart LR
+    H["SVFN header: 48 bytes"] --> C["Code point table"]
+    H --> M["Metrics: optional"]
+    H --> J["JSET / JMAP: optional"]
+    H --> O["Glyph offset table"]
+    H --> D["Glyph data records"]
+    O --> D
+```
 
 The SVFN v3 header is 48 bytes, little-endian:
 
@@ -389,7 +455,11 @@ keeps it).
 - A jamo-set face composes its syllables at dy 0; a piece must not carry a dy
   (`jamoset.py check` refuses one). Its other glyphs (Latin) may.
 
+<a id="layout"></a>
+
 ### Cells, layout bytes and reserved bytes
+
+The [cell](#term-cell) is the bitmap a renderer reconstructs. A record stores only a box within it, while layout units control padding and alignment for different CPUs. Table offsets locate regions; they do not prescribe one physical order. [jamoset.py](../tools/jamoset.py) reads and writes the layout.
 
 A **cell** is the glyph box a reader hands back: cell width (byte 14) by cell
 height (byte 15) pixels, `pitch * cell height` bytes with
@@ -474,7 +544,11 @@ valid layout.
 
 Design and measurements: `docs/superpowers/specs/2026-10-21-svf-v3-design.md`.
 
+<a id="validation"></a>
+
 ### Validation
+
+Validation distinguishes a file that cannot be opened from optional information that can be dropped safely. Check the open error and the face status separately. [svf_face.c](../c/src/svf_face.c) validates mapped files; [svf_stream.c](../c/src/svf_stream.c) also checks streamed records as they are read.
 
 What a reader checks (`jamoset.parse_svfn` and the C renderer; the engine's
 `readLayout` follows), in this order:
@@ -497,7 +571,11 @@ What a reader checks (`jamoset.parse_svfn` and the C renderer; the engine's
   width.
 - A code point listed twice in the code point table resolves to its last entry.
 
+<a id="retired"></a>
+
 ### Retired: versions 1 and 2
+
+These are older SVFN file versions, not the still-supported JSET block versions. Convert old files before passing them to a version 3 reader.
 
 Version 1 ordered its glyphs by a code page and had no code point table. Version
 2 had a 36-byte header with the code point table at byte 32, shadow and code page
@@ -509,7 +587,11 @@ v2 reader left) converts a v2 face to v3 in any profile and proves the pixels di
 not change; all faces of `svf/` were converted that way, with the identity
 recorded in `c/bench/V2V3-IDENTITY.md`.
 
+<a id="marks"></a>
+
 ### Combining marks (flags bit 2)
+
+A combining accent shares its base letter’s position instead of consuming another character slot. The flag describes how its stored ink relates to the pen; the reader decides which code points count as marks. [svf_draw.c](../c/src/svf_draw.c) implements the portable placement rule.
 
 A file whose header flags carry bit 2 (0x4) stores each combining mark with
 its ink left of the pen inside the cell. A reader draws a mark this way:
@@ -536,12 +618,20 @@ its metrics advance), which need not be what the pen moves by. A mark with no
 anchor on its row yet is drawn at the pen less `originX` there too
 (line 1328).
 
+<a id="scummvm-loading"></a>
+
 ## ScummVM loading (appendix)
+
+The format permits both direct access and streaming. The following application settings choose between them in ScummVM; C and Web applications instead use the APIs in the [C guide](../docs/c-renderer-guide.md) and [web guide](../docs/web-renderer-guide.md).
 
 How ScummVM loads a face is not part of the format. These sections describe that engine's map keys and are kept for
 reference. The portable renderer's API (open a face whole or streamed, draw a line) is `c/include/svf.h`.
 
+<a id="load-policy"></a>
+
 ### Whole or streamed: the `[load]` section
+
+Loading policy balances RAM against later I/O. Use a per-face choice when file size alone does not reflect how often the game draws it.
 
 An SVF is either read into memory whole, or only its tables are (4 and 8 bytes a
 glyph) and each glyph is read from the file as it is drawn (a cache of
@@ -584,7 +674,11 @@ AGS loads every face whole and warns that it does not use it. A face reached by
 a path in an ini key (`hires_text_face`) rather than a `[fonts]` name is always
 `auto`.
 
+<a id="preload-policy"></a>
+
 ### Preloading the glyphs a game draws: the `[preload]` section
+
+Preloading moves likely reads to loading time. It warms a streamed face’s cache; it does not change glyph lookup or guarantee that an entry stays cached forever.
 
 A streamed face costs a disk read the first time each glyph is drawn. A map can
 say which characters a face is expected to draw, so they are read once, when the
@@ -628,3 +722,36 @@ The debug socket's `caches all` shows, per face, `list` (glyphs the list named t
 the face has), `preloaded` (of those, read at open), `misses` (lookups that were not
 hits) and `listevict` (listed glyphs pushed out since); `hits`, `reads` and `read`
 count as before from the first draw on, the preload's own reads included in `reads`.
+
+<a id="glossary"></a>
+
+## Korean–English glossary
+
+| Term | Meaning |
+|---|---|
+| <a id="term-face"></a>페이스 / face | One opened font with its own cell, glyphs and tables. |
+| <a id="term-glyph"></a>글리프 / glyph | A stored or composed drawable character shape; not a Unicode code point. |
+| <a id="term-cell"></a>셀 / cell | The reconstructed glyph bitmap box, cell width by cell height. |
+| <a id="term-pitch"></a>피치 / pitch | Bytes per reconstructed cell row; record row padding is a separate layout choice. |
+| <a id="term-advance"></a>전진 폭 / advance | How far the pen moves after a glyph, not its ink width. |
+| <a id="term-ascent"></a>어센트 / ascent | The baseline row measured from the cell top. |
+| <a id="term-baseline"></a>기준선 / baseline | The common vertical reference used to align faces in a text line. |
+| <a id="term-bearing"></a>베어링 / bearing | A metric describing ink placement relative to the pen. |
+| <a id="term-dy"></a>수직 이동 / dy | Signed row displacement below the cell position; negative moves up. |
+| <a id="term-piece"></a>조각 / piece | A positional jamo shape stored as glyph U+F0000 plus its piece number. |
+| <a id="term-set"></a>세트 / set | A group of positional pieces for one jamo component: initial, medial or final. |
+| <a id="term-class"></a>클래스 / class | A grouping of initial or tail contexts used to index the set-selection tables. |
+| <a id="term-jset"></a>자모 선택 블록 / JSET | The block magic; versions 1 and 2 encode classes, sets and piece tables. |
+| <a id="term-jmap"></a>음절 매핑 / JMAP | Version 3 of the JSET block: maps syllables directly to pieces. |
+| <a id="term-compat"></a>호환 자모 / compatibility jamo | Standalone characters U+3131..U+3163 handled by compat entries; distinct from conjoining jamo. |
+| <a id="term-bpp"></a>픽셀당 비트 / bpp levels | 1 bpp has 0/255 coverage; 2 bpp has 0/85/170/255; 8 bpp has 0..255. |
+| <a id="term-coverage"></a>피복도 / coverage | The amount of ink at a pixel. Composition takes the maximum, not a sum. |
+| <a id="term-streaming"></a>스트리밍 / streaming | Keep tables in RAM and obtain glyph records by offset reads as needed. |
+| <a id="term-record"></a>레코드 / record | A stored glyph box header, rows and layout padding. |
+| <a id="term-profile"></a>프로파일 / profile | A writer’s choice of layout units, boxes and offset width; pixels stay the same. |
+| <a id="term-fallback"></a>폴백 / fallback | A secondary source used when the primary mapping has no entry. |
+| <a id="term-metrics"></a>메트릭 / metrics | Advance, bearing, ink width and dy, separate from a record’s stored box. |
+| <a id="term-chain"></a>페이스 체인 / face chain | An ordered list of faces; the first one supporting a character supplies it. |
+| <a id="term-units"></a>레이아웃 단위 / REC, ROW, TAB | Record-start, record-row and table alignment units, encoded as powers of two. |
+| <a id="term-sparse"></a>희소 매핑 / SPARSE, LIST | JMAP encodings that store only selected syllables; SPARSE uses a bitmap and rank, LIST sorted keys. |
+| <a id="term-scale"></a>스케일 / scaling | Output-size adjustment implemented by [svf_scale.c](../c/src/svf_scale.c). |
