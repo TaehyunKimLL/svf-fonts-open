@@ -10,9 +10,10 @@ switches, ports) and, above all, the comments in [c/include/svf.h](../c/include/
 of every function. The file format is [spec/SVF.md](../spec/SVF.md); the design is
 [spec/renderer-design.md](../spec/renderer-design.md).
 
-Every C example below was compiled with `gcc -std=c99 -Wall -Wextra` against this repository (the embedded-face sample
-also for Cortex-M0+ with arm-none-eabi-gcc and for the ATmega328P with avr-gcc; the platform samples with the toolchain
-of their platform) and run where it can run on the shipped faces; the output shown is real.
+The portable C programs in sections 3–12 can be copied into separate files and built with `cc -std=c99 -Wall -Wextra -Ic/include EXAMPLE.c c/src/*.c -o EXAMPLE`.
+The embedded example additionally links the generated `face.c`; the SDL example uses the flags in section 13.6; the C++ example compiles the C sources with `cc` first, then links with `c++`.
+Run file-based examples with `svf/dos/NEODG16A.SVF`. No font bytes need to be written into application source by hand.
+For browser integration, continue with the [web renderer guide](web-renderer-guide.md).
 
 ## Contents
 
@@ -84,6 +85,30 @@ small-device defaults**: an MCU, bare metal, or a compiler that defines none of 
 LIST) jamo block and no BIG limits, so a face that needs them opens plain; set what you need explicitly (`-DSVF_JMAP=1`
 and the others of section 12). `-DSVF_SMALL` has the same effect on a desktop (section 12).
 
+### Setting options in CMake and Makefiles
+
+Propagate definitions from a CMake library target with `PUBLIC` so the application and library agree on header struct sizes.
+Set `SVF_ROOT` to the absolute path of the SVF sources. This target builds the library alone.
+
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(svf_embed C)
+set(SVF_ROOT "" CACHE PATH "SVF source directory")
+file(GLOB SVF_SOURCES CONFIGURE_DEPENDS "${SVF_ROOT}/c/src/*.c")
+add_library(svf STATIC ${SVF_SOURCES})
+target_include_directories(svf PUBLIC "${SVF_ROOT}/c/include")
+target_compile_features(svf PUBLIC c_std_99)
+target_compile_definitions(svf PUBLIC SVF_JMAP=1 SVF_JMAP_LIST=1)
+```
+
+```sh
+cmake -S /path/to/project -B /tmp/svf-cmake -DSVF_ROOT="$PWD"
+cmake --build /tmp/svf-cmake
+make -C c O=/tmp/svf-make lib CFLAGS='-O2 -DSVF_JMAP=1 -DSVF_JMAP_LIST=1'
+```
+
+In a custom Makefile, apply the same `CPPFLAGS` to the application and all five C sources. The supplied `c/Makefile` accepts definitions through `CFLAGS`. For Arduino use the port build script or global extra flags; for ESP-IDF set definitions on `${COMPONENT_LIB}`. With the Pico SDK, use `target_compile_definitions` on the application target separately from SDK initialization; do not overwrite `CMAKE_C_FLAGS`. Section 13 gives each port’s commands.
+
 ## 3. A complete first program
 
 This program opens a face file, draws a mixed Hangul/Latin line into an 8-bit buffer, and prints it as text. Save it as
@@ -97,20 +122,24 @@ This program opens a face file, draws a mixed Hangul/Latin line into an 8-bit bu
 
 static uint8_t *slurp(const char *path, size_t *len)
 {
-	FILE *fp = fopen(path, "rb");
-	if (!fp) return NULL;
-	fseek(fp, 0, SEEK_END);
-	long n = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	uint8_t *p = malloc((size_t)n);
-	if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
-	fclose(fp);
-	*len = (size_t)n;
-	return p;
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
 }
 
 int main(int argc, char **argv)
 {
+	if (argc < 2) { fprintf(stderr, "usage: ex1 FACE [TEXT]\n"); return 2; }
 	size_t len;
 	uint8_t *bytes = slurp(argv[1], &len);
 	svf_face face;
@@ -124,13 +153,15 @@ int main(int argc, char **argv)
 
 	const char *text = argc > 2 ? argv[2] : "SVF 안녕";
 	svf_extent e;
-	svf_measure_utf8(&chain, text, strlen(text), &e);
+	if (svf_measure_utf8(&chain, text, strlen(text), &e) != SVF_OK) return 1;
 	/* e.width is the pen's travel, not the ink: the last cell can reach past it, so leave a cell's width of room */
 	int w = e.width + svf_cell_w(&face) + 2, h = e.ascent + e.descent + 2;
+	if (w <= 0 || w > 32767 || h <= 0 || h > 32767) return 1;
 	uint8_t *pix = calloc((size_t)w * h, 1);
 	size_t need = svf_chain_scratch_bytes(&chain);
 	uint8_t *scratch = malloc(need);
 
+	if (!pix || !scratch) { free(scratch); free(pix); free(bytes); return 1; }
 	svf_target t;
 	if (svf_target_init(&t, SVF_T_GRAY8, pix, (size_t)w * h, (int16_t)w, (int16_t)h, (uint16_t)w) != SVF_OK) return 1;
 	err = svf_draw_utf8(&chain, text, strlen(text), 1, (int16_t)(1 + e.ascent), &t, scratch, need);
@@ -140,7 +171,8 @@ int main(int argc, char **argv)
 		for (int x = 0; x < w; x++) putchar(pix[y * w + x] > 127 ? '#' : pix[y * w + x] ? '+' : '.');
 		putchar('\n');
 	}
-	return 0;
+	free(scratch); free(pix); free(bytes);
+	return err == SVF_OK ? 0 : 1;
 }
 ```
 
@@ -212,17 +244,62 @@ glyph offset table) and optionally a block cache. Glyph rows are read when drawn
 1 MB face does not need 1 MB of RAM.
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <limits.h>
+#include "svf.h"
+
 static long rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
 {
-	FILE *fp = ctx;
-	return fseek(fp, (long)off, SEEK_SET) == 0 ? (long)fread(dst, 1, len, fp) : -1;
+#if LONG_MAX < UINT32_MAX
+    if (off > (uint32_t)LONG_MAX) return -1;
+#endif
+    return fseek((FILE *)ctx, (long)off, SEEK_SET) == 0
+        ? (long)fread(dst, 1, len, (FILE *)ctx) : -1;
 }
 
-static uint8_t tables[256 * 1024], cache[8 * (1024 + 8)];
-svf_err err;
-size_t need = svf_stream_tables_size(rd, fp, file_len, &err);   /* 0 and err set when the header is refused */
-if (need && need <= sizeof tables)
-	err = svf_open_stream(&face, rd, fp, file_len, tables, sizeof tables, cache, sizeof cache, 1024);
+int main(int argc, char **argv)
+{
+    FILE *fp;
+    long length;
+    svf_face face;
+    svf_err err;
+    uint8_t *tables = NULL, *scratch = NULL;
+    uint8_t cache[2 * (1024 + 8)], pixels[128 * 32] = {0};
+    svf_face *faces[] = {&face};
+    svf_chain chain = {0};
+    svf_target target;
+    int rc = 1;
+    if (argc != 2) { fprintf(stderr, "usage: stream FACE\n"); return 2; }
+    fp = fopen(argv[1], "rb");
+    if (!fp) return 1;
+    if (fseek(fp, 0, SEEK_END) || (length = ftell(fp)) <= 0 ||
+        (uint64_t)length > UINT32_MAX) goto done;
+    size_t need = svf_stream_tables_size(rd, fp, (uint32_t)length, &err);
+    if (err != SVF_OK || !need || !(tables = malloc(need))) goto done;
+    err = svf_open_stream(&face, rd, fp, (uint32_t)length, tables, need,
+                          cache, sizeof cache, 1024);
+    if (err != SVF_OK) goto done;
+    chain.faces = faces; chain.count = 1;
+    size_t scratch_len = svf_chain_scratch_bytes(&chain);
+    scratch = malloc(scratch_len);
+    if (!scratch) goto done;
+    err = svf_target_init(&target, SVF_T_GRAY8, pixels, sizeof pixels, 128, 32, 128);
+    if (err != SVF_OK) goto done;
+    err = svf_draw_utf8(&chain, "SVF 한글", strlen("SVF 한글"), 0, 20,
+                        &target, scratch, scratch_len);
+    size_t ink = 0;
+    for (size_t i = 0; i < sizeof pixels; ++i) ink += pixels[i] != 0;
+    printf("status=%u tables=%zu scratch=%zu reads=%lu ink=%zu draw=%d\n",
+           (unsigned)svf_status(&face), need, scratch_len,
+           (unsigned long)svf_stream_reads(&face), ink, (int)err);
+    rc = err != SVF_OK;
+done:
+    free(scratch); free(tables); fclose(fp);
+    return rc;
+}
 ```
 
 Rules worth knowing:
@@ -241,6 +318,8 @@ Rules worth knowing:
   the piece being read). `svf_chain_scratch_bytes` already accounts for it.
 - A build with `-DSVF_NO_STREAM` does not even declare these functions: a call is a compile error, not a run-time failure.
 
+External SPI flash uses the same streaming interface: keep device state in `ctx` and make `rd` read `len` bytes at `off` relative to the start of the face. Return exactly `len` on success, or a negative/short result on failure. Memory-mapped flash is simpler to use with `svf_open_mapped`, like the `const` array in section 5.
+
 ### 4.3 What the face tells you
 
 After a successful open the accessors report the header: `svf_bpp`, `svf_cell_w`, `svf_cell_h`, `svf_ascent`,
@@ -253,6 +332,17 @@ was dropped, for example `SVF_FACE_JSET_BAD` (the jamo block failed validation: 
 Hangul) or `SVF_FACE_JSET_UNREAD` (the jamo block is fine but this build does not read that version). A Hangul face whose
 status is non-zero is the first thing to check when syllables do not appear (section 16).
 
+An open can return `SVF_OK` with these status bits. Stored glyphs can still be drawn, so check `svf_has` for
+characters the application needs and log both the error code and status for diagnostics.
+
+| Status | Meaning |
+|---|---|
+| `SVF_FACE_CMAP_LINEAR` | Unsorted or duplicate code points; linear lookup, last duplicate wins. |
+| `SVF_FACE_DY_IGNORED` | Invalid dy range ignored. |
+| `SVF_FACE_METRICS_DROPPED` | Metrics region dropped; cell-width advances used. |
+| `SVF_FACE_JSET_BAD`, `SVF_FACE_JMAP_BAD` | Malformed composition block; see the [specification](../spec/SVF.md#validation) for fallback details. |
+| `SVF_FACE_JSET_UNREAD`, `SVF_FACE_JMAP_UNREAD` | This reader is disabled in the build; a supported fallback is used when available. |
+
 ## 5. Embedding a face
 
 A microcontroller has no file system (or none you want to depend on), and a program that ships one face is simpler with
@@ -263,21 +353,8 @@ the face inside it. `c/bench/mkface.py` writes a face as a C array:
 It needs Python 3 and the repository's `tools/` (it imports `tools/jamoset.py` by a path relative to itself, so run it
 from a checkout) and writes nothing but the output file. `--name` must be a C identifier. The output, abridged:
 
-```c
-/* Generated by c/bench/mkface.py from svf/dos/NEODG16G.SVF (10124 bytes, profile mcu-strict). */
-#include <stdint.h>
-#ifdef __AVR__
-#include <avr/pgmspace.h>
-#define BENCH_FACE_ATTR PROGMEM
-#else
-#define BENCH_FACE_ATTR
-#endif
-const uint8_t neodg16g[] BENCH_FACE_ATTR __attribute__((aligned(4))) = {
-	83,86,70,78,3,0,7,0,1,2,2,0,23,1,16,16,12,0,0,0,120,11,0,0,
-	...
-};
-const uint32_t neodg16g_len = 10124u;
-```
+`face.c` defines `const uint8_t neodg16g[]` and `const uint32_t neodg16g_len`.
+On AVR the array has `PROGMEM`; its alignment follows the selected layout.
 
 - The array is `const`, so it stays in flash (read-only data) and costs no RAM; on AVR it is `PROGMEM`, which puts it in
   flash's own address space (the library then reads it through `SVF_RD8`, section 4.1). `NAME_len` is the face's size
@@ -315,6 +392,7 @@ const uint32_t neodg16g_len = 10124u;
 
 ```c
 /* text_cb.c - draw UTF-8 with a face embedded by c/bench/mkface.py through your own pixel routine. */
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include "svf.h"
@@ -323,7 +401,12 @@ extern const uint8_t neodg16g[];            /* face.c from mkface.py --name neod
 extern const uint32_t neodg16g_len;
 
 /* Your display driver: one pixel, on/off (or a grey level from cov). */
-void lcd_set_pixel(int16_t x, int16_t y, uint8_t on);
+static unsigned ink;
+void lcd_set_pixel(int16_t x, int16_t y, uint8_t on)
+{
+    (void)x; (void)y;
+    ink += on != 0;
+}
 
 static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
 {
@@ -364,12 +447,29 @@ int text_draw(const char *s, int16_t x, int16_t y_top)
 		return -1;
 	return e.width;
 }
+
+int main(void)
+{
+    int init = text_init(128, 32);
+    if (init) { printf("init=%d\n", init); return 1; }
+    int width = text_draw("SVF 한글", 0, 0);
+    printf("status=%u width=%d ink=%u\n", (unsigned)svf_status(&face), width, ink);
+    return width < 0;
+}
 ```
 
 `svf_is_jamo` is 1 for a face that composes Hangul and `svf_status` is 0 when nothing was dropped (section 4.3). A face
 that opens but is plain (`JSET_BAD`, `JSET_UNREAD`, `JMAP_UNREAD`) draws Latin and silently no Hangul; this check is
 how you find out on the bench, not in the field. A precomposed face has no jamo block, so check `svf_has(&face, 0xD55C)`
 for it instead.
+
+Build `text_cb.c` with `face.c` and run it. The host pixel routine counts lit-pixel calls; replace it with display writes on a device.
+
+```sh
+cc -std=c99 -Wall -Wextra -Ic/include text_cb.c face.c c/src/*.c -o text_cb
+./text_cb
+# status=0 width=64 ink=248
+```
 
 ### 5.3 C++ and Arduino: keep `face.c` a C file
 
@@ -378,7 +478,11 @@ internal linkage and a C++ name, so the linker would not find it from another fi
 files in the sketch folder as C. Declare it in the C++ side with C linkage (as `c/ports/arduino/arduino.ino` does):
 
 ```cpp
+#ifdef __AVR__
 #include <avr/pgmspace.h>
+#else
+#define PROGMEM
+#endif
 #include "svf.h"                          /* svf.h is wrapped in extern "C" for C++ itself */
 
 extern "C" {
@@ -388,6 +492,7 @@ extern const uint32_t neodg16g_len;
 
 static svf_face face;
 bool face_ok() { return svf_open_mapped(&face, neodg16g, neodg16g_len) == SVF_OK; }
+int main() { return face_ok() ? 0 : 1; }
 ```
 
 ### 5.4 Licences to ship
@@ -446,16 +551,77 @@ repository's faces, `mcu-strict`:
 ### 7.1 Fallback chains
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc < 2 || argc > 3) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    hangul_face = face;
+    size_t latin_len;
+    uint8_t *latin_bytes = slurp(argc == 3 ? argv[2] : argv[1], &latin_len);
+    if (!latin_bytes || svf_open_mapped(&latin_face, latin_bytes, latin_len) != SVF_OK) {
+        free(latin_bytes); free(bytes); return 1;
+    }
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+
 svf_face *faces[2] = { &latin_face, &hangul_face };
 svf_chain chain = {0};
 chain.faces = faces;
 chain.count = 2;
 chain.missing_advance = 8;      /* pixels to advance for a code point no face has (nothing is drawn) */
+svf_target target;
+svf_extent extent;
+const char *text = "SVF 한글";
+if (svf_target_init(&target, SVF_T_GRAY8, pix, sizeof pix, 64, 24, 64) != SVF_OK ||
+    svf_measure_utf8(&chain, text, strlen(text), &extent) != SVF_OK ||
+    svf_draw_utf8(&chain, text, strlen(text), 0, 20, &target, scratch, scratch_len) != SVF_OK)
+    return 1;
+printf("faces=%u width=%d scratch=%zu\n", (unsigned)chain.count, extent.width,
+       svf_chain_scratch_bytes(&chain));
+    free(latin_bytes); free(bytes);
+    return 0;
+}
 ```
 
 Each code point is drawn by the first face for which `svf_has` is true. Order matters: put the face whose style you want
 for shared characters (digits, punctuation) first. A `chain.faces` that is `NULL`, a `count` of 0, or a NULL entry makes
 the chain "without faces": calls using it return `SVF_E_ARG` and draw nothing.
+
+Run the complete chain example as `./chain svf/dos/NEODG16A.SVF svf/dos/PAPLG16.SVF`. Omitting the second argument opens the same file twice to demonstrate the call sequence.
 
 ### 7.2 Marks, advances, invalid UTF-8
 
@@ -508,10 +674,58 @@ How the kinds treat existing pixels is exact and documented above `svf_target` i
 ### 8.1 Colour text on a 32-bit surface
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
 svf_target t;
 svf_target_init(&t, SVF_T_XRGB8888, surface_pixels, (size_t)pitch * height, width, height, (uint16_t)pitch);
 t.fg888 = 0x00FFC000;      /* amber text */
 t.bg888 = 0x00000020;      /* the background colour the caller knows */
+printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
+    free(bytes);
+    return 0;
+}
 ```
 
 `stride` is a `uint16_t` number of bytes, so a 32-bit target is at most 16,383 pixels wide. The pixel's **memory order is
@@ -527,6 +741,28 @@ contains a picture (compiled and run against `NEODG16A.SVF`; it reads and writes
 `uint32_t`, B in the low byte, matching the memory order B, G, R, X):
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
 typedef struct { uint8_t *pix; int pitch; uint32_t fg; } Surf;      /* your surface */
 
 static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
@@ -541,12 +777,38 @@ static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
 	*px = out;
 }
 
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
 Surf s = { pix, 64 * 4, 0x00FFFFFF };
 svf_target t;
 svf_target_init(&t, SVF_T_COVERAGE_CB, NULL, 0, 64, 24, 0);    /* w, h still define the bounds and clip */
 t.plot = plot;
 t.ctx = &s;
 svf_draw_utf8(&chain, "가A", 4, 2, 16, &t, scratch, scratch_len);
+printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
+    free(bytes);
+    return 0;
+}
 ```
 
 `plot` must be set before drawing (else `SVF_E_ARG`). Where two cells overlap on one pixel (a mark over its base) the callback
@@ -585,6 +847,50 @@ composes only the syllables it lists: `svf_has` is 0 for the others and they are
 version 1 and 2 blocks cover all 11,172.
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
 if (svf_is_jamo(&face)) {
 	uint16_t pieces[3];
 	int n = svf_jamo_pieces(&face, 0xD55C /* 한 */, pieces);   /* 3: initial, medial, final */
@@ -593,6 +899,10 @@ if (svf_is_jamo(&face)) {
 }
 uint8_t cell[64];                                      /* >= svf_cell_bytes(&face) */
 svf_glyph(&face, 0xD55C, cell, sizeof cell);           /* the composed cell, MSB first, rows padded to bytes */
+printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
+    free(bytes);
+    return 0;
+}
 ```
 
 `svf_glyph` and `svf_compose` return the cell of one code point without a target: useful for caching glyphs in your own
@@ -611,8 +921,72 @@ Composing costs a few table lookups and a merge per syllable. For text that repe
 frame) give the chain a cache:
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
 static uint8_t syl[4096];                       /* slots of (8 + the largest cell bytes of the chain's faces) */
 svf_chain_cache(&chain, syl, sizeof syl);
+chain.scale_num = 3; chain.scale_den = 2;
+size_t need = svf_chain_scratch_bytes(&chain);
+if (need > sizeof scratch) return 1;
+const svf_target_kind kinds[] = {SVF_T_GRAY8, SVF_T_MONO_ROW, SVF_T_RGB565};
+const uint16_t strides[] = {64, 8, 128};
+for (unsigned k = 0; k < 3; ++k) {
+    svf_target t;
+    memset(pix, 0, sizeof pix);
+    if (svf_target_init(&t, kinds[k], pix, sizeof pix, 64, 24, strides[k]) != SVF_OK) return 1;
+    t.fg565 = 0xffff; t.bg565 = 0;
+    t.clip_x0 = 2; t.clip_x1 = 62;
+    if (svf_draw_utf8(&chain, "한글", strlen("한글"), 0, 20, &t, scratch, need) != SVF_OK) return 1;
+    unsigned nonzero = 0;
+    for (size_t j = 0; j < sizeof pix; ++j) nonzero += pix[j] != 0;
+    printf("kind=%d scratch=%zu nonzero=%u\n", (int)kinds[k], need, nonzero);
+}
+
+    free(bytes);
+    return 0;
+}
 ```
 
 Pixels are identical with or without it. It matters most for streamed faces: a cached syllable causes no reads at all.
@@ -658,6 +1032,22 @@ matter for choosing a recipe:
 The complete switch table with defaults per toolchain is in [c/README.md](../c/README.md), "Compile-time switches", and
 the sizes each configuration produces are in `c/cross/SIZES.md`.
 
+| Macro | Default and effect |
+|---|---|
+| `SVF_SMALL` | Undefined. Defining it reduces fast paths and disables JMAP/BIG defaults; `=0` still counts as defined. |
+| `SVF_JMAP` | 1 on desktop/DOS/WASM, 0 on AVR/MCU/SMALL. Version 3 mapping reader; affects `svf_face` size. |
+| `SVF_JMAP_LIST` | Follows `SVF_JMAP`. LIST reader; 1 without JMAP is a compile error. |
+| `SVF_JMAP_RECOG` | 1 on desktop/DOS/WASM, 0 on MCU/SMALL. Recognizes JMAP and uses its fallback even without the JMAP reader. |
+| `SVF_JSET_BIG` | 1 on desktop/DOS/WASM, 0 on MCU/SMALL. Widens class and set limits. |
+| `SVF_JSET_V1`, `SVF_JSET_V2` | V1 is 1; V2 is 0 on AVR and 1 elsewhere. At least one must be enabled. The CH582 port explicitly disables V2. |
+| `SVF_JSET_TRUSTED` | 0. Use 1 only for validated embedded faces; skips table-content validation. |
+| `SVF_JSET_POP4` | Normally 1, 0 on AVR/SMALL. Selects the V2 popcount implementation. |
+| `SVF_NO_STREAM`, `SVF_NO_SCALE` | Undefined; defining either removes that feature. |
+| `SVF_LAYOUTS` | All valid layouts by default; for example restrict to `SVF_LAYOUT_MCU_STRICT`. |
+| `SVF_TARGETS` | `0x3ff`. OR target bits: GRAY8 `0x001`, MONO_PAGE `0x002`, MONO_ROW `0x004`, RGB565 `0x008`, CB `0x010`, INDEXED8 `0x020`, RGB555 `0x040`, XRGB8888 `0x080`, RGB888 `0x100`, GRAY `0x200`. |
+| `SVF_RD8(p)` | Ordinary memory read; override with `pgm_read_byte(p)` for AVR PROGMEM. |
+| `SVF_MERGE_WORDS`, `SVF_GRAY8_LUT1`, `SVF_SCALE_FAST`, `SVF_WORD_STORE` | CPU/SMALL-dependent optimizations; see [svf.h](../c/include/svf.h) for exact defaults. Pixel semantics stay the same. |
+
 ## 13. Platforms
 
 One subsection per platform: the toolchain and versions the example was built with here, how to build it, what to take
@@ -692,12 +1082,9 @@ guide from a clean `git archive` of the repository.
 - **Pixel glue.** A 128 x 64 SSD1306 page buffer is 1,024 bytes; the target writes straight into the controller's layout,
   and `Wire` sends it 16 bytes at a time (its buffer is 32 bytes):
 
-  ```cpp
-  static uint8_t page[128 * 64 / 8];
-  svf_target_init(&t, SVF_T_MONO_PAGE, page, sizeof page, 128, 64, 128);      /* stride: bytes per page */
-  /* ... svf_draw_utf8(...) ..., then per 16 bytes: */
-  Wire.beginTransmission(0x3C); Wire.write(0x40); Wire.write(page + i, 16); Wire.endTransmission();
-  ```
+  Initialize the 1024-byte page buffer with `svf_target_init(&t, SVF_T_MONO_PAGE, page, sizeof page, 128, 64, 128)`.
+  After drawing, send `Wire.beginTransmission(0x3C)`, the control byte `Wire.write(0x40)`, 16 data bytes with
+  `Wire.write(page + i, 16)`, then `Wire.endTransmission()`. See the complete [arduino.ino](../c/ports/arduino/arduino.ino).
 
   Text kept in `PROGMEM` is copied to RAM before drawing (`strncpy_P(text, lines[i], sizeof text - 1)`): the library reads
   the string with plain loads.
@@ -761,35 +1148,12 @@ guide from a clean `git archive` of the repository.
   be copied as `VESALINE.TXT`. Open files with **`O_BINARY`** (DJGPP defaults to text mode).
 - **Streamed or mapped.** `svfdemo.c` streams both faces (`svf_open_stream`, a `read_file` callback with `lseek` + `read`,
   1 KB blocks in a block cache: PAPLG16 16 slots, PAPLG18 64 slots), so a 1 MB face does not need 1 MB of RAM. To map
-  instead, read the file whole and open it in place (compiled here with DJGPP 12.2.0):
+  instead, read the file whole and open it in place :
 
-  ```c
-  /* dos_mapped.c - DJGPP: a face file read whole into memory and opened mapped. */
-  #include <fcntl.h>
-  #include <stdlib.h>
-  #include <unistd.h>
-  #include "svf.h"
-
-  svf_err load_face(svf_face *f, const char *path)       /* path: a bare 8.3 name such as NEODG16A.SVF */
-  {
-  	int fd = open(path, O_RDONLY | O_BINARY);           /* O_BINARY: DJGPP opens in text mode by default */
-  	off_t len;
-  	uint8_t *bytes;
-
-  	if (fd < 0)
-  		return SVF_E_IO;
-  	len = lseek(fd, 0, SEEK_END);
-  	lseek(fd, 0, SEEK_SET);
-  	bytes = len > 0 ? malloc((size_t)len) : NULL;       /* keep it: the face reads it in place while it draws */
-  	if (!bytes || read(fd, bytes, (size_t)len) != len) {
-  		free(bytes);
-  		close(fd);
-  		return SVF_E_IO;
-  	}
-  	close(fd);
-  	return svf_open_mapped(f, bytes, (size_t)len);
-  }
-  ```
+  The complete stdio example in section 3 selects binary mode with `fopen(path, "rb")` and uses the same mapped
+  approach on DJGPP. An application using low-level `open` must pass `O_RDONLY | O_BINARY`. Keep ownership of the
+  file bytes in the application and free them after the face is no longer used. Section 4.2 is a complete streaming
+  example that retains the file handle.
 
 - **Pixel glue.** Mode 13h: draw into a 320 x 200 `GRAY8` buffer, set the palette to a grey ramp so a coverage byte is its
   own colour index (`outportb(0x3C8, 0)` then three `outportb(0x3C9, i >> 2)` per entry), set the mode with
@@ -821,84 +1185,22 @@ guide from a clean `git archive` of the repository.
   ```cmake
   # main/CMakeLists.txt
   file(GLOB SVF_SRCS svf/*.c)
-  idf_component_register(SRCS main.c esp_faces.c face.c ${SVF_SRCS} INCLUDE_DIRS svf REQUIRES esp_partition spiffs)
+  idf_component_register(SRCS main.c face.c ${SVF_SRCS} INCLUDE_DIRS svf REQUIRES esp_partition spiffs)
   target_compile_definitions(${COMPONENT_LIB} PRIVATE SVF_NO_SCALE SVF_TARGETS=0x08)   # one kind: RGB565 here
   ```
 
   Every source that includes `svf.h` must see the same `-D` switches (section 2): `target_compile_definitions` on the
   component does that. This component form was built here with ESP-IDF v5.5.6 for the ESP32-S3.
 - **The face.** A `const` array in flash needs nothing else. A face in its own data partition is memory-mapped with no RAM
-  copy; a face on SPIFFS is streamed through stdio (tables and block cache in RAM). Both compile with ESP-IDF v5.5.6
-  (`esp_faces.c`, built as a component here for the ESP32-S3):
+  copy; a face on SPIFFS is streamed through stdio (tables and block cache in RAM). Use the ESP-IDF partition and VFS APIs:
 
-  ```c
-  /* esp_faces.c - ESP-IDF: (a) a face in its own flash partition, memory-mapped (no RAM copy);
-   * (b) a face file on SPIFFS, streamed through stdio (tables + block cache in RAM). */
-  #include <stdio.h>
-  #include "esp_partition.h"
-  #include "esp_spiffs.h"
-  #include "svf.h"
+  For mapped flash, find the partition with `esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "font")`,
+  map it with `esp_partition_mmap(..., ESP_PARTITION_MMAP_DATA, &ptr, &handle)`, then pass the address and actual file
+  length to `svf_open_mapped`. After the face is no longer used, release it with `esp_partition_munmap(handle)`.
+  For SPIFFS, mount with `esp_vfs_spiffs_register` and use `/spiffs/FACE.SVF` with the complete stdio streaming example
+  in section 4.2. Retain tables, cache and FILE for the face’s lifetime. See the [ESP32 port](../c/ports/esp32/README.md)
+  for a complete display and component configuration.
 
-  /* (a) partitions.csv:  font, data, 0x40, , 256K   then: parttool.py write_partition --partition-name font --input FACE.SVF */
-  static esp_partition_mmap_handle_t font_map;
-
-  /* face_len: the face's size in bytes (store it when you write the partition); passing p->size also works: the 0xFF padding after the face opens with status 0 */
-  svf_err face_from_partition(svf_face *f, uint32_t face_len)
-  {
-  	const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "font");
-  	const void *ptr;
-  	if (!p || face_len > p->size)
-  		return SVF_E_IO;
-  	if (esp_partition_mmap(p, 0, p->size, ESP_PARTITION_MMAP_DATA, &ptr, &font_map) != ESP_OK)
-  		return SVF_E_IO;
-  	return svf_open_mapped(f, (const uint8_t *)ptr, face_len);   /* keep the mapping for the face's lifetime */
-  }
-
-  /* (b) streamed from SPIFFS: mount once at start-up, then open faces */
-  static long rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
-  {
-  	FILE *fp = ctx;
-  	return fseek(fp, (long)off, SEEK_SET) == 0 ? (long)fread(dst, 1, len, fp) : -1;
-  }
-  static uint8_t tables[16 * 1024], cache[8 * (512 + 8)];   /* one face at a time */
-
-  esp_err_t spiffs_mount(void)                                /* call once */
-  {
-  	esp_vfs_spiffs_conf_t conf = {.base_path = "/spiffs", .partition_label = NULL, .max_files = 2,
-  	                              .format_if_mount_failed = false};
-  	return esp_vfs_spiffs_register(&conf);
-  }
-
-  svf_err face_from_spiffs(svf_face *f, const char *path)
-  {
-  	FILE *fp = fopen(path, "rb");
-  	long len;
-  	size_t need;
-  	svf_err e;
-
-  	if (!fp)
-  		return SVF_E_IO;
-  	if (fseek(fp, 0, SEEK_END) != 0 || (len = ftell(fp)) <= 0) {
-  		fclose(fp);
-  		return SVF_E_IO;
-  	}
-  	need = svf_stream_tables_size(rd, fp, (uint32_t)len, &e);
-  	if (!need) {
-  		fclose(fp);
-  		return e;
-  	}
-  	if (need > sizeof tables) {
-  		fclose(fp);
-  		return SVF_E_NOMEM;
-  	}
-  	e = svf_open_stream(f, rd, fp, (uint32_t)len, tables, sizeof tables, cache, sizeof cache, 512);
-  	if (e != SVF_OK)
-  		fclose(fp);                                          /* on success keep fp open: the face reads it while drawing */
-  	return e;
-  }
-  ```
-
-  Keep the mapping for as long as the face is drawn; `esp_partition_munmap(font_map)` releases it.
 - **Pixel glue.** The port draws a colour band (320 x 24 `RGB565`, 15,360 bytes) and sends it with
   `spi_device_polling_transmit(spi_device_handle_t, spi_transaction_t *)` (ILI9341 on SPI2). The ILI9341 takes the high byte
   first, so set `t.flags = SVF_TF_RGB16_BIGENDIAN` (the older name `SVF_TF_565_BIGENDIAN` is the same bit); the QEMU RGB
@@ -1022,6 +1324,8 @@ guide from a clean `git archive` of the repository.
 
 ### 13.7 Web (WebAssembly, emscripten)
 
+The [web renderer guide](web-renderer-guide.md) provides complete HTML and Node examples and cleanup order.
+
 - **Toolchain.** emsdk tag **6.0.13** (emcc 6.0.13, installed by `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`, with
   node 24.19.0), `-O2`, `-std=c99 -Wall -Wextra -Werror`.
 - **Build** (the line `web/build.sh` runs, kept in `c/ports/web/emcc-flags.sh`; measured `svf.wasm` 39,808 bytes,
@@ -1084,10 +1388,6 @@ Points that routinely cause trouble:
 
 A typical wrapper is about thirty lines: an object holding the face, chain, scratch and syllable cache, with `width(str)`
 and `draw(str, x, y_top)` methods calling `svf_measure_utf8` and `svf_draw_utf8`.
-
-Note on ScummVM: the repository's ScummVM work currently uses its own SVF reader (`jamo_set.h`), which does not read the
-version 3 jamo block; replacing it with this library is tracked separately (see [c/README.md](../c/README.md), "Who uses
-it"). Everything in this section applies to that integration.
 
 ## 15. Testing your integration
 
