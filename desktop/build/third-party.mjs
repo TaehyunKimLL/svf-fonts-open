@@ -224,6 +224,7 @@ export async function generate(opts) {
   if (!eLic) problems.push('no Electron licence file (LICENSE or LICENSE.electron.txt) under --electron');
   out.push('Electron (MIT):', '', eLic || '(missing)', '', 'Chromium and its third-party notices: LICENSES.chromium.html in this package.');
   if (!fs.existsSync(path.join(electron, 'LICENSES.chromium.html'))) problems.push('no LICENSES.chromium.html under --electron');
+  let pythonTextShown = false;                         // Windows: CPython's LICENSE.txt covers several components; printed once
   const section = (title, filter) => {
     const list = [...components.values()].filter(filter);
     if (!list.length) return;
@@ -234,6 +235,9 @@ export async function generate(opts) {
       if (!text) problems.push('no licence text: ' + c.component);
       else if (['pillow', 'fonttools'].includes(e.wheel) && !e.licence_file) {
         text = '(the licence texts of this library are in the ' + e.wheel + ' wheel\'s LICENSE, printed once above under "Python packages in the sidecar")';
+      } else if (win && text && ctx.pythonLicence && text === ctx.pythonLicence) {
+        if (pythonTextShown) text = '(its licence text is CPython\'s LICENSE.txt, printed once above under "CPython and the standard library")';
+        pythonTextShown = true;
       }
       out.push('### ' + c.component + ' ' + c.version, 'licence: ' + e.licence, 'class: ' + e.class, 'source: ' + e.source_url);
       if (e.note) out.push('note: ' + e.note);

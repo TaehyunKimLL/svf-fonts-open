@@ -347,7 +347,9 @@ test('win32: dll and pyd attributed, python-origin text, unmatched dll fails clo
   const py = write(sidecar, '_internal/python312.dll', 'py-bytes');
   const vc = write(sidecar, '_internal/VCRUNTIME140.dll', 'vc-bytes');
   const im = write(sidecar, '_internal/PIL/_imaging.cp312-win_amd64.pyd', 'imaging');
+  const ffi = write(sidecar, '_internal/libffi-8.dll', 'ffi-bytes');
   const provenance = {
+    'libffi-8.dll': { source: 'C:/py/DLLs/libffi-8.dll', sha256: sha(fs.readFileSync(ffi)), origin: 'python', package: 'python3', version: '3.12.3' },
     'python312.dll': { source: 'C:/py/python312.dll', sha256: sha(fs.readFileSync(py)), origin: 'python', package: 'python3', version: '3.12.3' },
     'VCRUNTIME140.dll': { source: 'C:/py/VCRUNTIME140.dll', sha256: sha(fs.readFileSync(vc)), origin: 'python', package: 'python3', version: '3.12.3' },
     'PIL/_imaging.cp312-win_amd64.pyd': { source: 'C:/pysite/PIL/_imaging.pyd', sha256: sha(fs.readFileSync(im)), origin: 'wheel', package: 'pillow', version: '10.2.0' },
@@ -369,6 +371,8 @@ test('win32: dll and pyd attributed, python-origin text, unmatched dll fails clo
   const opts = { platform: 'win32', sidecar, provenance, electron, pysite, repo, meta, map, licencesDir: licences, pythonLicence: pyLicence };
   const r = await generate(opts);
   withoutProblems(r);
+  assert.equal(r.text.split('PSF licence and the bundled libraries').length - 1, 1, 'CPython LICENSE.txt printed once');
+  assert.ok(r.text.includes('libffi-8.dll'));
   for (const needle of ['PSF licence and the bundled libraries', 'python312.dll', 'Microsoft Visual C++ runtime', 'ffmpeg.dll', 'HPND licence text']) {
     assert.ok(r.text.includes(needle), needle);
   }
