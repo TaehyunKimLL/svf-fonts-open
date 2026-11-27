@@ -14,7 +14,9 @@ Up: [Recipes index](../recipes.md) · Related: [Outline fonts](outline-fonts.md)
 
 Every Korean font found in the font suitcases, font files and System files of each disk or CD, and the Latin bitmap fonts paired with them, measured from the files. Sizes are pixels (a Mac point is a pixel at 72 dpi).
 
-**Codes.** **J** jamo-composed `fbit` (조합형: pieces composed into syllables). **P** precomposed `bloc`/`bdat` strikes (완성형: one bitmap per glyph). **O** TrueType outlines with no strikes. **L** Latin-only bitmap (`NFNT` or `FONT`): no Hangul at that size. **X** archive the tools do not convert. **=** the same font resources as the previous version. **—** not on the disk or CD.
+Bytes columns are resource fork + data fork unless marked otherwise.
+
+**Codes.** **J** jamo-composed `fbit` (조합형: pieces composed into syllables). **P** precomposed `bloc`/`bdat` strikes (완성형: one bitmap per glyph). **O** TrueType outlines with no strikes. **L** Latin bitmap (`NFNT` or `FONT`); "L only" in the pixel table means no Hangul at that size. **X** archive the tools do not convert. **=** the same font resources as the previous version. **—** not on the disk or CD.
 
 <a id="classic-mac-overview"></a>
 
@@ -37,18 +39,18 @@ Every Korean font found in the font suitcases, font files and System files of ea
 
 ### Pixel sizes
 
-One cell answers "does family F exist at N px?". Hangul sizes are J or P; L alone means a Latin-only bitmap. Every 7.5.3–8.5 suitcase also carries L at each of its P sizes (not repeated below).
+One cell answers "does family F exist at N px?". Hangul sizes are J or P; "L only" means a Latin bitmap and no Hangul at that size. Every 7.5.3–8.5 suitcase also carries L at each of its P sizes (not repeated below).
 
 | px | Gotic | Munjo | Seoul | AppleGothic | AppleMyungjo | #PC명조, #신명조, #궁서체, #중고딕, #필기체, #공작체, #태그래픽 | #헤드라인A | 한강체 | KSSymbol, Hanja |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 9 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 =; 7.1.2 L only | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 =, 8.5 =; 7.1.2 L only | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
-| 10 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
-| 12 | 1.0 J and L | 1.0 J and L | 7.1.2 J (7.5.3 installer =); 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 =; 7.1.2 L | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 = | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 = | — | 8.5 P | KSSymbol12 7.1.2 (not read) |
-| 14 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
-| 16 | — | 1.0 J | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
-| 18 | — | 1.0 L only | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | — |
-| 20 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | — |
-| 24 | — | 1.0 J and L | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 = | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 = | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | 7.1.2 X (KSSymbol24Disk, Hanja24Disk, GHanja24Disk, GSymbol24Disk) |
+| 9 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 =; 7.1.2 L only | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap); 7.1.2 L only | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 10 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 12 | 1.0 J and L | 1.0 J and L | 7.1.2 J (7.5.3 installer =); 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 =; 7.1.2 L | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | KSSymbol12 7.1.2 (not read) |
+| 14 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 16 | — | 1.0 J | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | — | 8.5 P | — |
+| 18 | — | 1.0 L only | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | — |
+| 20 | — | — | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | — |
+| 24 | — | 1.0 J and L | 7.5.3 P, 7.6.1 =, 8.5 P (redrawn), 8.6 = | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.1.2 J and L; 7.5.3 P, 7.6.1 =, 8.5 P = (new cmap) | 7.5.3 P, 7.6.1 = | 7.5.3 P, 7.6.1 = | 8.5 P | 7.1.2 X (KSSymbol24Disk, Hanja24Disk, GHanja24Disk, GSymbol24Disk) |
 
 **How measured.** `fbit` fonts by the conversion commands below (`jamoset.py --check`, `macfbit3.py info`, `macfbit_svf.py build` and `verify`). TrueType fonts with fontTools: `maxp`, the `bloc` strikes (ppem, glyphs per strike) and the `bdat` image formats. Only formats 2, 5 and 6 (whole glyph bitmaps) occur, never the component formats 8 and 9, so every strike is precomposed. Syllable, jamo and Hanja counts come from the cmap: the Mac Korean (1,3) subtable decoded as KS X 1001 (as `macsfnt.py unicode` does), or the font's own Unicode subtable. `FOND`, `NFNT` and `FONT` are read from the resource forks; "=" compares the font resources (`FOND`, `NFNT`, `FONT`, `sfnt`, `fbit`, `fdef`) byte for byte.
 
