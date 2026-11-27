@@ -27,6 +27,7 @@ import localfx
 import preview
 import server
 from localfx import LocalBase, LocalRunBase, mode_of, walk_rel
+import oscompat
 import wincompat
 
 
@@ -382,7 +383,14 @@ class LocalRunTest(LocalRunBase):
             if len(calls) == 2:
                 raise OSError(errno.ENOSPC, "No space left on device")
             return real(src, dst, *a, **k)
-        with mock.patch("os.link", link):
+        real_link_at = getattr(oscompat, "link_at", None)
+
+        def link_at(dir_fd, src, dst):                       # Windows: the landing links relative to the held handle
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real_link_at(dir_fd, src, dst)
+        with mock.patch("os.link", link), mock.patch.object(oscompat, "link_at", link_at, create=True):
             jid = self.local_job()
             self.select(jid)
             job = self.run_to_done(jid)

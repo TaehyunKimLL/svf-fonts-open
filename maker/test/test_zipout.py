@@ -35,6 +35,7 @@ import toolrun
 import sources
 import zipout
 from sources import Sources
+import oscompat
 import wincompat
 
 # The hand-built job dir and job; `setUp` fills them so every test starts from the same state.
@@ -341,10 +342,16 @@ class WriteTreeTest(unittest.TestCase):
         def link(src, dst, *a, **k):
             seen.append(k.get("follow_symlinks"))
             return real_link(src, dst, *a, **k)
-        with mock.patch("os.chmod") as chmod, mock.patch("os.link", link):
+        real_link_at = getattr(oscompat, "link_at", None)
+
+        def link_at(dir_fd, src, dst):                       # Windows: relative to the held handle, no path at all
+            seen.append("relative")
+            return real_link_at(dir_fd, src, dst)
+        with mock.patch("os.chmod") as chmod, mock.patch("os.link", link), \
+                mock.patch.object(oscompat, "link_at", link_at, create=True):
             self.tree({"svf/dos/X.SVF": b"mine"}, {}, [("BUILD.md", b"b")])
         chmod.assert_not_called()
-        self.assertEqual(seen, [None] if wincompat.WIN else [False])   # Windows: CreateHardLink of our own temp file
+        self.assertEqual(seen, ["relative"] if wincompat.WIN else [False])
 
     def test_svf_renamed_away_between_two_landings_stops_the_write(self):
         if wincompat.WIN:
