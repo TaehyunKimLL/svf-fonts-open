@@ -32,6 +32,7 @@ import quality
 import toolrun
 import test_recog_score
 from sources import Sources
+import wincompat
 
 REPO = REPO_DIR
 SVF = os.path.join(REPO, "svf")
@@ -82,7 +83,7 @@ def read_bytes(path):
         return f.read()
 
 
-class StoreTest(unittest.TestCase):
+class StoreTest(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="svf-jobs-store-")
         self.store = jobs.Store(self.root)
@@ -152,7 +153,7 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.store.list(), [])
 
 
-class RunCommandTest(unittest.TestCase):
+class RunCommandTest(wincompat.SlashEqual, unittest.TestCase):
     def test_env_from_base_env(self):
         self.assertEqual(jobs.ENV, toolrun.base_env(os.environ))
 
@@ -235,7 +236,7 @@ class RunCommandTest(unittest.TestCase):
         self.assertIsNotNone(r)
 
 
-class WorkerTest(unittest.TestCase):
+class WorkerTest(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp(prefix="svf-jobs-worker-")
         self.store = jobs.Store(self.root)
@@ -437,7 +438,8 @@ class WorkerTest(unittest.TestCase):
 
     def test_job_timeout_fails_the_remaining_steps(self):
         j = self.job_with_steps(["pass", "pass"])
-        with mock.patch.object(jobs, "JOB_TIMEOUT", 0.0):
+        # already past: 0 s as before on POSIX; Windows -1 s (its coarse clock can read 0 s elapsed, which is not past 0)
+        with mock.patch.object(jobs, "JOB_TIMEOUT", -1.0 if os.name == "nt" else 0.0):
             self.worker.enqueue(j["id"])
             j = self.wait_for(j["id"])
         self.assertEqual([s["error"] for s in j["steps"]], ["job timeout", "job timeout"])
@@ -728,15 +730,14 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(step["state"], "done", step)
         self.assertTrue(step["identity"]["available"], step["identity"])
 
-    def scorer_stub(self, body):
-        """An executable /bin/sh interpreter stand-in: `body` runs with $out = the scorer's `-o` file."""
+    def scorer_stub(self, body, text):
+        """An executable interpreter stand-in: `body` runs under /bin/sh with $out = the scorer's `-o` file (Windows:
+        a Python stand-in writes @p text there, wincompat.interpreter_stub)."""
         d = tempfile.mkdtemp(prefix="svf-recog-py-")
         self.addCleanup(shutil.rmtree, d, True)
-        path = os.path.join(d, "py")
-        with open(path, "w") as f:
-            f.write("#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=\"$2\"; shift; done\n%s\n" % body)
-        os.chmod(path, 0o755)
-        return path
+        return wincompat.interpreter_stub(
+            os.path.join(d, "py"), "while [ $# -gt 0 ]; do [ \"$1\" = -o ] && out=\"$2\"; shift; done\n%s" % body,
+            "import sys\nopen(sys.argv[sys.argv.index('-o') + 1], 'w').write(%r + '\\n')" % text)
 
     def test_identity_survives_a_vanished_interpreter(self):
         """The interpreter probed at start-up may be gone at run time: scoring is optional, the job stays done."""
@@ -750,9 +751,9 @@ class WorkerTest(unittest.TestCase):
         self.assertNotIn(os.path.dirname(gone), json.dumps(step["identity"]))
 
     def test_identity_json_with_nan_or_a_non_object_is_unreadable(self):
-        for body in ('echo \'{"face": {"score": NaN}}\' > "$out"', 'echo \'[1, 2]\' > "$out"',
-                     'echo \'{"face": [1]}\' > "$out"', 'echo \'{"face": {"x": Infinity}}\' > "$out"'):
-            j = self.run_identity({"recog": True, "recog_python": self.scorer_stub(body)})
+        for text in ('{"face": {"score": NaN}}', '[1, 2]', '{"face": [1]}', '{"face": {"x": Infinity}}'):
+            body = "echo '%s' > \"$out\"" % text
+            j = self.run_identity({"recog": True, "recog_python": self.scorer_stub(body, text)})
             self.assertEqual(j["state"], "done", (body, j.get("error")))
             ident = j["steps"][0]["identity"]
             self.assertFalse(ident["available"], body)
@@ -764,9 +765,14 @@ class WorkerTest(unittest.TestCase):
         wrapper = os.path.join(tempfile.mkdtemp(prefix="svf-recog-py-"), "py")
         self.addCleanup(shutil.rmtree, os.path.dirname(wrapper), True)
         mark = wrapper + ".used"
-        with open(wrapper, "w") as f:
-            f.write("#!/bin/sh\ntouch %s\nexec %s \"$@\"\n" % (shlex.quote(mark), shlex.quote(sys.executable)))
-        os.chmod(wrapper, 0o755)
+        if wincompat.WIN:                                     # a batch file: mark, then the real interpreter
+            with open(wrapper + ".bat", "w") as f:
+                f.write('@type nul > "%s"\n@"%s" %%*\n' % (mark, sys.executable))
+            wrapper += ".bat"
+        else:
+            with open(wrapper, "w") as f:
+                f.write("#!/bin/sh\ntouch %s\nexec %s \"$@\"\n" % (shlex.quote(mark), shlex.quote(sys.executable)))
+            os.chmod(wrapper, 0o755)
         real = jobs.toolrun.recog_argv
         with mock.patch.object(jobs.toolrun, "recog_argv",
                                side_effect=lambda c, r: real(dict(c, recog_python=wrapper), r)):

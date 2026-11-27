@@ -834,6 +834,8 @@ def _shape_errors(fid, font, eff, per, batch, fonts, sources):
     dest = eff.get("dest")
     if "dest" in per and (not isinstance(dest, str) or not naming.DEST_RE.match(dest)):
         errors.append("%s: dest %s is not dos, jamo-extra, games/<name> or new/<name>" % (fid, dest))
+    elif "dest" in per and naming.windows_reserved(dest):
+        errors.append("%s: dest %s is a device name on Windows" % (fid, dest))
     kinds = eff.get("kinds")
     if "kinds" in per and (not isinstance(kinds, list) or not kinds
                            or any(kind not in ("precomposed", "jamo") for kind in kinds)):
@@ -876,10 +878,14 @@ def _shape_errors(fid, font, eff, per, batch, fonts, sources):
     for name in sorted((eff.get("names") or {}).values()):
         if not isinstance(name, str) or not naming.NAME_RE.match(name):
             errors.append("%s: name %s is not [A-Z0-9]{1,8}.SVF" % (fid, name))
+        elif naming.windows_reserved(name):
+            errors.append("%s: name %s is a device name on Windows" % (fid, name))
     for key in ("licence_name", "note_name"):
         value = eff.get(key) or ""
         if value and (not isinstance(value, str) or not naming.TXT_RE.match(value)):
             errors.append("%s: %s %s is not [A-Z0-9]{1,8}.TXT" % (fid, key, value))
+        elif value and naming.windows_reserved(value):
+            errors.append("%s: %s %s is a device name on Windows" % (fid, key, value))
     licence = eff.get("licence")
     if licence is not None:
         if not isinstance(licence, dict) or licence.get("kind") not in ("upload", "repo", "text"):
@@ -928,6 +934,8 @@ def _batch_shape_errors(batch, fonts, sources):
     dest = batch.get("dest")
     if "dest" in batch and (not isinstance(dest, str) or not naming.DEST_RE.match(dest)):
         errors.append("batch: dest %s is not dos, jamo-extra, games/<name> or new/<name>" % dest)
+    elif "dest" in batch and naming.windows_reserved(dest):
+        errors.append("batch: dest %s is a device name on Windows" % dest)
     kinds = batch.get("kinds")
     if "kinds" in batch and (not isinstance(kinds, list) or not kinds
                              or any(kind not in ("precomposed", "jamo") for kind in kinds)):
@@ -1449,7 +1457,7 @@ def write_range_files(work_dir):
         lines = ["".join(chr(cp) for cp in points[i:i + RANGE_CHARS_PER_LINE])
                  for i in range(0, len(points), RANGE_CHARS_PER_LINE)]
         path = os.path.join(work_dir, "range-%s.txt" % name)
-        with open(path, "w", encoding="utf-8") as f:
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write("\n".join(lines) + "\n")
         out[name] = path
     return out
@@ -1535,7 +1543,7 @@ def _dy_argv(dy, kind, commands, src, out, step_dir, tools_dir):
     for key, value in dy.items():
         table[_dy_key(key)] = value
     path = os.path.join(step_dir, "dy.json")
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump({"0x%X" % cp: table[cp] for cp in sorted(table)}, f)
         f.write("\n")
     return toolrun.tool("svfdy", tools_dir) + [out if commands else src, out, "--json", path]
@@ -1585,7 +1593,7 @@ def _export_licence(fid, font, eff, sources, work_root, tools_dir, fonts=(), exp
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, os.path.basename(name))
         if path not in staged:
-            with open(path, "w", encoding="utf-8") as f:
+            with open(path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text)
             staged.append(path)
         return path

@@ -26,6 +26,7 @@ import routes
 import settings
 import test_hwpfont as fx
 from sources import Sources
+import wincompat
 
 
 def ks_raw(px=24):
@@ -55,7 +56,7 @@ FILES = {
 }
 
 
-class Tree(unittest.TestCase):
+class Tree(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self.root = os.path.realpath(tempfile.mkdtemp(prefix="svf-hwp-"))
         self.addCleanup(shutil.rmtree, self.root, True)
@@ -136,7 +137,7 @@ class RoutesTest(Tree):
         self.assertEqual(argv[0][3:], ["/s/X", "--layout", "hwp1", "--face", "2", "--check", "-o", "/w/O.SVF",
                                        "--eng", "/e/ENG", "--embolden"])
         argv = rs[1].commands(font, 16, 1, None, ("11172", None), dict(self.PATHS, eng=None), [["--ascent", "13"]])
-        self.assertEqual([a[2].rsplit("/", 1)[1] for a in argv], ["hwpfont.py", "mkfont.py", "svf2to3.py"])
+        self.assertEqual([os.path.basename(a[2]) for a in argv], ["hwpfont.py", "mkfont.py", "svf2to3.py"])
         self.assertEqual(argv[0][3:], ["bdf", "/s/X", "--face", "2", "--syllables", "all", "-o", "/w/hwp.bdf"])
         self.assertEqual(argv[1][3:], ["/w/hwp.bdf", "/w/mkfont.tmp", "--size", "16", "--bpp", "1", "--unicode", "hangul",
                                        "--ascent", "13"])

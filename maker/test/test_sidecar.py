@@ -26,6 +26,9 @@ import sidecar
 SIDECAR = os.path.join(MAKER_DIR, "sidecar.py")
 SMALL = os.path.join(REPO_DIR, "ttf", "neodgm", "neodgm.ttf")
 ENV = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8"}
+if os.name == "nt":                     # what a tool gets there (toolrun.base_env): SYSTEMROOT, the temp folders, UTF-8
+    import toolrun
+    ENV = toolrun.base_env(os.environ)
 
 
 def run(*args, cwd=None, timeout=120):

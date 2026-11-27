@@ -26,8 +26,10 @@ from unittest import mock
 import fixtures
 import jobs
 import localfx
+import oscompat
 import server
 import settings
+import wincompat
 
 
 class Hang:
@@ -387,11 +389,21 @@ def entries_have(path_pred):
     return lambda entries: any(path_pred(e) for e in entries)
 
 
+def _mkdir_through_os(test):
+    """These tests fail or hang `os.mkdir`; Windows makes a scratch folder with CreateDirectoryW (an owner-only ACL,
+    `oscompat.mkdir_private`), so there it is routed through `os.mkdir` for them (POSIX already is)."""
+    if oscompat.WINDOWS:
+        patcher = mock.patch.object(oscompat, "mkdir_private", lambda path: os.mkdir(path, 0o700))
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 class SweepBoundsTest(localfx.LocalRunBase):
     """Task 2: one deadline through rename, pending records, orphans and retries (H3b)."""
 
     def setUp(self):
         super().setUp()
+        _mkdir_through_os(self)
         self.store = self.srv.store
 
     def hang(self, target, name, real, when):
@@ -930,7 +942,7 @@ class StartupBoundsTest(localfx.LocalRunBase):
         self.assertLessEqual(max(calls), 0.8)
         self.assertLessEqual(sum(calls), 1.0 + 0.05, calls)
         self.assertLessEqual(len(calls), 2, calls)
-        self.assertLess(elapsed, 2.5)                     # only a guard: it includes the server's construction
+        self.assertLess(elapsed, 2.5 if not wincompat.WIN else 3.5)   # only a guard: it includes the server's construction (slower on a Windows runner)
         self.assertNotIn(jid, box[0].cleanup_pending)
 
     def test_startup_returns_by_the_deadline_although_listdir_hangs(self):
@@ -1044,7 +1056,8 @@ class StartupBoundsTest(localfx.LocalRunBase):
             t.join(4)
             self.assertFalse(t.is_alive())
             elapsed = time.monotonic() - t0
-        self.assertLess(elapsed, 2.6)     # a budget guard: deadline 1.0 + one floor + the flush floor + load slack (the batching itself is pinned by test_one_batched_record_per_sweep_trash_call)
+        # Windows runners start a server slower (the import probes of caps alone take a few hundred ms): one more second
+        self.assertLess(elapsed, 2.6 if not wincompat.WIN else 4.0)     # a budget guard: deadline 1.0 + one floor + the flush floor + load slack (the batching itself is pinned by test_one_batched_record_per_sweep_trash_call)
         fsync.release.set()
         poll_pending(self, self.data, lambda es: all(any(e["path"] == p for e in es) for p in tombs), timeout=5)
 
@@ -1054,6 +1067,7 @@ class LockedIoBoundsTest(localfx.LocalRunBase):
 
     def setUp(self):
         super().setUp()
+        _mkdir_through_os(self)
         self.store = self.srv.store
         self.healthy = os.path.join(self.tmp, "healthy")
         os.mkdir(self.healthy)

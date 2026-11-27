@@ -8,6 +8,11 @@
 // usr/lib must match a map entry (unattributed: <path>); a sidecar library must match its build-time provenance
 // (sha256); a GPL entry is forbidden; an LGPL entry needs a distribution record; svf/ may hold only OFL-listed faces.
 // Exit 0 and the file, or exit 1 with one line per problem on stderr.
+//
+// Windows (t_9b8f56f0): --platform win32 [--python-licence FILE]; the shared objects are *.dll and *.pyd, there is no
+// usr/lib (--usrlib is not used), the map defaults to third-party-map-win.json, and an entry "from": "python" (a DLL or
+// extension module of the python.org build PyInstaller collected) takes its text from that interpreter's LICENSE.txt
+// (which carries the licences of the libraries the Windows build bundles: OpenSSL, libffi, bzip2, xz, zlib, expat ...).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,13 +26,13 @@ function* walk(dir, base = dir) {
   if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return;   // generate() reports a missing root
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) { if (e.name !== 'node_modules') yield* walk(p, base); } else if (e.isFile() || e.isSymbolicLink()) yield [p, path.relative(base, p)];
+    if (e.isDirectory()) { if (e.name !== 'node_modules') yield* walk(p, base); } else if (e.isFile() || e.isSymbolicLink()) yield [p, path.relative(base, p).split(path.sep).join('/')];
   }
 }
 
-function globRe(glob) {
+function globRe(glob, flags) {
   const esc = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
-  return new RegExp('^' + esc + '$');
+  return new RegExp('^' + esc + '$', flags);
 }
 const readIf = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch (e) { return null; } };
 
@@ -46,6 +51,7 @@ function licenceText(entry, ctx, version) {
     const info = ctx.distInfo(dist);
     if (info) return info;
   }
+  if (entry.from === 'python' && ctx.pythonLicence) return ctx.pythonLicence;
   if (entry.from === 'dpkg' && ctx.pkgOf) {
     const pkg = ctx.pkgOf(entry);
     const t = pkg && ctx.readCopyright(pkg);
@@ -93,6 +99,8 @@ function parseLicences(file) {
 
 export async function generate(opts) {
   const { sidecar, electron, usrlib, pysite, repo, meta, sources, toolsetRecord } = opts;
+  const win = opts.platform === 'win32';
+  const SHARED = win ? /\.(dll|pyd)$/i : SO;
   const map = opts.map;
   const provenance = opts.provenance || {};
   const problems = [];
@@ -102,8 +110,9 @@ export async function generate(opts) {
     readCopyright: opts.readCopyright || defaultCopyright,
     distInfo: (dist) => distInfoText(pysite, dist),
     pkgOf: null,
+    pythonLicence: opts.pythonLicence ? readIf(opts.pythonLicence) : null,
   };
-  const matchEntry = (base) => map.find((m) => !m.runtime && !m.always && globRe(m.match).test(base));
+  const matchEntry = (base) => map.find((m) => !m.runtime && !m.always && globRe(m.match, win ? 'i' : undefined).test(base));   // Windows names are case-blind
 
   // ---- attribute every shared object -------------------------------------------------------------------------
   const attribute = (file, shown, where, prov) => {
@@ -114,7 +123,10 @@ export async function generate(opts) {
     if (prov) {
       const p = provenance[shown.replace(/^_internal\//, '')];
       if (!p || p.sha256 !== sha256(file)) { problems.push('provenance mismatch: ' + shown); }
-      if (p) { pkg = p.package; if (!version && entry.from === 'dpkg') version = p.version; }
+      // Windows: the entry must say where the file came from as the build recorded it, so a catch-all ("*.pyd" as
+      // CPython) never claims a file a wheel or a download brought (t_9b8f56f0)
+      else if (win && entry.from && p.origin !== entry.from) problems.push('origin mismatch: ' + shown + ' (map ' + entry.from + ', built from ' + p.origin + ')');
+      if (p) { pkg = p.package; if (!version && (entry.from === 'dpkg' || entry.from === 'python')) version = p.version; }
     }
     if (!version && /^(Pillow|fontTools)$/.test(entry.component)) version = distVersion(pysite, entry.wheel) || 'unknown';
     if (!version && (entry.from === 'wheel' || entry.wheel)) {
@@ -133,13 +145,13 @@ export async function generate(opts) {
   };
   // a missing input must not read as "no libraries": every walked root has to be a directory
   const isDir = (d) => { try { return fs.statSync(d).isDirectory(); } catch (e) { return false; } };
-  const roots = [['sidecar', path.join(sidecar || '', '_internal')], ['electron', electron], ['usrlib', usrlib]];
+  const roots = [['sidecar', path.join(sidecar || '', '_internal')], ['electron', electron], ...(win ? [] : [['usrlib', usrlib]])];
   const lib64 = usrlib && path.basename(usrlib) === 'lib' ? path.join(path.dirname(usrlib), 'lib64') : null;   // the extraction's usr/lib64
   for (const [name, dir] of roots) if (!dir || !isDir(dir)) problems.push('missing input directory (--' + name + '): ' + dir);
-  for (const [file, rel] of walk(path.join(sidecar, '_internal'))) if (SO.test(path.basename(file))) attribute(file, '_internal/' + rel, 'sidecar', true);
+  for (const [file, rel] of walk(path.join(sidecar, '_internal'))) if (SHARED.test(path.basename(file))) attribute(file, '_internal/' + rel, 'sidecar', true);
   for (const [file, rel] of walk(electron)) {
     if (rel.startsWith('resources/') || rel.startsWith('usr/') || rel.startsWith('node_modules/')) continue;
-    if (SO.test(path.basename(file))) attribute(file, rel, 'electron', false);
+    if (SHARED.test(path.basename(file))) attribute(file, rel, 'electron', false);
   }
   for (const [file, rel] of walk(usrlib)) if (SO.test(path.basename(file))) attribute(file, 'usr/lib/' + rel, 'usrlib', false);
   if (lib64) for (const [file, rel] of walk(lib64)) if (SO.test(path.basename(file))) attribute(file, 'usr/lib64/' + rel, 'usrlib', false);
@@ -158,7 +170,7 @@ export async function generate(opts) {
   const metadataAllow = new Set(['jamo-extra/FACES.TSV']);
   for (const [, rel] of walk(svf)) {
     const posix = rel.split(path.sep).join('/');
-    const ok = (posix.endsWith('.SVF') && rows.some((r) => r.re.test(posix))) || (posix.endsWith('.TXT') && named.has(posix)) || metadataAllow.has(posix);
+    const ok = (posix.endsWith('.SVF') && rows.some((r) => r.re.test(posix))) || (/\.txt$/i.test(posix) && named.has(posix)) || metadataAllow.has(posix);
     if (!ok) problems.push('not OFL-listed: svf/' + posix);
   }
 
@@ -212,6 +224,7 @@ export async function generate(opts) {
   if (!eLic) problems.push('no Electron licence file (LICENSE or LICENSE.electron.txt) under --electron');
   out.push('Electron (MIT):', '', eLic || '(missing)', '', 'Chromium and its third-party notices: LICENSES.chromium.html in this package.');
   if (!fs.existsSync(path.join(electron, 'LICENSES.chromium.html'))) problems.push('no LICENSES.chromium.html under --electron');
+  let pythonTextShown = false;                         // Windows: CPython's LICENSE.txt covers several components; printed once
   const section = (title, filter) => {
     const list = [...components.values()].filter(filter);
     if (!list.length) return;
@@ -222,6 +235,9 @@ export async function generate(opts) {
       if (!text) problems.push('no licence text: ' + c.component);
       else if (['pillow', 'fonttools'].includes(e.wheel) && !e.licence_file) {
         text = '(the licence texts of this library are in the ' + e.wheel + ' wheel\'s LICENSE, printed once above under "Python packages in the sidecar")';
+      } else if (win && text && ctx.pythonLicence && text === ctx.pythonLicence) {
+        if (pythonTextShown) text = '(its licence text is CPython\'s LICENSE.txt, printed once above under "CPython and the standard library")';
+        pythonTextShown = true;
       }
       out.push('### ' + c.component + ' ' + c.version, 'licence: ' + e.licence, 'class: ' + e.class, 'source: ' + e.source_url);
       if (e.note) out.push('note: ' + e.note);
@@ -261,13 +277,14 @@ export async function generate(opts) {
 async function main(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i += 2) args[argv[i].replace(/^--/, '')] = argv[i + 1];
-  const need = ['sidecar', 'provenance', 'electron', 'usrlib', 'pysite', 'repo', 'meta', 'out'];
+  const win = args.platform === 'win32';
+  const need = ['sidecar', 'provenance', 'electron', ...(win ? [] : ['usrlib']), 'pysite', 'repo', 'meta', 'out'];
   const missing = need.filter((k) => !args[k]);
   if (missing.length) { process.stderr.write('third-party.mjs: missing --' + missing.join(' --') + '\n'); return 2; }
-  const map = JSON.parse(fs.readFileSync(args.map || path.join(HERE, 'third-party-map.json'), 'utf8'));
+  const map = JSON.parse(fs.readFileSync(args.map || path.join(HERE, win ? 'third-party-map-win.json' : 'third-party-map.json'), 'utf8'));
   const provenance = JSON.parse(fs.readFileSync(args.provenance, 'utf8'));
   const r = await generate({ sidecar: args.sidecar, provenance, electron: args.electron, usrlib: args.usrlib, pysite: args.pysite, repo: args.repo,
-    meta: args.meta, map, sources: args.sources, licencesDir: args.licences,
+    meta: args.meta, map, sources: args.sources, licencesDir: args.licences, platform: args.platform, pythonLicence: args['python-licence'],
     toolsetRecord: args['toolset-record'] ? JSON.parse(fs.readFileSync(args['toolset-record'], 'utf8')) : undefined });
   if (r.problems.length) { process.stderr.write(r.problems.join('\n') + '\n'); return 1; }
   fs.writeFileSync(args.out, r.text);

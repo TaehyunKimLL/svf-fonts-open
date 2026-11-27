@@ -262,13 +262,116 @@ The development launch `node_modules/.bin/electron --no-sandbox .` from `desktop
 
 ### 6.5. Windows and macOS (status on 2026-11-27)
 
-**Windows:** branch `windows-build` has an x64 NSIS installer and portable executable build.
-[GitHub Actions run 45350084767](https://github.com/TaehyunKimLL/svf-fonts-open/actions/runs/45350084767)
-succeeded on 2026-11-24 at commit `edd8a6d`. As of 2026-11-27 it has not merged into main.
-The branch's `desktop/package.json` selects `nsis` and `portable`; `.github/workflows/windows.yml` runs Windows
-suites, frozen-sidecar build, packaging, e2e and smoke checks. This success does not establish Windows support in
-current main. Earlier porting work concerning main's POSIX locks, process groups and file-link calls is retained
-in the historical records below.
+**Windows** (t_9b8f56f0): the x64 NSIS installer and portable executable are built and tested on GitHub Actions (`windows-latest`, workflow `.github/workflows/windows.yml`), never on a
+desktop machine. One run does, in this order: the WASM preview module on an Ubuntu runner (emsdk 6.0.13, the pin of
+`c/cross/install-toolchains.sh`; `maker/build-wasm.sh` is bash and emcc is not set up on the Windows runner), handed to the
+Windows job as an artifact; on Windows the maker suite and the tools suite through `desktop/build/run-suite.py` (it prints
+`SUITE ... ran= skipped=` and one `SKIP <n> <reason>` line per skip reason), the desktop unit tests, the frozen sidecar
+(`desktop/build/build-sidecar-win.py`, frozen test included with `SVF_MAKER_FROZEN_REQUIRED=1`), `THIRD-PARTY.txt`
+(`third-party.mjs --platform win32`, fail closed), the desktop e2e (development pass, then the packaged sidecar), the
+installer and the portable `.exe` (electron-builder `--win nsis portable`, unsigned), and the smoke of the unpacked app, the
+installed app and the portable app (`desktop/build/smoke-win.py`). The two `.exe` files and `THIRD-PARTY.txt` are the
+run's artifact `svf-maker-windows`. pip and npm downloads are cached.
+
+#### Build it yourself (Windows)
+
+Not tried outside the runner; the steps are the workflow's. A git checkout (`.gitattributes` keeps every file byte for byte:
+no CRLF conversion), Python 3.12 (3.12.3 used) on `PATH` as `python`, node 22 with npm, and the WASM module built
+elsewhere (Linux or WSL: `bash maker/build-wasm.sh`) and copied to `maker/static/wasm/`:
+
+    # in the checkout root, PowerShell
+    python -m pip install --require-hashes "--only-binary=:all:" --no-deps -r desktop/build/requirements-win.lock
+    cd desktop; npm ci; cd ..
+    python desktop/build/fetch-fribidi-win.py $env:USERPROFILE\work\tmp\fribidi   # and put that folder on PATH (below)
+    $env:PATH = "$env:USERPROFILE\work\tmp\fribidi;$env:PATH"
+    python desktop/build/build-sidecar-win.py          # wheels, icon.ico, FriBiDi, PyInstaller, provenance, staged repo, selfcheck, frozen test
+    $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
+    node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
+      --provenance desktop/build/out/sidecar-provenance.json --electron desktop/node_modules/electron/dist `
+      --pysite "$env:USERPROFILE\work\tmp\svf-desktop-build\pysite" --repo desktop/build/out/repo --meta . `
+      --python-licence $lic --out desktop/build/out/THIRD-PARTY.txt
+    cd desktop; npx electron-builder --win nsis portable --x64 --publish never; cd ..
+    python desktop/build/smoke-win.py desktop/dist
+
+**FriBiDi.** Pillow's Windows wheel carries libraqm and HarfBuzz but loads FriBiDi at run time, and does not ship it;
+without it Pillow falls back to its basic layout, and a face made on Windows is not the bytes the same face made on Linux
+is (measured: GowunBatang-Bold 17 px 2 bpp gained U+00AD and drew U+2116 differently; a combining mark kept its
+advance). `desktop/build/fetch-fribidi-win.py` downloads conda-forge's MSVC build of FriBiDi 1.0.10 (archive and DLL
+sha256-pinned) and the build bundles `fribidi-0.dll` in the sidecar's `_internal/` (the spec refuses to build without
+it); a development run or the test suites on Windows need that folder on `PATH`. FriBiDi is LGPL-2.1-or-later: a
+separate, replaceable DLL, listed with a distribution record, and under the D8 release gate like `ffmpeg.dll`.
+
+`desktop/build/requirements-win.lock` pins the win_amd64 cp312 wheels with hashes (the same Pillow 10.2.0, fontTools
+4.66.1 and PyInstaller 6.22.3 as Linux, plus PyInstaller's Windows-only `pefile` and `pywin32-ctypes`). The spec
+(`maker/sidecar.spec`) is the Linux one; on Windows it adds UTF-8 mode (`X utf8_mode=1`: a frozen program ignores
+`PYTHONUTF8`) and the icon. `desktop/package.json` `build.win`: targets `nsis` (one-click, per user, no elevation,
+Start-menu shortcut "SVF maker", installs to `%LOCALAPPDATA%\Programs\svf-maker`) and `portable`; icon
+`build/out/icon.ico`, made from `build/icon.png` by `make-icon.py --ico` (not committed).
+
+Notices: `desktop/build/third-party-map-win.json` attributes every `*.dll` and `*.pyd` of the sidecar's `_internal/` and of
+Electron's folder (case-blind). The DLLs and extension modules of the python.org interpreter (CPython, OpenSSL, libffi, ...)
+take their text from that interpreter's `LICENSE.txt` (`--python-licence`), which carries the licences of the libraries the
+Windows build bundles. Microsoft binaries that come with the interpreter or with Electron (`VCRUNTIME140*.dll`,
+`d3dcompiler_47.dll`, `dxil.dll`) are class `ms-redist`: redistributed unmodified under Microsoft's terms
+(`desktop/build/licences/ms-distributable.txt` says so; it is not their licence text), and so is the app-local Universal
+CRT the python.org build carries (`ucrtbase.dll`, `api-ms-win-*.dll`). ANGLE (`libEGL.dll`, `libGLESv2.dll`)
+and the DirectX Shader Compiler point at `LICENSES.chromium.html`. The copyleft parts are the same as on Linux minus the
+AppImage runtime, plus FriBiDi: `ffmpeg.dll` and `fribidi-0.dll` (LGPL-2.1; the D8 release gate applies to both the same
+way) and the PyInstaller bootloader.
+
+#### What differs on Windows (the server)
+
+`maker/oscompat.py` holds every primitive that POSIX and Windows spell differently; on POSIX each function is exactly the
+call the maker made before, so Linux behaviour is unchanged. One reader change applies everywhere: a BDF or HBF saved
+with CRLF line ends reads as its LF form (before, its glyphs were dropped on Linux), so a file parses the same on every
+platform.
+
+| What | POSIX | Windows |
+|---|---|---|
+| A tool's process tree | new session; `killpg` SIGTERM, then SIGKILL after 5 s | started suspended in a new process group with no console, put into its own Job Object (`KILL_ON_JOB_CLOSE`), then resumed; a stop terminates the job at once (no grace period: no SIGTERM exists for it). A job that cannot be made or assigned refuses the tool. The sidecar itself runs in a job of its own (`contain_children`), so a tool still suspended between its creation and its assignment dies with a killed sidecar too. |
+| A dead sidecar's tools | `PR_SET_PDEATHSIG` + the next start's reap | the kernel kills them when the sidecar's job handles close; the reap kills a recorded pid and every process below it (snapshot parent links, creation time checked) |
+| Stopping the sidecar | the shell sends SIGTERM to its group | the shell closes the sidecar's stdin (`serve --stop-on-eof`): the same clean stop as SIGTERM; after 45 s it kills it (TerminateProcess) |
+| The parent watch (`--exit-with-parent`) | `getppid()` polled | the parent's process handle, opened at start and waited on |
+| Data-root and registry locks | `flock` | `msvcrt.locking` of one byte far past the end of the lock file (the file stays readable) |
+| A replace or read racing another thread | atomic, never fails | a sharing violation is retried for up to 2 s (`retry_sharing`) |
+| Links | `S_ISLNK` | a symlink **or any name-surrogate reparse point** (junction, mount point); `lstat` reports a junction as a folder, so it is checked by its reparse tag |
+| No-follow open | `O_NOFOLLOW` | opened with `FILE_FLAG_OPEN_REPARSE_POINT` (the open never follows or contacts a link: a dangling link makes a create fail) and refused when the handle's reparse tag is a name surrogate; a deduplicated or cloud placeholder file is opened again normally and must be the same file (volume serial + file index) |
+| The output tree | directory descriptors and `*at()` calls | the output folder and every folder written through are held open without delete sharing and without following a reparse point; each folder below the output folder is made and held relative to its parent's handle (`hold_dir_at`, no path walked), and each file is made and read relative to its folder's handle (`NtCreateFile`, `OBJ_DONT_REPARSE`). None of them, nor a folder above them, can be renamed or removed while the write runs; a held folder turned into a junction in place (possible only while it is empty) is refused before the landing. The path -> identity checks before and after each landing are the same as on POSIX |
+| New-name claim | `link()`, else `O_EXCL` + replace + read-back | the same (`CreateHardLink`; FAT/exFAT and shares without hard links take the second way) |
+| Output names | as the naming rules say | also refused: a device name (`CON`, `NUL.TXT`, `COM1`, ...), a trailing dot or space, the characters `<` `>` `:` `"` `/` `\` `?` `*` and the vertical bar (`TreeRefused`; an upload archive member too). A face, licence or note name or a destination that is a device name (`CON.SVF`, `new/con`) is a settings error; suggestions add a `0` (`CON0.TXT`) |
+| Archive members | an exact duplicate name stops the unpack | names that differ only in case are duplicates, and each member file is created new only, so an 8.3 alias of an earlier member (`LONGNA~1.TTF`) stops as a duplicate too and is never written over |
+| A local job's tool temp folder | `TMPDIR` | `TMPDIR`, `TEMP` and `TMP` (native code reads only the last two) |
+| Picked paths | absolute | absolute with a drive or a UNC share; a device path (`\\.\`), an extended-length path (`\\?\`), a drive root and an alternate data stream (`name:stream`) are refused; a relative path inside a source may hold no drive and no colon |
+| `SVF_MAKER_ROOTS` | `:`-separated | `;`-separated; an entry may be a drive root (`D:\`); case is ignored |
+| Permission bits | `umask 077`, folders 0700, files 0600 | no mode bits: the data folder's privacy is its ACL, inherited from the user's profile (`%APPDATA%`); a local job's `.svf-maker-<id>/` (in the user-picked output folder) is made with a protected ACL that grants the current user and SYSTEM only |
+| Bare program names | `PATH` | `PATH` only: the sidecar sets `NoDefaultCurrentDirectoryInExePath`, and the shell's development mode resolves `python.exe` on `PATH`'s absolute folders (a bare name would be looked up in the current folder first) |
+| Text written by the maker and the tools | LF | LF (`newline="\n"` on every text write; a tool's CRLF stdout is read as LF) |
+
+Not the same guarantee: on POSIX a folder swapped between two landings is detected and the write stops (`OutputGone`); on
+Windows the swap itself is impossible while the folders are held, so the write completes into the folder that was checked.
+A swap of a folder the tree has not reached yet is still caught by `lstat` + identity before the folder is held.
+
+#### Measured (GitHub Actions windows-latest)
+
+Windows Server 2025 (build 26100) runners, Python 3.12.3, node 22, 2026-11-24.
+
+| Item | Value |
+|---|---|
+| Sidecar one-dir | about 30 MB; `build-sidecar-win.py` 55 s including the frozen test (28 tests, 0 failed, 2 skipped: the fork race and the `PR_SET_PDEATHSIG` knob, POSIX by nature; on Windows the Job Object covers both) |
+| Installer | `svf-maker-0.1.0-setup.exe` 138,366,326 bytes; silent per-user install and uninstall checked |
+| Portable | `svf-maker-0.1.0-portable.exe` 125,605,175 bytes |
+| Smoke start to the clean stop | unpacked 1.3 s, installed 1.5 s, portable 12.5 s (it unpacks itself first); Help > About's line: "renderer sandbox: on" |
+| Desktop e2e | 33 steps pass (development pass and packaged pass, the sample set included; `sample set` dev 20.9 s, packaged 20.2 s). The `sh` stub's stderr canary is POSIX only. |
+| Maker suite | 1,277 tests in two shards (13 and 27 min; the Chrome page tests are the slow part), 0 failed, 62 skipped: 30 POSIX by nature (permission bits, signals, FIFOs, zombies, `/proc` and `PR_SET_PDEATHSIG`, `/dev/zero`, the `resource` module, Chrome's Unix socket path, a namespace), 1 the U+2116 pin below, 31 the same environment skips as on Linux (your real fonts and ROMs, optional libraries, the slow fit, the frozen classes, which run in the package job) |
+| Tools suite | 980 tests (6.5 min), 0 failed, 642 skipped: 609 POSIX by nature (the C renderer's host build with gcc sanitizers and its bench and VESA shell scripts: on Windows the renderer runs as the WASM module; a mode-000 folder; the bash build scripts), 33 environment skips as on Linux |
+| Desktop unit tests | 43 pass (`unit.test.js`, `third-party.test.js`, a win32 notices case included) |
+| Notices | `THIRD-PARTY.txt` 15 components, no unattributed DLL |
+
+**Not byte-equal on Windows.** With FriBiDi in place every face of the test suites is the Linux bytes except one measured
+glyph: GowunBatang-Bold at 17 px 2 bpp (`dos-u-2bpp`, the shipped `svf/dos/GBATB17.SVF`) draws U+2116 differently with
+Pillow's Windows build, so on Windows that face is written as a new face rather than recognised as the shipped one. The
+tests pin exactly that glyph (`maker/test/wincompat.py`, `WINDOWS_RENDER_DIFFERS`): every other glyph and metric must
+be equal. The cause is not established (FreeType 2.13.2 and raqm 0.10.1 on both sides).
 
 **macOS:** no package has been built or run. The plan was separate arm64/x86_64 PyInstaller one-dir builds and
 `dmg`/`zip` packages; universal2 would need universal wheels. The Linux cp312 wheel lock cannot be reused unchanged.

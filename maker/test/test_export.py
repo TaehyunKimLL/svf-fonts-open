@@ -28,12 +28,13 @@ import settings
 import toolrun
 from localfx import LocalBase, LocalRunBase, walk_rel
 from test_routes import FONT_SVF_JAMO, FONT_SVF_PRE, FONT_TTF
+import wincompat
 
 NEODG16 = os.path.join(REPO_DIR, "svf", "dos", "NEODG16.SVF")      # precomposed 1 bpp, OFL
 NEODG16G = os.path.join(REPO_DIR, "svf", "dos", "NEODG16G.SVF")    # a small jamo set
 
 
-class ExportRoutesTest(unittest.TestCase):
+class ExportRoutesTest(wincompat.SlashEqual, unittest.TestCase):
     def test_export_name(self):
         self.assertEqual(routes.export_name("NANUM16.SVF", "ttf"), "NANUM16.ttf")
         self.assertEqual(routes.export_name("NANU16JA.SVF", "bdf"), "NANU16JA.bdf")
@@ -70,7 +71,7 @@ class ExportRoutesTest(unittest.TestCase):
                                          {"tools": "/T", "src": "/u/A.SVF", "out": "/w/A.SVF"}, []), [])
 
 
-class ExportSettingsTest(unittest.TestCase):
+class ExportSettingsTest(wincompat.SlashEqual, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = tempfile.mkdtemp(prefix="svf-export-settings-")
@@ -195,7 +196,7 @@ class ExportSettingsTest(unittest.TestCase):
                                                         own_earlier={"dos/NANUM16.ttf"}) if "NANUM16.ttf" in e], [])
 
 
-class ExportLicenceStagingTest(unittest.TestCase):
+class ExportLicenceStagingTest(wincompat.SlashEqual, unittest.TestCase):
     """svf2ttf.py --licence follows the .TXT files a note names: the maker stages the licence and only the named files
     the batch holds (through Sources), as UTF-8, so a link out of the root or an unpicked file is never embedded."""
 
@@ -312,6 +313,7 @@ class ExportLicenceStagingTest(unittest.TestCase):
         self.assertEqual((os.path.basename(staged), names), ("B_NOTE.TXT", ["B_NOTE.TXT", "OFL.TXT"]))
         self.assertNotIn(os.path.realpath(outside), self.opened)
 
+    @wincompat.posix_only("a mode-000 file (Windows has no read permission bit chmod can clear)")
     def test_an_unreadable_batch_text_is_skipped(self):
         """A picked .TXT that cannot be read (sorting first) does not stop the lookup: the readable note that names the face
         is staged, as svf2ttf.py's own lookup skips read errors."""
@@ -358,7 +360,7 @@ class ExportLicenceStagingTest(unittest.TestCase):
                          ("NEODGM.TXT", ["NEODGM.TXT", "OFL.TXT"]))
 
 
-class ExportFactsTest(unittest.TestCase):
+class ExportFactsTest(wincompat.SlashEqual, unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="svf-export-facts-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
@@ -438,8 +440,8 @@ class ExportLocalJobTest(LocalRunBase):
         self.assertEqual(sorted(s["kind"] for s in job["steps"] if s.get("composite")), ["export"])   # the jamo set's TTF
         build = self.read_out("build-%s/BUILD.md" % jid).decode("utf-8")
         self.assertIn("python3 -P tools/svf2ttf.py ttf", build)
-        self.assertRegex(build, r"svf2ttf\.py ttf \S+HAN16J\.SVF \S+ --composite\n")
-        self.assertRegex(build, r"svf2ttf\.py ttf \S+ \S+ --licence \S+/licence/OFL\.txt\n")   # the TTF font's own, staged
+        self.assertRegex(build, r"svf2ttf\.py ttf \S+HAN16J\.SVF'? \S+ --composite\n")   # quoted on Windows (a backslash)
+        self.assertRegex(build, r"svf2ttf\.py ttf \S+ \S+ --licence \S+[/\\]licence[/\\]OFL\.txt'?\n")   # the TTF font's own, staged
         for f in files:
             if f.endswith((".ttf", ".bdf")):
                 self.assertIn("- written: %s" % f, build)

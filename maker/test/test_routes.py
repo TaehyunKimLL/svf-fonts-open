@@ -20,6 +20,7 @@ import jamoset
 import presets
 import routes
 import toolrun
+import wincompat
 
 P = {"tools": "/T", "src": "/u/in.ttf", "out": "/w/OUT.SVF", "work": "/w", "eng": None, "latin": None,
      "master": "/w/master.json", "range_file": "/w/range-2350.txt"}
@@ -57,7 +58,7 @@ FONT_SVF2_JAMO = dict(FONT_SVF_JAMO, format="svf2", svf=dict(FONT_SVF_JAMO["svf"
 FONT_HBF = font(format="hbf", label="HBF", source_kind="hbf", sizes=[16])
 
 
-class ApplyFlagsTest(unittest.TestCase):
+class ApplyFlagsTest(wincompat.SlashEqual, unittest.TestCase):
     def test_replaces_valued_and_appends_new(self):
         argv = ["a", "b", "--bpp", "1", "--unicode", "ascii,hangul"]
         self.assertEqual(routes.apply_flags(argv, ["--unicode", "ascii", "--clip-cell", "--bpp", "2"]),
@@ -78,7 +79,7 @@ class ApplyFlagsTest(unittest.TestCase):
         self.assertIn("--cell", str(ctx.exception))
 
 
-class PresetTest(unittest.TestCase):
+class PresetTest(wincompat.SlashEqual, unittest.TestCase):
     def test_names_and_size_placeholder(self):
         self.assertEqual(sorted(presets.PRESETS), ["dos-l-1bpp", "dos-u-2bpp", "jamo-621", "jamo-844", "jamo-844-hbios24", "jamo-844-symbols", "latin-18cell-2bpp", "plain"])
         self.assertEqual(presets.argv_for("dos-u-2bpp", "precomposed", 17)[:5], ["--cell", "16", "--clip-cell", "--ascent", "15"])
@@ -165,7 +166,7 @@ EVERY = {"mkfont": {"cell": 18, "ascent": 12, "width": 18, "mono_hint": True, "c
          "bdfface": {"latin_ascent": 12, "hangul_ascent": 13}}
 
 
-class PanelArgvTest(unittest.TestCase):
+class PanelArgvTest(wincompat.SlashEqual, unittest.TestCase):
     def test_per_command_fragments(self):
         self.assertEqual(presets.panel_argv(EVERY, "jamo", "bdfface + from-svf fit", 1),
                          [["--ascent", "12", "--hangul-ascent", "13"], ["--jset-version", "2"]])
@@ -227,7 +228,7 @@ class PanelArgvTest(unittest.TestCase):
         self.assertNotIn("--mask-font", two)
 
 
-class DecomposableRoutesTest(unittest.TestCase):
+class DecomposableRoutesTest(wincompat.SlashEqual, unittest.TestCase):
     OUTLINE = FONT_TTF
     OUTLINE_COMPOSITE = FONT_COMPOSITE
 
@@ -282,7 +283,7 @@ class DecomposableRoutesTest(unittest.TestCase):
         self.assertIsNone(jobs.Worker._reference(job, font, {"font": "f01"}))
 
 
-class RoutesTest(unittest.TestCase):
+class RoutesTest(wincompat.SlashEqual, unittest.TestCase):
     def test_panel_argv_on_the_new_labels(self):
         every = {"mkfont": {}, "jamoset": {"jset_version": 2, "symbols": True, "embolden": True}}
         self.assertEqual(presets.panel_argv(every, "jamo", "bdfface + from-svf fit", 1), [[], ["--jset-version", "2"]])
@@ -465,7 +466,7 @@ class RoutesTest(unittest.TestCase):
             routes.Route("jamo", "copy", True, [], [1])
 
 
-class MacRoutesTest(unittest.TestCase):
+class MacRoutesTest(wincompat.SlashEqual, unittest.TestCase):
     MAC = dict(font(), source_kind="mac-fbit3", family="Seoul12", sizes=[12], sizes_fixed=True,
                mac={"generation": 3}, companions=["f05"], latin_candidates=[])
 
@@ -533,7 +534,7 @@ class MacRoutesTest(unittest.TestCase):
                          [["--cell", "18", "--ascent", "12", "--width", "18", "--space-advance", "5"]])
 
 
-class IsoBdfBakeTest(unittest.TestCase):
+class IsoBdfBakeTest(wincompat.SlashEqual, unittest.TestCase):
     """I3: the ISO10646 fixture's glyphs must be distinct, or mkfont drops them all (exit 1)."""
 
     def test_the_mkfont_route_bakes_the_iso_fixture_and_svfline_draws_it(self):
@@ -561,7 +562,7 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class MkfontRangeFileTest(unittest.TestCase):
+class MkfontRangeFileTest(wincompat.SlashEqual, unittest.TestCase):
     def test_a_list_range_without_the_maker_copy_is_refused(self):
         import routes
         with self.assertRaisesRegex(ValueError, "mkfont needs a range file"):

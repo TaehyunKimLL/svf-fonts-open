@@ -298,7 +298,7 @@ CELL_MAX = 256		# the largest BDF cell side (and |BBX| field) bdf_glyph_source a
 
 def bdf_glyph_source(d, count, what):
     """A BDF whose ENCODING is the glyph number 0..@p count - 1 (@p what names the encoding in errors)."""
-    t = d.decode("latin-1")
+    t = d.decode("latin-1").replace("\r\n", "\n")                  # CRLF line ends (a BDF saved on Windows)
     if not t.startswith("STARTFONT"):
         raise SourceError("not a BDF")
     fb = re.search(r"FONTBOUNDINGBOX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", t)
@@ -3084,7 +3084,7 @@ def ttf_targets(path, size, cell, baseline, present_only, pylib=None):
 
 def write_report(path, info):
     import json
-    with open(path, "w") as fh:
+    with open(path, "w", newline="\n") as fh:
         json.dump(info, fh, indent=1, sort_keys=True, ensure_ascii=False)
         fh.write("\n")
 

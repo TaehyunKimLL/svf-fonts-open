@@ -16,13 +16,17 @@ For face structure and metrics, see the [SVF specification](../spec/SVF.md),
 [tool reference](tools.md). The [project overview](../README.md) lists the other documents.
 
 Status: a Linux AppImage build on Ubuntu 24.04 x86_64 and an Xvfb run on a second,
-clean Ubuntu 24.04.5 host are recorded (section 13). Windows NSIS/portable builds passed Actions on the separate `windows-build` branch, not yet merged into main. macOS packages have not been built (section 13). The package is not signed and has no auto-update.
+clean Ubuntu 24.04.5 host are recorded (section 13). The Windows x64 installer and portable `.exe` are built and tested on GitHub
+Actions (`windows-latest`); no one has used them on a Windows desktop yet (section 13). macOS packages have not been built
+(section 13). The package is not signed and has no auto-update.
 
 <a id="quick-start"></a>
 
 ## 0. Quick start
 
-There is no download: the app is built from a git checkout of this repository, on Linux (x86_64). The current main build targets Linux; see section 13 for the separate Windows branch.
+There is no download on Linux (x86_64): the app is built from a git checkout of this repository, as below. On Windows
+(x64) take the two `.exe` files the build workflow makes ([Windows (x64)](#windows-x64) below). macOS is not supported yet
+(section 13).
 
 **You need**
 
@@ -135,6 +139,33 @@ The shell finds no packaged sidecar, so it starts `python3 -P maker/server.py` f
 
 **Remove it**: delete the AppImage and `~/.config/svf-maker/` (section 12).
 
+### Windows (x64)
+
+**Get it.** The repository's workflow `windows` (`.github/workflows/windows.yml`, on GitHub Actions) builds both Windows
+packages on every push to its branch and on demand; open a green run and download its artifact `svf-maker-windows` (a zip,
+kept 14 days). It holds:
+
+| File | What it is |
+|---|---|
+| `svf-maker-0.1.0-setup.exe` | The installer: one click, for your user only (no administrator rights), installs to `%LOCALAPPDATA%\Programs\svf-maker` and adds "SVF maker" to the Start menu. Uninstall from Settings > Apps (or "Add or remove programs"). |
+| `svf-maker-0.1.0-portable.exe` | One file that runs without installing: every start unpacks the app to a temporary folder first (a few seconds) and removes it at the end. |
+| `THIRD-PARTY.txt` | The notices of everything bundled (the installed app carries the same file). |
+
+To build them yourself on Windows see [maker-desktop.md](maker-desktop.md#65-windows-and-macos-status-on-2026-11-27).
+
+**Unsigned: SmartScreen.** Neither file is code-signed. When you start one that came from the internet (a downloaded zip
+marks its contents), Windows SmartScreen shows "Windows protected your PC". Choose **More info**, check that the file is
+the one you downloaded from the run, then **Run anyway**. The browser may also warn on the download itself
+("not commonly downloaded"). An antivirus may take a while to scan the portable file the first time. Nothing else asks for
+permission: the installer does not elevate, and the app makes no network connection (Windows Firewall is never asked).
+
+**Use it.** Start "SVF maker" from the Start menu (or the portable file). The window and the steps are the same as on Linux
+(First conversion above; sections 3 to 7). Paths are Windows paths (`C:\Users\you\Fonts`, `\\server\share\fonts`);
+a whole drive (`C:\`) cannot be the output folder.
+
+**Where things are.** The app's data is in `%APPDATA%\svf-maker\` (`maker\` holds the jobs, `logs\shell.log` the log;
+section 9). **Remove it**: uninstall (installer) or delete the portable file, then delete `%APPDATA%\svf-maker\` (section 12).
+
 ## Contents
 
 Quick start (above)
@@ -189,6 +220,10 @@ On Linux the package is one file, `svf-maker-<version>.AppImage` (about 133 to 1
 - On systems where the launcher's user-namespace probe fails the launcher adds `--no-sandbox`, and the
   renderer runs without Chromium's sandbox (automatically; you need not pass anything); Help > About says so. See section 8.
 
+On Windows the package is the installer or the portable `.exe` (Quick start, [Windows (x64)](#windows-x64)). The same
+rules hold: one app per user at a time, one server per data folder. Chromium's renderer sandbox is on there (Help > About
+says "renderer sandbox: on"). The sidecar runs without a console window; its tools too.
+
 Start-up sequence: the shell takes the single-instance lock, opens its log, starts the sidecar with a
 fresh random token and `127.0.0.1:0`, waits for the line `svf-maker listening on 127.0.0.1:<port>` (up to 75 s; recorded normal
 starts printed it within 2 s), opens the window and loads the page. The page asks `/api/caps` once to learn whether
@@ -232,9 +267,9 @@ overlap the output folder or another source, and, when `SVF_MAKER_ROOTS` is set,
 folder under `~/svf-out`; an output folder outside every root is refused with `output folder: outside SVF_MAKER_ROOTS`). A refused
 path is listed with its reason (section 11).
 
-While a job lives the app keeps intermediate files in `.svf-maker-<id>/` inside the output folder (permissions 0700) and
-removes them when the job ends, is deleted or the app quits. Choose an output folder that is **not synced** by a cloud
-client.
+While a job lives the app keeps intermediate files in `.svf-maker-<id>/` inside the output folder (permissions 0700; on
+Windows an ACL that grants only you and SYSTEM) and removes them when the job ends, is deleted or the app quits. Choose an
+output folder that is **not synced** by a cloud client.
 
 Below the panel, **jobs** lists the jobs of this session so you can switch between them.
 
@@ -509,7 +544,13 @@ folder"). It stores no token and no input path.
   sandbox is **off** where the system denies user namespaces (an AppImage cannot carry the SUID helper); the renderer then
   loads only the app's own page from loopback.
 - **Processes.** Each tool runs in its own session and is recorded in `tools.pids`; normal shutdown stops the tools. A crash can leave
-  processes behind; the next start checks the registry and reaps identifiable leftovers.
+  processes behind; the next start checks the registry and reaps identifiable leftovers. On Windows each tool runs in a Job Object of its own: when
+  the sidecar ends, however it ends, Windows ends its tools with it.
+- **Windows.** The rules above hold there too, with Windows' own forms (maker-desktop.md, "What differs on Windows"): a
+  junction or a mount point counts as a link and is refused like a symlink; an output name Windows reserves (`CON`,
+  `NUL.TXT`, `COM1`, ...) is refused; while the faces are written, the output folder and every folder written through are
+  held open so that nobody can rename or remove them meanwhile. The data folder's privacy is its folder permission (ACL),
+  inherited from your user profile: Windows has no `chmod 700`.
 - **Third-party code.** `THIRD-PARTY.txt` lists every bundled library with its licence; a build fails on an unmapped
   or ordinary GPL library. The PyInstaller bootloader is classified separately under its GPL bootloader exception.
 
@@ -523,6 +564,7 @@ These are the default Linux `userData` paths; Electron's `--user-data-dir` optio
 | Window state | `~/.config/svf-maker/shell-state.json` |
 | Shell log | `~/.config/svf-maker/logs/shell.log` (and `shell.log.1`, the rotated one; no font names or paths beyond what the redaction rules allow; token never) |
 | Development run data | `~/.config/svf-maker/maker-dev` |
+| Windows | the same names under `%APPDATA%\svf-maker\` (`maker\`, `shell-state.json`, `logs\shell.log`, `maker-dev\`); the installed program is in `%LOCALAPPDATA%\Programs\svf-maker\` |
 
 Optional environment variables (set them before starting the app):
 
@@ -530,9 +572,9 @@ Optional environment variables (set them before starting the app):
 |---|---|
 | `JAMOSET_PYLIB` | A folder with `freetype-py` and `uharfbuzz`; enables the `mask fit` route and `binarize mono`. |
 | `JAMOSET_MASK_FONT` | The font file with OpenType jamo substitution (`ljmo`, `vjmo`, `tjmo`) that `mask fit` uses to confine the pieces. Without it the tool looks for NotoSansKR beside the ScummVM tree, which a packaged app does not have, so set it when you use `mask fit`. |
-| `SVF_MAKER_ROOTS` | Colon-separated absolute folders. Every source **and the output folder** must be inside one of them (a path outside is refused with "outside SVF_MAKER_ROOTS"). Example with separate roots: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. Unset: no restriction beyond the rules in section 3.2. |
+| `SVF_MAKER_ROOTS` | Colon-separated absolute folders (on Windows semicolon-separated: `C:\fonts;D:\out`). Every source **and the output folder** must be inside one of them (a path outside is refused with "outside SVF_MAKER_ROOTS"). Example with separate roots: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. Unset: no restriction beyond the rules in section 3.2. |
 | `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | An interpreter (absolute path, with numpy, torch, PIL, fontTools) and a folder with your own `recog.py` for the piece identity check. Scoring only; nothing is shipped. Without them the page says the check is unavailable. |
-| `SVF_MAKER_DEV=1` | Development mode: run `python3 -P maker/server.py` from a checkout instead of the frozen sidecar. `SVF_MAKER_DEV_REPO` names the checkout. |
+| `SVF_MAKER_DEV=1` | Development mode: run `python3 -P maker/server.py` (Windows: the `python.exe` found on `PATH`) from a checkout instead of the frozen sidecar. `SVF_MAKER_DEV_REPO` names the checkout. |
 | `SVF_MAKER_DEVTOOLS=1` | Enables the developer tools and a View > Toggle DevTools item. |
 | `SVF_MAKER_SHELL_LOG=stderr` | The shell log also goes to standard error. |
 | `SVF_MAKER_SMOKE=1` | Start, check `/api/caps`, print one line and quit (used by the release check). |
@@ -650,6 +692,12 @@ get a launcher, write a file `~/.local/share/applications/svf-maker.desktop` you
 checkout if you want one). Or use an AppImage manager such as AppImageLauncher, which reads the entry inside the image.
 Inside the image, `Exec=AppRun %U` is the entry and `AppRun` adds `--no-sandbox` itself when needed.
 
+**Windows.** If the app does not start, read `%APPDATA%\svf-maker\logs\shell.log`; to see the messages as they come,
+start it from a PowerShell window with `$env:SVF_MAKER_SHELL_LOG='stderr'` set first. SmartScreen's "Windows protected
+your PC" is the unsigned package (Quick start). Uninstall: Settings > Apps > SVF maker (or "Add or remove programs"),
+or delete the portable file; then delete `%APPDATA%\svf-maker\` to remove the data, the log and Chromium's profile. The
+faces in your output folders stay.
+
 **Uninstall.** Delete the AppImage file. The app's data is under `~/.config/svf-maker/`: the jobs and work files
 (`maker/`, `maker-dev/`), `shell-state.json`, `logs/shell.log`, and Chromium's own profile data (cache, local storage and
 so on) that the Electron shell keeps in the same folder. Delete `~/.config/svf-maker/` as well to remove the app data stored there.
@@ -658,8 +706,19 @@ The faces already written in your output folders are yours and stay.
 ## 13. Limits and what has not been verified
 
 - Verified on 2026-11-22: the AppImage built from commit 3d40de8 was started on a clean host (Ubuntu 24.04.5, no
-  `libfuse2`) under Xvfb; the window rendered and a conversion in local mode ran through the packaged sidecar. Unverified in that run: a real desktop with a window manager and GPU, and Windows/macOS. The next item gives the later Windows status.
-- Windows NSIS/portable builds passed Actions on `windows-build`, not yet merged into main. macOS has not been built. See [platform status](maker-desktop.md#65-windows-and-macos-status-on-2026-11-27).
+  `libfuse2`) under Xvfb; the window rendered and a conversion in local mode ran through the packaged sidecar. Unverified in that run: a real desktop with a window manager and GPU, and Windows/macOS.
+- Windows x64 (t_9b8f56f0): built and tested on GitHub Actions `windows-latest` (Windows Server, no user at a desktop).
+  Verified there: the maker and tools test suites on Windows (1,277 and 980 tests, 0 failed; the skips are listed in maker-desktop.md), the frozen sidecar's test, the desktop unit
+  tests, the desktop end-to-end test against the development server and against the packaged sidecar (stubbed dialogs),
+  a silent per-user install and uninstall, and a start of the unpacked, the installed and the portable app that loads
+  the page through the packaged sidecar and stops it cleanly. **Not verified**: a real Windows 10/11 desktop (a person
+  using the window, native dialogs, the GPU path, high-DPI scaling), the SmartScreen and browser download warnings (the
+  files are not signed), antivirus interplay, folders synced by OneDrive or on network shares, FAT/exFAT output drives,
+  long paths (over 260 characters), and Windows on Arm. The server's checks hold on Windows in their Windows form
+  (maker-desktop.md, "What differs on Windows"); a tool stop there is immediate (no 5 s grace). A face made on Windows
+  can differ from the same face made on Linux in single glyphs (measured: U+2116 of GowunBatang-Bold at 17 px 2 bpp), so
+  such a face is written as a new one there instead of being recognised as the shipped face.
+- macOS: not built, not run. The plan (signing, notarisation) is written in [maker-desktop.md](maker-desktop.md).
 - TTF / BDF export: each file is read back (fontTools for a TTF) and must hold exactly the face's characters; the
   round trip (baking the TTF back with `mkfont.py` and comparing, recipes/svf-and-ttf.md) is not part of a run, it takes minutes for a
   jamo set. Whether a program draws a TTF's 2 bpp strike as levels is up to its renderer (Windows and macOS not tested).

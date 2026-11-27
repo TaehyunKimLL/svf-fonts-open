@@ -21,6 +21,7 @@ from unittest import mock
 import detect
 import fixtures
 import naming
+import wincompat
 
 
 class SuggestTest(unittest.TestCase):
@@ -179,7 +180,8 @@ class RepoIndexTreeTest(unittest.TestCase):
         self.assertEqual(idx.check_face("dos", "FOO.SVF", b"other"), ("clash", "dos/FOO.SVF"))
         self.assertEqual(idx.check_face("dos", "foo.svf", b"other"), ("clash", "dos/foo.svf"))
 
-    @unittest.skipIf(os.geteuid() == 0, "root reads a mode-000 file")
+    @wincompat.posix_only("a mode-000 file (Windows has no read permission bit chmod can clear)")
+    @unittest.skipIf(not wincompat.WIN and os.geteuid() == 0, "root reads a mode-000 file")
     def test_an_unreadable_file_does_not_break_the_index(self):
         path = self.put("dos/BAD.SVF", b"face")
         os.chmod(path, 0)

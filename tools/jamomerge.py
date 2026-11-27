@@ -1128,7 +1128,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.cmd == "planes":
         d = mac_planes(open(args.fbit, "rb").read(), open(args.htbl, "rb").read())
-        json.dump({"ks": {str(s): list(v) for s, v in d.items()}}, open(args.out, "w"))
+        json.dump({"ks": {str(s): list(v) for s, v in d.items()}}, open(args.out, "w", newline="\n"))
         return 0
     log = lambda s: print(time.strftime("%H:%M:%S"), s, file=sys.stderr, flush=True)
     fc = read_face(args.face)
@@ -1144,7 +1144,7 @@ def main(argv=None):
         rep["stem_widths"] = stem_widths(fc)
         txt = json.dumps(rep, ensure_ascii=False, indent=1)
         if args.out:
-            open(args.out, "w").write(txt)
+            open(args.out, "w", newline="\n").write(txt)
         print(txt)
         return 0
     os.makedirs(args.outdir, exist_ok=True)
@@ -1169,7 +1169,7 @@ def main(argv=None):
             if scorer is not None:
                 rep["recog_weighted"] = float((scorer.ok * scorer.wt).sum() / scorer.wt.sum())
                 rep["recog_ks"] = float(scorer.ok[ref.ks].mean())
-            json.dump(rep, open(os.path.join(args.outdir, name + ".json"), "w"), ensure_ascii=False, indent=1)
+            json.dump(rep, open(os.path.join(args.outdir, name + ".json"), "w", newline="\n"), ensure_ascii=False, indent=1)
             log(f"point {name}: {len(data)} B, pieces {rep['n_pieces']}, sets {rep['ni']}/{rep['nm']}/{rep['nf']}, "
                 f"classes {rep['lc']}x{rep['tc']}, verify bad {len(bad)}")
         if not points:
@@ -1181,7 +1181,7 @@ def main(argv=None):
             data = build(st.fc)
             open(os.path.join(args.outdir, args.prefix + "-floor.SVF"), "wb").write(data)
             json.dump({"bytes": len(data), "steps": nstep, **size_parts(st.fc, sizer), "gates": gate_counts(st),
-                       "refused": refused}, open(os.path.join(args.outdir, args.prefix + "-floor.json"), "w"), indent=1)
+                       "refused": refused}, open(os.path.join(args.outdir, args.prefix + "-floor.json"), "w", newline="\n"), indent=1)
             ref.soft = G_STROKE | G_LEAK
             st.refresh()
             continue
@@ -1190,7 +1190,7 @@ def main(argv=None):
             data = build(st.fc)
             open(os.path.join(args.outdir, args.prefix + "-stop.SVF"), "wb").write(data)
             json.dump({"bytes": len(data), "steps": nstep, **size_parts(st.fc, sizer), "gates": gate_counts(st),
-                       "refused": refused}, open(os.path.join(args.outdir, args.prefix + "-stop.json"), "w"), indent=1)
+                       "refused": refused}, open(os.path.join(args.outdir, args.prefix + "-stop.json"), "w", newline="\n"), indent=1)
             break
         nstep += 1
         e = {"step": nstep, "soft": bool(ref.soft), "move": best.kind, "desc": best.desc, "saved": best.saved, "dpix": round(best.dpix, 2),
@@ -1201,7 +1201,7 @@ def main(argv=None):
         curve.append(e)
         log(f"step {nstep}: {best.desc} saved {best.saved} dpix {best.dpix:.1f} drec {best.drec:.3f} -> {e['bytes']} B"
             f" refused {refused}")
-        with open(os.path.join(args.outdir, args.prefix + "-steps.json"), "w") as fo:
+        with open(os.path.join(args.outdir, args.prefix + "-steps.json"), "w", newline="\n") as fo:
             json.dump(curve, fo, ensure_ascii=False)
     return 0
 

@@ -11,6 +11,8 @@ Stdlib only; importable from `maker/` and `tools/` on `sys.path`.
 import os
 import sys
 
+import oscompat
+
 FROZEN = bool(getattr(sys, "frozen", False))
 PYTHON = sys.executable                   # the interpreter of source-mode launches (a test seam)
 MAKER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +22,9 @@ MODULE_NAMES = {"fontTools.varLib.instancer": "instancer"}
 # Environment keys a tool may see besides PATH, HOME and LANG (spec 7.4; JAMOSET_MASK_FONT: design issue 25;
 # SOURCE_DATE_EPOCH: svf2ttf.py's TTF timestamps, so a build that sets it exports the same bytes twice).
 FORWARD_KEYS = ("JAMOSET_PYLIB", "JAMOSET_MASK_FONT", "SOURCE_DATE_EPOCH")
+# Windows only: what a Python process needs to start at all (SYSTEMROOT: Winsock and the crypto provider) and to find
+# its temp folder; PYTHONUTF8=1 is added, so a tool's stdout and stderr are UTF-8 as under LANG=C.UTF-8 on Linux.
+WINDOWS_KEYS = ("SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "LOCALAPPDATA")
 # Test-only knob, forwarded only as "1" (design issue 17).
 TEST_KEYS = ("SVF_MAKER_NO_PDEATHSIG",)
 # The frozen sidecar's own pid, for the tools it starts: `run-tool` compares its parent with it after the prctl (a parent
@@ -109,9 +114,13 @@ def note_text(text, repo_dir):
     (johab844 prints its base face) reads the same from a checkout and from an AppImage mount."""
     if not text or not repo_dir:
         return text
-    for base in sorted({os.path.normpath(repo_dir), os.path.realpath(repo_dir)}, key=len, reverse=True):
-        if base != os.sep:
-            text = text.replace(base.rstrip(os.sep) + os.sep, "")
+    bases = {os.path.normpath(repo_dir), os.path.realpath(repo_dir)}
+    if oscompat.WINDOWS:                        # a tool may print the path with "/" (a joined relative path) or "\\"
+        bases |= {b.replace("\\", "/") for b in bases}
+    for base in sorted(bases, key=len, reverse=True):
+        if base not in (os.sep, "/"):
+            for sep in ((os.sep, "/") if oscompat.WINDOWS else (os.sep,)):
+                text = text.replace(base.rstrip("\\/" if oscompat.WINDOWS else os.sep) + sep, "")
     return text
 
 
@@ -121,6 +130,11 @@ def base_env(environ):
     for key in FORWARD_KEYS:
         if environ.get(key):
             env[key] = environ[key]
+    if oscompat.WINDOWS:
+        for key in WINDOWS_KEYS:
+            if environ.get(key):
+                env[key] = environ[key]
+        env["PYTHONUTF8"] = "1"
     if environ.get("SVF_MAKER_NO_PDEATHSIG") == "1":
         env["SVF_MAKER_NO_PDEATHSIG"] = "1"
     if FROZEN:
@@ -153,7 +167,10 @@ def set_pdeathsig(sig):
 
 def alive(pid):
     """True when process @p pid exists and is not a zombie. Linux reads the state of `/proc/<pid>/stat`; elsewhere
-    `kill(pid, 0)` (a zombie then counts as alive: the darwin limitation)."""
+    `kill(pid, 0)` (a zombie then counts as alive: the darwin limitation); Windows asks the process handle (`kill(pid, 0)`
+    there would send CTRL_C_EVENT)."""
+    if oscompat.WINDOWS:
+        return oscompat.process_alive(pid)
     try:
         with open("/proc/%d/stat" % pid, "rb") as f:
             state = f.read().rsplit(b")", 1)[1].split()[0]

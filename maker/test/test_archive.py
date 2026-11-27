@@ -28,6 +28,7 @@ from unittest import mock
 
 import archive
 import fixtures
+import wincompat
 
 FIXTURE_ROOT = None
 
@@ -243,7 +244,9 @@ class PathTest(unittest.TestCase):
         self.assertEqual(archive.check_rel_path("C:evil"), "drive letter in path")
         self.assertEqual(archive.check_rel_path("c:/x"), "drive letter in path")
         self.assertEqual(archive.check_rel_path("Z:"), "drive letter in path")
-        self.assertIsNone(archive.check_rel_path("a/C:evil"))        # only a *first* component is a drive
+        # only a *first* component is a drive; on Windows a colon anywhere would name a stream, so it is refused there
+        self.assertEqual(archive.check_rel_path("a/C:evil"), None if not wincompat.WIN else
+                         "a name Windows cannot hold (a device name, a colon, a trailing dot or space)")
         self.assertIsNone(archive.check_rel_path("C"))
 
     def test_unicode_control_categories_are_refused(self):
@@ -496,6 +499,28 @@ class UnpackTest(unittest.TestCase):
 
     # ---- fix round 1: duplicate members (P3) ------------------------------------------------------------------
 
+    @unittest.skipUnless(os.name == "nt", "Windows only: names that differ only in case name one file there")
+    def test_case_duplicate_member_stops_and_keeps_the_first_on_windows(self):
+        p = os.path.join(self.d, "case.zip")
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("Font.ttf", "first"); z.writestr("font.ttf", "second")
+        dest = os.path.join(self.d, "case")
+        r = archive.unpack(p, dest)
+        self.assertEqual(r["stopped"], "font.ttf: duplicate member"); self.assertEqual(r["files"], 1)
+        with open(os.path.join(dest, "Font.ttf")) as f: self.assertEqual(f.read(), "first")
+        # any other alias (an 8.3 short name, a case the fold misses) is refused by the new-file-only open, and a
+        # member stopped before its file was made never removes the file its name aliases
+        with self.assertRaises(archive._Stop) as cm:
+            archive._output(os.path.join(dest, "FONT.TTF"), "FONT.TTF")
+        self.assertEqual(cm.exception.reason, "FONT.TTF: duplicate member")
+        nested = io.BytesIO()
+        with zipfile.ZipFile(nested, "w") as z:
+            z.writestr("x", "x")
+        with self.assertRaises(archive._Stop):
+            archive._copy(lambda: io.BytesIO(nested.getvalue()), "FONT.TTF", dest, dict(archive.LIMITS, packed=1 << 20),
+                          {"files": 0, "bytes": 0, "counted": 0, "members": 0, "stopped": None}, peek=True)
+        with open(os.path.join(dest, "Font.ttf")) as f: self.assertEqual(f.read(), "first")
+
     def test_duplicate_member_stops_and_keeps_the_first(self):
         p = os.path.join(self.d, "dup.zip")
         with warnings.catch_warnings():
@@ -654,7 +679,7 @@ class UnpackTest(unittest.TestCase):
             z.writestr("a.txt", "x")
         real_open = open
         def failing_open(path, mode="r", *args, **kw):
-            if "w" in mode:
+            if "w" in mode or "x" in mode:                  # Windows opens a member new-only ("xb")
                 raise OSError(36, "File name too long")
             return real_open(path, mode, *args, **kw)
         with mock.patch("builtins.open", failing_open):

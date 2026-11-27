@@ -1,0 +1,274 @@
+[
+ {
+  "match": "fribidi-0.dll",
+  "component": "FriBiDi",
+  "version": "1.0.10 (conda-forge build h8d14728_0)",
+  "licence": "LGPL-2.1-or-later",
+  "source_url": "https://github.com/fribidi/fribidi",
+  "class": "lgpl",
+  "from": "fetched",
+  "licence_file": "lgpl-2.1.txt",
+  "note": "loaded by Pillow's raqm layout; fetched and sha256-checked by desktop/build/fetch-fribidi-win.py",
+  "record": {
+   "source": "https://github.com/fribidi/fribidi/releases/tag/v1.0.10 (the conda-forge recipe of build h8d14728_0: https://github.com/conda-forge/fribidi-feedstock)",
+   "replace": "fribidi-0.dll is a separate DLL in the sidecar's _internal folder that Pillow loads at run time; a compatible build (same ABI) may replace it (LGPL-2.1 section 6)"
+  }
+ },
+ {
+  "match": "_imaging*.pyd",
+  "component": "Pillow",
+  "licence": "HPND",
+  "source_url": "https://github.com/python-pillow/Pillow",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "_webp*.pyd",
+  "component": "Pillow",
+  "licence": "HPND",
+  "source_url": "https://github.com/python-pillow/Pillow",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "_avif*.pyd",
+  "component": "Pillow",
+  "licence": "HPND",
+  "source_url": "https://github.com/python-pillow/Pillow",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "pillow"
+ },
+ {
+  "match": "cu2qu*.pyd",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "qu2cu*.pyd",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "bezierTools*.pyd",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "momentsPen*.pyd",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "iup*.pyd",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "lexer*.pyd",
+  "component": "fontTools",
+  "licence": "MIT",
+  "source_url": "https://github.com/fonttools/fonttools",
+  "class": "none",
+  "from": "wheel",
+  "wheel": "fonttools"
+ },
+ {
+  "match": "python3*.dll",
+  "component": "CPython",
+  "licence": "PSF-2.0",
+  "source_url": "https://www.python.org/downloads/release/python-3123/",
+  "class": "none",
+  "from": "python"
+ },
+ {
+  "match": "*.pyd",
+  "component": "CPython",
+  "licence": "PSF-2.0",
+  "source_url": "https://www.python.org/downloads/release/python-3123/",
+  "class": "none",
+  "from": "python"
+ },
+ {
+  "match": "libcrypto-*.dll",
+  "component": "OpenSSL",
+  "licence": "Apache-2.0",
+  "source_url": "https://www.openssl.org/source/",
+  "class": "none",
+  "from": "python"
+ },
+ {
+  "match": "libssl-*.dll",
+  "component": "OpenSSL",
+  "licence": "Apache-2.0",
+  "source_url": "https://www.openssl.org/source/",
+  "class": "none",
+  "from": "python"
+ },
+ {
+  "match": "libffi-*.dll",
+  "component": "libffi",
+  "licence": "MIT",
+  "source_url": "https://sourceware.org/libffi/",
+  "class": "none",
+  "from": "python"
+ },
+ {
+  "match": "sqlite3.dll",
+  "component": "SQLite",
+  "licence": "blessing (public domain)",
+  "source_url": "https://www.sqlite.org/",
+  "class": "none",
+  "from": "python"
+ },
+ {
+  "match": "vcruntime140*.dll",
+  "component": "Microsoft Visual C++ runtime (in the python.org build)",
+  "licence": "Microsoft Visual Studio Distributable Code",
+  "source_url": "https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist",
+  "class": "ms-redist",
+  "from": "python",
+  "licence_file": "ms-distributable.txt",
+  "note": "shipped with the python.org CPython build; not open source, redistributable as Distributable Code"
+ },
+ {
+  "match": "api-ms-win-*.dll",
+  "component": "Microsoft Universal C Runtime (in the python.org build)",
+  "licence": "Microsoft Windows SDK / Universal CRT redistributable",
+  "source_url": "https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment",
+  "class": "ms-redist",
+  "from": "python",
+  "licence_file": "ms-distributable.txt",
+  "note": "the app-local Universal CRT the python.org CPython build ships for Windows versions without it; Windows 10 and later use their own"
+ },
+ {
+  "match": "ucrtbase.dll",
+  "component": "Microsoft Universal C Runtime (in the python.org build)",
+  "licence": "Microsoft Windows SDK / Universal CRT redistributable",
+  "source_url": "https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment",
+  "class": "ms-redist",
+  "from": "python",
+  "licence_file": "ms-distributable.txt",
+  "note": "the app-local Universal CRT the python.org CPython build ships for Windows versions without it; Windows 10 and later use their own"
+ },
+ {
+  "match": "electron_wer.dll",
+  "component": "Electron (Windows Error Reporting module)",
+  "licence": "MIT",
+  "source_url": "https://github.com/electron/electron",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "electron-part.txt"
+ },
+ {
+  "match": "ffmpeg.dll",
+  "component": "ffmpeg (Chromium build, in Electron)",
+  "licence": "LGPL-2.1-or-later",
+  "source_url": "https://ffmpeg.org/",
+  "class": "lgpl",
+  "version": "Electron 45.2.3",
+  "licence_file": "lgpl-2.1.txt",
+  "record": {
+   "source": "https://ffmpeg.org/releases/ (the version Chromium 'third_party/ffmpeg' pins for Electron 45.2.3, see https://github.com/electron/electron/releases/tag/v45.2.3 and https://chromium.googlesource.com/chromium/third_party/ffmpeg)",
+   "replace": "ffmpeg.dll is a separate DLL next to the Electron executable; a compatible build (same ABI) may replace it (LGPL-2.1 section 6)"
+  }
+ },
+ {
+  "match": "libEGL.dll",
+  "component": "ANGLE",
+  "licence": "BSD-3-Clause",
+  "source_url": "https://chromium.googlesource.com/angle/angle",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "chromium-credits.txt"
+ },
+ {
+  "match": "libGLESv2.dll",
+  "component": "ANGLE",
+  "licence": "BSD-3-Clause",
+  "source_url": "https://chromium.googlesource.com/angle/angle",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "chromium-credits.txt"
+ },
+ {
+  "match": "vk_swiftshader.dll",
+  "component": "SwiftShader",
+  "licence": "Apache-2.0",
+  "source_url": "https://swiftshader.googlesource.com/SwiftShader",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "apache-2.0.txt"
+ },
+ {
+  "match": "vulkan-1.dll",
+  "component": "Vulkan loader",
+  "licence": "Apache-2.0",
+  "source_url": "https://github.com/KhronosGroup/Vulkan-Loader",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "apache-2.0.txt"
+ },
+ {
+  "match": "dxcompiler.dll",
+  "component": "DirectX Shader Compiler",
+  "licence": "NCSA (University of Illinois/NCSA Open Source License)",
+  "source_url": "https://github.com/microsoft/DirectXShaderCompiler",
+  "class": "none",
+  "version": "Electron 45.2.3",
+  "licence_file": "chromium-credits.txt"
+ },
+ {
+  "match": "dxil.dll",
+  "component": "DXIL signing library (Microsoft)",
+  "licence": "Microsoft DirectX Shader Compiler redistributable",
+  "source_url": "https://github.com/microsoft/DirectXShaderCompiler",
+  "class": "ms-redist",
+  "version": "Electron 45.2.3",
+  "licence_file": "ms-distributable.txt",
+  "note": "a binary Microsoft redistributes with the DirectX Shader Compiler; Electron ships it"
+ },
+ {
+  "match": "d3dcompiler_47.dll",
+  "component": "D3DCompiler (Microsoft)",
+  "licence": "Microsoft DirectX redistributable",
+  "source_url": "https://learn.microsoft.com/en-us/windows/win32/directx-sdk--august-2009-",
+  "class": "ms-redist",
+  "version": "Electron 45.2.3",
+  "licence_file": "ms-distributable.txt",
+  "note": "Microsoft's redistributable HLSL compiler; Electron ships it"
+ },
+ {
+  "match": "(bootloader)",
+  "component": "PyInstaller bootloader",
+  "licence": "GPL-2.0-or-later WITH Bootloader-exception",
+  "source_url": "https://github.com/pyinstaller/pyinstaller",
+  "class": "gpl-exception",
+  "always": true,
+  "version": "6.22.3",
+  "wheel": "pyinstaller",
+  "note": "the executable svf-maker-sidecar is PyInstaller's bootloader plus the application archive; the bootloader exception allows distributing it with non-GPL code"
+ }
+]

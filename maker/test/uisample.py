@@ -291,6 +291,17 @@ def _check_facecheck(out_dir, scratch):
     inputkinds._facecheck(_Shim(), d)
 
 
+def _remove_tree(path):
+    """`shutil.rmtree`, ignoring errors; on Windows a read-only file (git writes its objects so) is made writable first."""
+    def writable(func, p, _exc):
+        try:
+            os.chmod(p, 0o666)
+            func(p)
+        except OSError:
+            pass
+    shutil.rmtree(path, onexc=writable if os.name == "nt" else None, ignore_errors=os.name != "nt")
+
+
 def _check_mkindex(out_dir, job, scratch):
     side = os.path.join(out_dir, "build-%s" % job["id"])
     lines = {name: _read(os.path.join(side, name)) for name in BUILD_FILES}
@@ -300,8 +311,11 @@ def _check_mkindex(out_dir, job, scratch):
 def _check_pins_and_ink(out_dir, fails):
     gow = os.path.join(out_dir, FACES["gowun"])
     try:
-        if _read(gow) != _read(GBATB17):
-            fails.append("pin: %s is not byte-equal to svf/dos/GBATB17.SVF" % FACES["gowun"])
+        made, shipped = _read(gow), _read(GBATB17)
+        if made != shipped:
+            import wincompat                            # Windows: equal but for the pinned glyph (wincompat)
+            if not wincompat.render_matches(made, shipped, "GBATB17.SVF"):
+                fails.append("pin: %s is not byte-equal to svf/dos/GBATB17.SVF" % FACES["gowun"])
     except OSError as exc:
         fails.append("pin: %s: %s" % (FACES["gowun"], exc))
     for key, rel in sorted(FACES.items()):
@@ -379,7 +393,7 @@ def check(sample, out_dir, job, same_as=None, notes=None):
     notes = notes if notes is not None else []
     fails = []
     scratch = os.path.join(os.path.dirname(out_dir), "check")
-    shutil.rmtree(scratch, ignore_errors=True)
+    _remove_tree(scratch)
     os.makedirs(scratch)
     saved = sys.dont_write_bytecode                  # merge_check imports web/mkindex.py in-process
     sys.dont_write_bytecode = True
@@ -404,7 +418,7 @@ def check(sample, out_dir, job, same_as=None, notes=None):
                 fails.append("%s: %s: %s" % (name, type(exc).__name__, first))
     finally:
         sys.dont_write_bytecode = saved
-        shutil.rmtree(scratch, ignore_errors=True)
+        _remove_tree(scratch)
     return fails
 
 

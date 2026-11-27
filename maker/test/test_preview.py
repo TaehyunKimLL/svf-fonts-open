@@ -28,6 +28,7 @@ import fixtures
 import preview
 import svfline
 import toolrun
+import wincompat
 
 SVF = os.path.join(REPO_DIR, "svf")
 TOOLS = os.path.join(fixtures.REPO_DIR, "tools")
@@ -162,13 +163,32 @@ def hostile_notdef_ttf(path):
 
 
 def rss_kb():
-    """This process's resident set in KiB, so a test can tell that a huge allocation never happened."""
+    """This process's resident set in KiB, so a test can tell that a huge allocation never happened (Windows: the
+    working set, GetProcessMemoryInfo)."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+                (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                                               "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                                               "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+        c = Counters()
+        c.cb = ctypes.sizeof(c)
+        psapi = ctypes.WinDLL("psapi")
+        psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(c), c.cb):
+            raise OSError("GetProcessMemoryInfo failed")
+        return c.WorkingSetSize // 1024
     with open("/proc/self/statm") as f:
         pages = int(f.read().split()[1])
     return pages * (os.sysconf("SC_PAGE_SIZE") // 1024)
 
 
-class RunBoundedTest(unittest.TestCase):
+class RunBoundedTest(wincompat.SlashEqual, unittest.TestCase):
     def test_env_from_base_env(self):
         self.assertEqual(preview.ENV, toolrun.base_env(os.environ))
 
@@ -232,7 +252,7 @@ class RunBoundedTest(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout.strip()), (3, b"hi"))
 
 
-class PreviewTest(unittest.TestCase):
+class PreviewTest(wincompat.SlashEqual, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         global ROOT, GZ_DIR, F, GZ, FONT_DOS, FONT_TTF, FONT_ISO, FONT_KSC, FONT_JOHAB, FONT_SVF_PRE, FONT_JAMO, FONT_HBF, FONT_FNT
@@ -407,6 +427,8 @@ class PreviewTest(unittest.TestCase):
         shutil.copyfile(F["svf_pre"], same)
         self.assertFalse(preview.bake_source_face(FONT_SVF_PRE, same, None, None, same, TOOLS))
         self.assertEqual(read(same), read(F["svf_pre"]))
+        if wincompat.WIN:                                                   # no mode-000 file there
+            return
         locked = os.path.join(self.d, "LOCKED.SVF")                         # an unreadable source is False, not an OSError
         shutil.copyfile(F["svf_pre"], locked)
         os.chmod(locked, 0)

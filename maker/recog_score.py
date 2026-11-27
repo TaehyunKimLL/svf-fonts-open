@@ -257,7 +257,7 @@ def main(argv=None):
         except Exception as e:  # noqa: BLE001 - not the recogniser: a missing library or a bug here
             print("recog_score: %s: %s" % (type(e).__name__, e), file=sys.stderr)
             return 1
-    with open(args.output, "w", encoding="utf-8") as f:
+    with open(args.output, "w", encoding="utf-8", newline="\n") as f:
         json.dump(out, f, ensure_ascii=False, allow_nan=False)
         f.write("\n")
     return 0

@@ -1123,7 +1123,7 @@ def main(argv=None):
         _, rep = analyse(fb, ht, log)
         s = json.dumps(rep, ensure_ascii=False, indent=1)
         if args.out:
-            open(args.out, "w").write(s + "\n")
+            open(args.out, "w", newline="\n").write(s + "\n")
         print(s)
         return 0
     fb, ht = load(args.fbit, args.htbl)
@@ -1202,7 +1202,7 @@ def main(argv=None):
                     "verify": {k: (len(x) if isinstance(x, list) else x) for k, x in r.items()}})
         s = json.dumps(rep, ensure_ascii=False, indent=1)
         if args.report:
-            open(args.report, "w").write(s + "\n")
+            open(args.report, "w", newline="\n").write(s + "\n")
         print(s)
         return 0 if not (r["ks_bad"] or r["compat_bad"]) else 1
     data, parts = write_face(bld, latin, args.jset_version, jset_big=args.jset_big)
@@ -1222,7 +1222,7 @@ def main(argv=None):
         rep["sheets"] = sheets(data, bld, args.sheets, args.name or os.path.splitext(os.path.basename(args.out))[0])
     s = json.dumps(rep, ensure_ascii=False, indent=1)
     if args.report:
-        open(args.report, "w").write(s + "\n")
+        open(args.report, "w", newline="\n").write(s + "\n")
     print(s)
     return 0 if not any(r.values()) else 1
 

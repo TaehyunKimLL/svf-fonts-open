@@ -40,6 +40,7 @@ import caps
 import detect
 import jobs
 import naming
+import oscompat
 import preview
 import routes
 import settings
@@ -175,7 +176,9 @@ def _count_dir(root):
     """
     count = 0
     total = 0
-    for dirpath, _dirs, names in os.walk(root):
+    for dirpath, dirs, names in os.walk(root):
+        if oscompat.WINDOWS:                              # a junction is a directory to os.walk there: never entered
+            dirs[:] = [d for d in dirs if not oscompat.islink(os.path.join(dirpath, d))]
         for name in names:
             if name.startswith(UPLOAD_TMP):
                 continue
@@ -300,11 +303,11 @@ def _remove_preview(store, job, font_id):
     """Remove every derived preview file of @p font_id of @p job (the loaded job); the caller holds that font's
     preview lock (W2)."""
     for path in _preview_glob(store, job, font_id):
-        if os.path.isdir(path) and not os.path.islink(path):
+        if os.path.isdir(path) and not oscompat.islink(path):
             shutil.rmtree(path, ignore_errors=True)
         else:
             try:
-                os.remove(path)
+                oscompat.retry_sharing(os.remove, path)   # Windows: a request still sending it holds it open a moment
             except OSError:
                 pass
 
@@ -495,13 +498,12 @@ class DataRootBusyError(LocalModeError):
 
 
 def _lock_data_root(root):
-    """An exclusive, non-blocking `flock` on `<root>/instance.lock`, held until the server closes; the fd is returned.
-    `DataRootBusyError` when another process (or server object) holds it."""
-    import fcntl
+    """An exclusive, non-blocking `flock` on `<root>/instance.lock` (Windows: `msvcrt.locking`, `oscompat.lock`), held
+    until the server closes; the fd is returned. `DataRootBusyError` when another process (or server object) holds it."""
     os.makedirs(root, mode=0o700, exist_ok=True)
     fd = os.open(os.path.join(root, "instance.lock"), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        oscompat.lock(fd, blocking=False)
     except OSError:
         os.close(fd)
         raise DataRootBusyError("another svf-maker server is using this data root")
@@ -1100,7 +1102,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         files directory and Python writes no bytecode beside the tools. None (the default environment) for an upload."""
         if job.get("source") != "local":
             return None
-        return dict(preview.ENV, TMPDIR=os.path.join(self.server.store.files_dir(job), "work", "tmp"),
+        return dict(preview.ENV, **oscompat.tmp_env(os.path.join(self.server.store.files_dir(job), "work", "tmp")),
                     PYTHONDONTWRITEBYTECODE="1")
 
     MAX_SOURCE_PATHS = 64
@@ -1314,7 +1316,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         dest = os.path.join(upload_dir, rel)
         if not _inside(upload_dir, dest):
             raise _HttpError(400, "path escapes the upload")
-        if os.path.isdir(dest) and not os.path.islink(dest):
+        if os.path.isdir(dest) and not oscompat.islink(dest):
             raise _HttpError(400, "path is a directory")
         self._begin_upload(job)                           # `detect` refuses while this request is open (Y3)
         try:
@@ -1332,7 +1334,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if current.get("state") not in ("uploading", "detected"):
                     raise _HttpError(409, "job %s is %s" % (job, current.get("state")))
                 try:
-                    os.replace(out["tmp"], dest)                  # the body lands only under this lock (W1)
+                    oscompat.replace(out["tmp"], dest)                  # the body lands only under this lock (W1)
                 except OSError as exc:
                     raise _HttpError(400, _os_reason(exc))
                 release()                                         # reserved bytes become the real ones
@@ -1423,7 +1425,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """
         unpack_dir = dest + ".d"
         try:
-            if os.path.islink(unpack_dir):                    # a fresh `<name>.d/`: never unpack through a link
+            if oscompat.islink(unpack_dir):                    # a fresh `<name>.d/`: never unpack through a link
                 os.remove(unpack_dir)
             elif os.path.isdir(unpack_dir):
                 shutil.rmtree(unpack_dir, ignore_errors=True)
@@ -1866,7 +1868,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             same = sourcesmod.stat_id(out) == tuple(current.get("output_id") or ())
         except OSError:
             same = False
-        if not same or not _inside(out, path) or not os.path.isfile(path) or os.path.islink(path):
+        if not same or not _inside(out, path) or not os.path.isfile(path) or oscompat.islink(path):
             raise _HttpError(404, message)
         return path
 
@@ -2032,7 +2034,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             continue
                         path = os.path.join(font_dir, name)
                         try:
-                            if os.path.isdir(path) and not os.path.islink(path):
+                            if os.path.isdir(path) and not oscompat.islink(path):
                                 shutil.rmtree(path)
                             else:
                                 os.remove(path)
@@ -2247,10 +2249,22 @@ def _detach_stdio():
 
 
 PARENT_POLL_S = 2.0
+_parent_gone = []                                         # Windows: set by the watch (getppid() never changes there)
+
+
+def _parent_died():
+    """The parent is gone: detach stdio and stop as SIGTERM would (`oscompat.request_stop`)."""
+    _parent_gone.append(True)
+    _detach_stdio()
+    oscompat.request_stop()
 
 
 def _watch_parent(pid):
-    """Daemon thread: when the parent is no longer @p pid (the shell died), detach stdio and raise SIGTERM."""
+    """Daemon thread: when the parent is no longer @p pid (the shell died), detach stdio and raise SIGTERM. Windows:
+    `os.getppid()` keeps the creator's pid after it exits, so the parent's process handle is waited on instead."""
+    if oscompat.WINDOWS:
+        oscompat.watch_process(pid, _parent_died, name="svf-maker-parent-wait").join()
+        return
     while True:
         time.sleep(PARENT_POLL_S)
         if os.getppid() != pid:
@@ -2264,7 +2278,17 @@ def _parse_args(argv):
     parser = argparse.ArgumentParser(prog="server.py", description="The SVF maker server (environment: SVF_MAKER_*).")
     parser.add_argument("--exit-with-parent", type=int, default=None, metavar="PID",
                         help="stop when the parent process is no longer PID (the shell passes its own pid)")
+    parser.add_argument("--stop-on-eof", action="store_true",
+                        help="stop cleanly when stdin reaches end of file (the Windows shell closes its end of the pipe "
+                             "to ask for a stop: Windows has no SIGTERM)")
     return parser.parse_args(argv)
+
+
+def _watch_stdin():
+    """Daemon thread (`--stop-on-eof`): wait until stdin reaches end of file (`oscompat.wait_stdin_eof`), then stop as
+    SIGTERM would."""
+    oscompat.wait_stdin_eof()
+    oscompat.request_stop()
 
 
 def main(argv=None):
@@ -2276,20 +2300,30 @@ def main(argv=None):
         if stopping:                                      # a second signal while the first is being handled: ignore
             return
         stopping.append(signum)
-        if parent is not None and os.getppid() != parent:
+        if parent is not None and (os.getppid() != parent or _parent_gone):
             _detach_stdio()
         raise KeyboardInterrupt
     # from the first line: a signal during the start-up probe or cleanup must not take the default action
     signal.signal(signal.SIGTERM, terminate)
     signal.signal(signal.SIGINT, terminate)               # also when the parent started us with SIGINT ignored (a background job)
     server = None
+    if oscompat.WINDOWS:
+        # a bare program name (git) is never looked up in the current folder first (CreateProcess, shutil.which)
+        os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
+        try:
+            oscompat.contain_children()                   # every child dies with this process, even one not yet in its job
+        except OSError as exc:
+            # fail closed: oscompat.popen_group now refuses every tool, so each job fails with that reason
+            print("svf-maker: no job object for the sidecar (%s): tool runs are refused" % exc, file=sys.stderr, flush=True)
     try:
         if parent is not None:                            # inside the try: a parent that is already gone (or dies here)
             toolrun.set_pdeathsig(signal.SIGTERM)         # Linux: at once; the poll below is the portable layer
             threading.Thread(target=_watch_parent, args=(parent,), daemon=True, name="svf-maker-parent-watch").start()
             if os.getppid() != parent:                    # the parent may be gone already: stop through the handler
                 _detach_stdio()
-                os.kill(os.getpid(), signal.SIGTERM)
+                oscompat.request_stop()
+        if args.stop_on_eof:
+            threading.Thread(target=_watch_stdin, daemon=True, name="svf-maker-stdin-watch").start()
         repo_dir = os.environ.get("SVF_MAKER_REPO") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         data_root = os.environ.get("SVF_MAKER_DATA") or os.path.expanduser("~/.local/share/svf-maker")
         bind = os.environ.get("SVF_MAKER_BIND") or "127.0.0.1:8766"

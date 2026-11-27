@@ -6,13 +6,15 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
+// Windows: the native form gives the on-disk case and long names, as the sidecar's realpath does (GetFinalPathNameByHandle)
+const realpathOf = process.platform === 'win32' ? fs.realpathSync.native : fs.realpathSync;
 const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require('electron');
 
 const { createSupervisor } = require('./lib/supervisor.js');
 const { isOurs, withToken } = require('./lib/guard.js');
 const budget = require('./lib/budget.js');
 const { restartAllowed } = require('./lib/restart.js');
-const { readSandbox, sandboxText } = require('./lib/sandbox.js');
+const { readSandbox, sandboxText, metricSandboxText } = require('./lib/sandbox.js');
 const { resolveLaunch } = require('./lib/paths.js');
 const { createLog, pathsLine, redactLine } = require('./lib/log.js');
 const { loadState, saveState } = require('./lib/state.js');
@@ -178,7 +180,7 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
       if (r.canceled || !r.filePaths.length) { log.line(pathsLine('pick-output-dir', [])); return null; }
       const picked = r.filePaths[0];
       let real = picked;
-      try { real = fs.realpathSync(picked); } catch (e) { /* keep as given */ }
+      try { real = realpathOf(picked); } catch (e) { /* keep as given */ }
       state.lastOutputDir = picked;
       state.handedOut = state.handedOut.filter((p) => p !== real).concat([real]).slice(-32);
       saveSoon();
@@ -194,7 +196,7 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
         if (res.ok) outputDir = (await res.json()).output_dir;
       } catch (e) { /* refused below */ }
       let real = null;
-      try { real = outputDir ? fs.realpathSync(outputDir) : null; } catch (e) { real = null; }
+      try { real = outputDir ? realpathOf(outputDir) : null; } catch (e) { real = null; }
       if (real && state.handedOut.includes(real)) { shell.showItemInFolder(outputDir); log.line('open-output: ok'); } else log.line('open-output: refused');
     },
   };
@@ -210,7 +212,8 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
   const zoom = (delta) => { state.zoom = Math.min(3, Math.max(0.5, Math.round((win.webContents.getZoomFactor() + delta) * 100) / 100)); win.webContents.setZoomFactor(state.zoom); saveSoon(); };
   const sidecarVersion = () => {                         // the packaged sidecar reports its own version and Python
     if (launch.mode !== 'packaged') return '';
-    try { return String(spawnSync(launch.cmd, ['--version'], { timeout: 5000, env: { PATH: '' } }).stdout || '').trim(); } catch (e) { return ''; }
+    const env = process.platform === 'win32' ? { PATH: '', SYSTEMROOT: process.env.SYSTEMROOT || '' } : { PATH: '' };
+    try { return String(spawnSync(launch.cmd, ['--version'], { timeout: 5000, env, windowsHide: true }).stdout || '').trim(); } catch (e) { return ''; }
   };
   const about = async () => {
     const buildId = (() => { try { return fs.readFileSync(path.join(launch.repo, 'BUILD_ID'), 'utf8').split('\n')[0]; } catch (e) { return 'unknown'; } })();
@@ -275,17 +278,23 @@ async function start({ smoke, resourcesPath, env, userData, quitOnClose = true, 
   }
 
   // the renderer's sandbox state, once, for the log and About
-  const userns = (() => { try { const r = spawnSync('unshare', ['-Ur', 'true'], { timeout: 5000 }); return r.error ? 'unknown' : (r.status === 0 ? 'available' : 'unavailable'); } catch (e) { return 'unknown'; } })();
   const noSandboxSwitch = process.argv.includes('--no-sandbox');
-  handle.sandboxLine = sandboxText(readSandbox(win.webContents.getOSProcessId()), { noSandboxSwitch, userns });
+  if (process.platform === 'linux') {
+    const userns = (() => { try { const r = spawnSync('unshare', ['-Ur', 'true'], { timeout: 5000 }); return r.error ? 'unknown' : (r.status === 0 ? 'available' : 'unavailable'); } catch (e) { return 'unknown'; } })();
+    handle.sandboxLine = sandboxText(readSandbox(win.webContents.getOSProcessId()), { noSandboxSwitch, userns });
+  } else {                                                 // Windows / macOS: no /proc; Electron reports it there
+    const rpid = win.webContents.getOSProcessId();
+    handle.sandboxLine = metricSandboxText(app.getAppMetrics().find((m) => m.pid === rpid), { noSandboxSwitch });
+  }
   log.line('sandbox ' + handle.sandboxLine);
 
   if (smoke) {
     try {
       const status = await win.webContents.executeJavaScript("fetch('/api/caps').then((r) => r.status)");
-      if (status === 200) process.stdout.write('svf-maker smoke ok ' + win.webContents.getTitle() + '\n');
-      else process.stdout.write('svf-maker smoke FAIL status ' + status + '\n');
-    } catch (e) { process.stdout.write('svf-maker smoke FAIL ' + e.message + '\n'); }
+      const verdict = status === 200 ? 'svf-maker smoke ok ' + win.webContents.getTitle() : 'svf-maker smoke FAIL status ' + status;
+      process.stdout.write(verdict + '\n');
+      log.line(verdict);                                  // also in shell.log: a Windows GUI process's stdout is often lost
+    } catch (e) { process.stdout.write('svf-maker smoke FAIL ' + e.message + '\n'); log.line('svf-maker smoke FAIL ' + e.message); }
     win.close();
   }
   return handle;

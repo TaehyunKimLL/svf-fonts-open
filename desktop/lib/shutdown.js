@@ -1,6 +1,9 @@
 'use strict';
 // SIGTERM the sidecar's group, wait, then SIGKILL it and wait again. Resolves {code, signal, escalated}.
-function stopSidecar(child, { termWaitS, killWaitS, kill = process.kill }) {
+// Windows (t_9b8f56f0) has no signals: the clean stop is the end of the sidecar's stdin (it runs with --stop-on-eof and
+// stops as on SIGTERM), the escalation is child.kill() (TerminateProcess). The sidecar's tools sit in Job Objects that
+// close with it, so they go with it.
+function stopSidecar(child, { termWaitS, killWaitS, kill = process.kill, platform = process.platform }) {
   return new Promise((resolve) => {
     if (!child.pid) {                                      // never spawned (ENOENT, EACCES): nothing to signal
       resolve({ code: null, signal: null, escalated: false });
@@ -20,9 +23,14 @@ function stopSidecar(child, { termWaitS, killWaitS, kill = process.kill }) {
       resolve({ code, signal, escalated });
     };
     child.once('exit', finish);
-    const send = (sig) => {
-      try { kill(-child.pid, sig); } catch (e) { if (e.code !== 'ESRCH') throw e; }
-    };
+    const send = platform === 'win32'
+      ? (sig) => {
+        if (sig === 'SIGTERM') { try { if (child.stdin && !child.stdin.destroyed) child.stdin.end(); } catch (e) { /* closed already */ } }
+        else { try { child.kill('SIGKILL'); } catch (e) { /* gone */ } }
+      }
+      : (sig) => {
+        try { kill(-child.pid, sig); } catch (e) { if (e.code !== 'ESRCH') throw e; }
+      };
     send('SIGTERM');
     timers.push(setTimeout(() => {
       escalated = true;

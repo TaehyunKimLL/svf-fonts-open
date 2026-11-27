@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""sidecar-provenance.py WORKPATH OUT.json [--pysite DIR]: where every binary PyInstaller collected came from.
+"""sidecar-provenance.py WORKPATH OUT.json [--pysite DIR] [--fetched DIR]: where every binary PyInstaller collected
+came from (--fetched: the folder of a pinned download, Windows' FriBiDi DLL).
 
 Reads `WORKPATH/COLLECT-00.toc` (the table of contents PyInstaller wrote while building) and writes, for every binary
 entry (an extension module or a shared library), `{dest: {"source", "sha256", "origin": "wheel" | "dpkg" | "python",
@@ -12,6 +13,7 @@ import glob
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -28,9 +30,13 @@ def wheel_owner(source, pysite):
     """(distribution, version) of the wheel under @p pysite that lists @p source in its RECORD, else None."""
     if not pysite:
         return None
-    rel = os.path.relpath(os.path.realpath(source), os.path.realpath(pysite))
+    try:
+        rel = os.path.relpath(os.path.realpath(source), os.path.realpath(pysite))
+    except ValueError:                                   # Windows: another drive is never under the wheels' folder
+        return None
     if rel.startswith(".."):
         return None
+    rel = rel.replace(os.sep, "/")                       # RECORD lists "/"-separated paths
     for record in glob.glob(os.path.join(pysite, "*.dist-info", "RECORD")):
         with open(record, encoding="utf-8") as f:
             if any(line.split(",", 1)[0] == rel for line in f):
@@ -40,7 +46,10 @@ def wheel_owner(source, pysite):
 
 
 def dpkg_owner(source):
-    """(package, version) that owns @p source (or its real path) per dpkg, else None."""
+    """(package, version) that owns @p source (or its real path) per dpkg, else None (always None without dpkg: the
+    Windows build, where every non-wheel binary is the python.org interpreter's own)."""
+    if shutil.which("dpkg") is None:
+        return None
     for path in dict.fromkeys([source, os.path.realpath(source)]):
         out = subprocess.run(["dpkg", "-S", path], capture_output=True, text=True)
         if out.returncode == 0 and out.stdout.strip():
@@ -57,18 +66,21 @@ def main(argv):
         return 2
     work, out = argv[0], argv[1]
     pysite = argv[argv.index("--pysite") + 1] if "--pysite" in argv else None
+    fetched = argv[argv.index("--fetched") + 1] if "--fetched" in argv else None   # Windows: the FriBiDi DLL's folder
     with open(os.path.join(work, "COLLECT-00.toc"), encoding="utf-8") as f:
         toc = ast.literal_eval(f.read())
     entries = toc[0] if isinstance(toc, tuple) and toc and isinstance(toc[0], list) else toc
     result = {}
     for item in entries:
-        dest, source, kind = item[0], item[1], item[2]
+        dest, source, kind = item[0].replace(os.sep, "/"), item[1], item[2]    # Windows: the bundle's paths with "/"
         if kind not in ("BINARY", "EXTENSION") and not re.search(r"\.so(\.|$)", os.path.basename(dest)):
             continue
         if not os.path.isfile(source):
             continue
         owner = wheel_owner(source, pysite)
-        if owner:
+        if fetched and os.path.dirname(os.path.realpath(source)) == os.path.realpath(fetched):
+            record = {"origin": "fetched", "package": os.path.basename(source), "version": "pinned"}
+        elif owner:
             record = {"origin": "wheel", "package": owner[0], "version": owner[1]}
         else:
             deb = dpkg_owner(source)

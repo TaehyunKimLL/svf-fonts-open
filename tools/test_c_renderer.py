@@ -42,6 +42,9 @@ def build():
     """Build c/ once into a temp dir; returns {'svfdump': path, 'svfdump-asan': path} or raises SkipTest."""
     if "dir" in _build:
         return _build
+    if os.name == "nt":
+        raise unittest.SkipTest("POSIX only: the C renderer's host build (make, gcc with the address and undefined "
+                                "sanitizers, POSIX executables); on Windows the renderer runs as the maker's WASM module")
     cc = os.environ.get("CC") or shutil.which("cc") or shutil.which("gcc")
     if not cc or not shutil.which("make"):
         raise unittest.SkipTest("no C compiler or make on this host: the C renderer tests are skipped")
@@ -4111,6 +4114,7 @@ VESA_CHECK = os.path.join(C_DIR, "ports", "dos", "vesa_check.py")
 VESA_SHOTS = os.path.join(C_DIR, "ports", "dos", "vesa-shots.sh")
 
 
+@unittest.skipIf(os.name == "nt", "POSIX only: the C bench and VESA shell scripts (bash, make, process groups)")
 class TestVesaCheck(unittest.TestCase):
     """The capture check on synthetic 64 x 8 dumps: the exact rule, derived rules, and the faults it must refuse.
     Exit codes: 0 ok, 1 a check failed, 2 unusable input (no traceback ever)."""
@@ -4544,6 +4548,7 @@ class TestProcSession(unittest.TestCase):
             self.assertIsNone(proc_session(bad), bad)
 
 
+@unittest.skipIf(os.name == "nt", "POSIX only: the C bench and VESA shell scripts (bash, make, process groups)")
 class TestVesaShotsRun(unittest.TestCase):
     """vesa-shots.sh against a fake emulator and a fake xdotool (VESA_SHOTS_NO_BUILD skips the DJGPP build): the
     failure paths of the run, each ending with exit 1, no `OK` line, nothing running."""
@@ -4772,6 +4777,7 @@ exit 0
 BENCH_DIR = os.path.join(C_DIR, "bench")
 
 
+@unittest.skipIf(os.name == "nt", "POSIX only: the C bench and VESA shell scripts (bash, make, process groups)")
 class TestBenchScripts(unittest.TestCase):
     """c/bench/run-host.sh keeps the bench's exit status; run-dos.sh checks OUT before it deletes anything."""
 
@@ -6723,6 +6729,7 @@ def bench_sums():
     return out
 
 
+@unittest.skipIf(os.name == "nt", "POSIX only: the C bench and VESA shell scripts (bash, make, process groups)")
 class TestBenchSums(unittest.TestCase):
     """c/bench/bench.c on the host agrees with sums.py (tools/svfline.py) and with the constants sums.inc.sh holds (run-pico.sh and run-esp32.sh source it);
     report.awk refuses a run whose case set or instruction counts are wrong."""

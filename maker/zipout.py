@@ -33,6 +33,7 @@ import sys
 import zipfile
 
 import naming
+import oscompat
 import presets
 import settings
 import toolrun
@@ -83,7 +84,7 @@ class NoteRefused(ValueError):
 
 def append_log(job_dir, text):
     """Append @p text to `<job_dir>/log.md` (UTF-8), creating it when it is not there yet."""
-    with open(os.path.join(job_dir, "log.md"), "a", encoding="utf-8") as f:
+    with open(os.path.join(job_dir, "log.md"), "a", encoding="utf-8", newline="\n") as f:
         f.write(text)
 
 
@@ -485,7 +486,7 @@ def note_commands(steps, font, sources=None, files_dir=None, tools_dir=None, rep
 def _johab844_comment(rest):
     """The note line before a johab844 command: its Hangul are redrawn on the repository's base face, the Latin and
     symbols stay the base's unless an English font is named, and the batch's chosen range does not apply."""
-    base = rest[1] if len(rest) > 1 else "svf/dos/NEODG16.SVF"
+    base = (rest[1] if len(rest) > 1 else "svf/dos/NEODG16.SVF").replace(os.sep, "/")   # Windows: "\\" too
     base = base[base.rfind("svf/"):] if "svf/" in base else os.path.basename(base)
     text = "# johab844: Hangul redrawn on the base face %s (OFL); the chosen range is ignored" % base
     if "--eng" in rest and rest.index("--eng") + 1 < len(rest):
@@ -768,7 +769,7 @@ def _archive(job_dir, job_id, entries, sidecar, result):
                 info = zipfile.ZipInfo(name, ZIP_TIME)
                 info.compress_type = zipfile.ZIP_DEFLATED
                 z.writestr(info, data)
-        os.replace(tmp, final)
+        oscompat.replace(tmp, final)
     except BaseException:
         try:
             os.remove(tmp)
@@ -786,14 +787,50 @@ _DETECT_BLOCK = re.compile(r"## Detection error: ([^\n]*)\n.*?## End detection e
 _NO_LINK_ERRNOS = (errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.ENOSYS, errno.EMLINK)
 
 
+# Windows winerrors meaning "no hard links here" (FAT/exFAT, many SMB shares): ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED,
+# ERROR_TOO_MANY_LINKS, ERROR_INVALID_PARAMETER
+_NO_LINK_WINERRORS = (1, 50, 1142, 87)
+
+
+def _at(dir_fd, name):
+    """Windows: the path of @p name in the held folder @p dir_fd (`_WinOutputTree` hands out folder paths, not
+    descriptors); POSIX: @p name itself (the calls take `dir_fd`)."""
+    return os.path.join(dir_fd, name) if oscompat.WINDOWS and dir_fd is not None else name
+
+
+def _fd_kw(dir_fd):
+    return {} if oscompat.WINDOWS else {"dir_fd": dir_fd}
+
+
+class _HeldPath(str):
+    """Windows: a held folder's path (what `_at` joins names onto) that also carries the held descriptor (`fd`), so a
+    file is opened or made relative to the held handle, never by a path through the folder."""
+
+    def __new__(cls, path, fd):
+        self = str.__new__(cls, path)
+        self.fd = fd
+        return self
+
+
+def _open_in(dir_fd, name, flags, mode=0o777):
+    """`oscompat.open_nofollow` of @p name in the folder @p dir_fd (POSIX `dir_fd`; Windows relative to the held handle
+    of a `_HeldPath`, a plain path otherwise)."""
+    if oscompat.WINDOWS:
+        held = getattr(dir_fd, "fd", None)
+        if held is not None:
+            return oscompat.open_nofollow(name, flags, mode, dir_fd=held)
+    return oscompat.open_nofollow(_at(dir_fd, name), flags, mode, **_fd_kw(dir_fd))
+
+
 def _sha_of_file(path, dir_fd=None):
     """The sha256 hex digest of the regular file @p path (relative to @p dir_fd when given), or None when it is absent,
-    not a regular file or unreadable. A link is never followed."""
+    not a regular file or unreadable. A link is never followed (Windows: `oscompat.open_nofollow`'s identity check)."""
     try:
-        if not stat.S_ISREG(os.lstat(path, dir_fd=dir_fd).st_mode):
+        st = os.lstat(_at(dir_fd, path), **_fd_kw(dir_fd))
+        if not stat.S_ISREG(st.st_mode) or oscompat.is_link(st):
             return None
         digest = hashlib.sha256()
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        fd = _open_in(dir_fd, path, os.O_RDONLY)
         with os.fdopen(fd, "rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 digest.update(chunk)
@@ -900,6 +937,105 @@ class _OutputTree:
             pass
 
 
+class _WinOutputTree:
+    """The Windows form of `_OutputTree` (no `dir_fd`, no `O_NOFOLLOW` there).
+
+    The output folder is held open with `oscompat.hold_dir`, and every folder below it that the write goes through is
+    made and held relative to its parent's held handle with `oscompat.hold_dir_at` (`mkdirat` + `openat` in one call,
+    no path walked): a handle that does not follow a reparse point and does not share delete access, so while the write
+    runs none of them (and, on NTFS, no folder above them) can be renamed, removed or replaced. A symlink or a junction
+    is refused (`TreeRefused`), and the recorded path must name that same held folder
+    (volume serial + file index). `check()` and `verify()` re-prove the recorded path -> folder identities exactly as
+    the POSIX class does, before each folder creation and around each landing, and also that no held folder has been
+    turned into a junction in place. `dir()` returns the folder's path as a `_HeldPath`: files are made and read
+    relative to its held handle (`_open_in`); renames, links and removals join names onto the path (`_at`)."""
+
+    def __init__(self, output_dir, output_id):
+        self.output_dir = output_dir
+        self.output_id = tuple(output_id)
+        self._dirs = {}                                    # rel path -> held descriptor
+        self._paths = {}                                   # rel path -> its path (a _HeldPath)
+        try:
+            self.root = oscompat.hold_dir(output_dir)
+        except OSError:
+            raise OutputGone("output folder is gone or changed")
+        try:
+            self.check()
+        except BaseException:
+            os.close(self.root)
+            raise
+
+    def check(self):
+        try:
+            held = os.fstat(self.root)
+            here = os.stat(self.output_dir)
+            turned = oscompat.fd_is_link(self.root)
+        except OSError:
+            raise OutputGone("output folder is gone or changed")
+        if turned or (here.st_dev, here.st_ino) != self.output_id or (held.st_dev, held.st_ino) != self.output_id:
+            raise OutputGone("output folder is gone or changed")
+
+    def verify(self, rel_dir):
+        walked = ""
+        for part in rel_dir.split("/"):
+            walked = walked + "/" + part if walked else part
+            try:
+                here = os.lstat(self._paths[walked])
+                held = os.fstat(self._dirs[walked])
+                turned = oscompat.fd_is_link(self._dirs[walked])
+            except OSError:
+                raise OutputGone("output folder is gone or changed")
+            if (turned or oscompat.is_link(here) or not stat.S_ISDIR(here.st_mode)
+                    or (here.st_dev, here.st_ino) != (held.st_dev, held.st_ino)):
+                raise OutputGone("output folder is gone or changed")
+
+    def dir(self, rel_dir):
+        """The folder @p rel_dir below the output folder (made as needed), held, never through a link: its path as a
+        `_HeldPath` carrying the held descriptor."""
+        if rel_dir in self._paths:
+            return self._paths[rel_dir]
+        current, parent_fd, walked = self.output_dir, self.root, ""
+        for part in rel_dir.split("/"):
+            walked = walked + "/" + part if walked else part
+            if walked in self._paths:
+                current, parent_fd = self._paths[walked], self._dirs[walked]
+                continue
+            if oscompat.windows_unsafe_name(part):
+                raise TreeRefused("%s is not a name Windows can hold: refusing to write it" % walked)
+            self.check()                                   # never make a folder in a folder that went away
+            try:
+                fd = oscompat.hold_dir_at(parent_fd, part)
+            except OSError as exc:
+                if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                    raise TreeRefused("%s is a symlink or not a folder: refusing to write through it" % walked)
+                raise
+            path = os.path.join(current, part)
+            try:
+                st = os.lstat(path)
+                held = os.fstat(fd)
+            except OSError:
+                os.close(fd)
+                raise OutputGone("output folder is gone or changed")
+            if (oscompat.is_link(st) or not stat.S_ISDIR(st.st_mode)
+                    or (held.st_dev, held.st_ino) != (st.st_dev, st.st_ino)):
+                os.close(fd)
+                raise TreeRefused("%s changed while it was opened: refusing to write through it" % walked)
+            self._dirs[walked] = parent_fd = fd
+            self._paths[walked] = current = _HeldPath(path, fd)
+        return current
+
+    def close(self):
+        for fd in self._dirs.values():
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        try:
+            os.close(self.root)
+        except OSError:
+            pass
+
+
 def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
     """Land @p entries (`svf/<dest>/<NAME>` -> bytes) and the @p sidecar files into @p output_dir; return the
     output-relative paths that landed.
@@ -915,7 +1051,7 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
     called as each file lands, so a partial landing is owned too. On an exception the temp files are removed and the
     paths that landed are attached as `.landed`.
     """
-    tree = _OutputTree(output_dir, output_id)
+    tree = (_WinOutputTree if oscompat.WINDOWS else _OutputTree)(output_dir, output_id)
     prefix = "build-%s/" % job["id"]
     items = [(rel, data, False) for rel, data in entries.items()] + [(prefix + n, d, True) for n, d in sidecar]
     landed, tmps = [], []
@@ -924,28 +1060,31 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
             _check_entry_path(rel)
             tree.check()
             rel_dir, _, name = rel.rpartition("/")
+            if oscompat.WINDOWS and oscompat.windows_unsafe_name(name):
+                raise TreeRefused("%s is not a name Windows can hold: refusing to write it" % rel)
             dfd = tree.dir(rel_dir)
             tmp = "%s.%s.tmp" % (name, secrets.token_hex(4))     # never a name the user may already have
-            fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o644, dir_fd=dfd)
+            fd = _open_in(dfd, tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
             tmps.append((dfd, tmp))
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
                 f.flush()
-                try:
-                    os.fchmod(f.fileno(), 0o644)
-                except OSError:
-                    pass                                     # FAT/exFAT cannot hold a mode: the file is still good
+                if hasattr(os, "fchmod"):                    # Windows (Python 3.12) has none: no mode to set there
+                    try:
+                        os.fchmod(f.fileno(), 0o644)
+                    except OSError:
+                        pass                                 # FAT/exFAT cannot hold a mode: the file is still good
                 os.fsync(f.fileno())
             digest = hashlib.sha256(data).hexdigest()
             tree.check()
             tree.verify(rel_dir)
             if always:
-                os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+                _replace_in(dfd, tmp, name)
             elif rel in owned:
                 current = _sha_of_file(name, dfd)
                 if current is not None and current != owned[rel]:
                     raise NameClash(job["id"], rel)
-                os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+                _replace_in(dfd, tmp, name)
             else:
                 _land_new(dfd, tmp, name, rel, digest, job["id"])
             try:
@@ -953,7 +1092,7 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
                 tree.verify(rel_dir)                           # still where the path says, after the landing too
             except OutputGone:
                 try:
-                    os.remove(name, dir_fd=dfd)                # take back what was just placed (through the same descriptor)
+                    _remove_in(dfd, name)                      # take back what was just placed (through the same descriptor)
                 except OSError:
                     pass
                 raise
@@ -965,36 +1104,84 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
     finally:
         for dfd, tmp in tmps:
             try:
-                os.remove(tmp, dir_fd=dfd)
+                _remove_in(dfd, tmp)
             except OSError:
                 pass
         tree.close()
     return landed
 
 
+def _not_turned(dfd):
+    """Windows: `OSError` (`ELOOP`) when the held folder @p dfd has been turned into a junction in place: nothing is
+    renamed, linked or removed in it then (the relative calls would not go through it either; this says so first)."""
+    if oscompat.fd_is_link(dfd.fd):
+        raise OSError(errno.ELOOP, "the folder became a link", str(dfd))
+
+
+def _replace_in(dfd, src, dst):
+    """`os.replace` of @p src by @p dst, both in the folder @p dfd."""
+    if oscompat.WINDOWS:                                   # retried while a reader has the old file open
+        if getattr(dfd, "fd", None) is not None:           # relative to the held handle, never by a path through it
+            _not_turned(dfd)
+            oscompat.retry_sharing(oscompat.rename_at, dfd.fd, src, dst)
+        else:
+            oscompat.replace(_at(dfd, src), _at(dfd, dst))
+    else:
+        os.replace(src, dst, src_dir_fd=dfd, dst_dir_fd=dfd)
+
+
+def _remove_in(dfd, name):
+    """`os.remove` of @p name in the folder @p dfd (a link is removed itself, never its target)."""
+    if oscompat.WINDOWS:
+        if getattr(dfd, "fd", None) is not None:
+            _not_turned(dfd)
+            oscompat.retry_sharing(oscompat.remove_at, dfd.fd, name)
+        else:
+            oscompat.retry_sharing(os.remove, _at(dfd, name))
+    else:
+        os.remove(name, dir_fd=dfd)
+
+
+def _link_in(dfd, src, dst):
+    """A hard link @p dst of @p src in the folder @p dfd (CreateHardLink on Windows fails on any existing @p dst)."""
+    if oscompat.WINDOWS:
+        if getattr(dfd, "fd", None) is not None:
+            _not_turned(dfd)
+            oscompat.link_at(dfd.fd, src, dst)
+        else:
+            os.link(_at(dfd, src), _at(dfd, dst))
+    else:
+        os.link(src, dst, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)
+
+
+def _no_links(exc):
+    """True when @p exc says the filesystem has no hard links (FAT/exFAT, many SMB shares)."""
+    return exc.errno in _NO_LINK_ERRNOS or getattr(exc, "winerror", None) in _NO_LINK_WINERRORS
+
+
 def _land_new(dfd, tmp, name, rel, digest, job_id):
     """Put the temp file at the NEW name @p name in folder @p dfd without ever replacing a file already there."""
     try:
-        os.link(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)
+        _link_in(dfd, tmp, name)
         return
     except FileExistsError:
         raise NameClash(job_id, rel)
     except OSError as exc:
-        if exc.errno not in _NO_LINK_ERRNOS:
+        if not _no_links(exc):
             raise
     try:                                                 # no hard links here: claim the name, then swap the content in
-        os.close(os.open(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600, dir_fd=dfd))
+        os.close(_open_in(dfd, name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
     except FileExistsError:
         raise NameClash(job_id, rel)
     try:
-        os.replace(tmp, name, src_dir_fd=dfd, dst_dir_fd=dfd)
+        _replace_in(dfd, tmp, name)
         if _sha_of_file(name, dfd) != digest:
             raise OSError(errno.EIO, "verify failed")
     except BaseException:
         current = _sha_of_file(name, dfd)
         if current in (digest, hashlib.sha256(b"").hexdigest()):   # still our claim or our bytes: take it back
             try:
-                os.remove(name, dir_fd=dfd)
+                _remove_in(dfd, name)
             except OSError:
                 pass
         raise

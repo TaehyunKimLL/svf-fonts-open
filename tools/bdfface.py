@@ -23,6 +23,7 @@ jamo, Hanja) from the Hangul BDF where it has them; a U+2026 / U+25A1 of the BDF
 """
 
 import argparse
+import errno
 import gzip
 import os
 import re
@@ -48,10 +49,76 @@ class DamagedBitmapError(FaceError):
 HBF_MAX = 128 << 20          # one HBF's bitmaps, decompressed, in total
 
 
+def _open_nofollow_windows(path):
+    """Windows has no O_NOFOLLOW: the file is opened with FILE_FLAG_OPEN_REPARSE_POINT (the open itself never follows
+    a link, nor contacts what one names) and a name-surrogate reparse point (a symlink, a junction) is refused by the
+    handle's reparse tag. Another kind of reparse point (a deduplicated or cloud placeholder file, read through its
+    filter) is opened again normally from the first handle (ReOpenFile) and must be the same file (volume serial + file
+    index)."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = k32.CreateFileW
+    create.restype = wintypes.HANDLE
+    create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                       wintypes.DWORD, wintypes.HANDLE)
+    info = k32.GetFileInformationByHandleEx
+    info.restype = wintypes.BOOL
+    info.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD)
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    reopen = k32.ReOpenFile
+    reopen.restype = wintypes.HANDLE
+    reopen.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD)
+
+    class Tag(ctypes.Structure):
+        _fields_ = [("FileAttributes", wintypes.DWORD), ("ReparseTag", wintypes.DWORD)]
+
+    def opened(flags):
+        handle = create(path, 0x80000000, 0x3, None, 3, flags, None)      # GENERIC_READ, share r/w, OPEN_EXISTING
+        if handle in (None, wintypes.HANDLE(-1).value):
+            exc = ctypes.WinError(ctypes.get_last_error())
+            exc.filename = path
+            raise exc
+        return handle
+
+    handle = opened(0x00200000)                                             # FILE_FLAG_OPEN_REPARSE_POINT
+    try:
+        tag = Tag()
+        if not info(handle, 9, ctypes.byref(tag), ctypes.sizeof(tag)):     # FileAttributeTagInfo
+            raise ctypes.WinError(ctypes.get_last_error())
+        if tag.FileAttributes & 0x400 and tag.ReparseTag & 0x20000000:      # a name surrogate
+            raise OSError(errno.ELOOP, "Too many levels of symbolic links", path)
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY)
+    except BaseException:
+        k32.CloseHandle(handle)
+        raise
+    if not tag.FileAttributes & 0x400:
+        return fd
+    try:                                       # opened again from the first handle: no name is looked up again
+        first = os.fstat(fd)
+        again = reopen(msvcrt.get_osfhandle(fd), 0x80000000, 0x3, 0)
+        if again in (None, wintypes.HANDLE(-1).value):
+            exc = ctypes.WinError(ctypes.get_last_error())
+            exc.filename = path
+            raise exc
+    finally:
+        os.close(fd)
+    fd = msvcrt.open_osfhandle(again, os.O_RDONLY)
+    st = os.fstat(fd)
+    if not first.st_ino or (st.st_dev, st.st_ino) != (first.st_dev, first.st_ino):
+        os.close(fd)
+        raise OSError(errno.ELOOP, "Too many levels of symbolic links", path)
+    return fd
+
+
 def open_regular(path):
     """@p path opened without following a link, and only when it is a regular file (FaceError otherwise)."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
+        if os.name == "nt":
+            fd = _open_nofollow_windows(path)
+        else:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
     except OSError as e:
         raise FaceError(f"{path}: {e.strerror or 'cannot open'}")
     try:
@@ -121,7 +188,7 @@ class Face:
 
 
 def read_bdf(path, unicode_enc=None):
-    t = _read(path).decode("latin-1")
+    t = _read(path).decode("latin-1").replace("\r\n", "\n")      # CRLF line ends (a BDF saved on Windows)
     if not t.startswith("STARTFONT"):
         raise FaceError(f"{path}: not a BDF")
     reg = re.search(r'CHARSET_REGISTRY\s+"?([^"\n]*)', t)
@@ -138,7 +205,7 @@ def read_bdf(path, unicode_enc=None):
         block = block.split("ENDCHAR")[0]
         enc = re.search(r"^ENCODING\s+(-?\d+)", block, re.M)
         bbx = re.search(r"^BBX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", block, re.M)
-        bm = re.search(r"^BITMAP[ \t]*\n(.*)", block, re.M | re.S)
+        bm = re.search(r"^BITMAP[ \t]*\r?\n(.*)", block, re.M | re.S)     # a BDF saved with CRLF line ends too
         dw = re.search(r"^DWIDTH\s+(-?\d+)", block, re.M)
         if not enc or not bbx or not bm:
             continue
@@ -160,7 +227,7 @@ def read_bdf(path, unicode_enc=None):
 def read_hbf(path):
     """An HBF (HBF_CODE_RANGE lines naming bitmap files beside it): single-byte ranges only; returns the same
     glyph tuples as read_bdf."""
-    t = _read(path).decode("latin-1")
+    t = _read(path).decode("latin-1").replace("\r\n", "\n")      # CRLF line ends (a BDF saved on Windows)
     if "HBF_START_FONT" not in t:
         raise FaceError(f"{path}: not an HBF")
     bb = re.search(r"HBF_BITMAP_BOUNDING_BOX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", t)

@@ -13,6 +13,10 @@ const electron = require('electron');
 const { app, BrowserWindow, session } = electron;
 
 const TMP = process.env.TMP_DIR || os.tmpdir();
+// Windows (t_9b8f56f0): no `sh` stub in front of the sidecar (the canary stderr pin runs on POSIX only), directory links are
+// junctions (no privilege needed), the development interpreter is `python`
+const WIN = process.platform === 'win32';
+const DIRLINK = WIN ? 'junction' : undefined;
 const REPO = path.join(__dirname, '..', '..');
 const results = { pass: 0, fail: 0 };
 const dialogQueue = [];
@@ -30,6 +34,7 @@ const { resolveLaunch } = require('../lib/paths.js');
 function wrappedLaunch(opts, ud) {
   const base = resolveLaunch({ resourcesPath: opts.resourcesPath || process.resourcesPath, appDir: path.join(__dirname, '..'),
     env: opts.env, pid: process.pid, userData: ud });
+  if (WIN) return base;
   const script = 'echo "test-stderr: ' + CANARY_DIR + ' $SVF_MAKER_TOKEN" >&2; exec "$@"';
   return Object.assign({}, base, { cmd: 'sh', args: ['-c', script, 'sh', base.cmd].concat(base.args) });
 }
@@ -51,7 +56,8 @@ async function step(name, fn) {
 
 const PRELUDE = `const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = async (fn, ms = 60000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v;
-    if (Date.now() > end) throw new Error('page timeout: ' + fn); await sleep(100); } };
+    if (Date.now() > end) { const st = document.getElementById('state'); throw new Error('page timeout: ' + fn + ' (state: ' + (st ? st.textContent : '-') + ')'); }
+    await sleep(100); } };
   const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;`;
 const run = (handle, js) => handle.win.webContents.executeJavaScript('(async () => {' + PRELUDE + js + '})()', true);
 const logText = (handle) => fs.readFileSync(handle.log.path, 'utf8');
@@ -59,6 +65,22 @@ const logText = (handle) => fs.readFileSync(handle.log.path, 'utf8');
 // The dev pass's sample folder stays until the end of the run (the packaged pass compares with its output); every way
 // out of the run, a failed start included, removes it.
 const cleanupSamples = () => { try { fs.rmSync(path.join(TMP, 'dev', 'sample'), { recursive: true, force: true }); } catch (e) { /* none */ } };
+
+// fs.rmSync, and on Windows a second try after a moment: a file the sidecar has only just closed may still be busy. What
+// stays after that is named (relative paths only), so a handle the sidecar keeps open shows up as a failure with its file.
+function removeTree(dir) {
+  try { fs.rmSync(dir, { recursive: true, force: true }); return; } catch (e) { if (!WIN) throw e; }
+  // Windows: git writes its objects read-only (the check's facecheck repository), and rmSync does not clear that bit
+  const writable = (d) => { for (const n of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, n.name);
+    if (n.isDirectory()) writable(p); else { try { fs.chmodSync(p, 0o666); } catch (e2) { /* gone */ } } } };
+  try { writable(dir); } catch (e) { /* gone meanwhile */ }
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {
+    const left = [];
+    const walk = (d) => { for (const n of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, n.name); left.push(path.relative(dir, p)); if (n.isDirectory()) walk(p); } };
+    try { walk(dir); } catch (e2) { /* gone meanwhile */ }
+    throw new Error(e.code + ' removing the sample folder; left: ' + left.slice(0, 12).join(', '));
+  }
+}
 
 function mkdir(...p) { const d = path.join(TMP, ...p); fs.mkdirSync(d, { recursive: true }); return d; }
 
@@ -102,7 +124,7 @@ async function pass(name, opts) {
   const outC = mkdir(name, 'realparent', 'outC'), outD = mkdir(name, 'outD');
   // the dialog hands out a path through a symlinked parent (the server refuses a symlink as the folder itself)
   const outCLink = path.join(TMP, name, 'linkparent', 'outC');
-  fs.symlinkSync(path.join(TMP, name, 'realparent'), path.join(TMP, name, 'linkparent'));
+  fs.symlinkSync(path.join(TMP, name, 'realparent'), path.join(TMP, name, 'linkparent'), DIRLINK);
   for (const d of [tmpA, tmpB]) fs.copyFileSync(path.join(REPO, 'ttf', 'neodgm', 'neodgm.ttf'), path.join(d, 'neodgm.ttf'));
   const T = (n) => name + ': ' + n;
   let jobA = null, jobB = null, jobC = null;
@@ -120,7 +142,7 @@ async function pass(name, opts) {
   await step(T('bridge'), async () => {
     const t = await run(handle, `return ['pickFiles', 'pickFolder', 'pickOutputDir', 'openOutputFolder'].map((k) => typeof window.svfMaker[k])
       .concat([window.svfMaker.platform, typeof window.require, typeof window.ipcRenderer]);`);
-    assert.deepEqual(t, ['function', 'function', 'function', 'function', 'linux', 'undefined', 'undefined']);
+    assert.deepEqual(t, ['function', 'function', 'function', 'function', process.platform, 'undefined', 'undefined']);
   });
   await step(T('header'), async () => {
     const t = await run(handle, `return [(await fetch('/api/caps')).status,
@@ -163,7 +185,7 @@ async function pass(name, opts) {
     const realTmp = fs.realpathSync(TMP);
     const bareTmp = path.join(path.sep, 'tmp');
     assert.ok(realTmp !== bareTmp && !realTmp.startsWith(bareTmp + path.sep), 'TMP must not be under ' + bareTmp + ': ' + realTmp);
-    const PY = process.env.SVF_E2E_PYTHON || 'python3';
+    const PY = process.env.SVF_E2E_PYTHON || (WIN ? 'python' : 'python3');
     const helper = path.join(REPO, 'maker', 'test', 'uisample.py');
     const sampleDir = path.join(TMP, name, 'sample');
     try {                                                          // (the body keeps its indentation; see the finally)
@@ -326,7 +348,7 @@ async function pass(name, opts) {
     } finally {
       dialogQueue.length = 0;                                      // answers a failed step never used
       // the dev sample stays: the packaged pass compares against its output (removed at the end of the run)
-      if (name !== 'dev') fs.rmSync(sampleDir, { recursive: true, force: true });
+      if (name !== 'dev') removeTree(sampleDir);
     }
   });
   await step(T('open-folder'), async () => {
@@ -441,12 +463,16 @@ async function pass(name, opts) {
       path.join(TMP, name, 'sample'), path.join(REPO, 'ttf')]) assert.ok(!text.includes(d), 'log has ' + d);
     assert.ok(!text.includes('/api/jobs/'));
     // the positive pin: the stub's stderr line (a path with spaces, a token) is in the log, redacted, for both sidecars
-    const lines = text.split('\n').filter((l) => l.includes('sidecar stderr:'));
-    assert.ok(lines.length >= 2, 'expected the redacted stderr line of both sidecars, got ' + lines.length);
-    for (const l of lines) assert.match(l, /sidecar stderr: test-stderr: <path>$/);
+    // (POSIX only: Windows runs the sidecar without the `sh` stub)
+    if (!WIN) {
+      const lines = text.split('\n').filter((l) => l.includes('sidecar stderr:'));
+      assert.ok(lines.length >= 2, 'expected the redacted stderr line of both sidecars, got ' + lines.length);
+      for (const l of lines) assert.match(l, /sidecar stderr: test-stderr: <path>$/);
+    }
     for (const frag of ['Secret', 'My Fonts', 'canary']) assert.ok(!text.includes(frag), 'log has ' + frag);
     assert.match(text, /pick-folder: 1/);
-    assert.match(text, /sandbox renderer sandbox: off \(--no-sandbox; user namespaces \w+\)/);
+    if (WIN) assert.match(text, /sandbox renderer sandbox: (on|off)/);
+    else assert.match(text, /sandbox renderer sandbox: off \(--no-sandbox; user namespaces \w+\)/);
     assert.match(text, /restart allowed/);
     assert.match(text, /stopped \d+ sidecar\(s\) in \d+ ms/);
   });
@@ -461,7 +487,9 @@ async function pass(name, opts) {
 async function loadFailureCase() {
   const dir = mkdir('loadfail');
   const ud = mkdir('loadfail', 'ud');
-  const launch = { mode: 'dev', cmd: 'sh', args: ['-c', 'echo "svf-maker listening on 127.0.0.1:1"; exec sleep 300'], repo: REPO, data: path.join(dir, 'data') };
+  const launch = WIN
+    ? { mode: 'dev', cmd: 'python', args: ['-c', "print('svf-maker listening on 127.0.0.1:1', flush=True); import time; time.sleep(300)"], repo: REPO, data: path.join(dir, 'data') }
+    : { mode: 'dev', cmd: 'sh', args: ['-c', 'echo "svf-maker listening on 127.0.0.1:1"; exec sleep 300'], repo: REPO, data: path.join(dir, 'data') };
   let fatal = 0;
   const boxes = messageBoxes.length;
   let pid = 0;
@@ -488,8 +516,8 @@ app.whenReady().then(async () => {
     const res = mkdir('res');
     for (const n of ['sidecar', 'repo']) { try { fs.rmSync(path.join(res, n), { recursive: true, force: true }); } catch (e) { /* none */ } }
     fs.mkdirSync(path.join(res, 'sidecar'), { recursive: true });
-    fs.symlinkSync(path.dirname(process.env.SVF_MAKER_SIDECAR), path.join(res, 'sidecar', 'svf-maker-sidecar'));
-    fs.symlinkSync(process.env.SVF_MAKER_STAGED_REPO, path.join(res, 'repo'));
+    fs.symlinkSync(path.dirname(process.env.SVF_MAKER_SIDECAR), path.join(res, 'sidecar', 'svf-maker-sidecar'), DIRLINK);
+    fs.symlinkSync(process.env.SVF_MAKER_STAGED_REPO, path.join(res, 'repo'), DIRLINK);
     await pass('packaged', { resourcesPath: res, env: base });
   }
   } finally { cleanupSamples(); }

@@ -87,7 +87,11 @@ setTimeout(async () => { process.stderr.write('pagedrive: watchdog\n'); process.
 try {
   const portFile = join(profile, 'DevToolsActivePort');
   await until(() => existsSync(portFile), 30000, 'chrome start');
-  const [port, path] = readFileSync(portFile, 'utf8').trim().split('\n');
+  // Windows: Chrome may still hold the file open a moment after it appears (EBUSY): read it again until it can be read
+  const portText = await until(() => {
+    try { return readFileSync(portFile, 'utf8'); } catch (e) { if (e.code === 'EBUSY' || e.code === 'EPERM') return null; throw e; }
+  }, 10000, 'DevToolsActivePort readable');
+  const [port, path] = portText.trim().split('\n');
   ws = new WebSocket('ws://127.0.0.1:' + port + path);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('websocket')); });
   let id = 0;
@@ -121,7 +125,7 @@ try {
   }
   const body = readFileSync(scriptFile, 'utf8');
   const expr = `(async () => { const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-    const waitFor = async (fn, ms = 20000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('waitFor timeout: ' + fn); await sleep(100); } };
+    const waitFor = async (fn, ms = 20000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) { const st = document.getElementById('state'); const pe = document.getElementById('page-error') || document.querySelector('.error:not([hidden])'); throw new Error('waitFor timeout: ' + fn + ' (state: ' + (st ? st.textContent : '-') + (pe ? '; error: ' + pe.textContent : '') + ')'); } await sleep(100); } };
     ${body} })()`;
   const r = await send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId);
   if (r.result.exceptionDetails) {

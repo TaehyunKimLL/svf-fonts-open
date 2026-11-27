@@ -26,13 +26,13 @@ The library assumes `maker/` and `tools/` are on sys.path (the entry points set 
 import gzip
 import os
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
 import zlib
 
 import detect
+import oscompat
 import routes
 import svfline
 import toolreg
@@ -86,7 +86,7 @@ def materialize(abs_path, work_dir):
                 if size > detect.MAX_DECOMPRESSED:
                     raise detect.TooLarge("too large (> %d MiB decompressed)" % (detect.MAX_DECOMPRESSED >> 20))
                 dst.write(chunk)
-        os.replace(tmp, out)
+        oscompat.replace(tmp, out)
     except BaseException:
         _remove(tmp)
         raise
@@ -131,20 +131,20 @@ def kill_all():
     """SIGKILL the process group of every `run_bounded` child still running (the server is stopping); returns how many.
     Each caller sees its run end as a failed one (a bake that fails is 'no preview')."""
     with _LIVE_LOCK:
-        pids = list(_LIVE)
-    for pid in pids:
+        procs = list(_LIVE.values())
+    for proc in procs:
         try:
-            os.killpg(pid, signal.SIGKILL)
+            oscompat.signal_group(proc, oscompat.SIGKILL)
         except OSError:
             pass
-    return len(pids)
+    return len(procs)
 
 
 def run_bounded(argv, cwd, timeout, env=None):
     """`subprocess.run(argv)` with stdout and stderr captured, in its own session: on @p timeout the whole process group
     is killed (not only the child, whose own children would survive) and `subprocess.TimeoutExpired` is raised."""
-    proc = subprocess.Popen(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    proc = oscompat.popen_group(argv, cwd=cwd, env=ENV if env is None else env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     with _LIVE_LOCK:
         _LIVE[proc.pid] = proc
     toolreg.register(proc)
@@ -152,7 +152,7 @@ def run_bounded(argv, cwd, timeout, env=None):
         out, err = proc.communicate(timeout=timeout)
     except BaseException:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            oscompat.signal_group(proc, oscompat.SIGKILL)
         except OSError:
             pass
         proc.communicate()
@@ -370,7 +370,7 @@ def _save_png(img, out_path):
     os.close(fd)
     try:
         img.save(tmp, "PNG")            # the `.tmp` name carries no format: say PNG outright
-        os.replace(tmp, out_path)
+        oscompat.replace(tmp, out_path)
     except Exception:
         _remove(tmp)
         raise

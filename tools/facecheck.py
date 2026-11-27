@@ -38,7 +38,7 @@ def cmd_manifest(a):
     rows = [(p, b) for p, b in blobs(a.git, a.rev, a.path)
             if not any(fnmatch.fnmatch(os.path.basename(p), g) for g in a.exclude)]
     cat = subprocess.Popen(["git", "-C", a.git, "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-    with open(a.o, "w") as out:
+    with open(a.o, "w", newline="\n") as out:
         for path, blob in sorted(rows):
             cat.stdin.write(blob.encode() + b"\n")
             cat.stdin.flush()

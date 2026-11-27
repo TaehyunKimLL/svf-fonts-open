@@ -25,6 +25,7 @@ import inputkinds
 import jamoset
 import localfx
 import uisample
+import wincompat
 
 BASE = os.path.join(os.path.expanduser("~"), "work", "tmp", "svf-uisample-test-%d" % os.getpid())
 UISAMPLE = os.path.join(TEST_DIR, "uisample.py")
@@ -72,7 +73,7 @@ def _snapshot(*dirs):
     return out
 
 
-class UiSampleTest(unittest.TestCase):
+class UiSampleTest(wincompat.SlashEqual, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         shutil.rmtree(BASE, ignore_errors=True)
@@ -401,13 +402,14 @@ class UiSampleTest(unittest.TestCase):
                 self.assertEqual(r.returncode, 1, r.stdout)
                 self.assertTrue(any("JOHA16J.SVF" in ln for ln in body["failures"]), body)
                 shutil.copyfile(os.path.join(self.out, rel), path)
-        # the refusal: a directory under /tmp, nothing created
+        # the refusal: a directory under /tmp, nothing created (the TMP_DIR rule of the POSIX hosts; Windows has no /tmp)
         refused = "/tmp/uisample-refused-%d" % os.getpid()
-        self.assertFalse(os.path.exists(refused))
-        r = subprocess.run(py + ["make", refused], capture_output=True, text=True)
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("refusing a directory under /tmp", r.stderr)
-        self.assertFalse(os.path.exists(refused))
+        if not wincompat.WIN:
+            self.assertFalse(os.path.exists(refused))
+            r = subprocess.run(py + ["make", refused], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("refusing a directory under /tmp", r.stderr)
+            self.assertFalse(os.path.exists(refused))
         # nothing written outside DIR by the subprocesses (no `__pycache__` either)
         after = _snapshot(os.path.join(repo, "maker"), os.path.join(repo, "tools"), os.path.join(repo, "web"),
                           os.path.join(repo, "ttf"))

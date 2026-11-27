@@ -25,6 +25,7 @@ import detect
 import fixtures
 import jamoset
 import routes
+import wincompat
 
 ROOT = None
 F = {}
@@ -254,6 +255,16 @@ class DetectFileTest(FixtureCase):
             f.write(head(F["bdf_latin"]).decode().replace("ISO8859", "JISX0208.1990"))
         e = detect.detect_file(p, "jis.bdf")[0]
         self.assertEqual((e["source_kind"], e["label"]), ("other", "BDF (jisx0208.1990): not convertible"))
+
+    def test_a_crlf_bdf_detects_as_its_lf_form(self):
+        # a BDF saved with CRLF line ends gives the same entry as the LF file, on every platform (t_9b8f56f0)
+        for key in ("bdf_ksc", "bdf_latin"):
+            lf = entry(key)
+            p = os.path.join(ROOT, "crlf-" + os.path.basename(F[key]))
+            with open(p, "wb") as f:
+                f.write(head(F[key]).replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+            crlf = detect.detect_file(p, os.path.relpath(F[key], ROOT))[0]
+            self.assertEqual(crlf, lf, key)
 
     def test_bdf_sizes_are_probed_not_computed(self):
         def bdf(path, props, size_line):   # 18x21 box, one glyph "A" of 21 rows, registry ISO10646
@@ -1192,6 +1203,7 @@ class Task4FixOneTest(FixtureCase):
 
     # item 4: one unreadable file must not crash the scan
 
+    @wincompat.posix_only("a mode-000 file (Windows has no read permission bit chmod can clear)")
     def test_an_unreadable_file_does_not_crash_the_scan(self):
         with tempfile.TemporaryDirectory() as d:
             shutil.copyfile(F["ttf"], os.path.join(d, "font.ttf"))

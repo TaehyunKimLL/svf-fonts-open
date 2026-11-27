@@ -27,6 +27,8 @@ import localfx
 import preview
 import server
 from localfx import LocalBase, LocalRunBase, mode_of, walk_rel
+import oscompat
+import wincompat
 
 
 class LocalJobTest(LocalBase):
@@ -37,8 +39,8 @@ class LocalJobTest(LocalBase):
         job = self.srv.store.load(jid)
         self.assertEqual((job["source"], job["output_dir"], job["roots"], job["owned"]), ("local", self.out, [], {}))
         self.assertEqual(sorted(os.listdir(self.srv.store.path(jid))), ["job.json"])
-        self.assertEqual(mode_of(self.files_dir(jid)), 0o700)
-        self.assertEqual(mode_of(os.path.join(self.files_dir(jid), "work", "tmp")), 0o700)
+        self.assert_mode(self.files_dir(jid), 0o700)
+        self.assert_mode(os.path.join(self.files_dir(jid), "work", "tmp"), 0o700)
         self.assertEqual(self.srv.store.list()[0]["source"], "local")
         self.assertEqual(self.srv.store.list()[0]["output_id"], job["output_id"])
 
@@ -63,10 +65,17 @@ class LocalJobTest(LocalBase):
         return {os.path.basename(item["path"]) or item["path"]: item["reason"] for item in body["refused"]}
 
     def test_path_rules(self):
+        # Windows too (a junction for the link, a drive root for "/", `;` in SVF_MAKER_ROOTS); only the FIFO is POSIX
         jid = self.new_job()
         a, b = self.roots[0], self.roots[1]
-        os.symlink(a, os.path.join(self.tmp, "ln"))
-        os.mkfifo(os.path.join(self.tmp, "fifo"))
+        if wincompat.WIN:
+            import _winapi
+            _winapi.CreateJunction(a, os.path.join(self.tmp, "ln"))
+            top = os.path.splitdrive(self.tmp)[0] + "\\"
+        else:
+            os.symlink(a, os.path.join(self.tmp, "ln"))
+            os.mkfifo(os.path.join(self.tmp, "fifo"))
+            top = "/"
         sub = os.path.join(self.out, "sub")
         os.makedirs(sub)
         cases = [("in/a", "not an absolute path"),
@@ -75,11 +84,12 @@ class LocalJobTest(LocalBase):
                  (self.tmp, "the data folder cannot be chosen"),
                  (sub, "the output folder must not overlap an input"),
                  (self.out, "the output folder must not overlap an input"),
-                 ("/", "/ cannot be chosen"),
-                 (os.path.join(self.tmp, "nope"), "no such file or folder"),
-                 (os.path.join(self.tmp, "fifo"), "not a regular file or folder"),
-                 ("/" + "x" * 5000, "path too long"),
-                 (a + "\0x", "NUL in path")]
+                 (top, "/ cannot be chosen"),
+                 (os.path.join(self.tmp, "nope"), "no such file or folder")]
+        if not wincompat.WIN:
+            cases.append((os.path.join(self.tmp, "fifo"), "not a regular file or folder"))
+        cases += [(top + "x" * 5000, "path too long"),
+                  (a + "\0x", "NUL in path")]
         for path, reason in cases:
             status, body = self.put_sources(jid, [path])
             self.assertEqual(status, 200, path)
@@ -94,6 +104,10 @@ class LocalJobTest(LocalBase):
             status, body = self.put_sources(jid, [a, b])
             self.assertEqual([r["reason"] for r in body["refused"]], ["outside SVF_MAKER_ROOTS"])
             self.assertEqual([r["path"] for r in body["roots"]], [a])
+        with mock.patch.dict(os.environ, {"SVF_MAKER_ROOTS": os.pathsep.join([a, b])}):     # two entries
+            status, body = self.put_sources(jid, [a, b])
+            self.assertEqual(body["refused"], [])
+            self.assertEqual([r["path"] for r in body["roots"]], [a, b])
             status, body = self.api("POST", "/api/jobs", {"source": "local", "output_dir": os.path.join(self.tmp, "tree", "in")})
             self.assertEqual((status, body["error"]), (400, "output folder: outside SVF_MAKER_ROOTS"))
         # a bad output folder
@@ -369,7 +383,14 @@ class LocalRunTest(LocalRunBase):
             if len(calls) == 2:
                 raise OSError(errno.ENOSPC, "No space left on device")
             return real(src, dst, *a, **k)
-        with mock.patch("os.link", link):
+        real_link_at = getattr(oscompat, "link_at", None)
+
+        def link_at(dir_fd, src, dst):                       # Windows: the landing links relative to the held handle
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real_link_at(dir_fd, src, dst)
+        with mock.patch("os.link", link), mock.patch.object(oscompat, "link_at", link_at, create=True):
             jid = self.local_job()
             self.select(jid)
             job = self.run_to_done(jid)
@@ -1239,7 +1260,8 @@ class LocalSweepTest(LocalRunBase):
         real = os.fsync
         with mock.patch("os.fsync", lambda fd_: (synced.append(fd_), real(fd_))[1]):
             self.srv.store._write_pending([{"path": "x"}])
-        self.assertGreaterEqual(len(synced), 2)                                 # the file and its directory
+        # the file and its directory (Windows cannot open a directory to sync it: the file only)
+        self.assertGreaterEqual(len(synced), 1 if wincompat.WIN else 2)
 
     def test_a_retry_paused_after_its_state_check_cannot_be_overtaken_by_a_reactivation(self):
         import threading
@@ -1843,12 +1865,12 @@ class LocalSweepTest(LocalRunBase):
             self.select(jid, lambda st: st["fonts"][gz].update(selected=True, dest="jamo-extra", kinds=["jamo"]))
             fd = self.files_dir(jid)
             self.assertEqual(self.probe(jid, self.ttf)[0], 200)                 # while it existed: 0700, files 0600
-            self.assertEqual(mode_of(fd), 0o700)
+            self.assert_mode(fd, 0o700)
             for dirpath, dirnames, names in os.walk(fd):
                 for d in dirnames:
-                    self.assertEqual(mode_of(os.path.join(dirpath, d)), 0o700, d)
+                    self.assert_mode(os.path.join(dirpath, d), 0o700, d)
                 for n in names:
-                    self.assertEqual(mode_of(os.path.join(dirpath, n)), 0o600, n)
+                    self.assert_mode(os.path.join(dirpath, n), 0o600, n)
             job = self.run_to_done(jid)
         self.assertEqual(job["state"], "done", job.get("error"))
         self.srv.worker.stop()

@@ -1655,7 +1655,7 @@ def main(argv=None):
         open(path, "wb").write(data)
         rep = {"face": os.path.basename(path), "skeleton": args.skeleton, **face_info(data), **judge(fl)}
         if report_path:
-            json.dump(rep, open(report_path, "w"), ensure_ascii=False, indent=1)
+            json.dump(rep, open(report_path, "w", newline="\n"), ensure_ascii=False, indent=1)
         log(f"{path}: {rep['bytes']} bytes, {rep['pieces']} pieces, sets {rep['ni']}/{rep['nm']}/{rep['nf']}, "
             f"classes {rep['lc']}x{rep['tc']}, exact KS {rep['exact_ks']}, mean dist KS {rep['mean_dist_ks']}, "
             f"confusable KS {rep['confuse_total_ks']} {rep['confuse_ks']}, missing3 KS {rep['missing3_ks']}, extra4 KS {rep['extra4_ks']}, medial violations KS "
@@ -1692,7 +1692,7 @@ def main(argv=None):
         d, k, a, b = min(ds)
         fill.merge_sets(k, a, b)
         fill.descend(sweeps=3)
-    json.dump(curve, open(os.path.join(args.outdir, args.prefix + "-curve.json"), "w"), indent=1)
+    json.dump(curve, open(os.path.join(args.outdir, args.prefix + "-curve.json"), "w", newline="\n"), indent=1)
     return 0
 
 

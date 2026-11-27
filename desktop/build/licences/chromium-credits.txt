@@ -1,0 +1,2 @@
+This component is part of the Chromium build inside Electron. Its licence text, with the copyright notices, is in
+LICENSES.chromium.html, which Electron ships next to its executable and which this package carries unchanged.

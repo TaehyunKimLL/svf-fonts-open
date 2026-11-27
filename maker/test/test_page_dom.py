@@ -31,6 +31,7 @@ import inputfx  # noqa: E402
 import jobs  # noqa: E402
 import localfx  # noqa: E402
 import server  # noqa: E402
+import wincompat
 
 DRIVER = os.path.join(TEST_DIR, "pagedrive.mjs")
 WAIT_S = 240
@@ -42,7 +43,18 @@ def read_report(srv, job, step):
 
 
 def browser():
-    return next((shutil.which(n) for n in ("google-chrome", "chromium-browser") if shutil.which(n)), None)
+    """google-chrome or chromium-browser on PATH; SVF_TEST_CHROME names one anywhere; on Windows the standard Chrome
+    install (no chrome on PATH there)."""
+    if os.environ.get("SVF_TEST_CHROME") and os.path.isfile(os.environ["SVF_TEST_CHROME"]):
+        return os.environ["SVF_TEST_CHROME"]
+    found = next((shutil.which(n) for n in ("google-chrome", "chromium-browser") if shutil.which(n)), None)
+    if found or os.name != "nt":
+        return found
+    for base in (os.environ.get("PROGRAMFILES"), os.environ.get("PROGRAMFILES(X86)"), os.environ.get("LOCALAPPDATA")):
+        path = os.path.join(base or "", "Google", "Chrome", "Application", "chrome.exe")
+        if base and os.path.isfile(path):
+            return path
+    return None
 
 
 def read(path):
@@ -156,13 +168,12 @@ class PageDomTest(unittest.TestCase):
         # cannot starve the rest of the suite of threads
         env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WAIT_S - 20))        # the driver's own limit comes first
         env.update(env_extra)
-        proc = subprocess.Popen(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
-                                env=env)
+        proc = wincompat.popen_group(["node", DRIVER, self.chrome, "http://127.0.0.1:%d/?job=%s" % (self.port, job), path],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         try:
             stdout, stderr = proc.communicate(timeout=WAIT_S)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            wincompat.kill_group(proc)
             proc.communicate()
             self.fail("the page driver timed out after %d s" % WAIT_S)
         self.assertEqual(proc.returncode, 0, stderr)
@@ -170,6 +181,7 @@ class PageDomTest(unittest.TestCase):
 
     # ---- tests ------------------------------------------------------------------------------------------------
 
+    @wincompat.posix_only("the Unix socket path limit of Chrome's singleton (107 bytes); Windows has no such socket")
     def test_driver_starts_chrome_with_a_long_tmpdir(self):
         """Chrome's singleton socket path must stay under 107 bytes whatever TMPDIR is (the TMP_DIR project rule); the
         short profile goes under $HOME/work/tmp, never /dev/shm or /tmp."""
@@ -344,12 +356,12 @@ return 1;
         font = next(f["id"] for f in detected["fonts"] if f["path"].endswith("Tall.ttf"))
         s = detected["settings"]
         s["fonts"][font].update(sizes=[16], bpp=[1], options={"mkfont": {"cell": 12, "width": 16}})
-        self.api("PUT", "/api/jobs/%s/settings" % job, s)
+        put = self.api("PUT", "/api/jobs/%s/settings" % job, s)
         self.font = font
         out = self.drive(job, """
-const row = document.querySelector('tr[data-font="FONTID"]');
+const row = await waitFor(() => document.querySelector('tr[data-font="FONTID"] input.override') && document.querySelector('tr[data-font="FONTID"]'));
 row.querySelector('input.override').click();
-const panel = document.querySelector('tr.override[data-for="FONTID"]');
+const panel = await waitFor(() => document.querySelector('tr.override[data-for="FONTID"]'));
 const details = panel.querySelector('details.clipping');
 details.open = true; details.dispatchEvent(new Event('toggle'));
 await waitFor(() => panel.querySelector('.clip-counts').textContent.includes('glyphs cut'));
@@ -443,7 +455,7 @@ return {asked, message: window.__message, state: document.getElementById('state'
 
     def panel_counts(self, job):
         return self.drive(job, """
-const panel = (document.querySelector('tr.override[data-for="FONTID"]'));
+const panel = await waitFor(() => document.querySelector('tr.override[data-for="FONTID"]'));   // the table is rendered
 document.querySelector('tr[data-font="FONTID"] input.override').click();
 const details = panel.querySelector('details.clipping');
 details.open = true; details.dispatchEvent(new Event('toggle'));
@@ -541,8 +553,8 @@ return document.querySelector('.svf-preview .sub').textContent;
         self.api("PUT", "/api/jobs/%s/settings" % job, s)
         self.font = font
         out = self.drive(job, """
-document.querySelector('tr[data-font="FONTID"] input.override').click();
-const panel = document.querySelector('tr.override[data-for="FONTID"]');
+(await waitFor(() => document.querySelector('tr[data-font="FONTID"] input.override'))).click();
+const panel = await waitFor(() => document.querySelector('tr.override[data-for="FONTID"]'));
 const details = panel.querySelector('details.clipping');
 details.open = true; details.dispatchEvent(new Event('toggle'));
 await waitFor(() => /glyphs cut/.test(panel.querySelector('.clip-counts').textContent));
@@ -616,12 +628,11 @@ class LocalPageTest(localfx.LocalBase):
                 f.write(preload)
             argv += ["--preload", pre]
         env = dict(os.environ, PAGEDRIVE_WATCHDOG_S=str(WAIT_S - 20))
-        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                start_new_session=True, env=env)
+        proc = wincompat.popen_group(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         try:
             stdout, stderr = proc.communicate(timeout=WAIT_S)
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
+            wincompat.kill_group(proc)
             proc.communicate()
             self.fail("the page driver timed out after %d s" % WAIT_S)
         self.assertEqual(proc.returncode, 0, stderr)
@@ -791,13 +802,15 @@ class LocalPageTest(localfx.LocalBase):
         paths = json.dumps("\n".join(self.roots))
         out = self.drive("""
       const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
-      await waitFor(() => visible(document.getElementById('sources-panel')));
+      // the open job's sources are restored first (a slower host shows the panel before the job has loaded)
+      await waitFor(() => visible(document.getElementById('sources-panel')) && document.getElementById('source-paths').value);
       document.getElementById('source-paths').value = %s;
       document.getElementById('output-dir').value = %s;
       document.getElementById('detect-local').click();
       await waitFor(() => visible(document.getElementById('ack')));
       document.getElementById('ack-ok').click();
       await waitFor(() => document.getElementById('state').textContent.includes('detected'));
+      await waitFor(() => visible(document.getElementById('run')) && !document.getElementById('run').disabled);
       document.getElementById('run').click();
       await waitFor(() => document.getElementById('state').textContent.includes('written to'));
       return {id: new URLSearchParams(location.search).get('job'), state: document.getElementById('state').textContent};
@@ -810,7 +823,8 @@ class LocalPageTest(localfx.LocalBase):
 
     DETECT_AGAIN = """
       const visible = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
-      await waitFor(() => visible(document.getElementById('sources-panel')));
+      // the open job's sources are restored first (a slower host shows the panel before the job has loaded)
+      await waitFor(() => visible(document.getElementById('sources-panel')) && document.getElementById('source-paths').value);
       const restored = {paths: document.getElementById('source-paths').value, output: document.getElementById('output-dir').value};
       document.getElementById('source-paths').value = %s;
       document.getElementById('output-dir').value = %s;
@@ -827,7 +841,7 @@ class LocalPageTest(localfx.LocalBase):
         jid = self.done_job()
         before = self.srv.store.load(jid)["owned"]
         link = os.path.join(self.tmp, "link")
-        os.symlink(os.path.dirname(self.out), link)
+        os.symlink(os.path.dirname(self.out), link, target_is_directory=True)   # Windows: a directory symlink
         paths = json.dumps("\n".join(self.roots))
         for spelling in (self.out + "/", os.path.join(link, os.path.basename(self.out))):
             out = self.drive(self.DETECT_AGAIN % (paths, json.dumps(spelling)), query="?job=" + jid)

@@ -260,12 +260,110 @@ $ ./svf-maker-0.1.0.AppImage --appimage-mount
 
 ### 6.5. Windows와 macOS (2026-11-27 상태)
 
-**Windows:** `windows-build` 브랜치에 x64 NSIS 설치 프로그램과 portable 실행 파일 빌드가 있다.
-[GitHub Actions 실행 45350084767](https://github.com/TaehyunKimLL/svf-fonts-open/actions/runs/45350084767)은
-2026-11-24 커밋 `edd8a6d`에서 성공했다. 2026-11-27 현재 main에 병합되지 않았다.
-브랜치의 `desktop/package.json`은 `nsis`·`portable` 타깃을 지정하며 `.github/workflows/windows.yml`은
-Windows 테스트, 동결 사이드카, 패키징·e2e·스모크 검사를 실행한다. 이 성공을 현재 main의 Windows 지원으로 해석하면 안 된다.
-main의 POSIX 잠금·프로세스 그룹·파일 링크 호출에 관한 이전 이식 과제는 아래의 과거 기록에 남아 있다.
+**Windows** (t_9b8f56f0): Windows x64는 GitHub Actions(`windows-latest`, 워크플로 `.github/workflows/windows.yml`)에서 빌드하고 테스트한다. 데스크톱
+머신에서는 한 번도 하지 않았다. 한 번의 실행은 이 순서로 한다: Ubuntu 러너에서 WASM 미리보기 모듈(emsdk 6.0.13,
+`c/cross/install-toolchains.sh`의 고정값. `maker/build-wasm.sh`는 bash이고 Windows 러너에는 emcc를 두지 않는다)을 만들어 아티팩트로
+Windows 작업에 넘긴다. Windows에서는 `desktop/build/run-suite.py`로 maker 스위트와 tools 스위트를 돌리고(`SUITE ... ran= skipped=`와
+건너뛴 이유마다 `SKIP <n> <이유>` 한 줄을 찍는다), 데스크톱 단위 테스트, frozen 사이드카(`desktop/build/build-sidecar-win.py`,
+`SVF_MAKER_FROZEN_REQUIRED=1`로 frozen 테스트 포함), `THIRD-PARTY.txt`(`third-party.mjs --platform win32`, 닫힌 쪽으로 실패),
+데스크톱 e2e(개발 패스, 이어서 패키지된 사이드카), 설치 프로그램과 포터블 `.exe`(electron-builder `--win nsis portable`, 서명 없음),
+그리고 풀어 둔 앱, 설치된 앱, 포터블 앱의 smoke(`desktop/build/smoke-win.py`)를 한다. 두 `.exe` 파일과 `THIRD-PARTY.txt`가 실행의
+아티팩트 `svf-maker-windows`다. pip와 npm 다운로드는 캐시한다.
+
+#### 직접 빌드하기 (Windows)
+
+러너 밖에서는 해 보지 않았다. 단계는 워크플로의 것이다. git 체크아웃(`.gitattributes`가 모든 파일을 바이트 그대로 둔다: CRLF 변환
+없음), `PATH`에 `python`으로 있는 Python 3.12(3.12.3 사용), npm이 있는 node 22, 다른 곳(Linux나 WSL: `bash maker/build-wasm.sh`)에서
+빌드해 `maker/static/wasm/`에 복사한 WASM 모듈이 필요하다:
+
+    # 체크아웃 루트에서, PowerShell
+    python -m pip install --require-hashes "--only-binary=:all:" --no-deps -r desktop/build/requirements-win.lock
+    cd desktop; npm ci; cd ..
+    python desktop/build/fetch-fribidi-win.py $env:USERPROFILE\work\tmp\fribidi   # 그리고 그 폴더를 PATH에 둔다(아래)
+    $env:PATH = "$env:USERPROFILE\work\tmp\fribidi;$env:PATH"
+    python desktop/build/build-sidecar-win.py          # wheel, icon.ico, FriBiDi, PyInstaller, provenance, 스테이징 repo, selfcheck, frozen 테스트
+    $lic = python -c "import os, sys; print(os.path.join(sys.base_prefix, 'LICENSE.txt'))"
+    node desktop/build/third-party.mjs --platform win32 --sidecar desktop/build/out/sidecar/svf-maker-sidecar `
+      --provenance desktop/build/out/sidecar-provenance.json --electron desktop/node_modules/electron/dist `
+      --pysite "$env:USERPROFILE\work\tmp\svf-desktop-build\pysite" --repo desktop/build/out/repo --meta . `
+      --python-licence $lic --out desktop/build/out/THIRD-PARTY.txt
+    cd desktop; npx electron-builder --win nsis portable --x64 --publish never; cd ..
+    python desktop/build/smoke-win.py desktop/dist
+
+**FriBiDi.** Pillow의 Windows wheel은 libraqm과 HarfBuzz를 담지만 FriBiDi는 실행 시에 불러오며 함께 주지 않는다. 그것이 없으면
+Pillow는 기본 레이아웃으로 돌아가고, Windows에서 만든 페이스는 Linux에서 만든 같은 페이스와 바이트가 같지 않다(측정: GowunBatang-Bold
+17 px 2 bpp에 U+00AD가 더해지고 U+2116이 다르게 그려졌다. 결합 부호가 advance를 유지했다). `desktop/build/fetch-fribidi-win.py`가
+conda-forge의 MSVC 빌드 FriBiDi 1.0.10(압축 파일과 DLL의 sha256 고정)을 내려받고, 빌드는 `fribidi-0.dll`을 사이드카의 `_internal/`에
+묶는다(spec은 그것 없이 빌드하기를 거부한다). Windows에서의 개발 실행이나 테스트 스위트에는 그 폴더가 `PATH`에 있어야 한다.
+FriBiDi는 LGPL-2.1-or-later다: 교체할 수 있는 별도 DLL이며, 배포 기록과 함께 나열되고 `ffmpeg.dll`처럼 D8 릴리스 게이트 아래에 있다.
+
+`desktop/build/requirements-win.lock`은 win_amd64 cp312 wheel을 해시와 함께 고정한다(Linux와 같은 Pillow 10.2.0, fontTools 4.66.1,
+PyInstaller 6.22.3, 그리고 PyInstaller의 Windows 전용 의존성 `pefile`과 `pywin32-ctypes`). spec(`maker/sidecar.spec`)은 Linux의 것이고,
+Windows에서는 UTF-8 모드(`X utf8_mode=1`: frozen 프로그램은 `PYTHONUTF8`을 무시한다)와 아이콘을 더한다. `desktop/package.json`의
+`build.win`: 대상은 `nsis`(원클릭, 사용자별, 권한 상승 없음, 시작 메뉴 바로 가기 "SVF maker", `%LOCALAPPDATA%\Programs\svf-maker`에
+설치)와 `portable`이다. 아이콘 `build/out/icon.ico`는 `make-icon.py --ico`가 `build/icon.png`에서 만든다(커밋하지 않는다).
+
+고지: `desktop/build/third-party-map-win.json`이 사이드카 `_internal/`과 Electron 폴더의 모든 `*.dll`, `*.pyd`를 대소문자 구분 없이
+귀속한다. python.org 인터프리터의 DLL과 확장 모듈(CPython, OpenSSL, libffi, ...)은 그 인터프리터의 `LICENSE.txt`(`--python-licence`)에서
+글을 가져온다. 그 파일에 Windows 빌드가 묶는 라이브러리들의 라이선스가 들어 있다. 인터프리터나 Electron과 함께 오는 Microsoft
+바이너리(`VCRUNTIME140*.dll`, `d3dcompiler_47.dll`, `dxil.dll`)는 클래스 `ms-redist`다: Microsoft의 조건에 따라 수정 없이 재배포한다
+(`desktop/build/licences/ms-distributable.txt`가 그렇게 말한다. 그 라이선스 원문은 아니다). python.org 빌드가 함께 싣는 앱 로컬
+Universal CRT(`ucrtbase.dll`, `api-ms-win-*.dll`)도 그렇다. ANGLE(`libEGL.dll`, `libGLESv2.dll`)과
+DirectX Shader Compiler는 `LICENSES.chromium.html`을 가리킨다. 카피레프트 부분은 AppImage runtime을 빼고 FriBiDi를 더한 Linux와 같다:
+`ffmpeg.dll`과 `fribidi-0.dll`(LGPL-2.1, D8 릴리스 게이트가 둘 모두에 똑같이 적용된다)과 PyInstaller 부트로더.
+
+#### Windows에서 다른 것 (서버)
+
+`maker/oscompat.py`가 POSIX와 Windows가 다르게 쓰는 모든 기본 동작을 갖는다. POSIX에서는 각 함수가 이 모듈 이전에 maker가 하던 바로
+그 호출이므로 Linux 동작은 바뀌지 않는다. 모든 플랫폼에 걸리는 읽기 변경이 하나 있다: CRLF 줄 끝으로 저장된 BDF나 HBF는 LF 형태와
+똑같이 읽힌다(전에는 Linux에서 그 글리프가 빠졌다). 그래서 한 파일은 어느 플랫폼에서나 같게 파싱된다.
+
+| 무엇 | POSIX | Windows |
+|---|---|---|
+| 도구의 프로세스 트리 | 새 세션. `killpg` SIGTERM, 5초 뒤 SIGKILL | 콘솔 없는 새 프로세스 그룹에서 일시 정지 상태로 시작해 자기 Job Object(`KILL_ON_JOB_CLOSE`)에 넣은 뒤 재개한다. 정지는 job을 즉시 끝낸다(유예 없음: 그에게 SIGTERM이 없다). job을 만들거나 넣지 못하면 그 도구를 거부한다. 사이드카 자신도 자기 job 안에서 돈다(`contain_children`): 만들어진 뒤 job에 들어가기 전, 아직 일시 정지 상태인 도구도 사이드카가 죽으면 함께 끝난다. |
+| 죽은 사이드카의 도구 | `PR_SET_PDEATHSIG` + 다음 시작의 reap | 사이드카의 job 핸들이 닫힐 때 커널이 끝낸다. reap은 기록된 pid와 그 아래 모든 프로세스를 끝낸다(스냅숏의 부모 연결, 생성 시각 확인) |
+| 사이드카 정지 | 셸이 그룹에 SIGTERM | 셸이 사이드카의 stdin을 닫는다(`serve --stop-on-eof`): SIGTERM과 같은 깨끗한 정지. 45초 뒤에는 끝낸다(TerminateProcess) |
+| 부모 감시(`--exit-with-parent`) | `getppid()` 폴링 | 시작할 때 연 부모의 프로세스 핸들을 기다린다 |
+| 데이터 루트와 레지스트리 락 | `flock` | 락 파일 끝보다 훨씬 뒤의 한 바이트에 `msvcrt.locking`(파일은 읽을 수 있게 남는다) |
+| 다른 스레드와 겹친 교체나 읽기 | 원자적, 실패하지 않음 | 공유 위반을 최대 2초 다시 시도한다(`retry_sharing`) |
+| 링크 | `S_ISLNK` | 심볼릭 링크 **또는 이름 대리(name surrogate) reparse point 모두**(정션, 마운트 지점). `lstat`은 정션을 폴더로 보이므로 reparse 태그로 판단한다 |
+| 링크를 따르지 않고 열기 | `O_NOFOLLOW` | `FILE_FLAG_OPEN_REPARSE_POINT`로 연다(여는 동작이 링크를 따르거나 링크가 가리키는 곳에 닿지 않는다: 끊어진 링크가 있으면 새로 만들기가 실패한다). 핸들의 reparse 태그가 이름 대리면 거부한다. 중복 제거나 클라우드 자리표시 파일은 보통 방식으로 다시 열고, 같은 파일(볼륨 일련번호 + 파일 인덱스)이어야 한다 |
+| 출력 트리 | 디렉터리 디스크립터와 `*at()` 호출 | 출력 폴더와 쓰기가 지나가는 모든 폴더를 삭제 공유 없이, reparse point를 따르지 않고 연 채로 둔다. 출력 폴더 아래의 각 폴더는 부모 핸들 기준으로 만들고 연다(`hold_dir_at`, 경로를 따라가지 않는다). 각 파일은 그 폴더 핸들 기준으로 만들고 읽는다(`NtCreateFile`, `OBJ_DONT_REPARSE`). 쓰는 동안 그 폴더들과 그 위의 폴더는 이름을 바꾸거나 지울 수 없다. 연 폴더가 제자리에서 정션으로 바뀌면(비어 있을 때만 가능하다) 착지 전에 거부한다. 각 착지 앞뒤의 경로 -> 정체 검사는 POSIX와 같다 |
+| 새 이름 차지 | `link()`, 안 되면 `O_EXCL` + 교체 + 다시 읽기 | 같다(`CreateHardLink`. 하드 링크가 없는 FAT/exFAT와 공유 폴더는 둘째 방법) |
+| 출력 이름 | 이름 규칙대로 | 다음도 거부한다: 장치 이름(`CON`, `NUL.TXT`, `COM1`, ...), 끝의 점이나 공백, 문자 `<` `>` `:` `"` `/` `\` `?` `*`와 세로 막대(`TreeRefused`. 업로드 압축 파일의 항목도). 장치 이름인 글꼴·라이선스·노트 이름이나 대상(`CON.SVF`, `new/con`)은 설정 오류이고, 제안 이름에는 `0`을 붙인다(`CON0.TXT`) |
+| 압축 파일 항목 | 이름이 정확히 같으면 압축 풀기를 멈춘다 | 대소문자만 다른 이름도 중복이다. 항목 파일은 새로만 만들므로, 앞 항목의 8.3 별칭(`LONGNA~1.TTF`)도 중복으로 멈추고 덮어쓰지 않는다 |
+| 로컬 작업 도구의 임시 폴더 | `TMPDIR` | `TMPDIR`, `TEMP`, `TMP`(네이티브 코드는 뒤의 둘만 읽는다) |
+| 고른 경로 | 절대 경로 | 드라이브나 UNC 공유가 있는 절대 경로. 장치 경로(`\\.\`), 확장 길이 경로(`\\?\`), 드라이브 루트, 대체 데이터 스트림(`이름:스트림`)은 거부한다. 소스 안의 상대 경로에는 드라이브와 콜론이 있을 수 없다 |
+| `SVF_MAKER_ROOTS` | `:`로 구분 | `;`로 구분. 항목은 드라이브 루트(`D:\`)여도 되고, 대소문자는 가리지 않는다 |
+| 권한 비트 | `umask 077`, 폴더 0700, 파일 0600 | 모드 비트가 없다: 데이터 폴더의 비공개는 사용자 프로필(`%APPDATA%`)에서 물려받은 ACL이다. 로컬 작업의 `.svf-maker-<id>/`(사용자가 고른 출력 폴더 안)는 현재 사용자와 SYSTEM에만 권한을 주는 보호된 ACL로 만든다 |
+| 경로 없는 프로그램 이름 | `PATH` | `PATH`만: 사이드카는 `NoDefaultCurrentDirectoryInExePath`를 설정하고, 셸의 개발 모드는 `python.exe`를 `PATH`의 절대 경로 폴더에서 찾는다(경로 없는 이름은 현재 폴더부터 찾기 때문이다) |
+| maker와 도구가 쓰는 텍스트 | LF | LF(모든 텍스트 쓰기에 `newline="\n"`. 도구의 CRLF stdout은 LF로 읽는다) |
+
+같은 보장이 아닌 것: POSIX에서는 두 착지 사이에 바뀐 폴더를 알아채고 쓰기를 멈춘다(`OutputGone`). Windows에서는 폴더를 연 채로 두는
+동안 그 바꿔치기 자체가 불가능하므로, 쓰기는 검사한 그 폴더 안에서 끝난다. 트리가 아직 닿지 않은 폴더의 바꿔치기는 그 폴더를 열기
+전에 `lstat` + 정체 검사가 여전히 잡는다.
+
+#### 측정값 (GitHub Actions windows-latest)
+
+Windows Server 2025(빌드 26100) 러너, Python 3.12.3, node 22, 2026-11-24.
+
+| 항목 | 값 |
+|---|---|
+| 사이드카 one-dir | 약 30 MB. `build-sidecar-win.py` 55초(frozen 테스트 포함: 28개, 실패 0, 건너뜀 2: fork 경쟁과 `PR_SET_PDEATHSIG` 노브, 본래 POSIX의 것. Windows에서는 Job Object가 둘 다 맡는다) |
+| 설치 프로그램 | `svf-maker-0.1.0-setup.exe` 138,366,326바이트. 사용자별 무인 설치와 제거를 확인 |
+| 포터블 | `svf-maker-0.1.0-portable.exe` 125,605,175바이트 |
+| smoke 시작부터 깨끗한 정지까지 | 풀어 둔 앱 1.3초, 설치된 앱 1.5초, 포터블 12.5초(먼저 자신을 푼다). Help > About의 줄: "renderer sandbox: on" |
+| 데스크톱 e2e | 33단계 통과(개발 패스와 패키지 패스, sample set 포함. `sample set` 개발 20.9초, 패키지 20.2초). `sh` 스텁의 stderr canary는 POSIX 전용이다. |
+| maker 스위트 | 두 조각으로 1,277개(13분과 27분. Chrome 페이지 테스트가 느린 부분), 실패 0, 건너뜀 62: 본래 POSIX인 것 30(권한 비트, 시그널, FIFO, 좀비, `/proc`과 `PR_SET_PDEATHSIG`, `/dev/zero`, `resource` 모듈, Chrome의 Unix 소켓 경로, 네임스페이스), 아래의 U+2116 고정 1, Linux와 같은 환경 건너뜀 31(당신의 실제 글꼴과 ROM, 선택 라이브러리, 느린 fit, 패키지 작업에서 도는 frozen 클래스) |
+| tools 스위트 | 980개(6.5분), 실패 0, 건너뜀 642: 본래 POSIX인 것 609(gcc sanitizer를 쓰는 C 렌더러 호스트 빌드와 그 벤치·VESA 셸 스크립트: Windows에서 렌더러는 WASM 모듈로 돈다. 모드 000 폴더. bash 빌드 스크립트), Linux와 같은 환경 건너뜀 33 |
+| 데스크톱 단위 테스트 | 43개 통과(`unit.test.js`, `third-party.test.js`, win32 고지 사례 포함) |
+| 고지 | `THIRD-PARTY.txt` 15개 구성 요소, 귀속되지 않은 DLL 없음 |
+
+**Windows에서 바이트가 같지 않은 것.** FriBiDi가 있으면 테스트 스위트의 모든 페이스가 Linux의 바이트와 같다. 측정된 글리프 하나만
+예외다: GowunBatang-Bold 17 px 2 bpp(`dos-u-2bpp`, 수록된 `svf/dos/GBATB17.SVF`)는 Pillow의 Windows 빌드에서 U+2116을 다르게
+그리므로, Windows에서는 그 페이스가 수록된 것으로 인식되지 않고 새 페이스로 쓰인다. 테스트는 정확히 그 글리프만 고정한다
+(`maker/test/wincompat.py`, `WINDOWS_RENDER_DIFFERS`): 다른 모든 글리프와 메트릭은 같아야 한다. 원인은 밝히지 못했다(양쪽 모두
+FreeType 2.13.2, raqm 0.10.1).
 
 **macOS:** 패키지는 아직 빌드하거나 실행하지 않았다. 당시 계획은 arm64·x86_64별 PyInstaller one-dir와
 `dmg`·`zip` 패키지였으며 universal2에는 범용 wheel이 필요하다. 현재 Linux cp312 wheel 잠금은 그대로 쓸 수 없다.

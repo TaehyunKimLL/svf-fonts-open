@@ -137,7 +137,7 @@ def main(argv=None):
     except (SpecError, OSError, struct.error) as e:
         print(f"nkpspec.py: {e}", file=sys.stderr)
         sys.exit(1)
-    with open(a.output, "w", encoding="utf-8") as fh:
+    with open(a.output, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(s, fh, indent=1)
     eng = f"; the English font at file {found['ascii'] - 0x100:#x}" if "ascii" in found else ""
     print(f"wrote {a.output}: {len(s['sets'])} piece sets{eng}")

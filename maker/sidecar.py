@@ -46,7 +46,7 @@ SMOKE["svfline"] = (["--help"], 1, "stderr", "  svfline.py line W H X Y")
 
 # The modules reachable from this file (test_sidecar_imports computes the same set from the sources and pins equality).
 GRAPH_MODULES = ("archive", "bdfface", "binscan", "caps", "detect", "hwpfont", "jamoaa", "jamoadapt", "jamofit", "jamoset",
-                 "jamovec", "jobs", "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "presets",
+                 "jamovec", "jobs", "johab844", "macfbit3", "macfbit_svf", "macsfnt", "mkfont", "naming", "oscompat", "presets",
                  "preview", "quality", "rawcarve", "recipe", "routes", "server", "settings", "sidecar", "sources", "srcprep",
                  "svf2to3", "svf2ttf", "svfdy", "svfline", "toolreg", "toolrun", "zipout")
 
@@ -148,6 +148,12 @@ def run_tool(name, args):
         sys.exit(2)
     _, how = TOOLS[name]
     sys.argv = [name + ".py"] + list(args)
+    if os.name == "nt":                                   # UTF-8 and LF on the pipes, as a POSIX tool writes
+        for stream in (sys.stdout, sys.stderr):           # (the frozen sidecar is built in UTF-8 mode already)
+            try:
+                stream.reconfigure(encoding="utf-8", newline="\n")
+            except (AttributeError, ValueError):
+                pass
     try:
         main = ENTRIES[name]()
         if how == "bare":
@@ -206,11 +212,18 @@ def selfcheck():
     except BaseException as exc:
         recipes = "%s: %s" % (type(exc).__name__, exc)
     flags = sys.flags
-    return {"recipes": recipes, "frozen": bool(getattr(sys, "frozen", False)), "version": VERSION, "build_id": _build_id(),
+    extra = {}
+    if os.name == "nt":                                   # Windows: raqm loads FriBiDi from the bundle (fetched DLL)
+        try:
+            from PIL import features
+            extra["raqm"] = bool(features.check("raqm"))
+        except BaseException as exc:
+            extra["raqm"] = "%s: %s" % (type(exc).__name__, exc)
+    return dict(extra, **{"recipes": recipes, "frozen": bool(getattr(sys, "frozen", False)), "version": VERSION, "build_id": _build_id(),
             "python": platform.python_version(),
             "flags": {"isolated": bool(flags.isolated), "ignore_environment": bool(flags.ignore_environment),
                       "safe_path": bool(getattr(flags, "safe_path", False)), "no_site": bool(flags.no_site)},
-            "path": list(sys.path), "tools": sorted(TOOLS), "modules": modules, "budget": budget}
+            "path": list(sys.path), "tools": sorted(TOOLS), "modules": modules, "budget": budget})
 
 
 USAGE = ("usage: svf-maker-sidecar serve [--exit-with-parent=PID]\n"

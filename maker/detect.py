@@ -18,6 +18,7 @@ import unicodedata
 
 import bdfface
 import hwpfont
+import oscompat
 import recipe
 import jamoaa
 import jamoset
@@ -625,7 +626,7 @@ def _detect_file(abs_path, rel, local=False):
                        family=_stem(rel), gz=zipped)]
 
     if fmt == "bdf":
-        text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
+        text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1").replace("\r\n", "\n")
         reg, enc = _bdf_charset(text)
         box = _bdf_box(text)
         family, style = _bdf_names(text)
@@ -652,7 +653,7 @@ def _detect_file(abs_path, rel, local=False):
     if fmt == "hbf":
         if gz:                        # its bitmaps resolve beside the compressed path and the tools read a plain .hbf only
             return [_entry(rel, 0, "hbf", "HBF: gzipped HBF not supported", "other", _stem(rel), "", gz=zipped)]
-        text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1")
+        text = _head_bytes(abs_path, gz, cut=b"STARTCHAR").decode("latin-1").replace("\r\n", "\n")
         box = _hbf_box(text)
         missing = _hbf_missing(text)
         if missing:                   # bdfface.read_hbf would refuse this file: it is not a usable companion
@@ -1564,7 +1565,7 @@ def _licence_folders(paths):
     """
     out = {}
     for p in paths:
-        if os.path.islink(p):
+        if oscompat.islink(p):
             continue
         if is_licence_name(os.path.basename(p)) or is_licence_text(p):
             out.setdefault(os.path.dirname(p), []).append(p)

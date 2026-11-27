@@ -96,6 +96,17 @@ class BdfFaceTest(unittest.TestCase):
         # 각: one pixel on the baseline row, origin column 0
         self.assertEqual(self.rows(f, 0xAC01)[18], 1 << 23)
 
+    def test_crlf_files_read_as_their_lf_form(self):
+        # a BDF or HBF saved with CRLF line ends reads exactly as its LF form, on every platform (t_9b8f56f0)
+        self.make()
+        lf = self.build({0xAC00, 0xAC01})
+        for name in ("h.bdf", "a.hbf"):
+            with open(self.path(name), "rb") as f:
+                data = f.read()
+            with open(self.path(name), "wb") as f:
+                f.write(data.replace(b"\n", b"\r\n"))
+        self.assertEqual(self.build({0xAC00, 0xAC01}), lf)
+
     def test_header_matches_the_other_l_faces(self):
         self.make()
         data, _ = self.build({0xAC00})

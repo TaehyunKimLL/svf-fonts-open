@@ -28,6 +28,7 @@ import unittest
 import fixtures
 import inputfx
 import server
+import wincompat
 
 TOKEN = "0123456789abcdef0123456789abcdef"
 WAIT_S = 180
@@ -108,8 +109,14 @@ def read_only(test, path):
     test.addCleanup(walk, 0o755, 0o644)
 
 
-class LocalBase(unittest.TestCase):
+class LocalBase(wincompat.SlashEqual, unittest.TestCase):
     """A token server over a temp data root, plus a `local_tree`. Subclasses add the tests."""
+
+    def assert_mode(self, path, mode, msg=None):
+        """The permission bits of @p path are @p mode. POSIX only: Windows has no mode bits (a folder's privacy there is
+        its ACL, inherited from the user's profile), so nothing is asserted on Windows."""
+        if not wincompat.WIN:
+            self.assertEqual(mode_of(path), mode, msg)
 
     def setUp(self):
         self._umask = os.umask(0o022)
@@ -280,12 +287,17 @@ class SubprocessLocalBase(LocalBase):
         os.makedirs(empty, exist_ok=True)
         env = {"PATH": empty, "HOME": os.environ.get("HOME", "/"), "LANG": "C.UTF-8", "SVF_MAKER_TOKEN": TOKEN,
                "SVF_MAKER_BIND": "127.0.0.1:0", "SVF_MAKER_DATA": self.data, "SVF_MAKER_REPO": self.repo}
+        argv, stdin = [exe, "serve"], subprocess.DEVNULL
+        if wincompat.WIN:                    # what the Windows shell gives it: SYSTEMROOT and the temp folders, a stdin pipe
+            import toolrun
+            env.update({k: os.environ[k] for k in toolrun.WINDOWS_KEYS if os.environ.get(k)})
+            argv, stdin = argv + ["--stop-on-eof"], subprocess.PIPE
         env.update(self.extra_env())
         self.out_path = os.path.join(self.tmp, "serve.out")
         self.err_path = os.path.join(self.tmp, "serve.err")
         self.started_at = time.monotonic()
         with open(self.out_path, "wb") as out, open(self.err_path, "wb") as err:
-            self.proc = subprocess.Popen([exe, "serve"], env=env, stdin=subprocess.DEVNULL, stdout=out, stderr=err)
+            self.proc = subprocess.Popen(argv, env=env, stdin=stdin, stdout=out, stderr=err)
         self.addCleanup(self._kill)
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
@@ -304,9 +316,16 @@ class SubprocessLocalBase(LocalBase):
             self.proc.kill()
             self.proc.wait()
 
+    def request_stop(self):
+        """Ask the server to stop cleanly, as the shell does: SIGTERM; Windows closes its stdin (`--stop-on-eof`)."""
+        if wincompat.WIN:
+            self.proc.stdin.close()
+        else:
+            self.proc.send_signal(signal.SIGTERM)
+
     def _stop(self):
         if self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGTERM)
+            self.request_stop()
             try:
                 self.proc.wait(60)
             except subprocess.TimeoutExpired:

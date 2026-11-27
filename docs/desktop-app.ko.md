@@ -16,13 +16,15 @@ SVF maker 데스크톱 앱은 사용자가 가진 폰트를 자신의 컴퓨터�
 다른 문서는 [프로젝트 개요](../README.ko.md)에 나열되어 있다.
 
 상태: Linux AppImage의 Ubuntu 24.04 x86_64 빌드와 두 번째 깨끗한 Ubuntu 24.04.5
-호스트의 Xvfb 실행이 기록되어 있다(13절). Windows NSIS·portable 빌드는 별도 `windows-build` 브랜치에서 Actions를 통과했으며 main에는 아직 병합되지 않았다. macOS 패키지는 빌드하지 않았다(13절). 패키지는 서명되지 않았고 자동 업데이트가 없다.
+호스트의 Xvfb 실행이 기록되어 있다(13절). Windows x64 설치 프로그램과 포터블 `.exe`는 GitHub Actions(`windows-latest`)에서 빌드하고
+테스트했다. 아직 누구도 Windows 데스크톱에서 써 보지 않았다(13절). macOS 패키지는 빌드하지 않았다(13절). 패키지는 서명되지 않았고 자동 업데이트가 없다.
 
 <a id="빠른-시작"></a>
 
 ## 0. 빠른 시작
 
-내려받을 파일은 없다. 앱은 이 저장소의 git 체크아웃에서 Linux(x86_64)용으로 빌드한다. 현재 main의 빌드는 Linux용이며, 별도 Windows 브랜치 상태는 13절을 참고한다.
+Linux(x86_64)에서는 내려받을 파일이 없다. 앱은 아래처럼 이 저장소의 git 체크아웃에서 빌드한다. Windows(x64)에서는 빌드
+워크플로가 만드는 두 `.exe` 파일을 쓴다(아래 [Windows (x64)](#windows-x64)). macOS는 아직 지원하지 않는다(13절).
 
 **필요한 것**
 
@@ -129,6 +131,31 @@ Pillow와 fontTools를 import할 수 있어야 한다):
 
 **제거**: AppImage와 `~/.config/svf-maker/`를 삭제한다(12절).
 
+### Windows (x64)
+
+**받기.** 저장소의 워크플로 `windows`(`.github/workflows/windows.yml`, GitHub Actions)가 그 브랜치에 push할 때마다, 그리고 요청할
+때 두 Windows 패키지를 빌드한다. 녹색(성공) 실행을 열고 아티팩트 `svf-maker-windows`(zip, 14일 보관)를 내려받는다. 안에는:
+
+| 파일 | 무엇인가 |
+|---|---|
+| `svf-maker-0.1.0-setup.exe` | 설치 프로그램: 한 번 클릭, 내 사용자에게만(관리자 권한 없음), `%LOCALAPPDATA%\Programs\svf-maker`에 설치하고 시작 메뉴에 "SVF maker"를 추가한다. 제거는 설정 > 앱(또는 "프로그램 추가/제거")에서 한다. |
+| `svf-maker-0.1.0-portable.exe` | 설치 없이 실행되는 파일 하나: 시작할 때마다 먼저 앱을 임시 폴더에 풀고(몇 초) 끝날 때 지운다. |
+| `THIRD-PARTY.txt` | 묶인 모든 것의 고지(설치된 앱에도 같은 파일이 있다). |
+
+Windows에서 직접 빌드하려면 [maker-desktop.ko.md](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 본다.
+
+**서명 없음: SmartScreen.** 두 파일 모두 코드 서명이 없다. 인터넷에서 온 파일(내려받은 zip은 그 안의 파일에 표시를 남긴다)을 시작하면
+Windows SmartScreen이 "Windows의 PC 보호"를 보여 준다. **추가 정보**를 누르고, 실행에서 내려받은 바로 그 파일인지 확인한 뒤
+**실행**을 누른다. 브라우저도 다운로드 자체에 경고할 수 있다("일반적으로 다운로드되지 않는 파일"). 백신이 포터블 파일을 처음
+검사하는 데 시간이 걸릴 수 있다. 그 밖에 권한을 묻는 것은 없다: 설치 프로그램은 권한을 올리지 않고, 앱은 네트워크 연결을 만들지
+않는다(Windows 방화벽이 묻는 일이 없다).
+
+**쓰기.** 시작 메뉴의 "SVF maker"(또는 포터블 파일)로 시작한다. 창과 단계는 Linux와 같다(위의 첫 변환, 3~7절). 경로는 Windows
+경로다(`C:\Users\you\Fonts`, `\\server\share\fonts`). 드라이브 전체(`C:\`)는 출력 폴더가 될 수 없다.
+
+**어디에 있나.** 앱의 데이터는 `%APPDATA%\svf-maker\`에 있다(`maker\`에 작업, `logs\shell.log`에 로그. 9절). **제거**: 제거(설치
+프로그램)하거나 포터블 파일을 지운 다음 `%APPDATA%\svf-maker\`를 지운다(12절).
+
 ## 목차
 
 빠른 시작(위)
@@ -183,6 +210,10 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
   렌더러는 Chromium의 샌드박스 없이 실행된다(자동이며 아무것도 넘길 필요가 없다). Help > About에 이 사실이 표시된다. 8절을 참조한다.
 - AppImage는 아무것도 설치하지 않는다. 메뉴 항목도, 아이콘 테마 항목도 없다. 추가하는 방법은 12절에 있다.
 
+Windows에서 패키지는 설치 프로그램이나 포터블 `.exe`다(빠른 시작, [Windows (x64)](#windows-x64)). 같은 규칙이 적용된다: 사용자당
+한 번에 앱 하나, 데이터 폴더당 서버 하나. 그곳에서는 Chromium의 렌더러 샌드박스가 켜져 있다(Help > About이 "renderer sandbox: on"이라고
+한다). 사이드카는 콘솔 창 없이 실행되고, 그 도구들도 그렇다.
+
 시작 순서: 셸이 단일 인스턴스 잠금을 얻고, 로그를 열고, 새 임의 토큰과 `127.0.0.1:0`으로 사이드카를
 시작하고, `svf-maker listening on 127.0.0.1:<port>` 줄을 기다린 뒤(최대 75초이며, 기록된 정상 시작은 2초 안에 이 줄을
 출력했다) 창을 열고 페이지를 로드한다. 페이지는 `/api/caps`를 한 번 요청하여 로컬 모드로 실행 중인지, 어떤 선택적
@@ -225,8 +256,8 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 허용한다. 어떤 루트에도 속하지 않는 출력 폴더는 `output folder: outside SVF_MAKER_ROOTS`로 거부된다). 거부된 경로는 이유와 함께
 나열된다(11절).
 
-작업이 살아 있는 동안 앱은 중간 파일을 출력 폴더 안의 `.svf-maker-<id>/`(권한 0700)에 두고, 작업이 끝나거나 삭제되거나
-앱이 종료될 때 지운다. 클라우드 클라이언트가 **동기화하지 않는** 출력 폴더를 고른다.
+작업이 살아 있는 동안 앱은 중간 파일을 출력 폴더 안의 `.svf-maker-<id>/`(권한 0700. Windows에서는 나와 SYSTEM에만 권한을 주는
+ACL)에 두고, 작업이 끝나거나 삭제되거나 앱이 종료될 때 지운다. 클라우드 클라이언트가 **동기화하지 않는** 출력 폴더를 고른다.
 
 패널 아래의 **jobs**는 이 세션의 작업을 나열하므로 작업 사이를 전환할 수 있다.
 
@@ -487,7 +518,12 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
   네임스페이스를 거부하는 곳에서는 Chromium 자체의 프로세스 샌드박스가 **꺼진다**(AppImage는 SUID 헬퍼를 담을 수
   없다). 그 경우 렌더러는 loopback의 앱 자신의 페이지만 로드한다.
 - **프로세스.** 각 도구는 자신의 세션에서 실행되고 `tools.pids`에 기록된다. 정상 종료 때 도구를 중지한다.
-  충돌하면 프로세스가 남을 수 있으며, 다음 시작 때 레지스트리를 확인해 식별 가능한 잔여 프로세스를 정리한다.
+  충돌하면 프로세스가 남을 수 있으며, 다음 시작 때 레지스트리를 확인해 식별 가능한 잔여 프로세스를 정리한다. Windows에서는 각 도구가 자기 Job Object 안에서
+  실행된다: 사이드카가 어떻게 끝나든 Windows가 그 도구들도 함께 끝낸다.
+- **Windows.** 위의 규칙은 그곳에서도 Windows의 형태로 적용된다(maker-desktop.ko.md, "Windows에서 다른 것"): 정션이나 마운트 지점은
+  링크로 보고 심볼릭 링크처럼 거부한다. Windows가 예약한 출력 이름(`CON`, `NUL.TXT`, `COM1`, ...)은 거부한다. 페이스를 쓰는 동안
+  출력 폴더와 쓰기가 지나가는 모든 폴더를 연 채로 두어 그 사이에 누구도 이름을 바꾸거나 지울 수 없다. 데이터 폴더의 비공개는
+  사용자 프로필에서 물려받은 폴더 권한(ACL)이다: Windows에는 `chmod 700`이 없다.
 - **서드파티 코드.** `THIRD-PARTY.txt`는 번들된 모든 라이브러리를 그 라이선스와 함께 나열한다. 매핑되지 않았거나 일반 GPL로 분류된
   라이브러리가 있으면 빌드가 실패한다. PyInstaller 부트로더는 GPL 부트로더 예외로 별도 분류한다.
 
@@ -501,6 +537,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 | 창 상태 | `~/.config/svf-maker/shell-state.json` |
 | 셸 로그 | `~/.config/svf-maker/logs/shell.log`(그리고 순환된 `shell.log.1`. redaction 규칙이 허용하는 것 이상의 폰트 이름이나 경로는 없으며, 토큰은 절대 없다) |
 | 개발 실행 데이터 | `~/.config/svf-maker/maker-dev` |
+| Windows | 같은 이름으로 `%APPDATA%\svf-maker\` 아래(`maker\`, `shell-state.json`, `logs\shell.log`, `maker-dev\`). 설치된 프로그램은 `%LOCALAPPDATA%\Programs\svf-maker\`에 있다 |
 
 선택적 환경 변수(앱을 시작하기 전에 설정한다):
 
@@ -508,9 +545,9 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 |---|---|
 | `JAMOSET_PYLIB` | `freetype-py`와 `uharfbuzz`가 있는 폴더. `mask fit` 경로와 `binarize mono`를 활성화한다. |
 | `JAMOSET_MASK_FONT` | `mask fit`이 조각을 한정하는 데 쓰는, OpenType 자모 치환(`ljmo`, `vjmo`, `tjmo`)이 있는 폰트 파일. 없으면 도구는 ScummVM 트리 옆의 NotoSansKR을 찾는데 패키지된 앱에는 그것이 없으므로, `mask fit`을 쓸 때는 지정한다. |
-| `SVF_MAKER_ROOTS` | 콜론으로 구분한 절대 경로 폴더들. 모든 소스와 **출력 폴더**가 이 중 하나 안에 있어야 한다(밖의 경로는 "outside SVF_MAKER_ROOTS"로 거부된다). 루트를 나눈 예: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. 설정하지 않으면 3.2절의 규칙 외에 제한이 없다. |
+| `SVF_MAKER_ROOTS` | 콜론으로 구분한 절대 경로 폴더들(Windows에서는 세미콜론으로 구분: `C:\fonts;D:\out`). 모든 소스와 **출력 폴더**가 이 중 하나 안에 있어야 한다(밖의 경로는 "outside SVF_MAKER_ROOTS"로 거부된다). 루트를 나눈 예: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. 설정하지 않으면 3.2절의 규칙 외에 제한이 없다. |
 | `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | 인터프리터(절대 경로, numpy, torch, PIL, fontTools 포함)와, 조각 정체성 검사를 위한 사용자 자신의 `recog.py`가 있는 폴더. 점수 계산 전용이며 아무것도 함께 배포되지 않는다. 이것이 없으면 페이지는 검사를 쓸 수 없다고 표시한다. |
-| `SVF_MAKER_DEV=1` | 개발 모드: 동결 사이드카 대신 체크아웃에서 `python3 -P maker/server.py`를 실행한다. `SVF_MAKER_DEV_REPO`가 체크아웃을 지정한다. |
+| `SVF_MAKER_DEV=1` | 개발 모드: 동결 사이드카 대신 체크아웃에서 `python3 -P maker/server.py`(Windows: `PATH`에서 찾은 `python.exe`)를 실행한다. `SVF_MAKER_DEV_REPO`가 체크아웃을 지정한다. |
 | `SVF_MAKER_DEVTOOLS=1` | 개발자 도구와 View > Toggle DevTools 항목을 활성화한다. |
 | `SVF_MAKER_SHELL_LOG=stderr` | 셸 로그가 표준 오류에도 출력된다. |
 | `SVF_MAKER_SMOKE=1` | 시작하고, `/api/caps`를 확인하고, 한 줄을 출력한 뒤 종료한다(릴리스 점검에서 사용). |
@@ -622,6 +659,11 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 이미지 안의 항목을 읽는 AppImageLauncher 같은 AppImage 관리자를 쓴다. 이미지 안에서는 `Exec=AppRun %U`가 항목이며 `AppRun`이 필요할 때
 스스로 `--no-sandbox`를 붙인다.
 
+**Windows.** 앱이 시작하지 않으면 `%APPDATA%\svf-maker\logs\shell.log`를 읽는다. 메시지를 바로 보려면 PowerShell 창에서
+먼저 `$env:SVF_MAKER_SHELL_LOG='stderr'`를 설정하고 시작한다. SmartScreen의 "Windows의 PC 보호"는 서명 없는 패키지 때문이다(빠른
+시작). 제거: 설정 > 앱 > SVF maker(또는 "프로그램 추가/제거"), 또는 포터블 파일을 지운다. 그다음 `%APPDATA%\svf-maker\`를 지우면
+데이터, 로그, Chromium 프로필이 지워진다. 출력 폴더의 페이스는 남는다.
+
 **제거.** AppImage 파일을 삭제한다. 앱의 데이터는 `~/.config/svf-maker/` 아래에 있다: 작업과 작업 파일(`maker/`, `maker-dev/`),
 `shell-state.json`, `logs/shell.log`, 그리고 Electron 셸이 같은 폴더에 두는 Chromium 자신의 프로필 데이터(캐시, 로컬 저장소 등). 그곳의 앱 데이터를
 지우려면 `~/.config/svf-maker/`도 삭제한다. 출력 폴더에 이미 쓰인 페이스는 사용자의 것이며 그대로 남는다.
@@ -629,8 +671,17 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 ## 13. 한계와 검증되지 않은 것
 
 - 2026-11-22에 검증함: 커밋 3d40de8로 빌드한 AppImage가 깨끗한 호스트(Ubuntu 24.04.5, `libfuse2` 없음)에서 Xvfb 아래에서 시작되었고,
-  창이 그려졌으며 로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 당시 미검증 범위는 창 관리자와 GPU가 있는 실제 데스크톱 및 Windows·macOS였다. Windows의 이후 상태는 다음 항목을 참고한다.
-- Windows NSIS·portable 빌드는 `windows-build` 브랜치에서 Actions를 통과했으며 main에는 아직 병합되지 않았다. macOS는 빌드하지 않았다. [플랫폼 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 참고한다.
+  창이 그려졌으며 로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 당시 미검증 범위는 창 관리자와 GPU가 있는 실제 데스크톱 및 Windows·macOS였다.
+- Windows x64(t_9b8f56f0): GitHub Actions `windows-latest`(Windows Server, 데스크톱 앞의 사용자 없음)에서 빌드하고 테스트했다.
+  그곳에서 검증한 것: Windows에서의 maker와 tools 테스트 스위트(1,277개와 980개, 실패 0. 건너뛴 것은 maker-desktop.ko.md에 있다), frozen 사이드카의 테스트, 데스크톱 단위 테스트,
+  개발 서버와 패키지된 사이드카에 대한 데스크톱 end-to-end 테스트(대화상자는 스텁), 사용자별 무인 설치와 제거, 그리고 풀어 둔 앱,
+  설치된 앱, 포터블 앱이 패키지된 사이드카로 페이지를 로드하고 깨끗하게 멈추는 시작. **검증하지 않은 것**: 실제 Windows 10/11
+  데스크톱(창을 쓰는 사람, 네이티브 대화상자, GPU 경로, 고DPI 배율), SmartScreen과 브라우저 다운로드 경고(파일에 서명이 없다),
+  백신과의 상호작용, OneDrive가 동기화하는 폴더나 네트워크 공유, FAT/exFAT 출력 드라이브, 긴 경로(260자 초과), Arm용 Windows.
+  서버의 검사는 Windows에서 그 Windows 형태로 지켜진다(maker-desktop.ko.md, "Windows에서 다른 것"). 그곳에서 도구 정지는 즉시다(5초
+  유예 없음). Windows에서 만든 페이스는 Linux에서 만든 같은 페이스와 글리프 몇 개가 다를 수 있다(측정: GowunBatang-Bold 17 px 2 bpp의
+  U+2116). 그래서 그곳에서는 그런 페이스가 수록된 페이스로 인식되지 않고 새 페이스로 쓰인다.
+- macOS: 빌드하지도 실행하지도 않았다. 계획(서명, notarisation)은 [maker-desktop.ko.md](maker-desktop.ko.md)에 적혀 있다.
 - TTF / BDF 내보내기: 각 파일을 다시 읽어(TTF는 fontTools로) 페이스의 문자를 정확히 담았는지 확인한다. 왕복 검사(TTF를
   `mkfont.py`로 다시 구워 비교하는 것, recipes/svf-and-ttf.ko.md)는 실행에 포함되지 않는다. 자모 세트에서는 수 분이 걸린다. 프로그램이 TTF의 2 bpp
   strike를 단계로 그리는지는 그 렌더러에 달렸다(Windows와 macOS는 테스트하지 않음).

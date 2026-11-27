@@ -336,7 +336,7 @@ def write_bdf(f, name, path):
         items.append((ord(ch), "%02X%02X" % (hi, lo), f.compose(hi, lo)))
     items.sort()
     rb = (h + 7) // 8
-    with open(path, "w", encoding="ascii") as o:
+    with open(path, "w", encoding="ascii", newline="\n") as o:
         o.write("STARTFONT 2.1\nCOMMENT HangulTalk 7.1.2 fbit type 3, composed by HTBL 1; research only (Apple/Elex)\n")
         o.write("FONT -Apple-%s-Medium-R-Normal--%d-%d-75-75-C-%d-ISO10646-1\n" % (name, h, h * 10, h * 10))
         o.write("SIZE %d 75 75\nFONTBOUNDINGBOX %d %d 0 %d\n" % (h, h, h, -(h // 6)))

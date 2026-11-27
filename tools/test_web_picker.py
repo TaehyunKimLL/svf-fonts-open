@@ -1233,6 +1233,8 @@ out.gray = Array.from({length: g.w * g.h}, (_, i) => g.pixels[i] >= 128 ? 1 : 0)
         self.assertGreater(self.ink(out), 0)          # the first glyphs still draw
 
 
+@unittest.skipIf(os.name == "nt", "POSIX only: the bash build scripts (the Windows build takes the WASM module a Linux "
+                                  "build made)")
 class TestBuildScriptsWithoutEmcc(unittest.TestCase):
     """A missing emcc is refused before any output directory exists, naming the script that was run."""
 
@@ -1277,7 +1279,8 @@ class TestCopyFaces(unittest.TestCase):
                               text=True)
 
     def copied(self):
-        return sorted(os.path.relpath(os.path.join(d, f), self.out) for d, _, fs in os.walk(self.out) for f in fs)
+        return sorted(os.path.relpath(os.path.join(d, f), self.out).replace(os.sep, "/")
+                      for d, _, fs in os.walk(self.out) for f in fs)
 
     def test_good_index_copies(self):
         r = self.run_copy({})

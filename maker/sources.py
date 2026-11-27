@@ -5,10 +5,19 @@ An upload job has one root (its `upload/` directory); a local job (design 7, 8.1
 a directory or a single file. Every function that took an `upload_dir` string takes a `Sources` (or a string, through
 `Sources.coerce`) and asks it for `abs_of(root, rel)`, so the realpath containment rule lives here once.
 
+Windows (t_9b8f56f0): a link is a symlink or a junction / mount point (`oscompat.islink`); a relative path with a
+drive or a colon (an alternate data stream) is outside; a picked path must carry a drive or a UNC share; a device path, an
+extended-length path and a drive root are refused; `SVF_MAKER_ROOTS` is `;`-separated (`os.pathsep`). Real paths come from
+`os.path.realpath` (GetFinalPathNameByHandle: long names, the on-disk case, the drive letter upper-case), so two
+spellings of one folder compare equal; every overlap rule is decided by volume serial + file index, as by inode on
+POSIX.
+
 Stdlib only.
 """
 
 import os
+
+import oscompat
 
 FILE_CAP = 2000                       # a local walk stops at this many files
 LOCAL_FILE_CAP = 256 << 20            # a local file over this is refused ("too large, skipped")
@@ -97,6 +106,8 @@ class Sources:
             raise ValueError("outside")
         if not isinstance(rel, str) or not rel or "\0" in rel or os.path.isabs(rel):
             raise ValueError("outside")
+        if oscompat.WINDOWS and (":" in rel or os.path.splitdrive(rel)[0] or rel[:1] in "\\/"):
+            raise ValueError("outside")           # a drive, a rooted path or an alternate data stream
         base = self.roots[root]
         if self.is_file_root(root):
             if rel != os.path.basename(base):
@@ -155,14 +166,14 @@ class Sources:
                 break
             if self.is_file_root(i):
                 name = os.path.basename(base)
-                if os.path.islink(base):
+                if oscompat.islink(base):
                     refused.append((i, name, "symlink, skipped"))
                 elif not os.path.isfile(base):
                     refused.append((i, name, "file is gone or changed"))
                 else:
                     stop, total = self._admit(files, refused, i, name, base, os.lstat(base), total, local, seen)
                 continue
-            if local and (os.path.islink(base) or not os.path.isdir(base)):
+            if local and (oscompat.islink(base) or not os.path.isdir(base)):
                 refused.append((i, "", "folder is gone or changed"))
                 continue
 
@@ -174,14 +185,19 @@ class Sources:
 
             for dirpath, dirnames, filenames in os.walk(base, followlinks=False, onerror=unreadable):
                 dirnames.sort()
+                linked = []
                 for d in dirnames:
                     path = os.path.join(dirpath, d)
-                    if local and os.path.islink(path):
-                        refused.append((i, os.path.relpath(path, base).replace(os.sep, "/"), "symlink, skipped"))
+                    if oscompat.islink(path):
+                        linked.append(d)
+                        if local:
+                            refused.append((i, os.path.relpath(path, base).replace(os.sep, "/"), "symlink, skipped"))
+                if linked:                                   # never descended (os.walk already skips a symlink; a junction too)
+                    dirnames[:] = [d for d in dirnames if d not in linked]
                 for name in sorted(filenames):
                     path = os.path.join(dirpath, name)
                     rel = os.path.relpath(path, base).replace(os.sep, "/")
-                    if os.path.islink(path):
+                    if oscompat.islink(path):
                         refused.append((i, rel, "symlink, skipped"))
                         continue
                     if not os.path.isfile(path):
@@ -222,9 +238,10 @@ class Sources:
 
 
 def allowed_roots(environ):
-    """`SVF_MAKER_ROOTS` (colon-separated, each entry realpath'd) or None when unset or empty."""
+    """`SVF_MAKER_ROOTS` (colon-separated, Windows `;`-separated: `os.pathsep`; each entry realpath'd) or None when
+    unset or empty."""
     raw = (environ.get("SVF_MAKER_ROOTS") or "").strip()
-    items = [os.path.realpath(item) for item in raw.split(":") if item.strip()]
+    items = [os.path.realpath(item) for item in raw.split(os.pathsep) if item.strip()]
     return items or None
 
 
@@ -240,13 +257,18 @@ def check_path(path, *, want, data_root, allowed):
         raise PathRefused("path too long")
     if "\0" in path:
         raise PathRefused("NUL in path")
+    if oscompat.WINDOWS:
+        if path.replace("/", "\\")[:4] in ("\\\\?\\", "\\\\.\\") or not os.path.splitdrive(path)[0]:
+            raise PathRefused("not an absolute path")          # a device or extended-length path, or no drive or share
+        if ":" in os.path.splitdrive(path)[1]:
+            raise PathRefused("not a regular file or folder")  # an alternate data stream
     path = os.path.normpath(path)
     if not os.path.lexists(path):
         raise PathRefused("no such file or folder")
-    if os.path.islink(path):
+    if oscompat.islink(path):
         raise PathRefused("the path is a symlink")
     real = os.path.realpath(path)
-    if real == os.sep:
+    if real == os.sep or (oscompat.WINDOWS and os.path.dirname(real) == real):
         raise PathRefused("/ cannot be chosen")
     is_dir = os.path.isdir(real)
     if want == "source":
@@ -256,6 +278,6 @@ def check_path(path, *, want, data_root, allowed):
         raise PathRefused("not a folder")
     if data_root and os.path.exists(data_root) and overlaps(real, data_root):
         raise PathRefused("the data folder cannot be chosen")
-    if allowed is not None and not any(real == base or real.startswith(base + os.sep) for base in allowed):
+    if allowed is not None and not any(oscompat.is_under(real, base) for base in allowed):
         raise PathRefused("outside SVF_MAKER_ROOTS")
     return real, "dir" if is_dir else "file"

@@ -8,7 +8,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const GEN = path.join(__dirname, '..', 'build', 'third-party.mjs');
-const generate = async (opts) => (await import(GEN)).generate(opts);
+const generate = async (opts) => (await import(require('node:url').pathToFileURL(GEN).href)).generate(opts);   // a file URL: Windows paths are not URLs
 const sha = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 const MAP = [
@@ -146,6 +146,12 @@ test('non-OFL file under repo/svf fails; FACES.TSV and listed .TXT pass', async 
     assert.ok(r.problems.includes('not OFL-listed: svf/' + rel), rel + ': ' + r.problems.join('|'));
   }
   assert.ok(!r.problems.some((p) => p.includes('FACES.TSV') || p.includes('OFL.TXT') || p.includes('A.SVF')));
+  // a listed licence file with a lower-case .txt (svf/iolo/LICENSE-MIT.txt) passes as well
+  write(f.repo, 'svf/iolo/C.SVF', 'face');
+  write(f.repo, 'svf/iolo/LICENSE-MIT.txt', 'MIT');
+  fs.appendFileSync(path.join(f.repo, 'web', 'LICENCES.tsv'), 'iolo/C.SVF\tiolo/LICENSE-MIT.txt\n');
+  const r2 = await generate(f.opts);
+  assert.ok(!r2.problems.some((p) => p.includes('iolo/')), r2.problems.join('|'));
 });
 
 test('package.json dependencies make a problem', async (t) => {
@@ -263,7 +269,8 @@ test('golden TOC: sidecar-provenance.py keys and the generator agree on the dest
   const pysite = path.join(root, 'pysite');
   const sys_ = path.join(root, 'system');
   let toc = fs.readFileSync(path.join(__dirname, 'fixtures', 'collect-sample.toc'), 'utf8');
-  toc = toc.replace(/PYSITE/g, pysite).replace(/SYSTEM/g, sys_).replace(/WORK/g, work);
+  const lit = (p) => p.split(path.sep).join('/');       // a TOC is a Python literal: no backslash (Windows) in it
+  toc = toc.replace(/PYSITE/g, lit(pysite)).replace(/SYSTEM/g, lit(sys_)).replace(/WORK/g, lit(work));
   write(work, 'COLLECT-00.toc', toc);
   write(pysite, 'pillow-10.2.0.dist-info/RECORD', 'PIL/_imaging.cpython-312-x86_64-linux-gnu.so,,\npillow.libs/libfreetype-f154df84.so.6.20.1,,\n');
   write(pysite, 'pillow-10.2.0.dist-info/LICENSE', 'HPND');
@@ -271,7 +278,8 @@ test('golden TOC: sidecar-provenance.py keys and the generator agree on the dest
   write(sys_, 'libz.so.1', 'zlib bytes');
   write(sys_, 'lib-dynload/_json.cpython-312-x86_64-linux-gnu.so', 'json bytes');
   const out = path.join(root, 'prov.json');
-  const r = spawnSync('python3', ['-I', path.join(__dirname, '..', 'build', 'sidecar-provenance.py'), work, out, '--pysite', pysite], { encoding: 'utf8' });
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  const r = spawnSync(python, ['-I', path.join(__dirname, '..', 'build', 'sidecar-provenance.py'), work, out, '--pysite', pysite], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const prov = JSON.parse(fs.readFileSync(out, 'utf8'));
   assert.deepEqual(Object.keys(prov).sort(), ['PIL/_imaging.cpython-312-x86_64-linux-gnu.so', 'libfreetype-f154df84.so.6.20.1', 'libz.so.1',
@@ -328,4 +336,60 @@ test('usr/lib64 next to usr/lib is attributed like usr/lib', async (t) => {
   const ok = await generate(f.opts);
   assert.deepEqual(ok.problems, []);
   assert.ok(ok.text.includes('usr/lib64/libXtst.so.6'));
+});
+
+// The Windows notices (t_9b8f56f0): --platform win32 attributes *.dll and *.pyd (case-blind), needs no usr/lib, takes an
+// entry "from": "python" from the interpreter's LICENSE.txt, and still fails closed on an unmatched DLL.
+test('win32: dll and pyd attributed, python-origin text, unmatched dll fails closed', async (t) => {
+  const root = fs.mkdtempSync(path.join(process.env.TMP_DIR || os.tmpdir(), 'svf-tpw-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sidecar = path.join(root, 'sidecar');
+  const electron = path.join(root, 'win-unpacked');
+  const repo = path.join(root, 'repo');
+  write(electron, 'LICENSE.electron.txt', 'Electron MIT\n');
+  write(electron, 'LICENSES.chromium.html', '<html>chromium notices</html>');
+  write(electron, 'ffmpeg.dll', 'ffmpeg-bytes');
+  write(electron, 'resources/app.asar.unpacked/x.dll', 'not walked');
+  const py = write(sidecar, '_internal/python312.dll', 'py-bytes');
+  const vc = write(sidecar, '_internal/VCRUNTIME140.dll', 'vc-bytes');
+  const im = write(sidecar, '_internal/PIL/_imaging.cp312-win_amd64.pyd', 'imaging');
+  const ffi = write(sidecar, '_internal/libffi-8.dll', 'ffi-bytes');
+  const provenance = {
+    'libffi-8.dll': { source: 'C:/py/DLLs/libffi-8.dll', sha256: sha(fs.readFileSync(ffi)), origin: 'python', package: 'python3', version: '3.12.3' },
+    'python312.dll': { source: 'C:/py/python312.dll', sha256: sha(fs.readFileSync(py)), origin: 'python', package: 'python3', version: '3.12.3' },
+    'VCRUNTIME140.dll': { source: 'C:/py/VCRUNTIME140.dll', sha256: sha(fs.readFileSync(vc)), origin: 'python', package: 'python3', version: '3.12.3' },
+    'PIL/_imaging.cp312-win_amd64.pyd': { source: 'C:/pysite/PIL/_imaging.pyd', sha256: sha(fs.readFileSync(im)), origin: 'wheel', package: 'pillow', version: '10.2.0' },
+  };
+  write(repo, 'svf/dos/A.SVF', 'face');
+  write(repo, 'svf/dos/OFL.TXT', 'OFL text');
+  write(repo, 'web/LICENCES.tsv', 'dos/A*.SVF\tdos/OFL.TXT\n');
+  const pysite = path.join(root, 'pysite');
+  write(pysite, 'pillow-10.2.0.dist-info/LICENSE', 'HPND licence text');
+  write(pysite, 'fonttools-4.66.1.dist-info/LICENSE', 'MIT fonttools');
+  write(pysite, 'pyinstaller-6.22.3.dist-info/COPYING.txt', 'GPL with bootloader exception');
+  const meta = path.join(root, 'meta');
+  write(meta, 'LICENSE', 'MIT maker licence');
+  write(meta, 'NOTICE.md', '| `svf/dos/A*` | Font A |\n');
+  write(meta, 'desktop/package.json', JSON.stringify({ name: 'svf-maker' }));
+  const pyLicence = write(root, 'LICENSE.txt', 'PSF licence and the bundled libraries of the Windows build');
+  const licences = path.join(__dirname, '..', 'build', 'licences');
+  const map = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'build', 'third-party-map-win.json'), 'utf8'));
+  const opts = { platform: 'win32', sidecar, provenance, electron, pysite, repo, meta, map, licencesDir: licences, pythonLicence: pyLicence };
+  const r = await generate(opts);
+  withoutProblems(r);
+  assert.equal(r.text.split('PSF licence and the bundled libraries').length - 1, 1, 'CPython LICENSE.txt printed once');
+  assert.ok(r.text.includes('libffi-8.dll'));
+  for (const needle of ['PSF licence and the bundled libraries', 'python312.dll', 'Microsoft Visual C++ runtime', 'ffmpeg.dll', 'HPND licence text']) {
+    assert.ok(r.text.includes(needle), needle);
+  }
+  write(electron, 'mystery.dll', 'x');
+  const r2 = await generate(opts);
+  assert.deepEqual(r2.problems, ['unattributed: mystery.dll']);
+  fs.rmSync(path.join(electron, 'mystery.dll'));
+  // a compiled module a wheel brought, matched only by the "*.pyd" CPython catch-all: refused, not labelled CPython
+  const ext = write(sidecar, '_internal/newpkg/_speedups.cp312-win_amd64.pyd', 'ext');
+  provenance['newpkg/_speedups.cp312-win_amd64.pyd'] = { source: 'C:/pysite/newpkg/_speedups.pyd', sha256: sha(fs.readFileSync(ext)),
+    origin: 'wheel', package: 'newpkg', version: '1.0' };
+  const r3 = await generate(opts);
+  assert.deepEqual(r3.problems, ['origin mismatch: _internal/newpkg/_speedups.cp312-win_amd64.pyd (map python, built from wheel)']);
 });

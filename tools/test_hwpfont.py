@@ -20,7 +20,8 @@ import jamoset  # noqa: E402
 
 
 def run(*argv, ok=True):
-    r = subprocess.run([sys.executable, "-I"] + [str(a) for a in argv], capture_output=True, text=True)
+    utf8 = ["-X", "utf8"] if os.name == "nt" else []     # -I ignores PYTHONUTF8; the tools print Hangul
+    r = subprocess.run([sys.executable, "-I"] + utf8 + [str(a) for a in argv], capture_output=True, text=True)
     if ok and r.returncode != 0:
         raise AssertionError("%s exit %d\n%s%s" % (argv[0], r.returncode, r.stdout, r.stderr))
     return r

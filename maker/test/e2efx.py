@@ -146,7 +146,12 @@ class Server:
     def wait_done(self, jid, timeout=E2E_WAIT_S):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            _s, job = self.api("GET", "/api/jobs/%s" % jid)
+            status, job = self.api("GET", "/api/jobs/%s" % jid)
+            if status == 409:                         # busy a moment (a lock held elsewhere): ask again
+                time.sleep(0.1)
+                continue
+            if status != 200 or not isinstance(job, dict) or "state" not in job:
+                raise AssertionError("GET job %s: %s %r" % (jid, status, job))
             if job["state"] in ("done", "failed") and not self.srv.worker.owns(jid):
                 return job
             if job["state"] not in ("queued", "running", "done", "failed"):
