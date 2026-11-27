@@ -53,7 +53,7 @@ def svf_faces(svf_dir):
     return sorted(out)
 
 
-# The faces in the tree today (117 in this project); derived, so adding a face only needs its LICENCES.tsv row.
+# The faces in the tree today (117 in this repository); derived, so adding a face only needs its LICENCES.tsv row.
 EXPECTED_FACES = len(svf_faces(SVF_DIR))
 
 

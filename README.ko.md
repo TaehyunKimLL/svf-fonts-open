@@ -35,8 +35,8 @@ Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설�
 ### C 렌더러와 응용 프로그램
 
 - [C 렌더러 가이드](docs/c-renderer-guide.ko.md) — 통합, 타깃, 메모리와 한글 렌더링.
-- [데스크톱 앱](docs/desktop-app.md) — SVF maker 데스크톱 앱의 빌드와 사용법.
-- [Maker 데스크톱](docs/maker-desktop.md) — 데스크톱 maker 구현과 패키징.
+- [데스크톱 앱](docs/desktop-app.ko.md) — SVF maker 데스크톱 앱의 빌드와 사용법.
+- [Maker 데스크톱](docs/maker-desktop.ko.md) — 데스크톱 maker 구현과 패키징.
 
 ## 규칙
 

@@ -15,5 +15,3 @@ glyph data (`svfdump info` `data_size`): `NEODG16G` 10,124 and 5,512 bytes (10,6
 > Copyright (c) 2024 PT& (www.designptn.com), Paperlogy; redesigned by Lee Juim, Hangul glyphs from
 > Gmarket Sans, Latin from Montserrat (as stated in the font file's name table: copyright, designer and
 > licence entries of Paperlogy-4Regular.ttf, version 1.000).
-
-| `svf/iolo/SANS8J.SVF` (16 px 1 bpp 8x4x4 jamo set) | iolo 8x4x4-fonts original SANS.FNT, 2025 | Copyright (c) 2025 Dongsu Jang | SIL OFL 1.1 and MIT | `svf/iolo/IOLO.TXT`, `LICENSE-OFL.txt`, `LICENSE-MIT.txt` | converted with `jamoset.py --layout 844 --check` |

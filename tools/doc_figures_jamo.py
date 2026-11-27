@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The pixel figures of docs/jamo-sets.md and docs/jamo-sets.ko.md (card t_6c1f4069).
+"""The pixel figures of docs/jamo-sets.md and docs/jamo-sets.ko.md.
 
   python3 -I tools/doc_figures_jamo.py [--out DIR] [--check]
 
-Reads two SIL OFL 1.1 faces of svf/ and nothing else: svf/iolo/SANS8J.SVF (Neo Dunggeunmo, a 16x16 1 bpp jamo set in
-the 8x4x4 layout, JSET version 1) and svf/dos/NEODG16.SVF (the comparison face is Neo Dunggeunmo precomposed, 16x16 1 bpp, ASCII and
+Reads the OFL-licensed svf/iolo/SANS8J.SVF (iolo conversion of a legacy DOS 8x4x4 bitmap, a 16x16 1 bpp jamo set in
+the 8x4x4 layout, JSET version 1) and svf/dos/NEODG16.SVF (a different Neo Dunggeunmo precomposed font used only for comparison, 16x16 1 bpp, ASCII and
 KS X 1001 without Hanja). Labels use the comparison face glyphs, so no system font is read. No Apple or ROM
-data is read: the figures may be published with the faces' OFL notes (svf/dos/NEODGM.TXT, svf/dos/OFL.TXT).
+data is read: the figures may be published with the iolo OFL note and the comparison face's OFL notes (svf/iolo/IOLO.TXT, svf/iolo/LICENSE-OFL.txt).
 
 Writes into DIR (default docs/images/jamo-sets/):
   compose.png       syllables split into their initial / medial / final pieces, colour-coded, and composed
