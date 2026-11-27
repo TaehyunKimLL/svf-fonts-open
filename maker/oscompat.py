@@ -20,16 +20,17 @@ and `killpg`, `flock`, `O_NOFOLLOW`, `S_ISLNK`), so POSIX behaviour does not cha
   itself never follows a link at the last name: a dangling link makes `CREATE_NEW` fail, a link is never contacted)
   and the handle's reparse tag is checked: a name surrogate (a symlink, a junction) is refused. A file that is another
   kind of reparse point (a deduplicated or cloud placeholder file, which only reads through its filter) is opened again
-  normally and must be the same file (volume serial + file index). With `dir_fd` the name is opened relative to that
-  held directory's handle (`NtCreateFile`, `OBJ_DONT_REPARSE`), never by a path through it.
+  normally from the first handle (`ReOpenFile`: no name looked up again) and must be the same file (volume serial + file
+  index). With `dir_fd` the name is opened relative to that held directory's handle (`NtCreateFile`,
+  `OBJ_DONT_REPARSE`), never by a path through it.
 - **Held directories.** `hold_dir` / `hold_dir_at` open a directory handle that does not share delete access (and does
   not follow a reparse point): while it is open nobody can rename or remove that directory, nor (NTFS) any directory
   above it. Write access is shared, as it must be: a rename or a hard link into the folder opens it for writing. So an
   EMPTY held folder can still be turned into a junction in place; the output tree (zipout) therefore makes and holds
   every directory it writes through relative to its parent's held handle (`hold_dir_at`, in place of POSIX's
-  `mkdirat`/`openat`), creates its files relative to the held handle (never by a path through the folder), and checks
-  before each landing that no held folder has become a link (`fd_is_link`); a folder with a file in it cannot be made
-  a junction.
+  `mkdirat`/`openat`), creates, renames, links and removes its files relative to the held handle (`open_nofollow`
+  with `dir_fd`, `rename_at`, `link_at`, `remove_at`: never by a path through the folder), and checks before each
+  landing that no held folder has become a link (`fd_is_link`); a folder with a file in it cannot be made a junction.
 - **Names.** `windows_unsafe_name` is true for the device names (CON, NUL, COM1, ...), a trailing dot or space and the
   characters Windows forbids; the output tree refuses such a name on Windows.
 
@@ -118,13 +119,18 @@ def open_nofollow(path, flags, mode=0o777, dir_fd=None):
         raise
     if create or not tag.FileAttributes & _REPARSE_POINT:
         return fd
-    # a reparse point that names nothing else (dedup, cloud placeholder): its data reads through its filter, so it is
-    # opened again normally, and must be the same file
+    # a reparse point that names nothing else (dedup, cloud placeholder): its data reads through its filter, so the
+    # file is opened again normally FROM THE FIRST HANDLE (ReOpenFile: no name is looked up again), and must be the
+    # same file
     try:
         first = os.fstat(fd)
+        handle = _ReOpenFile(msvcrt.get_osfhandle(fd), access, _FILE_SHARE_READ | _FILE_SHARE_WRITE, 0)
+        if handle == _INVALID_HANDLE or not handle:
+            exc = _last_error("ReOpenFile")
+            exc.filename = path
+            raise exc
     finally:
         os.close(fd)
-    handle = _open_handle(path, dir_fd, access, False, False, attrs, False)
     fd = msvcrt.open_osfhandle(handle, os.O_RDONLY)
     try:
         again = os.fstat(fd)
@@ -297,6 +303,9 @@ if WINDOWS:
                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
     _NtResumeProcess = _proto("NtResumeProcess", ctypes.c_long, wintypes.HANDLE, dll=_ntdll)
     _GetCurrentProcess = _proto("GetCurrentProcess", wintypes.HANDLE)
+    _ReOpenFile = _proto("ReOpenFile", wintypes.HANDLE, wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD)
+    _NtSetInformationFile = _proto("NtSetInformationFile", ctypes.c_long, wintypes.HANDLE, ctypes.c_void_p,
+                                   ctypes.c_void_p, wintypes.ULONG, ctypes.c_int, dll=_ntdll)
     _advapi = ctypes.WinDLL("advapi32", use_last_error=True)
 
     class _SecurityAttributes(ctypes.Structure):
@@ -477,6 +486,9 @@ def popen_group(argv, **kwargs):
     docstring)."""
     if not WINDOWS:
         return subprocess.Popen(argv, start_new_session=True, **kwargs)
+    if _self_job_error:                                  # contain_children was asked for and failed: no tool runs
+        raise OSError(errno.EPERM, "no tool runs: the sidecar could not put itself into a Job Object (%s)"
+                      % _self_job_error[0])
     flags = kwargs.pop("creationflags", 0) | _CREATE_SUSPENDED | _CREATE_NEW_PROCESS_GROUP | _CREATE_NO_WINDOW
     job = _new_job()
     try:
@@ -506,21 +518,28 @@ def popen_group(argv, **kwargs):
 
 
 _self_job = []
+_self_job_error = []
 
 
 def contain_children():
     """Windows: put this process into a Job Object of its own (`KILL_ON_JOB_CLOSE`), held until it exits, so every
     process it starts is inside a job from its creation: when this process dies, however, the kernel kills them all,
     a tool still suspended between its creation and `AssignProcessToJobObject` (`popen_group`) included. The tool jobs
-    nest inside it (Windows 8+). `OSError` when the job cannot be made or joined (the caller decides); POSIX: nothing
+    nest inside it (Windows 8+). `OSError` when the job cannot be made or joined; from then on `popen_group` refuses
+    every tool (fail closed: a tool never runs where it could outlive a killed sidecar). POSIX: nothing
     (PR_SET_PDEATHSIG and the tool registry cover it)."""
     if not WINDOWS or _self_job:
         return
-    job = _new_job()
-    if not _AssignProcessToJobObject(job, _GetCurrentProcess()):
-        exc = _last_error("AssignProcessToJobObject (self)")
-        _CloseHandle(job)
-        raise exc
+    try:
+        job = _new_job()
+        if not _AssignProcessToJobObject(job, _GetCurrentProcess()):
+            exc = _last_error("AssignProcessToJobObject (self)")
+            _CloseHandle(job)
+            raise exc
+    except OSError as exc:
+        _self_job_error[:] = [exc]                       # popen_group refuses every tool from now on
+        raise
+    _self_job_error[:] = []
     _self_job.append(job)                                # never closed: it closes when this process ends
 
 
@@ -711,6 +730,68 @@ def _hold(path, dir_fd, create):
         os.close(fd)
         raise
     return fd
+
+
+_DELETE = 0x10000
+_FILE_WRITE_ATTRIBUTES = 0x100
+_FILE_RENAME_INFORMATION, _FILE_LINK_INFORMATION, _FILE_DISPOSITION_INFORMATION = 10, 11, 13
+
+
+def _nt_set_info(handle, info, size, klass, what, name):
+    iosb = _IoStatusBlock()
+    status = _NtSetInformationFile(handle, ctypes.byref(iosb), ctypes.byref(info), size, klass) & 0xFFFFFFFF
+    if status >= 0x80000000:
+        exc = ctypes.WinError(_RtlNtStatusToDosError(status))
+        exc.strerror = "%s: %s" % (what, exc.strerror)
+        exc.filename = name
+        raise exc
+
+
+def _name_info(name, dir_fd, replace):
+    """A FILE_RENAME_INFORMATION / FILE_LINK_INFORMATION naming @p name in the held folder @p dir_fd."""
+    if not name or name in (".", "..") or any(c in name for c in '\\/:'):
+        raise ValueError("not a single name: %r" % (name,))
+
+    class Info(ctypes.Structure):
+        _fields_ = [("ReplaceIfExists", ctypes.c_ubyte), ("RootDirectory", wintypes.HANDLE),
+                    ("FileNameLength", wintypes.ULONG), ("FileName", ctypes.c_wchar * len(name))]
+    info = Info(1 if replace else 0, msvcrt.get_osfhandle(dir_fd), len(name) * ctypes.sizeof(ctypes.c_wchar), name)
+    return info
+
+
+def remove_at(dir_fd, name):
+    """Windows: remove the file @p name in the held folder @p dir_fd, opened relative to its handle (a link is removed
+    itself, never what it names; a folder turned into a junction is never gone through)."""
+    handle = _nt_open_at(dir_fd, name, _DELETE, _FILE_SHARE_READ | _FILE_SHARE_WRITE | 0x4, _FILE_OPEN,
+                         _FILE_NON_DIRECTORY_FILE, 0)
+    try:
+        flag = ctypes.c_ubyte(1)
+        _nt_set_info(handle, flag, 1, _FILE_DISPOSITION_INFORMATION, "remove", name)
+    finally:
+        _CloseHandle(handle)
+
+
+def rename_at(dir_fd, src, dst):
+    """Windows: `os.replace` of @p src by @p dst, both in the held folder @p dir_fd, relative to its handle."""
+    handle = _nt_open_at(dir_fd, src, _DELETE | _FILE_READ_ATTRIBUTES, _FILE_SHARE_READ | _FILE_SHARE_WRITE | 0x4,
+                         _FILE_OPEN, _FILE_NON_DIRECTORY_FILE, 0)
+    try:
+        info = _name_info(dst, dir_fd, True)
+        _nt_set_info(handle, info, ctypes.sizeof(info), _FILE_RENAME_INFORMATION, "rename", dst)
+    finally:
+        _CloseHandle(handle)
+
+
+def link_at(dir_fd, src, dst):
+    """Windows: a hard link @p dst of @p src in the held folder @p dir_fd, relative to its handle; `FileExistsError`
+    when @p dst exists (never replaced)."""
+    handle = _nt_open_at(dir_fd, src, _FILE_WRITE_ATTRIBUTES | _FILE_READ_ATTRIBUTES,
+                         _FILE_SHARE_READ | _FILE_SHARE_WRITE | 0x4, _FILE_OPEN, _FILE_NON_DIRECTORY_FILE, 0)
+    try:
+        info = _name_info(dst, dir_fd, False)
+        _nt_set_info(handle, info, ctypes.sizeof(info), _FILE_LINK_INFORMATION, "link", dst)
+    finally:
+        _CloseHandle(handle)
 
 
 def fd_is_link(fd):

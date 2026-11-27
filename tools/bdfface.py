@@ -52,7 +52,8 @@ def _open_nofollow_windows(path):
     """Windows has no O_NOFOLLOW: the file is opened with FILE_FLAG_OPEN_REPARSE_POINT (the open itself never follows
     a link, nor contacts what one names) and a name-surrogate reparse point (a symlink, a junction) is refused by the
     handle's reparse tag. Another kind of reparse point (a deduplicated or cloud placeholder file, read through its
-    filter) is opened again normally and must be the same file (volume serial + file index)."""
+    filter) is opened again normally from the first handle (ReOpenFile) and must be the same file (volume serial + file
+    index)."""
     import ctypes
     import msvcrt
     from ctypes import wintypes
@@ -65,6 +66,9 @@ def _open_nofollow_windows(path):
     info.restype = wintypes.BOOL
     info.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD)
     k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    reopen = k32.ReOpenFile
+    reopen.restype = wintypes.HANDLE
+    reopen.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD)
 
     class Tag(ctypes.Structure):
         _fields_ = [("FileAttributes", wintypes.DWORD), ("ReparseTag", wintypes.DWORD)]
@@ -90,11 +94,16 @@ def _open_nofollow_windows(path):
         raise
     if not tag.FileAttributes & 0x400:
         return fd
-    try:
+    try:                                       # opened again from the first handle: no name is looked up again
         first = os.fstat(fd)
+        again = reopen(msvcrt.get_osfhandle(fd), 0x80000000, 0x3, 0)
+        if again in (None, wintypes.HANDLE(-1).value):
+            exc = ctypes.WinError(ctypes.get_last_error())
+            exc.filename = path
+            raise exc
     finally:
         os.close(fd)
-    fd = msvcrt.open_osfhandle(opened(0), os.O_RDONLY)
+    fd = msvcrt.open_osfhandle(again, os.O_RDONLY)
     st = os.fstat(fd)
     if not first.st_ino or (st.st_dev, st.st_ino) != (first.st_dev, first.st_ino):
         os.close(fd)

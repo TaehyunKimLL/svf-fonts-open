@@ -184,6 +184,13 @@ class WindowsJobTest(unittest.TestCase):
         parent.wait(10)
         self.assertTrue(_wait(lambda: not toolrun.alive(child)), "the suspended child outlived its parent")
 
+    def test_no_tool_runs_when_the_sidecar_has_no_job(self):
+        from unittest import mock
+        with mock.patch.object(oscompat, "_self_job_error", [OSError("refused")]):
+            with self.assertRaises(OSError) as cm:
+                oscompat.popen_group([sys.executable, "-c", "pass"])
+        self.assertIn("no tool runs", str(cm.exception))
+
 
 @unittest.skipUnless(WIN, "Windows only: junctions, held directories, device names on disk")
 class WindowsLinksTest(unittest.TestCase):
@@ -346,12 +353,44 @@ class WindowsLinksTest(unittest.TestCase):
                 os.close(fd)
             except OSError:
                 pass
+            if os.environ.get("CI"):                               # the CI runner can set it: the attack must be real
+                self.assertIsNone(error, "the junction could not be set in place (winerror %s)" % error)
+            elif error is not None:
+                self.skipTest("the junction could not be set in place here (winerror %s)" % error)
             self.assertEqual(sorted(os.listdir(self.real)), ["f.ttf"], "a file was written through the junction")
-            if error is None:                                      # the junction was set: the tree must see it
-                with self.assertRaises(zipout.OutputGone):
-                    tree.verify("svf/dos")
+            with self.assertRaises(zipout.OutputGone):             # the junction was set: the tree sees it
+                tree.verify("svf/dos")
+            # the take-back and cleanup calls never go through it: the file the junction names stays
+            for call in (lambda: zipout._remove_in(dfd, "f.ttf"), lambda: zipout._replace_in(dfd, "f.ttf", "g.ttf"),
+                         lambda: zipout._link_in(dfd, "f.ttf", "h.ttf")):
+                with self.assertRaises(OSError):
+                    call()
+            self.assertEqual(sorted(os.listdir(self.real)), ["f.ttf"], "a call went through the junction")
         finally:
             tree.close()
+
+    def test_rename_link_and_remove_relative_to_a_held_folder(self):
+        held = oscompat.hold_dir(self.real)
+        try:
+            for name in ("a.tmp", "c.tmp"):
+                os.close(oscompat.open_nofollow(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644, dir_fd=held))
+            with open(os.path.join(self.real, "f.ttf"), "rb") as f:
+                before = f.read()
+            oscompat.link_at(held, "a.tmp", "b.ttf")
+            with self.assertRaises(FileExistsError):              # a link never replaces
+                oscompat.link_at(held, "a.tmp", "f.ttf")
+            oscompat.rename_at(held, "c.tmp", "f.ttf")               # a rename replaces
+            self.assertEqual(os.path.getsize(os.path.join(self.real, "f.ttf")), 0)
+            self.assertNotEqual(before, b"")
+            oscompat.remove_at(held, "a.tmp")
+            oscompat.remove_at(held, "b.ttf")
+            with self.assertRaises(FileNotFoundError):
+                oscompat.remove_at(held, "a.tmp")
+            self.assertEqual(sorted(os.listdir(self.real)), ["f.ttf"])
+            with self.assertRaises(ValueError):
+                oscompat.remove_at(held, "..\\x")
+        finally:
+            os.close(held)
 
     def test_mkdir_private_grants_the_user_and_system_only(self):
         import ctypes

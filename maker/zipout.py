@@ -1111,10 +1111,21 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
     return landed
 
 
+def _not_turned(dfd):
+    """Windows: `OSError` (`ELOOP`) when the held folder @p dfd has been turned into a junction in place: nothing is
+    renamed, linked or removed in it then (the relative calls would not go through it either; this says so first)."""
+    if oscompat.fd_is_link(dfd.fd):
+        raise OSError(errno.ELOOP, "the folder became a link", str(dfd))
+
+
 def _replace_in(dfd, src, dst):
     """`os.replace` of @p src by @p dst, both in the folder @p dfd."""
     if oscompat.WINDOWS:                                   # retried while a reader has the old file open
-        oscompat.replace(_at(dfd, src), _at(dfd, dst))
+        if getattr(dfd, "fd", None) is not None:           # relative to the held handle, never by a path through it
+            _not_turned(dfd)
+            oscompat.retry_sharing(oscompat.rename_at, dfd.fd, src, dst)
+        else:
+            oscompat.replace(_at(dfd, src), _at(dfd, dst))
     else:
         os.replace(src, dst, src_dir_fd=dfd, dst_dir_fd=dfd)
 
@@ -1122,7 +1133,11 @@ def _replace_in(dfd, src, dst):
 def _remove_in(dfd, name):
     """`os.remove` of @p name in the folder @p dfd (a link is removed itself, never its target)."""
     if oscompat.WINDOWS:
-        oscompat.retry_sharing(os.remove, _at(dfd, name))
+        if getattr(dfd, "fd", None) is not None:
+            _not_turned(dfd)
+            oscompat.retry_sharing(oscompat.remove_at, dfd.fd, name)
+        else:
+            oscompat.retry_sharing(os.remove, _at(dfd, name))
     else:
         os.remove(name, dir_fd=dfd)
 
@@ -1130,7 +1145,11 @@ def _remove_in(dfd, name):
 def _link_in(dfd, src, dst):
     """A hard link @p dst of @p src in the folder @p dfd (CreateHardLink on Windows fails on any existing @p dst)."""
     if oscompat.WINDOWS:
-        os.link(_at(dfd, src), _at(dfd, dst))
+        if getattr(dfd, "fd", None) is not None:
+            _not_turned(dfd)
+            oscompat.link_at(dfd.fd, src, dst)
+        else:
+            os.link(_at(dfd, src), _at(dfd, dst))
     else:
         os.link(src, dst, src_dir_fd=dfd, dst_dir_fd=dfd, follow_symlinks=False)
 

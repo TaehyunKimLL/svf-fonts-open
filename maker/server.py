@@ -2313,7 +2313,8 @@ def main(argv=None):
         try:
             oscompat.contain_children()                   # every child dies with this process, even one not yet in its job
         except OSError as exc:
-            print("svf-maker: no job object for the sidecar (%s); tool jobs still apply" % exc, file=sys.stderr, flush=True)
+            # fail closed: oscompat.popen_group now refuses every tool, so each job fails with that reason
+            print("svf-maker: no job object for the sidecar (%s): tool runs are refused" % exc, file=sys.stderr, flush=True)
     try:
         if parent is not None:                            # inside the try: a parent that is already gone (or dies here)
             toolrun.set_pdeathsig(signal.SIGTERM)         # Linux: at once; the poll below is the portable layer
