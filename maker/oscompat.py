@@ -15,13 +15,17 @@ and `killpg`, `flock`, `O_NOFOLLOW`, `S_ISLNK`), so POSIX behaviour does not cha
   (`retry_sharing`) is retried briefly: Windows refuses to replace a file another thread has open.
 - **Links.** A link is a symlink **or any name-surrogate reparse point** (a junction, a volume mount point): `lstat`
   reports a junction as a plain directory, so `S_ISLNK` alone would miss it.
-- **No-follow opens.** Windows has no `O_NOFOLLOW`: an existing file is `lstat`ed (refused when it is a link), opened,
-  and `fstat`ed; the open is refused unless the descriptor is the same file (volume serial + file index) the `lstat`
-  saw, so a name swapped for a link between the two calls is refused, never followed. An `O_CREAT | O_EXCL` open needs
-  no check (CREATE_NEW fails on any existing name, a link included).
-- **Held directories.** `hold_dir` opens a directory handle that does not share delete access (and does not follow a
-  reparse point): while it is open nobody can rename or remove that directory, nor (NTFS) any directory above it. The
-  output tree (zipout) holds every directory it writes through this way, in place of POSIX's directory descriptors.
+- **No-follow opens.** Windows has no `O_NOFOLLOW`: the file is opened with `FILE_FLAG_OPEN_REPARSE_POINT` (the open
+  itself never follows a link at the last name: a dangling link makes `CREATE_NEW` fail, a link is never contacted)
+  and the handle's reparse tag is checked: a name surrogate (a symlink, a junction) is refused. A file that is another
+  kind of reparse point (a deduplicated or cloud placeholder file, which only reads through its filter) is opened again
+  normally and must be the same file (volume serial + file index). With `dir_fd` the name is opened relative to that
+  held directory's handle (`NtCreateFile`, `OBJ_DONT_REPARSE`), never by a path through it.
+- **Held directories.** `hold_dir` / `hold_dir_at` open a directory handle that does not share write or delete access
+  (and does not follow a reparse point): while it is open nobody can rename or remove that directory, nor (NTFS) any
+  directory above it, nor open it for writing. The output tree (zipout) makes and holds every directory it writes
+  through relative to its parent's held handle (`hold_dir_at`), in place of POSIX's `mkdirat`/`openat`, and creates
+  its files relative to the held handle, so a folder turned into a junction in place is never written through.
 - **Names.** `windows_unsafe_name` is true for the device names (CON, NUL, COM1, ...), a trailing dot or space and the
   characters Windows forbids; the output tree refuses such a name on Windows.
 
@@ -73,26 +77,45 @@ def same_file(a, b):
 
 
 def open_nofollow(path, flags, mode=0o777, dir_fd=None):
-    """`os.open(path, flags | O_NOFOLLOW, mode, dir_fd=dir_fd)`. On Windows (no `O_NOFOLLOW`, no `dir_fd`) @p flags
-    must be read-only or `O_CREAT | O_EXCL`; a read open is checked as the module docstring says. `OSError` (`ELOOP`)
-    for a link."""
+    """`os.open(path, flags | O_NOFOLLOW, mode, dir_fd=dir_fd)`. On Windows @p flags must be read-only or
+    `O_CREAT | O_EXCL` (+ `O_WRONLY` / `O_RDWR`), and with @p dir_fd (a `hold_dir` descriptor) @p path must be one
+    name; the open is done as the module docstring says. `OSError` (`ELOOP`) for a link."""
     if not WINDOWS:
         return os.open(path, flags | os.O_NOFOLLOW, mode, dir_fd=dir_fd)
-    if dir_fd is not None:
-        raise NotImplementedError("dir_fd is not available on Windows")
-    flags |= os.O_BINARY | os.O_NOINHERIT
-    if flags & os.O_CREAT:
-        if not flags & os.O_EXCL:
-            raise ValueError("open_nofollow: O_CREAT needs O_EXCL on Windows")
-        return os.open(path, flags, mode)            # CREATE_NEW: fails on any existing name, a link included
-    if flags & (os.O_WRONLY | os.O_RDWR | os.O_TRUNC | os.O_APPEND):
+    create = bool(flags & os.O_CREAT)
+    if create and not flags & os.O_EXCL:
+        raise ValueError("open_nofollow: O_CREAT needs O_EXCL on Windows")
+    if not create and flags & (os.O_WRONLY | os.O_RDWR | os.O_TRUNC | os.O_APPEND):
         raise ValueError("open_nofollow: only read opens (or O_CREAT | O_EXCL) on Windows")
-    before = os.lstat(path)
-    if is_link(before):
-        raise OSError(errno.ELOOP, "is a link", path)
-    fd = os.open(path, flags, mode)
+    if flags & os.O_WRONLY:
+        access = _GENERIC_WRITE | _FILE_READ_ATTRIBUTES
+    elif flags & os.O_RDWR:
+        access = _GENERIC_READ | _GENERIC_WRITE
+    else:
+        access = _GENERIC_READ
+    attrs = _FILE_ATTRIBUTE_NORMAL if mode & stat.S_IWRITE else _FILE_ATTRIBUTE_READONLY   # as os.open does
+    handle = _open_handle(path, dir_fd, access, create, False, attrs, True)
     try:
-        if not same_file(os.fstat(fd), before):
+        tag = _attribute_tag(handle)
+        if tag.FileAttributes & _REPARSE_POINT and tag.ReparseTag & _NAME_SURROGATE:
+            raise OSError(errno.ELOOP, "is a link", path)
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY)
+    except BaseException:
+        _CloseHandle(handle)
+        raise
+    if create or not tag.FileAttributes & _REPARSE_POINT:
+        return fd
+    # a reparse point that names nothing else (dedup, cloud placeholder): its data reads through its filter, so it is
+    # opened again normally, and must be the same file
+    try:
+        first = os.fstat(fd)
+    finally:
+        os.close(fd)
+    handle = _open_handle(path, dir_fd, access, False, False, attrs, False)
+    fd = msvcrt.open_osfhandle(handle, os.O_RDONLY)
+    try:
+        again = os.fstat(fd)
+        if not first.st_ino or not same_file(again, first):
             raise OSError(errno.ELOOP, "changed while it was opened", path)
     except BaseException:
         os.close(fd)
@@ -257,17 +280,95 @@ if WINDOWS:
     _WAIT_TIMEOUT = 0x102
     _INFINITE = 0xFFFFFFFF
     _ERROR_INVALID_PARAMETER = 87
-    _GENERIC_READ = 0x80000000
+    _GENERIC_READ, _GENERIC_WRITE = 0x80000000, 0x40000000
+    _FILE_READ_ATTRIBUTES = 0x80
     _FILE_SHARE_READ, _FILE_SHARE_WRITE = 0x1, 0x2
-    _OPEN_EXISTING = 3
+    _CREATE_NEW, _OPEN_EXISTING = 1, 3
+    _FILE_ATTRIBUTE_READONLY, _FILE_ATTRIBUTE_NORMAL = 0x1, 0x80
     _FILE_FLAG_BACKUP_SEMANTICS = 0x02000000         # needed to open a directory
     _FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000       # the link itself, never its target
+    # NtCreateFile
+    _FILE_OPEN, _FILE_CREATE, _FILE_OPEN_IF = 1, 2, 3
+    _FILE_DIRECTORY_FILE, _FILE_SYNCHRONOUS_IO_NONALERT, _FILE_NON_DIRECTORY_FILE = 0x1, 0x20, 0x40
+    _FILE_OPEN_REPARSE_POINT = 0x00200000
+    _OBJ_CASE_INSENSITIVE, _OBJ_DONT_REPARSE = 0x40, 0x1000
+    _STATUS_INVALID_PARAMETER = 0xC000000D
+    _STATUS_REPARSE_POINT_ENCOUNTERED = 0xC000050B
+
+    class _UnicodeString(ctypes.Structure):
+        _fields_ = [("Length", wintypes.USHORT), ("MaximumLength", wintypes.USHORT), ("Buffer", ctypes.c_void_p)]
+
+    class _ObjectAttributes(ctypes.Structure):
+        _fields_ = [("Length", wintypes.ULONG), ("RootDirectory", wintypes.HANDLE),
+                    ("ObjectName", ctypes.POINTER(_UnicodeString)), ("Attributes", wintypes.ULONG),
+                    ("SecurityDescriptor", ctypes.c_void_p), ("SecurityQualityOfService", ctypes.c_void_p)]
+
+    class _IoStatusBlock(ctypes.Structure):
+        _fields_ = [("Status", ctypes.c_void_p), ("Information", ctypes.c_size_t)]
+
+    _NtCreateFile = _proto("NtCreateFile", ctypes.c_long, ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD,
+                           ctypes.POINTER(_ObjectAttributes), ctypes.POINTER(_IoStatusBlock), ctypes.c_void_p,
+                           wintypes.ULONG, wintypes.ULONG, wintypes.ULONG, wintypes.ULONG, ctypes.c_void_p,
+                           wintypes.ULONG, dll=_ntdll)
+    _RtlNtStatusToDosError = _proto("RtlNtStatusToDosError", wintypes.ULONG, wintypes.ULONG, dll=_ntdll)
 
     def _last_error(what):
         code = ctypes.get_last_error()
         exc = ctypes.WinError(code)
         exc.strerror = "%s: %s" % (what, exc.strerror)
         return exc
+
+    def _attribute_tag(handle):
+        tag = _AttributeTagInfo()
+        if not _GetFileInformationByHandleEx(handle, _FILE_ATTRIBUTE_TAG_INFO, ctypes.byref(tag), ctypes.sizeof(tag)):
+            raise _last_error("GetFileInformationByHandleEx")
+        return tag
+
+    def _nt_open_at(dir_fd, name, access, share, disposition, options, attrs, no_reparse=True):
+        """`NtCreateFile` of the single name @p name relative to the held directory @p dir_fd, never following a
+        reparse point (`OBJ_DONT_REPARSE`, `FILE_OPEN_REPARSE_POINT`) while @p no_reparse; the handle, or `OSError`."""
+        if not name or name in (".", "..") or any(c in name for c in '\\/:'):
+            raise ValueError("not a single name: %r" % (name,))
+        buf = ctypes.create_unicode_buffer(name)
+        size = (len(buf) - 1) * ctypes.sizeof(ctypes.c_wchar)
+        uname = _UnicodeString(size, size, ctypes.cast(buf, ctypes.c_void_p))
+        root = msvcrt.get_osfhandle(dir_fd)
+        tries = (_OBJ_CASE_INSENSITIVE | _OBJ_DONT_REPARSE, _OBJ_CASE_INSENSITIVE) if no_reparse else (
+            _OBJ_CASE_INSENSITIVE,)
+        for oattrs in tries:
+            oa = _ObjectAttributes(ctypes.sizeof(_ObjectAttributes), root, ctypes.pointer(uname), oattrs, None, None)
+            handle, iosb = wintypes.HANDLE(), _IoStatusBlock()
+            status = _NtCreateFile(ctypes.byref(handle), access | _SYNCHRONIZE, ctypes.byref(oa), ctypes.byref(iosb),
+                                   None, attrs, share, disposition,
+                                   options | _FILE_SYNCHRONOUS_IO_NONALERT
+                                   | (_FILE_OPEN_REPARSE_POINT if no_reparse else 0), None, 0)
+            status &= 0xFFFFFFFF
+            if status < 0x80000000:
+                return handle.value
+            if status != _STATUS_INVALID_PARAMETER:     # OBJ_DONT_REPARSE needs Windows 10 1703: retried without it
+                break                                   # (one name below a held handle: nothing else to traverse)
+        if status == _STATUS_REPARSE_POINT_ENCOUNTERED:
+            raise OSError(errno.ELOOP, "is a link", name)
+        exc = ctypes.WinError(_RtlNtStatusToDosError(status))
+        exc.filename = name
+        raise exc
+
+    def _open_handle(path, dir_fd, access, create, directory, attrs, no_reparse):
+        """A handle on @p path (one name below the held @p dir_fd when given): created new (@p create) or opened,
+        a file or (@p directory) a folder, never following a reparse point at the last name while @p no_reparse."""
+        share = _FILE_SHARE_READ if directory else _FILE_SHARE_READ | _FILE_SHARE_WRITE
+        if dir_fd is not None:
+            options = _FILE_DIRECTORY_FILE if directory else _FILE_NON_DIRECTORY_FILE
+            return _nt_open_at(dir_fd, path, access, share, (_FILE_OPEN_IF if directory else _FILE_CREATE)
+                               if create else _FILE_OPEN, options, attrs, no_reparse)
+        flags = attrs | (_FILE_FLAG_OPEN_REPARSE_POINT if no_reparse else 0) | (
+            _FILE_FLAG_BACKUP_SEMANTICS if directory else 0)
+        handle = _CreateFileW(path, access, share, None, _CREATE_NEW if create else _OPEN_EXISTING, flags, None)
+        if handle == _INVALID_HANDLE or not handle:
+            exc = _last_error("CreateFile")
+            exc.filename = path
+            raise exc
+        return handle
 
     def _new_job():
         job = _CreateJobObjectW(None, None)
@@ -471,18 +572,22 @@ def request_stop():
 
 def hold_dir(path):
     """Windows: a descriptor of directory @p path that keeps it (and, on NTFS, every directory above it) from being
-    renamed or removed while it is open, and never follows a reparse point. `OSError` (`ELOOP`) when @p path is a link,
-    (`ENOTDIR`) when it is not a directory."""
-    handle = _CreateFileW(path, _GENERIC_READ, _FILE_SHARE_READ | _FILE_SHARE_WRITE, None, _OPEN_EXISTING,
-                          _FILE_FLAG_BACKUP_SEMANTICS | _FILE_FLAG_OPEN_REPARSE_POINT, None)
-    if handle == _INVALID_HANDLE or not handle:
-        exc = _last_error("CreateFile")
-        exc.filename = path
-        raise exc
+    renamed, removed or opened for writing while it is open, and never follows a reparse point. `OSError` (`ELOOP`)
+    when @p path is a link, (`ENOTDIR`) when it is not a directory."""
+    return _hold(path, None, False)
+
+
+def hold_dir_at(dir_fd, name):
+    """Windows: `hold_dir` of the folder @p name in the held folder @p dir_fd, made there first when it is missing
+    (`mkdirat` + `openat(O_NOFOLLOW | O_DIRECTORY)` in one call, relative to the held handle: no path is walked, so a
+    folder above that was turned into a junction in place is never gone through)."""
+    return _hold(name, dir_fd, True)
+
+
+def _hold(path, dir_fd, create):
+    handle = _open_handle(path, dir_fd, _GENERIC_READ, create, True, 0, True)
     try:
-        tag = _AttributeTagInfo()
-        if not _GetFileInformationByHandleEx(handle, _FILE_ATTRIBUTE_TAG_INFO, ctypes.byref(tag), ctypes.sizeof(tag)):
-            raise _last_error("GetFileInformationByHandleEx")
+        tag = _attribute_tag(handle)
         if tag.FileAttributes & _REPARSE_POINT and tag.ReparseTag & _NAME_SURROGATE:
             raise OSError(errno.ELOOP, "is a link", path)
         fd = msvcrt.open_osfhandle(handle, os.O_RDONLY)
@@ -497,3 +602,10 @@ def hold_dir(path):
         os.close(fd)
         raise
     return fd
+
+
+def fd_is_link(fd):
+    """Windows: True when the open file @p fd is now a name-surrogate reparse point (a folder turned into a junction
+    in place after it was opened)."""
+    tag = _attribute_tag(msvcrt.get_osfhandle(fd))
+    return bool(tag.FileAttributes & _REPARSE_POINT and tag.ReparseTag & _NAME_SURROGATE)

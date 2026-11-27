@@ -49,14 +49,54 @@ HBF_MAX = 128 << 20          # one HBF's bitmaps, decompressed, in total
 
 
 def _open_nofollow_windows(path):
-    """Windows has no O_NOFOLLOW: `lstat` first (a symlink or a junction is refused), open, and require the descriptor
-    to be the file the `lstat` saw (volume serial + file index), so a name swapped for a link meanwhile is refused."""
-    before = os.lstat(path)
-    if stat.S_ISLNK(before.st_mode) or getattr(before, "st_reparse_tag", 0) & 0x20000000:   # a name surrogate
-        raise OSError(errno.ELOOP, "Too many levels of symbolic links", path)
-    fd = os.open(path, os.O_RDONLY | os.O_BINARY)
+    """Windows has no O_NOFOLLOW: the file is opened with FILE_FLAG_OPEN_REPARSE_POINT (the open itself never follows
+    a link, nor contacts what one names) and a name-surrogate reparse point (a symlink, a junction) is refused by the
+    handle's reparse tag. Another kind of reparse point (a deduplicated or cloud placeholder file, read through its
+    filter) is opened again normally and must be the same file (volume serial + file index)."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = k32.CreateFileW
+    create.restype = wintypes.HANDLE
+    create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                       wintypes.DWORD, wintypes.HANDLE)
+    info = k32.GetFileInformationByHandleEx
+    info.restype = wintypes.BOOL
+    info.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD)
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+
+    class Tag(ctypes.Structure):
+        _fields_ = [("FileAttributes", wintypes.DWORD), ("ReparseTag", wintypes.DWORD)]
+
+    def opened(flags):
+        handle = create(path, 0x80000000, 0x3, None, 3, flags, None)      # GENERIC_READ, share r/w, OPEN_EXISTING
+        if handle in (None, wintypes.HANDLE(-1).value):
+            exc = ctypes.WinError(ctypes.get_last_error())
+            exc.filename = path
+            raise exc
+        return handle
+
+    handle = opened(0x00200000)                                             # FILE_FLAG_OPEN_REPARSE_POINT
+    try:
+        tag = Tag()
+        if not info(handle, 9, ctypes.byref(tag), ctypes.sizeof(tag)):     # FileAttributeTagInfo
+            raise ctypes.WinError(ctypes.get_last_error())
+        if tag.FileAttributes & 0x400 and tag.ReparseTag & 0x20000000:      # a name surrogate
+            raise OSError(errno.ELOOP, "Too many levels of symbolic links", path)
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY)
+    except BaseException:
+        k32.CloseHandle(handle)
+        raise
+    if not tag.FileAttributes & 0x400:
+        return fd
+    try:
+        first = os.fstat(fd)
+    finally:
+        os.close(fd)
+    fd = msvcrt.open_osfhandle(opened(0), os.O_RDONLY)
     st = os.fstat(fd)
-    if (st.st_dev, st.st_ino) != (before.st_dev, before.st_ino):
+    if not first.st_ino or (st.st_dev, st.st_ino) != (first.st_dev, first.st_ino):
         os.close(fd)
         raise OSError(errno.ELOOP, "Too many levels of symbolic links", path)
     return fd

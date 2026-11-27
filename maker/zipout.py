@@ -802,6 +802,26 @@ def _fd_kw(dir_fd):
     return {} if oscompat.WINDOWS else {"dir_fd": dir_fd}
 
 
+class _HeldPath(str):
+    """Windows: a held folder's path (what `_at` joins names onto) that also carries the held descriptor (`fd`), so a
+    file is opened or made relative to the held handle, never by a path through the folder."""
+
+    def __new__(cls, path, fd):
+        self = str.__new__(cls, path)
+        self.fd = fd
+        return self
+
+
+def _open_in(dir_fd, name, flags, mode=0o777):
+    """`oscompat.open_nofollow` of @p name in the folder @p dir_fd (POSIX `dir_fd`; Windows relative to the held handle
+    of a `_HeldPath`, a plain path otherwise)."""
+    if oscompat.WINDOWS:
+        held = getattr(dir_fd, "fd", None)
+        if held is not None:
+            return oscompat.open_nofollow(name, flags, mode, dir_fd=held)
+    return oscompat.open_nofollow(_at(dir_fd, name), flags, mode, **_fd_kw(dir_fd))
+
+
 def _sha_of_file(path, dir_fd=None):
     """The sha256 hex digest of the regular file @p path (relative to @p dir_fd when given), or None when it is absent,
     not a regular file or unreadable. A link is never followed (Windows: `oscompat.open_nofollow`'s identity check)."""
@@ -810,7 +830,7 @@ def _sha_of_file(path, dir_fd=None):
         if not stat.S_ISREG(st.st_mode) or oscompat.is_link(st):
             return None
         digest = hashlib.sha256()
-        fd = oscompat.open_nofollow(_at(dir_fd, path), os.O_RDONLY, **_fd_kw(dir_fd))
+        fd = _open_in(dir_fd, path, os.O_RDONLY)
         with os.fdopen(fd, "rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):
                 digest.update(chunk)
@@ -918,21 +938,23 @@ class _OutputTree:
 
 
 class _WinOutputTree:
-    """The Windows form of `_OutputTree` (no directory descriptors, no `dir_fd`, no `O_NOFOLLOW` there).
+    """The Windows form of `_OutputTree` (no `dir_fd`, no `O_NOFOLLOW` there).
 
-    The output folder and every folder below it that the write goes through are held open with `oscompat.hold_dir`:
-    a handle that does not follow a reparse point and does not share delete access, so while the write runs none of
-    them (and, on NTFS, no folder above them) can be renamed, removed or replaced. Each folder is opened only after its
-    name was `lstat`ed as a real folder (a symlink or a junction is refused: `TreeRefused`), and the held handle must be
-    that same folder (volume serial + file index). `check()` and `verify()` re-prove the recorded path -> folder
-    identities exactly as the POSIX class does, before each folder creation and around each landing. `dir()` returns
-    the folder's path; the file calls of `write_tree` join names onto it (`_at`)."""
+    The output folder is held open with `oscompat.hold_dir`, and every folder below it that the write goes through is
+    made and held relative to its parent's held handle with `oscompat.hold_dir_at` (`mkdirat` + `openat` in one call,
+    no path walked): a handle that does not follow a reparse point and does not share write or delete access, so while
+    the write runs none of them (and, on NTFS, no folder above them) can be renamed, removed, replaced or opened for
+    writing. A symlink or a junction is refused (`TreeRefused`), and the recorded path must name that same held folder
+    (volume serial + file index). `check()` and `verify()` re-prove the recorded path -> folder identities exactly as
+    the POSIX class does, before each folder creation and around each landing, and also that no held folder has been
+    turned into a junction in place. `dir()` returns the folder's path as a `_HeldPath`: files are made and read
+    relative to its held handle (`_open_in`); renames, links and removals join names onto the path (`_at`)."""
 
     def __init__(self, output_dir, output_id):
         self.output_dir = output_dir
         self.output_id = tuple(output_id)
         self._dirs = {}                                    # rel path -> held descriptor
-        self._paths = {}                                   # rel path -> its path
+        self._paths = {}                                   # rel path -> its path (a _HeldPath)
         try:
             self.root = oscompat.hold_dir(output_dir)
         except OSError:
@@ -947,9 +969,10 @@ class _WinOutputTree:
         try:
             held = os.fstat(self.root)
             here = os.stat(self.output_dir)
+            turned = oscompat.fd_is_link(self.root)
         except OSError:
             raise OutputGone("output folder is gone or changed")
-        if (here.st_dev, here.st_ino) != self.output_id or (held.st_dev, held.st_ino) != self.output_id:
+        if turned or (here.st_dev, here.st_ino) != self.output_id or (held.st_dev, held.st_ino) != self.output_id:
             raise OutputGone("output folder is gone or changed")
 
     def verify(self, rel_dir):
@@ -959,52 +982,46 @@ class _WinOutputTree:
             try:
                 here = os.lstat(self._paths[walked])
                 held = os.fstat(self._dirs[walked])
+                turned = oscompat.fd_is_link(self._dirs[walked])
             except OSError:
                 raise OutputGone("output folder is gone or changed")
-            if (oscompat.is_link(here) or not stat.S_ISDIR(here.st_mode)
+            if (turned or oscompat.is_link(here) or not stat.S_ISDIR(here.st_mode)
                     or (here.st_dev, here.st_ino) != (held.st_dev, held.st_ino)):
                 raise OutputGone("output folder is gone or changed")
 
     def dir(self, rel_dir):
-        """The path of the folder @p rel_dir below the output folder (made as needed), held, never through a link."""
+        """The folder @p rel_dir below the output folder (made as needed), held, never through a link: its path as a
+        `_HeldPath` carrying the held descriptor."""
         if rel_dir in self._paths:
             return self._paths[rel_dir]
-        current, walked = self.output_dir, ""
+        current, parent_fd, walked = self.output_dir, self.root, ""
         for part in rel_dir.split("/"):
             walked = walked + "/" + part if walked else part
             if walked in self._paths:
-                current = self._paths[walked]
+                current, parent_fd = self._paths[walked], self._dirs[walked]
                 continue
             if oscompat.windows_unsafe_name(part):
                 raise TreeRefused("%s is not a name Windows can hold: refusing to write it" % walked)
-            path = os.path.join(current, part)
+            self.check()                                   # never make a folder in a folder that went away
             try:
-                st = os.lstat(path)
-            except FileNotFoundError:
-                self.check()                               # never make a folder in a folder that went away
-                try:
-                    os.mkdir(path)
-                except FileExistsError:
-                    pass                                    # another writer made it first: it is checked just below
-                st = os.lstat(path)
-            if oscompat.is_link(st) or not stat.S_ISDIR(st.st_mode):
-                raise TreeRefused("%s is a symlink or not a folder: refusing to write through it" % walked)
-            try:
-                fd = oscompat.hold_dir(path)
+                fd = oscompat.hold_dir_at(parent_fd, part)
             except OSError as exc:
                 if exc.errno in (errno.ELOOP, errno.ENOTDIR):
                     raise TreeRefused("%s is a symlink or not a folder: refusing to write through it" % walked)
                 raise
+            path = os.path.join(current, part)
             try:
+                st = os.lstat(path)
                 held = os.fstat(fd)
-            except BaseException:
+            except OSError:
                 os.close(fd)
-                raise
-            if (held.st_dev, held.st_ino) != (st.st_dev, st.st_ino):
+                raise OutputGone("output folder is gone or changed")
+            if (oscompat.is_link(st) or not stat.S_ISDIR(st.st_mode)
+                    or (held.st_dev, held.st_ino) != (st.st_dev, st.st_ino)):
                 os.close(fd)
                 raise TreeRefused("%s changed while it was opened: refusing to write through it" % walked)
-            self._dirs[walked] = fd
-            self._paths[walked] = current = path
+            self._dirs[walked] = parent_fd = fd
+            self._paths[walked] = current = _HeldPath(path, fd)
         return current
 
     def close(self):
@@ -1047,7 +1064,7 @@ def write_tree(job, entries, sidecar, output_dir, output_id, owned, on_landed):
                 raise TreeRefused("%s is not a name Windows can hold: refusing to write it" % rel)
             dfd = tree.dir(rel_dir)
             tmp = "%s.%s.tmp" % (name, secrets.token_hex(4))     # never a name the user may already have
-            fd = oscompat.open_nofollow(_at(dfd, tmp), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644, **_fd_kw(dfd))
+            fd = _open_in(dfd, tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
             tmps.append((dfd, tmp))
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
@@ -1134,7 +1151,7 @@ def _land_new(dfd, tmp, name, rel, digest, job_id):
         if not _no_links(exc):
             raise
     try:                                                 # no hard links here: claim the name, then swap the content in
-        os.close(oscompat.open_nofollow(_at(dfd, name), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, **_fd_kw(dfd)))
+        os.close(_open_in(dfd, name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
     except FileExistsError:
         raise NameClash(job_id, rel)
     try:

@@ -34,6 +34,39 @@ def _junction(target, link):
     _winapi.CreateJunction(target, link)
 
 
+def _junction_in_place(folder, target):
+    """Turn the EMPTY folder @p folder into a junction to @p target in place (FSCTL_SET_REPARSE_POINT on the folder
+    itself, no rename): the attack a held folder must survive. Returns None when done, else the Windows error code of
+    the first refused step (the folder could not be opened for it, or the control was refused)."""
+    import ctypes
+    import struct
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                wintypes.DWORD, wintypes.HANDLE)
+    k32.DeviceIoControl.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD, wintypes.LPVOID,
+                                    wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID)
+    subst = ("\\??\\" + target).encode("utf-16-le")
+    path_buffer = subst + b"\0\0" + b"\0\0"
+    body = struct.pack("<HHHH", 0, len(subst), len(subst) + 2, 0) + path_buffer
+    data = struct.pack("<IHH", 0xA0000003, len(body), 0) + body
+    error = None
+    for access in (0x100, 0x40000000):                 # FILE_WRITE_ATTRIBUTES alone, then GENERIC_WRITE
+        handle = k32.CreateFileW(folder, access, 0x7, None, 3, 0x02000000 | 0x00200000, None)
+        if handle in (None, wintypes.HANDLE(-1).value):
+            error = ctypes.get_last_error()
+            continue
+        try:
+            done = wintypes.DWORD()
+            if k32.DeviceIoControl(handle, 0x000900A4, data, len(data), None, 0, ctypes.byref(done), None):
+                return None
+            error = ctypes.get_last_error()
+        finally:
+            k32.CloseHandle(handle)
+    return error
+
+
 def _wait(pred, seconds=10.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -195,6 +228,81 @@ class WindowsLinksTest(unittest.TestCase):
         with self.assertRaises(zipout.TreeRefused):
             zipout.write_tree(job, {"svf/dos/NEODG16.SVF": b"x"}, [], out, [st.st_dev, st.st_ino], {}, lambda r, d: None)
         self.assertEqual(os.listdir(self.real), ["f.ttf"])
+
+    def test_open_nofollow_never_follows_a_dangling_link(self):
+        out = os.path.join(self.tmp, "out")
+        os.mkdir(out)
+        target = os.path.join(self.tmp, "outside.svf")
+        name = os.path.join(out, "NEODG16.SVF")
+        try:
+            os.symlink(target, name)
+        except OSError as exc:
+            self.skipTest("no symlink privilege here: %s" % exc)
+        with self.assertRaises(FileExistsError):
+            oscompat.open_nofollow(name, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        held = oscompat.hold_dir(out)
+        try:
+            with self.assertRaises(FileExistsError):
+                oscompat.open_nofollow("NEODG16.SVF", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600, dir_fd=held)
+            with self.assertRaises(OSError) as cm:
+                oscompat.open_nofollow("NEODG16.SVF", os.O_RDONLY, dir_fd=held)
+            self.assertEqual(cm.exception.errno, errno.ELOOP)
+        finally:
+            os.close(held)
+        self.assertFalse(os.path.lexists(target))
+        with self.assertRaises(OSError) as cm:
+            oscompat.open_nofollow(name, os.O_RDONLY)
+        self.assertEqual(cm.exception.errno, errno.ELOOP)
+
+    def test_open_nofollow_relative_to_a_held_folder(self):
+        held = oscompat.hold_dir(self.real)
+        try:
+            fd = oscompat.open_nofollow("new.bin", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644, dir_fd=held)
+            with os.fdopen(fd, "wb") as f:
+                f.write(b"abc")
+                f.flush()
+                os.fsync(f.fileno())
+            with os.fdopen(oscompat.open_nofollow("new.bin", os.O_RDONLY, dir_fd=held), "rb") as f:
+                self.assertEqual(f.read(), b"abc")
+            for bad in ("a\\b", "a/b", "..", "f.ttf:ads"):
+                with self.assertRaises(ValueError):
+                    oscompat.open_nofollow(bad, os.O_RDONLY, dir_fd=held)
+            sub = oscompat.hold_dir_at(held, "made")              # made, then held
+            os.close(sub)
+            self.assertTrue(os.path.isdir(os.path.join(self.real, "made")))
+            os.close(oscompat.hold_dir_at(held, "made"))          # an existing folder is held as it is
+            with self.assertRaises(OSError) as cm:
+                oscompat.hold_dir_at(held, "f.ttf")
+            self.assertEqual(cm.exception.errno, errno.ENOTDIR)
+        finally:
+            os.close(held)
+        root = oscompat.hold_dir(self.tmp)
+        try:
+            with self.assertRaises(OSError) as cm:
+                oscompat.hold_dir_at(root, "link")                # a junction is never held
+            self.assertEqual(cm.exception.errno, errno.ELOOP)
+        finally:
+            os.close(root)
+
+    def test_a_held_folder_is_never_written_through_a_junction_made_in_place(self):
+        out = os.path.join(self.tmp, "out")
+        os.mkdir(out)
+        st = os.stat(out)
+        tree = zipout._WinOutputTree(out, [st.st_dev, st.st_ino])
+        try:
+            dfd = tree.dir("svf/dos")                              # held, and empty: a junction could be set on it
+            error = _junction_in_place(os.path.join(out, "svf", "dos"), self.real)
+            try:
+                fd = zipout._open_in(dfd, "x.tmp", os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+                os.close(fd)
+            except OSError:
+                pass
+            self.assertEqual(sorted(os.listdir(self.real)), ["f.ttf"], "a file was written through the junction")
+            if error is None:                                      # the junction was set: the tree must see it
+                with self.assertRaises(zipout.OutputGone):
+                    tree.verify("svf/dos")
+        finally:
+            tree.close()
 
     def test_write_tree_refuses_a_device_name(self):
         out = os.path.join(self.tmp, "out")
