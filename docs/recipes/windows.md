@@ -52,7 +52,20 @@ the fonts and the BDF and SVF files made from them are not distributed. The copi
 `BATANG.TTC` (13,533,424 and 16,273,348 bytes) of a current Windows.
 
 The font files are untrusted data; the tools only read bytes (`python3 -I`). Below, `$W31` is the folder with the 3.1
-files, `$W95` the folder the Windows 95 cabinets were unpacked into, `$WXP` the folder with the XP fonts.
+files, `$W95` the folder the Windows 95 cabinets were unpacked into (each cabinet into a folder of its name, such as
+`$W95/MINI`, `$W95/WIN95_18`), `$WXP` the folder with the XP fonts.
+
+`gulim.ttc` and `batang.ttc` are not in a cabinet of their own. The `WIN95_*.CAB` files of the CD's `WIN95` folder are
+one multi-volume set, and the two fonts run across volumes: `LAYOUT.INF` lists `batang.ttc=8` and `gulim.ttc=11`
+(the disk each starts on); `batang.ttc` runs from `WIN95_08.CAB` to `WIN95_11.CAB` and `gulim.ttc` from `WIN95_11.CAB` to
+`WIN95_12.CAB`. 7z extracts such a file when it opens the cabinet the file starts in, reading the other volumes from the
+same folder. The cabinets name their neighbours in lower case (`win95_09.cab`) and `PRECOPY2.CAB` in upper case, so on a
+case-sensitive file system link the CD's cabinets under both spellings first (`$CD` is the mounted CD). The two TTC files
+land in `$W95`:
+
+    mkdir -p $W95/cab
+    for f in "$CD"/WIN95/*.CAB; do b=$(basename "$f"); ln -s "$f" "$W95/cab/$b"; ln -sf "$f" "$W95/cab/$(echo "$b" | tr A-Z a-z)"; done
+    (cd $W95/cab && 7z x -o"$W95" win95_08.cab batang.ttc && 7z x -o"$W95" win95_11.cab gulim.ttc)
 
 <a id="windows-tbm-fonts-31-and-95"></a>
 

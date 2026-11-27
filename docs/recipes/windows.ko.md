@@ -49,7 +49,17 @@ Windows XP RTM 한글판의 `gulim.ttc`, `batang.ttc`(13,518,660, 16,258,580 바
 `BATANG.TTC`(13,533,424, 16,273,348 바이트).
 
 폰트 파일은 신뢰할 수 없는 데이터다. 도구는 바이트만 읽는다(`python3 -I`). 아래 `$W31`은 3.1 파일이 든 폴더, `$W95`는 Windows 95
-CAB을 푼 폴더, `$WXP`는 XP 폰트가 든 폴더다.
+CAB을 푼 폴더(CAB마다 제 이름의 폴더로, 예를 들어 `$W95/MINI`, `$W95/WIN95_18`), `$WXP`는 XP 폰트가 든 폴더다.
+
+`gulim.ttc`와 `batang.ttc`는 한 CAB에 따로 들어 있지 않다. CD의 `WIN95` 폴더의 `WIN95_*.CAB`은 여러 볼륨으로 된 한 세트이고, 두
+폰트는 볼륨을 걸쳐 있다: `LAYOUT.INF`는 `batang.ttc=8`, `gulim.ttc=11`(시작하는 디스크)로 적고, `batang.ttc`는 `WIN95_08.CAB`에서
+`WIN95_11.CAB`까지, `gulim.ttc`는 `WIN95_11.CAB`에서 `WIN95_12.CAB`까지 이어진다. 7z는 파일이 시작하는 CAB을 열면 같은 폴더의 다른
+볼륨을 읽어 그런 파일을 풀어 낸다. CAB은 이웃 볼륨을 소문자(`win95_09.cab`)로, `PRECOPY2.CAB`은 대문자로 가리키므로, 대소문자를
+가리는 파일 시스템에서는 먼저 CD의 CAB을 두 가지 이름으로 링크한다(`$CD`는 마운트한 CD). 두 TTC 파일은 `$W95`에 풀린다:
+
+    mkdir -p $W95/cab
+    for f in "$CD"/WIN95/*.CAB; do b=$(basename "$f"); ln -s "$f" "$W95/cab/$b"; ln -sf "$f" "$W95/cab/$(echo "$b" | tr A-Z a-z)"; done
+    (cd $W95/cab && 7z x -o"$W95" win95_08.cab batang.ttc && 7z x -o"$W95" win95_11.cab gulim.ttc)
 
 <a id="windows-tbm-폰트-31과-95"></a>
 
