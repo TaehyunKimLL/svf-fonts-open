@@ -49,6 +49,7 @@
 | [한국 MSX 폰트 (MSX2와 MSX1)](recipes/rom-msx.ko.md) | MSX2 대우 자모 세트, CPC-400S 완성형 폰트, MSX1 BIOS 셀과 openMSX 수집 |
 | [MAME 세트의 한글 폰트 ROM](recipes/rom-mame.ko.md) | MAME 세트: SPC-1500 자모 세트, 퀴즈 게임의 스프라이트 폰트, 풀지 못한 세트 |
 | [OS/2 한글 폰트(완성형)](recipes/os2.ko.md) | OS/2 System DBCS 폰트(완성형)에서 완성형 페이스와 자모 세트 |
+| [Windows 한글 비트맵 폰트 (3.1, 95, XP)](recipes/windows.ko.md) | Windows 3.1 / 95 TBM 폰트(BT16, BT20, GULIM16, GULIM12), Windows 95 `HFONT.SYS`, Windows 95와 XP `gulim.ttc` / `batang.ttc`의 내장 스트라이크; 샘플 그림 |
 | [클래식 Mac 한글 비트맵 폰트](recipes/classic-mac.ko.md) | HangulTalk 1.0과 7.1 `fbit` 비트맵 폰트 |
 | [기존 SVF, 그리고 SVF에서 다시 TTF로](recipes/svf-and-ttf.ko.md) | 기존 SVF(dy, 자모 세트로 다시 굽기); SVF 페이스를 다시 TTF나 BDF 폰트로, 합성 글리프 |
 | [벌 수 정하기](recipes/sets.ko.md) | 자모 세트의 벌을 몇 개로 할지, 그 비용 |
@@ -85,6 +86,8 @@
 | 한국 MSX ROM(대우, 금성: MSX2 SUB-ROM, CPC-400S 폰트 ROM, MSX1 BIOS) | `rawcarve.py compose` + `bdfface.py`(MSX2), `msxfont.py kfn-map` + `rawcarve.py bdf --chars map` + `bdfface.py`(CPC-400S), `msxfont.py msx1` + `mkfont.py`(MSX1) | `jamoset.py --layout spec --spec tools/specs/msx2-daewoo.json`(MSX2, 정확) | [한국 MSX 폰트](recipes/rom-msx.ko.md#한국-msx-폰트-msx2와-msx1) |
 | MAME 세트에 든 한국 기계나 아케이드 게임의 ROM(반전된 자모 ROM, 여러 비트 스프라이트 타일) | `rawcarve.py region` + `ink --gfx`(또는 `--invert`), `rawcarve.py bdf --dense`, 그다음 `bdfface.py` | `jamoset.py --layout spec`(자체 규칙이 있는 폰트, 정확), 잘라 낸 8x4x4 폰트에 `--layout 844`, 또는 `--from-svf` | [MAME 세트의 한글 폰트 ROM](recipes/rom-mame.ko.md#mame-세트의-한글-폰트-rom) |
 | OS/2 한글 System DBCS 폰트(`$korZN16.FNT`, `$korZN24.FNT`, 완성형) | `os2dbcs.py table`, `rawcarve.py bdf --grid 0xA1,0xA1,94`, `bdfface.py` | `jamoset.py --from-svf` | [OS/2 한글 폰트(완성형)](recipes/os2.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) |
+| 한글 Windows 3.1 / 95 `.TBM` 비트맵 폰트(`BT16.TBM`, `BT20.TBM`, `GULIM16.TBM`, `GULIM12.TBM`) | `tbmfont.py info`, `rawcarve.py bdf --invert`(`--chars ks-hangul --dense`, `ascii`), `bdfface.py` | `jamoset.py --from-svf` | [TBM 폰트](recipes/windows.ko.md#windows-tbm-폰트-31과-95) |
+| Windows 95 / XP `gulim.ttc`, `batang.ttc`(내장 스트라이크) | 스트라이크의 크기로 `mkfont.py --size N --bpp 1`(Windows 95: 12-21, 24, 25; XP: 11-21, 24, 25) | 없음 | [TrueType 내장 스트라이크](recipes/windows.ko.md#windows-truetype-내장-스트라이크-95와-xp) |
 | 자모 글리프가 있는 TTF(첫가끝 자모, PUA 조각, GSUB `ljmo`) | 다른 TTF와 같이 | 합성 글리프는 `jamovec.py --components`, 변형은 `--mask-font`, 그 밖에는 맞춤 | [이미 자모를 가진 TrueType 폰트](recipes/outline-fonts.ko.md#이미-자모를-가진-truetype-폰트) |
 | 16 px나 2 bpp로 쓰고 싶은 24-48 px 비트맵 페이스 | `svfscale.py --size 16 [--bpp 2]` | `jamoset.py --from-svf`(1 bpp 결과) | [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](recipes/bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기) |
 | Mac HangulTalk 1.0 `fbit`(벌 45개 + `fdef`) | 없음 | `jamoset.py --layout mac-fbit-45sets` | [클래식 Mac 한글 비트맵 폰트](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) |
