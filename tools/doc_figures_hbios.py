@@ -57,8 +57,8 @@ def faces(disk, layout, jamo, eng, sym, size, soff, stride, tmp):
     W.tool("rawcarve.py", "bdf", os.path.join(disk, sym), "--offset", soff, "--glyph", f"{size}x{size}", "--stride",
            stride, "--chars", "map", "--map", smap, "--ascent", ASCENT[size], "-o", os.path.join(tmp, "symbols.bdf"))
     sface = os.path.join(tmp, "symbols.svf")
-    W.tool("mkfont.py", os.path.join(tmp, "symbols.bdf"), sface, "--size", size, "--bpp", 1, "--unicode", "file:" + syms,
-           "--only-listed")
+    W.tool("mkfont.py", os.path.join(tmp, "symbols.bdf"), sface, "--size", size, "--bpp", 1,
+           "--unicode", "file:" + syms, "--only-listed")
     jface = os.path.join(tmp, "jamo.svf")
     W.tool("jamoset.py", "--layout", layout, os.path.join(disk, jamo), "--eng", os.path.join(disk, eng), "--symbols",
            "--check", "-o", jface)

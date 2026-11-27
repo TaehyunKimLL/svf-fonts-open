@@ -10,7 +10,8 @@ every font given and the others are skipped. Each face is built in a temporary d
 recipe, run as subprocesses with `python3 -I` (the font files are read as data, nothing in them is run):
 
   TBM (Windows 3.1 / 95):  tbmfont.py info (the block offsets), rawcarve.py bdf --invert --ascent A (ASCII, the 2,350
-                           syllables --dense, the KS X 1001 symbols --chars map; A is the row under 'H': 14, 17, 14, 10), bdfface.py (syllables + ASCII), and mkfont.py
+                           syllables --dense, the KS X 1001 symbols --chars map; A is the row under 'H': 14, 17,
+                           14, 10), bdfface.py (syllables + ASCII), and mkfont.py
                            on the symbol BDF for the sample's symbols (a second face, drawn first: bdfface.py puts
                            its own missing-glyph box at U+25A1, which is also one of the sample's symbols)
   TTC (Windows 95 / XP):   mkfont.py FONT --size N --bpp 1 --unicode file:SAMPLE (face 0 of the collection; at a
