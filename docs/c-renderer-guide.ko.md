@@ -8,8 +8,10 @@
 포트)이며, 무엇보다 모든 함수의 정확한 계약을 밝혀 두는 [c/include/svf.h](../c/include/svf.h)의 주석이다. 파일 포맷은
 [spec/SVF.ko.md](../spec/SVF.ko.md)에, 설계는 [spec/renderer-design.ko.md](../spec/renderer-design.ko.md)에 있다.
 
-아래의 모든 C 예제는 이 저장소를 대상으로 `gcc -std=c99 -Wall -Wextra`로 컴파일했다(페이스 내장 샘플은 arm-none-eabi-gcc로 Cortex-M0+용으로, avr-gcc로
-ATmega328P용으로도, 플랫폼 샘플은 해당 플랫폼의 툴체인으로 컴파일했다). 실행할 수 있는 곳에서는 배포되는 페이스로 실행했으며, 표시된 출력은 실제 출력이다.
+3–12절의 이식 가능한 C 프로그램은 각각 파일로 복사하고 `cc -std=c99 -Wall -Wextra -Ic/include EXAMPLE.c c/src/*.c -o EXAMPLE`로 빌드한다.
+내장 예제는 생성한 `face.c`도 링크한다. SDL 예제에는 13.6절의 플래그를 쓴다. C++ 예제는 C 소스를 먼저 `cc`로 컴파일한 뒤 `c++`로 링크한다.
+파일 기반 예제에는 `svf/dos/NEODG16A.SVF`를 인자로 준다. 앱 소스에 폰트 바이트를 직접 적을 필요는 없다.
+브라우저 통합은 [웹 렌더러 사용법](web-renderer-guide.ko.md)으로 이어진다.
 
 ## 목차
 
@@ -78,6 +80,30 @@ ATmega328P용으로도, 플랫폼 샘플은 해당 플랫폼의 툴체인으로 
 그것을 필요로 하는 페이스는 일반 페이스로 열린다. 필요한 것은 명시적으로 설정하라(12절의 `-DSVF_JMAP=1` 등). `-DSVF_SMALL`은 데스크톱에서도 같은
 효과를 낸다(12절).
 
+### CMake와 Makefile에서 설정하기
+
+CMake 라이브러리 타깃의 정의를 `PUBLIC`으로 전달하면 헤더를 쓰는 앱과 라이브러리의 구조체 크기가 일치한다.
+`SVF_ROOT`에는 SVF 소스가 있는 절대 경로를 준다. 아래 타깃은 라이브러리만 빌드한다.
+
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(svf_embed C)
+set(SVF_ROOT "" CACHE PATH "SVF source directory")
+file(GLOB SVF_SOURCES CONFIGURE_DEPENDS "${SVF_ROOT}/c/src/*.c")
+add_library(svf STATIC ${SVF_SOURCES})
+target_include_directories(svf PUBLIC "${SVF_ROOT}/c/include")
+target_compile_features(svf PUBLIC c_std_99)
+target_compile_definitions(svf PUBLIC SVF_JMAP=1 SVF_JMAP_LIST=1)
+```
+
+```sh
+cmake -S /path/to/project -B /tmp/svf-cmake -DSVF_ROOT="$PWD"
+cmake --build /tmp/svf-cmake
+make -C c O=/tmp/svf-make lib CFLAGS='-O2 -DSVF_JMAP=1 -DSVF_JMAP_LIST=1'
+```
+
+자체 Makefile에서는 같은 `CPPFLAGS`를 앱과 다섯 C 소스에 모두 적용한다. 제공된 `c/Makefile`은 `CFLAGS`로 정의를 받는다. Arduino는 포트의 빌드 스크립트·전역 extra flags에, ESP-IDF는 `${COMPONENT_LIB}`에 정의를 둔다. Pico SDK에서는 SDK 초기화와 별개로 앱 타깃의 `target_compile_definitions`를 사용한다. `CMAKE_C_FLAGS`를 덮어쓰지 않는다. 각 포트의 정확한 명령은 13절을 따른다.
+
 ## 3. 완전한 첫 번째 프로그램
 
 이 프로그램은 페이스 파일을 열고, 한글/라틴 혼합 줄을 8비트 버퍼에 그린 뒤, 텍스트로 출력한다. `ex1.c`로 저장한다.
@@ -90,20 +116,24 @@ ATmega328P용으로도, 플랫폼 샘플은 해당 플랫폼의 툴체인으로 
 
 static uint8_t *slurp(const char *path, size_t *len)
 {
-	FILE *fp = fopen(path, "rb");
-	if (!fp) return NULL;
-	fseek(fp, 0, SEEK_END);
-	long n = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	uint8_t *p = malloc((size_t)n);
-	if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
-	fclose(fp);
-	*len = (size_t)n;
-	return p;
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
 }
 
 int main(int argc, char **argv)
 {
+	if (argc < 2) { fprintf(stderr, "usage: ex1 FACE [TEXT]\n"); return 2; }
 	size_t len;
 	uint8_t *bytes = slurp(argv[1], &len);
 	svf_face face;
@@ -111,29 +141,32 @@ int main(int argc, char **argv)
 	if (err != SVF_OK) { fprintf(stderr, "open failed: %d\n", (int)err); return 1; }
 
 	svf_face *faces[1] = { &face };
-	svf_chain chain = {0};            /* 0으로 초기화: 스케일 1/1, 기본 마크, 캐시 없음 */
+	svf_chain chain = {0};            /* zeroed: scale 1/1, default marks, no cache */
 	chain.faces = faces;
 	chain.count = 1;
 
 	const char *text = argc > 2 ? argv[2] : "SVF 안녕";
 	svf_extent e;
-	svf_measure_utf8(&chain, text, strlen(text), &e);
-	/* e.width는 잉크가 아니라 펜 이동 거리이다. 마지막 셀이 그 너머까지 닿을 수 있으므로 셀 폭만큼 여유를 둔다 */
+	if (svf_measure_utf8(&chain, text, strlen(text), &e) != SVF_OK) return 1;
+	/* e.width is the pen's travel, not the ink: the last cell can reach past it, so leave a cell's width of room */
 	int w = e.width + svf_cell_w(&face) + 2, h = e.ascent + e.descent + 2;
+	if (w <= 0 || w > 32767 || h <= 0 || h > 32767) return 1;
 	uint8_t *pix = calloc((size_t)w * h, 1);
 	size_t need = svf_chain_scratch_bytes(&chain);
 	uint8_t *scratch = malloc(need);
 
+	if (!pix || !scratch) { free(scratch); free(pix); free(bytes); return 1; }
 	svf_target t;
 	if (svf_target_init(&t, SVF_T_GRAY8, pix, (size_t)w * h, (int16_t)w, (int16_t)h, (uint16_t)w) != SVF_OK) return 1;
 	err = svf_draw_utf8(&chain, text, strlen(text), 1, (int16_t)(1 + e.ascent), &t, scratch, need);
-	/* err는 SVF_OK이거나, 스트리밍 읽기가 도중에 실패했다면 SVF_E_IO이다 */
+	/* err is SVF_OK, or SVF_E_IO if a streamed read failed part-way */
 
 	for (int y = 0; y < h; y++) {
 		for (int x = 0; x < w; x++) putchar(pix[y * w + x] > 127 ? '#' : pix[y * w + x] ? '+' : '.');
 		putchar('\n');
 	}
-	return 0;
+	free(scratch); free(pix); free(bytes);
+	return err == SVF_OK ? 0 : 1;
 }
 ```
 
@@ -201,17 +234,62 @@ int main(int argc, char **argv)
 제공한다. 글리프 행은 그릴 때 읽힌다. DOS 프로그램들이 이렇게 하므로, 1 MB 페이스에 1 MB의 RAM이 필요하지 않다.
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <limits.h>
+#include "svf.h"
+
 static long rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
 {
-	FILE *fp = ctx;
-	return fseek(fp, (long)off, SEEK_SET) == 0 ? (long)fread(dst, 1, len, fp) : -1;
+#if LONG_MAX < UINT32_MAX
+    if (off > (uint32_t)LONG_MAX) return -1;
+#endif
+    return fseek((FILE *)ctx, (long)off, SEEK_SET) == 0
+        ? (long)fread(dst, 1, len, (FILE *)ctx) : -1;
 }
 
-static uint8_t tables[256 * 1024], cache[8 * (1024 + 8)];
-svf_err err;
-size_t need = svf_stream_tables_size(rd, fp, file_len, &err);   /* 헤더가 거부되면 0을 반환하고 err가 설정된다 */
-if (need && need <= sizeof tables)
-	err = svf_open_stream(&face, rd, fp, file_len, tables, sizeof tables, cache, sizeof cache, 1024);
+int main(int argc, char **argv)
+{
+    FILE *fp;
+    long length;
+    svf_face face;
+    svf_err err;
+    uint8_t *tables = NULL, *scratch = NULL;
+    uint8_t cache[2 * (1024 + 8)], pixels[128 * 32] = {0};
+    svf_face *faces[] = {&face};
+    svf_chain chain = {0};
+    svf_target target;
+    int rc = 1;
+    if (argc != 2) { fprintf(stderr, "usage: stream FACE\n"); return 2; }
+    fp = fopen(argv[1], "rb");
+    if (!fp) return 1;
+    if (fseek(fp, 0, SEEK_END) || (length = ftell(fp)) <= 0 ||
+        (uint64_t)length > UINT32_MAX) goto done;
+    size_t need = svf_stream_tables_size(rd, fp, (uint32_t)length, &err);
+    if (err != SVF_OK || !need || !(tables = malloc(need))) goto done;
+    err = svf_open_stream(&face, rd, fp, (uint32_t)length, tables, need,
+                          cache, sizeof cache, 1024);
+    if (err != SVF_OK) goto done;
+    chain.faces = faces; chain.count = 1;
+    size_t scratch_len = svf_chain_scratch_bytes(&chain);
+    scratch = malloc(scratch_len);
+    if (!scratch) goto done;
+    err = svf_target_init(&target, SVF_T_GRAY8, pixels, sizeof pixels, 128, 32, 128);
+    if (err != SVF_OK) goto done;
+    err = svf_draw_utf8(&chain, "SVF 한글", strlen("SVF 한글"), 0, 20,
+                        &target, scratch, scratch_len);
+    size_t ink = 0;
+    for (size_t i = 0; i < sizeof pixels; ++i) ink += pixels[i] != 0;
+    printf("status=%u tables=%zu scratch=%zu reads=%lu ink=%zu draw=%d\n",
+           (unsigned)svf_status(&face), need, scratch_len,
+           (unsigned long)svf_stream_reads(&face), ink, (int)err);
+    rc = err != SVF_OK;
+done:
+    free(scratch); free(tables); fclose(fp);
+    return rc;
+}
 ```
 
 알아 둘 규칙은 다음과 같다.
@@ -229,6 +307,8 @@ if (need && need <= sizeof tables)
   `svf_chain_scratch_bytes`가 이미 이를 반영한다.
 - `-DSVF_NO_STREAM`으로 빌드하면 이 함수들은 선언조차 되지 않는다. 호출하면 런타임 실패가 아니라 컴파일 오류가 된다.
 
+외부 SPI 플래시도 같은 스트리밍 인터페이스를 쓴다. `ctx`에 장치 상태를 두고 `rd`가 파일 시작 기준 `off`에서 `len`바이트를 읽게 한다. 성공 시 정확히 `len`, 실패 시 음수나 짧은 길이를 반환한다. 메모리 매핑 가능한 플래시는 5절의 `const` 배열처럼 `svf_open_mapped`로 읽는 편이 간단하다.
+
 ### 4.3 페이스가 알려 주는 것
 
 열기에 성공한 뒤에는 접근자들이 헤더를 보고한다. `svf_bpp`, `svf_cell_w`, `svf_cell_h`, `svf_ascent`, `svf_glyph_count`, `svf_flags`.
@@ -240,6 +320,17 @@ if (need && need <= sizeof tables)
 블록은 멀쩡하지만 이 빌드가 그 버전을 읽지 않는다)가 있다. 음절이 나오지 않을 때 가장 먼저 확인할 것은 상태가 0이 아닌 한글 페이스이다
 (16절).
 
+열기 반환값이 `SVF_OK`라도 아래 상태가 함께 있을 수 있다. 저장된 글리프는 계속 그릴 수 있으므로
+앱이 필요한 문자에 대해 `svf_has`를 확인하고, 진단 메시지에는 오류 코드와 상태를 함께 기록한다.
+
+| 상태 | 의미 |
+|---|---|
+| `SVF_FACE_CMAP_LINEAR` | 정렬되지 않았거나 중복 코드 포인트. 선형 조회, 중복은 마지막 항목. |
+| `SVF_FACE_DY_IGNORED` | 잘못된 dy 범위를 무시. |
+| `SVF_FACE_METRICS_DROPPED` | 메트릭 영역을 버리고 셀 폭을 전진 폭으로 사용. |
+| `SVF_FACE_JSET_BAD`, `SVF_FACE_JMAP_BAD` | 잘못된 조합 블록. 세부 폴백 규칙은 [명세](../spec/SVF.ko.md#validation). |
+| `SVF_FACE_JSET_UNREAD`, `SVF_FACE_JMAP_UNREAD` | 빌드에서 해당 리더가 꺼져 있음. 지원되는 폴백이 있으면 사용. |
+
 ## 5. 페이스 내장하기
 
 마이크로컨트롤러에는 파일 시스템이 없거나, 있어도 의존하고 싶지 않다. 또 페이스 하나만 싣는 프로그램은 페이스를 프로그램 안에 넣는 편이
@@ -250,21 +341,8 @@ if (need && need <= sizeof tables)
 Python 3과 저장소의 `tools/`가 필요하며(`tools/jamoset.py`를 자신의 위치 기준 상대 경로로 import하므로 체크아웃에서 실행해야 한다),
 출력 파일 말고는 아무것도 쓰지 않는다. `--name`은 C 식별자여야 한다. 출력은 다음과 같다(일부 생략).
 
-```c
-/* Generated by c/bench/mkface.py from svf/dos/NEODG16G.SVF (10124 bytes, profile mcu-strict). */
-#include <stdint.h>
-#ifdef __AVR__
-#include <avr/pgmspace.h>
-#define BENCH_FACE_ATTR PROGMEM
-#else
-#define BENCH_FACE_ATTR
-#endif
-const uint8_t neodg16g[] BENCH_FACE_ATTR __attribute__((aligned(4))) = {
-	83,86,70,78,3,0,7,0,1,2,2,0,23,1,16,16,12,0,0,0,120,11,0,0,
-	...
-};
-const uint32_t neodg16g_len = 10124u;
-```
+`face.c`는 `const uint8_t neodg16g[]`와 `const uint32_t neodg16g_len`을 정의한다.
+AVR에서는 배열에 `PROGMEM`이 붙으며 정렬은 선택한 레이아웃을 따른다.
 
 - 배열은 `const`이므로 플래시(읽기 전용 데이터)에 머물며 RAM을 쓰지 않는다. AVR에서는 `PROGMEM`이어서 플래시 고유의 주소 공간에 놓이고,
   라이브러리는 `SVF_RD8`을 통해 읽는다(4.1절). `NAME_len`은 페이스의 바이트 크기이다. 둘 다 `svf_open_mapped`에 넘긴다.
@@ -297,16 +375,22 @@ const uint32_t neodg16g_len = 10124u;
 확인하라(이것이 `text_cb.c`이다. 호스트와 Cortex-M0+에서, 그리고 13.1절의 Uno 플래그에 `-DSVF_TARGETS=0x10`을 주면 AVR에서도 컴파일된다. 이 예제는 콜백 종류로 그리므로 `0x02`이면 `text_init`이 -3을 반환한다).
 
 ```c
-/* text_cb.c - mkface.py로 내장한 페이스로, 자신의 픽셀 루틴을 통해 UTF-8을 그린다. */
+/* text_cb.c - draw UTF-8 with a face embedded by c/bench/mkface.py through your own pixel routine. */
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include "svf.h"
 
-extern const uint8_t neodg16g[];            /* mkface.py --name neodg16g 로 만든 face.c */
+extern const uint8_t neodg16g[];            /* face.c from mkface.py --name neodg16g */
 extern const uint32_t neodg16g_len;
 
-/* 디스플레이 드라이버: 픽셀 하나, 켜짐/꺼짐(또는 cov에서 얻은 회색 레벨). */
-void lcd_set_pixel(int16_t x, int16_t y, uint8_t on);
+/* Your display driver: one pixel, on/off (or a grey level from cov). */
+static unsigned ink;
+void lcd_set_pixel(int16_t x, int16_t y, uint8_t on)
+{
+    (void)x; (void)y;
+    ink += on != 0;
+}
 
 static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
 {
@@ -314,7 +398,7 @@ static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
 	lcd_set_pixel(x, y, cov >= 128);
 }
 
-static svf_face face;                       /* 모든 그리기보다 오래 살아야 한다 */
+static svf_face face;                       /* must outlive every draw */
 static svf_face *faces[1] = {&face};
 static svf_chain chain;
 static svf_target target;
@@ -333,10 +417,10 @@ int text_init(int16_t lcd_w, int16_t lcd_h)
 	if (svf_target_init(&target, SVF_T_COVERAGE_CB, NULL, 0, lcd_w, lcd_h, 0) != SVF_OK)
 		return -3;
 	target.plot = plot;
-	return svf_is_jamo(&face) && svf_status(&face) == 0 ? 0 : -4;   /* -4: 일반 페이스로 열림: 이유는 svf_status */
+	return svf_is_jamo(&face) && svf_status(&face) == 0 ? 0 : -4;   /* -4: opened plain: svf_status says why */
 }
 
-/* s를 왼쪽 위가 (x, y_top)이 되도록 그린다. 그려진 폭(펜 이동 거리)을 반환한다. */
+/* Draws s with its top-left at (x, y_top); returns the width drawn (the pen's travel). */
 int text_draw(const char *s, int16_t x, int16_t y_top)
 {
 	svf_extent e;
@@ -347,11 +431,28 @@ int text_draw(const char *s, int16_t x, int16_t y_top)
 		return -1;
 	return e.width;
 }
+
+int main(void)
+{
+    int init = text_init(128, 32);
+    if (init) { printf("init=%d\n", init); return 1; }
+    int width = text_draw("SVF 한글", 0, 0);
+    printf("status=%u width=%d ink=%u\n", (unsigned)svf_status(&face), width, ink);
+    return width < 0;
+}
 ```
 
 한글을 조합하는 페이스에서는 `svf_is_jamo`가 1이고, 아무것도 버려지지 않았으면 `svf_status`가 0이다(4.3절). 열렸지만 일반 페이스인 것(`JSET_BAD`,
 `JSET_UNREAD`, `JMAP_UNREAD`)은 라틴만 그리고 한글은 말없이 그리지 않는다. 현장이 아니라 작업대에서 이것을 알아내는 방법이 이 검사이다.
 완성형 페이스에는 자모 블록이 없으므로 대신 `svf_has(&face, 0xD55C)`를 확인한다.
+
+`text_cb.c`를 `face.c`와 함께 빌드하고 실행한다. 호스트의 픽셀 함수는 켜진 픽셀 호출 수를 세며, 장치에서는 디스플레이 쓰기로 바꾼다.
+
+```sh
+cc -std=c99 -Wall -Wextra -Ic/include text_cb.c face.c c/src/*.c -o text_cb
+./text_cb
+# status=0 width=64 ink=248
+```
 
 ### 5.3 C++와 Arduino: `face.c`는 C 파일로 둔다
 
@@ -360,7 +461,11 @@ int text_draw(const char *s, int16_t x, int16_t y_top)
 그렇게 한다).
 
 ```cpp
+#ifdef __AVR__
 #include <avr/pgmspace.h>
+#else
+#define PROGMEM
+#endif
 #include "svf.h"                          /* svf.h는 C++에서 스스로 extern "C"로 감싸져 있다 */
 
 extern "C" {
@@ -370,6 +475,7 @@ extern const uint32_t neodg16g_len;
 
 static svf_face face;
 bool face_ok() { return svf_open_mapped(&face, neodg16g, neodg16g_len) == SVF_OK; }
+int main() { return face_ok() ? 0 : 1; }
 ```
 
 ### 5.4 배포할 라이선스
@@ -424,16 +530,77 @@ bool face_ok() { return svf_open_mapped(&face, neodg16g, neodg16g_len) == SVF_OK
 ### 7.1 폴백 체인
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc < 2 || argc > 3) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    hangul_face = face;
+    size_t latin_len;
+    uint8_t *latin_bytes = slurp(argc == 3 ? argv[2] : argv[1], &latin_len);
+    if (!latin_bytes || svf_open_mapped(&latin_face, latin_bytes, latin_len) != SVF_OK) {
+        free(latin_bytes); free(bytes); return 1;
+    }
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+
 svf_face *faces[2] = { &latin_face, &hangul_face };
 svf_chain chain = {0};
 chain.faces = faces;
 chain.count = 2;
-chain.missing_advance = 8;      /* 어느 페이스에도 없는 코드 포인트에 대해 전진할 픽셀 수(아무것도 그려지지 않음) */
+chain.missing_advance = 8;      /* pixels to advance for a code point no face has (nothing is drawn) */
+svf_target target;
+svf_extent extent;
+const char *text = "SVF 한글";
+if (svf_target_init(&target, SVF_T_GRAY8, pix, sizeof pix, 64, 24, 64) != SVF_OK ||
+    svf_measure_utf8(&chain, text, strlen(text), &extent) != SVF_OK ||
+    svf_draw_utf8(&chain, text, strlen(text), 0, 20, &target, scratch, scratch_len) != SVF_OK)
+    return 1;
+printf("faces=%u width=%d scratch=%zu\n", (unsigned)chain.count, extent.width,
+       svf_chain_scratch_bytes(&chain));
+    free(latin_bytes); free(bytes);
+    return 0;
+}
 ```
 
 각 코드 포인트는 `svf_has`가 참인 첫 번째 페이스가 그린다. 순서가 중요하다. 공유되는 문자(숫자, 구두점)에 원하는 스타일의 페이스를
 먼저 두라. `chain.faces`가 `NULL`이거나, `count`가 0이거나, 항목 중 하나가 NULL이면 체인은 "페이스 없음" 상태가 된다. 이 체인을 쓰는
 호출은 `SVF_E_ARG`를 반환하고 아무것도 그리지 않는다.
+
+완전한 체인 예제는 `./chain svf/dos/NEODG16A.SVF svf/dos/PAPLG16.SVF`로 실행한다. 두 번째 인자를 생략하면 같은 파일을 두 번 열어 호출 경로만 보여 준다.
 
 ### 7.2 마크, advance, 잘못된 UTF-8
 
@@ -482,10 +649,58 @@ chain.missing_advance = 8;      /* 어느 페이스에도 없는 코드 포인�
 ### 8.1 32비트 서피스 위의 컬러 텍스트
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
 svf_target t;
 svf_target_init(&t, SVF_T_XRGB8888, surface_pixels, (size_t)pitch * height, width, height, (uint16_t)pitch);
-t.fg888 = 0x00FFC000;      /* 호박색 텍스트 */
-t.bg888 = 0x00000020;      /* 호출자가 아는 배경색 */
+t.fg888 = 0x00FFC000;      /* amber text */
+t.bg888 = 0x00000020;      /* the background colour the caller knows */
+printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
+    free(bytes);
+    return 0;
+}
 ```
 
 `stride`는 바이트 수를 나타내는 `uint16_t`이므로, 32비트 타깃의 폭은 최대 16,383픽셀이다. 픽셀의 **메모리 순서는 모든 호스트에서 B, G, R, X**이다.
@@ -499,7 +714,29 @@ t.bg888 = 0x00000020;      /* 호출자가 아는 배경색 */
 않는다. 이 예제는 이미 그림이 들어 있는 32비트 서피스 위에 흰 텍스트를 섞는다(`NEODG16A.SVF`에 대해 컴파일하고 실행했다. 픽셀을 리틀 엔디언 `uint32_t` 하나로 읽고 쓰며 B가 낮은 바이트이다. 메모리 순서 B, G, R, X와 일치한다).
 
 ```c
-typedef struct { uint8_t *pix; int pitch; uint32_t fg; } Surf;      /* 사용자의 서피스 */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+typedef struct { uint8_t *pix; int pitch; uint32_t fg; } Surf;      /* your surface */
 
 static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
 {
@@ -513,12 +750,38 @@ static void plot(void *ctx, int16_t x, int16_t y, uint8_t cov)
 	*px = out;
 }
 
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
 Surf s = { pix, 64 * 4, 0x00FFFFFF };
 svf_target t;
-svf_target_init(&t, SVF_T_COVERAGE_CB, NULL, 0, 64, 24, 0);    /* w, h는 여전히 경계와 클립을 정의한다 */
+svf_target_init(&t, SVF_T_COVERAGE_CB, NULL, 0, 64, 24, 0);    /* w, h still define the bounds and clip */
 t.plot = plot;
 t.ctx = &s;
 svf_draw_utf8(&chain, "가A", 4, 2, 16, &t, scratch, scratch_len);
+printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
+    free(bytes);
+    return 0;
+}
 ```
 
 `plot`은 그리기 전에 설정해야 한다(아니면 `SVF_E_ARG`). 두 셀이 한 픽셀에서 겹치는 곳(마크가 기본 글자 위에 얹힐 때)에서는 콜백이 셀마다
@@ -552,14 +815,62 @@ U+AC00..U+D7A3(그리고 호환 자모 U+3131..U+3163)을 즉석에서 조합한
 블록이 있으면 테이블에 없는 음절은 폴백으로 간다. 조밀한 JMAP과 버전 1, 2 블록은 11,172자 전부를 다룬다.
 
 ```c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
 if (svf_is_jamo(&face)) {
 	uint16_t pieces[3];
-	int n = svf_jamo_pieces(&face, 0xD55C /* 한 */, pieces);   /* 3: 초성, 중성, 종성 */
+	int n = svf_jamo_pieces(&face, 0xD55C /* 한 */, pieces);   /* 3: initial, medial, final */
 	for (int i = 0; i < n; i++)
-		printf("piece %u\n", (unsigned)pieces[i]);               /* 글리프 U+F0000 + 번호 (페이스 안) */
+		printf("piece %u\n", (unsigned)pieces[i]);               /* glyph U+F0000 + number in the face */
 }
 uint8_t cell[64];                                      /* >= svf_cell_bytes(&face) */
-svf_glyph(&face, 0xD55C, cell, sizeof cell);           /* 조합된 셀, MSB 우선, 행은 바이트 단위로 패딩 */
+svf_glyph(&face, 0xD55C, cell, sizeof cell);           /* the composed cell, MSB first, rows padded to bytes */
+printf("status=%u scratch=%zu\n", (unsigned)svf_status(&face), svf_chain_scratch_bytes(&chain));
+    free(bytes);
+    return 0;
+}
 ```
 
 `svf_glyph`와 `svf_compose`는 타깃 없이 코드 포인트 하나의 셀을 반환한다. 자신의 아틀라스에 글리프를 캐시할 때 유용하다.
@@ -576,8 +887,72 @@ svf_glyph(&face, 0xD55C, cell, sizeof cell);           /* 조합된 셀, MSB 우
 조합에는 음절마다 몇 번의 테이블 조회와 병합이 든다. 반복되는 텍스트(UI, 프레임마다 다시 그리는 대화 상자)에는 체인에 캐시를 준다.
 
 ```c
-static uint8_t syl[4096];                       /* 슬롯은 (8 + 체인 페이스들 중 가장 큰 셀 바이트 수) 크기 */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "svf.h"
+
+static uint8_t *slurp(const char *path, size_t *len)
+{
+    FILE *fp = fopen(path, "rb");
+    long n;
+    uint8_t *p;
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) || (n = ftell(fp)) <= 0 ||
+        (unsigned long)n > SIZE_MAX || fseek(fp, 0, SEEK_SET)) {
+        fclose(fp); return NULL;
+    }
+    p = malloc((size_t)n);
+    if (p && fread(p, 1, (size_t)n, fp) != (size_t)n) { free(p); p = NULL; }
+    fclose(fp);
+    *len = (size_t)n;
+    return p;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    size_t len;
+    uint8_t *bytes = slurp(argv[1], &len);
+    svf_face face, latin_face, hangul_face;
+    if (!bytes || svf_open_mapped(&face, bytes, len) != SVF_OK) return 1;
+    latin_face = face; hangul_face = face;
+    (void)latin_face; (void)hangul_face;
+    svf_face *base_faces[] = {&face};
+    svf_chain base_chain = {0};
+    base_chain.faces = base_faces; base_chain.count = 1;
+    (void)base_chain;
+    uint8_t scratch[4096], pix[64 * 24 * 4] = {0};
+    uint8_t *surface_pixels = pix;
+    int pitch = 64 * 4, width = 64, height = 24;
+    size_t scratch_len = sizeof scratch;
+    (void)surface_pixels; (void)pitch; (void)width; (void)height;
+    (void)scratch; (void)scratch_len;
+    svf_chain chain = base_chain;
+    (void)chain;
+
+static uint8_t syl[4096];                       /* slots of (8 + the largest cell bytes of the chain's faces) */
 svf_chain_cache(&chain, syl, sizeof syl);
+chain.scale_num = 3; chain.scale_den = 2;
+size_t need = svf_chain_scratch_bytes(&chain);
+if (need > sizeof scratch) return 1;
+const svf_target_kind kinds[] = {SVF_T_GRAY8, SVF_T_MONO_ROW, SVF_T_RGB565};
+const uint16_t strides[] = {64, 8, 128};
+for (unsigned k = 0; k < 3; ++k) {
+    svf_target t;
+    memset(pix, 0, sizeof pix);
+    if (svf_target_init(&t, kinds[k], pix, sizeof pix, 64, 24, strides[k]) != SVF_OK) return 1;
+    t.fg565 = 0xffff; t.bg565 = 0;
+    t.clip_x0 = 2; t.clip_x1 = 62;
+    if (svf_draw_utf8(&chain, "한글", strlen("한글"), 0, 20, &t, scratch, need) != SVF_OK) return 1;
+    unsigned nonzero = 0;
+    for (size_t j = 0; j < sizeof pix; ++j) nonzero += pix[j] != 0;
+    printf("kind=%d scratch=%zu nonzero=%u\n", (int)kinds[k], need, nonzero);
+}
+
+    free(bytes);
+    return 0;
+}
 ```
 
 캐시가 있든 없든 픽셀은 동일하다. 스트리밍 페이스에서 가장 효과가 크다. 캐시된 음절은 읽기를 전혀 일으키지 않는다. 스트리밍 16x16
@@ -619,6 +994,22 @@ svf_chain_cache(&chain, syl, sizeof syl);
 툴체인별 기본값이 있는 전체 스위치 표는 [c/README.ko.md](../c/README.ko.md)의 "컴파일 시점 스위치"에 있고, 각 구성이 만드는 크기는
 `c/cross/SIZES.md`에 있다.
 
+| 매크로 | 기본값과 효과 |
+|---|---|
+| `SVF_SMALL` | 기본 미정의. 정의하면 빠른 경로를 줄이고 JMAP·BIG 기본값을 끈다. `=0`도 정의한 것으로 처리한다. |
+| `SVF_JMAP` | 데스크톱·DOS·WASM에서 1, AVR·MCU·SMALL에서 0. 버전 3 매핑 리더와 `svf_face` 크기에 영향. |
+| `SVF_JMAP_LIST` | `SVF_JMAP`을 따름. LIST 리더. JMAP 없이 1이면 컴파일 오류. |
+| `SVF_JMAP_RECOG` | 데스크톱·DOS·WASM에서 1, MCU·SMALL에서 0. JMAP을 읽지 않아도 인식하고 폴백 사용. |
+| `SVF_JSET_BIG` | 데스크톱·DOS·WASM에서 1, MCU·SMALL에서 0. 클래스·세트 한도 확장. |
+| `SVF_JSET_V1`, `SVF_JSET_V2` | V1은 1, V2는 AVR에서 0이고 그 외 1. 하나 이상 켜야 한다. CH582 포트는 V2를 명시적으로 끈다. |
+| `SVF_JSET_TRUSTED` | 0. 1은 내장한 검증된 페이스에만 사용. 표 내용 검증을 생략한다. |
+| `SVF_JSET_POP4` | 보통 1, AVR·SMALL에서 0. V2 popcount 구현 선택. |
+| `SVF_NO_STREAM`, `SVF_NO_SCALE` | 기본 미정의. 정의하면 해당 기능 제거. |
+| `SVF_LAYOUTS` | 기본은 모든 유효 레이아웃. 예: `SVF_LAYOUT_MCU_STRICT`. |
+| `SVF_TARGETS` | `0x3ff`. 타깃 비트 OR: GRAY8 `0x001`, MONO_PAGE `0x002`, MONO_ROW `0x004`, RGB565 `0x008`, CB `0x010`, INDEXED8 `0x020`, RGB555 `0x040`, XRGB8888 `0x080`, RGB888 `0x100`, GRAY `0x200`. |
+| `SVF_RD8(p)` | 기본 일반 메모리 읽기. AVR PROGMEM에서는 `pgm_read_byte(p)`로 재정의. |
+| `SVF_MERGE_WORDS`, `SVF_GRAY8_LUT1`, `SVF_SCALE_FAST`, `SVF_WORD_STORE` | CPU·SMALL에 따른 최적화. 정확한 기본 조건은 [svf.h](../c/include/svf.h). 픽셀 의미는 같다. |
+
 ## 13. 플랫폼
 
 플랫폼마다 한 소절이다. 여기서 예제를 빌드한 툴체인과 버전, 빌드 방법, 자신의 프로젝트로 가져갈 것(파일과 플래그), `svf_target`과 플랫폼 픽셀 사이의
@@ -648,12 +1039,9 @@ svf_chain_cache(&chain, syl, sizeof syl);
 - **픽셀 접착 코드.** 128 x 64 SSD1306 페이지 버퍼는 1,024바이트이다. 타깃은 컨트롤러의 레이아웃에 그대로 쓰며, `Wire`가 16바이트씩 보낸다(버퍼가
   32바이트이다).
 
-  ```cpp
-  static uint8_t page[128 * 64 / 8];
-  svf_target_init(&t, SVF_T_MONO_PAGE, page, sizeof page, 128, 64, 128);      /* stride: 페이지당 바이트 */
-  /* ... svf_draw_utf8(...) ..., 그다음 16바이트마다: */
-  Wire.beginTransmission(0x3C); Wire.write(0x40); Wire.write(page + i, 16); Wire.endTransmission();
-  ```
+  `svf_target_init(&t, SVF_T_MONO_PAGE, page, sizeof page, 128, 64, 128)`로 1024바이트 페이지 버퍼를 연결한다.
+  그린 뒤 `Wire.beginTransmission(0x3C)`, 제어 바이트 `Wire.write(0x40)`, 16바이트 데이터 `Wire.write(page + i, 16)`,
+  `Wire.endTransmission()` 순서로 전송한다. 완전한 스케치는 [arduino.ino](../c/ports/arduino/arduino.ino)에 있다.
 
   `PROGMEM`에 둔 텍스트는 그리기 전에 RAM으로 복사한다(`strncpy_P(text, lines[i], sizeof text - 1)`). 라이브러리는 문자열을 일반 로드로 읽는다.
 - **메모리(측정, ATmega328P).** `c/cross/build-all.sh --ports`: 32,256바이트 중 플래시 23,694바이트(text 23,676 + data 18), 페이스는 10,124바이트이다.
@@ -712,36 +1100,11 @@ svf_chain_cache(&chain, syl, sizeof syl);
   **8.3 이름:** 긴 파일 이름이 없는 DOS에서는 페이스 파일이 대문자 8.3 이름이어야 하며(`NEODG16A.SVF`. `svf/dos`의 모든 페이스가 이미 그렇다),
   `vesa-lines.txt` 같은 데이터 파일은 `VESALINE.TXT`로 복사해야 한다. 파일은 **`O_BINARY`**로 연다(DJGPP의 기본은 텍스트 모드이다).
 - **스트리밍인가 매핑인가.** `svfdemo.c`는 두 페이스를 스트리밍한다(`svf_open_stream`, `lseek` + `read`를 쓰는 `read_file` 콜백, 블록 캐시의 1 KB 블록.
-  PAPLG16은 16슬롯, PAPLG18은 64슬롯). 그래서 1 MB 페이스가 1 MB의 RAM을 요구하지 않는다. 매핑하려면 파일을 통째로 읽어 제자리에서 연다(DJGPP 12.2.0으로
-  컴파일함).
+  PAPLG16은 16슬롯, PAPLG18은 64슬롯). 그래서 1 MB 페이스가 1 MB의 RAM을 요구하지 않는다. 매핑하려면 파일을 통째로 읽어 제자리에서 연다.
 
-  ```c
-  /* dos_mapped.c - DJGPP: 파일을 통째로 메모리에 읽어 매핑 방식으로 연 페이스. */
-  #include <fcntl.h>
-  #include <stdlib.h>
-  #include <unistd.h>
-  #include "svf.h"
-
-  svf_err load_face(svf_face *f, const char *path)       /* path: NEODG16A.SVF 같은 8.3 이름 */
-  {
-  	int fd = open(path, O_RDONLY | O_BINARY);           /* O_BINARY: DJGPP는 기본이 텍스트 모드 */
-  	off_t len;
-  	uint8_t *bytes;
-
-  	if (fd < 0)
-  		return SVF_E_IO;
-  	len = lseek(fd, 0, SEEK_END);
-  	lseek(fd, 0, SEEK_SET);
-  	bytes = len > 0 ? malloc((size_t)len) : NULL;       /* 보관하라: 그리는 동안 페이스가 제자리에서 읽는다 */
-  	if (!bytes || read(fd, bytes, (size_t)len) != len) {
-  		free(bytes);
-  		close(fd);
-  		return SVF_E_IO;
-  	}
-  	close(fd);
-  	return svf_open_mapped(f, bytes, (size_t)len);
-  }
-  ```
+  3절의 완전한 stdio 매핑 예제는 `fopen(path, "rb")`로 이진 모드를 선택하므로 DJGPP에서도 같은 방식으로 쓴다.
+  저수준 `open`을 쓰는 앱에서는 `O_RDONLY | O_BINARY`를 사용한다. 파일 바이트의 소유권은 앱에 두고
+  페이스 사용이 끝난 뒤 해제한다. 파일 핸들을 유지하는 스트리밍은 4.2절의 완전한 예제를 따른다.
 
 - **픽셀 접착 코드.** 모드 13h: 320 x 200 `GRAY8` 버퍼에 그리고, 팔레트를 회색 램프로 설정하여 커버리지 바이트가 곧 자신의 색 인덱스가 되게 하며
   (`outportb(0x3C8, 0)` 다음에 항목마다 `outportb(0x3C9, i >> 2)` 세 번), `__dpmi_int(0x10, &regs)`로 모드를 설정하고(`regs.x.ax = 0x13`.
@@ -770,83 +1133,21 @@ svf_chain_cache(&chain, syl, sizeof syl);
   ```cmake
   # main/CMakeLists.txt
   file(GLOB SVF_SRCS svf/*.c)
-  idf_component_register(SRCS main.c esp_faces.c face.c ${SVF_SRCS} INCLUDE_DIRS svf REQUIRES esp_partition spiffs)
+  idf_component_register(SRCS main.c face.c ${SVF_SRCS} INCLUDE_DIRS svf REQUIRES esp_partition spiffs)
   target_compile_definitions(${COMPONENT_LIB} PRIVATE SVF_NO_SCALE SVF_TARGETS=0x08)   # 종류 하나: 여기서는 RGB565
   ```
 
   `svf.h`를 include하는 모든 소스는 같은 `-D` 스위치를 보아야 한다(2절). 컴포넌트에 `target_compile_definitions`를 주면 그렇게 된다. 이 컴포넌트
   형태는 여기서 ESP-IDF v5.5.6으로 ESP32-S3용으로 빌드했다.
 - **페이스.** 플래시의 `const` 배열은 다른 것이 필요 없다. 자신의 데이터 파티션에 둔 페이스는 RAM 사본 없이 메모리 매핑된다. SPIFFS의 페이스는 stdio를
-  통해 스트리밍된다(테이블과 블록 캐시가 RAM에 있다). 둘 다 ESP-IDF v5.5.6으로 컴파일된다(`esp_faces.c`. 여기서 ESP32-S3용 컴포넌트로 빌드했다).
+  통해 스트리밍된다(테이블과 블록 캐시가 RAM에 있다). 두 방식의 연결 방법은 다음과 같다.
 
-  ```c
-  /* esp_faces.c - ESP-IDF: (a) 자신의 플래시 파티션에 둔 페이스, 메모리 매핑(RAM 사본 없음);
-   * (b) SPIFFS의 페이스 파일, stdio로 스트리밍(테이블 + 블록 캐시는 RAM). */
-  #include <stdio.h>
-  #include "esp_partition.h"
-  #include "esp_spiffs.h"
-  #include "svf.h"
+  메모리 매핑은 `esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "font")`로 파티션을 찾고,
+  `esp_partition_mmap(..., ESP_PARTITION_MMAP_DATA, &ptr, &handle)` 뒤 `svf_open_mapped`에 주소와 실제 파일 길이를 넘긴다.
+  페이스를 모두 사용한 뒤 `esp_partition_munmap(handle)`으로 해제한다. SPIFFS는 `esp_vfs_spiffs_register`로 마운트하고
+  4.2절의 stdio 스트리밍 예제에 `/spiffs/FACE.SVF` 경로를 준다. 테이블·캐시·FILE은 페이스 사용이 끝날 때까지 유지한다.
+  디스플레이와 컴포넌트의 완전한 구성은 [ESP32 포트](../c/ports/esp32/README.ko.md)를 따른다.
 
-  /* (a) partitions.csv:  font, data, 0x40, , 256K   그다음: parttool.py write_partition --partition-name font --input FACE.SVF */
-  static esp_partition_mmap_handle_t font_map;
-
-  /* face_len: 페이스의 바이트 크기(예: 기록할 때 저장해 둔 값). p->size를 넘겨도 된다. 0xFF로 채워진 뒤쪽 영역도 status 0으로 열린다 */
-  svf_err face_from_partition(svf_face *f, uint32_t face_len)
-  {
-  	const esp_partition_t *p = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "font");
-  	const void *ptr;
-  	if (!p || face_len > p->size)
-  		return SVF_E_IO;
-  	if (esp_partition_mmap(p, 0, p->size, ESP_PARTITION_MMAP_DATA, &ptr, &font_map) != ESP_OK)
-  		return SVF_E_IO;
-  	return svf_open_mapped(f, (const uint8_t *)ptr, face_len);   /* 페이스의 수명 동안 매핑을 유지하라 */
-  }
-
-  /* (b) SPIFFS에서 스트리밍: 시작할 때 한 번 마운트하고, 그다음 페이스를 연다 */
-  static long rd(void *ctx, uint32_t off, uint8_t *dst, uint32_t len)
-  {
-  	FILE *fp = ctx;
-  	return fseek(fp, (long)off, SEEK_SET) == 0 ? (long)fread(dst, 1, len, fp) : -1;
-  }
-  static uint8_t tables[16 * 1024], cache[8 * (512 + 8)];   /* 한 번에 페이스 하나 */
-
-  esp_err_t spiffs_mount(void)                                /* 한 번만 호출한다 */
-  {
-  	esp_vfs_spiffs_conf_t conf = {.base_path = "/spiffs", .partition_label = NULL, .max_files = 2,
-  	                              .format_if_mount_failed = false};
-  	return esp_vfs_spiffs_register(&conf);
-  }
-
-  svf_err face_from_spiffs(svf_face *f, const char *path)
-  {
-  	FILE *fp = fopen(path, "rb");
-  	long len;
-  	size_t need;
-  	svf_err e;
-
-  	if (!fp)
-  		return SVF_E_IO;
-  	if (fseek(fp, 0, SEEK_END) != 0 || (len = ftell(fp)) <= 0) {
-  		fclose(fp);
-  		return SVF_E_IO;
-  	}
-  	need = svf_stream_tables_size(rd, fp, (uint32_t)len, &e);
-  	if (!need) {
-  		fclose(fp);
-  		return e;
-  	}
-  	if (need > sizeof tables) {
-  		fclose(fp);
-  		return SVF_E_NOMEM;
-  	}
-  	e = svf_open_stream(f, rd, fp, (uint32_t)len, tables, sizeof tables, cache, sizeof cache, 512);
-  	if (e != SVF_OK)
-  		fclose(fp);                                          /* 성공하면 fp를 열어 둔다: 그리는 동안 페이스가 읽는다 */
-  	return e;
-  }
-  ```
-
-  페이스를 그리는 동안은 매핑을 유지하라. `esp_partition_munmap(font_map)`이 이를 해제한다.
 - **픽셀 접착 코드.** 포트는 컬러 밴드(320 x 24 `RGB565`, 15,360바이트)를 그리고
   `spi_device_polling_transmit(spi_device_handle_t, spi_transaction_t *)`로 보낸다(SPI2의 ILI9341). ILI9341은 상위 바이트가 먼저이므로
   `t.flags = SVF_TF_RGB16_BIGENDIAN`을 설정한다(옛 이름 `SVF_TF_565_BIGENDIAN`도 같은 비트이다). QEMU RGB 패널은 네이티브 워드를 받는다(플래그 0).
@@ -958,6 +1259,8 @@ svf_chain_cache(&chain, syl, sizeof syl);
   바이트는 다르지 않다. 세부 내용은 [c/ports/sdl/README.ko.md](../c/ports/sdl/README.ko.md)에 있다.
 
 ### 13.7 웹(WebAssembly, emscripten)
+
+[웹 렌더러 사용법](web-renderer-guide.ko.md)에 완전한 HTML·Node 예제와 해제 순서가 있다.
 
 - **툴체인.** emsdk 태그 **6.0.13**(emcc 6.0.13, `sh c/cross/install-toolchains.sh "$HOME/opt" emsdk`가 node 24.19.0과 함께 설치), `-O2`, `-std=c99 -Wall -Wextra -Werror`.
 - **빌드**(`web/build.sh`가 실행하는 줄이며 `c/ports/web/emcc-flags.sh`에 있다. 측정: `svf.wasm` 39,808바이트, `svf.js` 6,937).
