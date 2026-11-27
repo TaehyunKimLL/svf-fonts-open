@@ -133,8 +133,9 @@ def main(argv):
         print(out.stdout.decode("utf-8", "replace") + out.stderr.decode("utf-8", "replace"), file=sys.stderr)
         return 1
     bad = {k: v for k, v in info["modules"].items() if v is not None}
-    print("selfcheck: frozen=%s version=%s modules=%d bad=%s" % (info["frozen"], info["version"], len(info["modules"]), bad))
-    if bad or not info["frozen"] or out.returncode != 0:
+    print("selfcheck: frozen=%s version=%s modules=%d bad=%s raqm=%s" % (info["frozen"], info["version"],
+                                                                        len(info["modules"]), bad, info.get("raqm")))
+    if bad or not info["frozen"] or out.returncode != 0 or info.get("raqm") is not True:   # raqm + FriBiDi inside the bundle
         return 1
 
     if not no_test:

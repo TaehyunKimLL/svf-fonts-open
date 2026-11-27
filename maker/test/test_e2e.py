@@ -341,7 +341,7 @@ class PresetAcceptanceTest(unittest.TestCase):
         self.assertEqual(self.step["identical_to"], "dos/GBATB17.SVF" if made == shipped else None)
 
     def test_zip_skips_the_face_and_lists_its_row(self):
-        if _read(self.out) != _read(GBATB17):          # Windows: the pinned glyph differs, so the face is not skipped
+        if wincompat.WIN and _read(self.out) != _read(GBATB17):   # Windows: the pinned glyph differs: not skipped
             self.skipTest("Windows: the made face is not GBATB17.SVF byte for byte (U+2116, Pillow's Windows build)")
         self.assertEqual(inputkinds.zip_faces(self.zip_path), {})
         self.assertEqual([s["identical_to"] for s in self.job["result"]["skipped"]], ["dos/GBATB17.SVF"])

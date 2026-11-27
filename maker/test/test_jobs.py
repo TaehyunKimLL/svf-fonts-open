@@ -438,7 +438,8 @@ class WorkerTest(wincompat.SlashEqual, unittest.TestCase):
 
     def test_job_timeout_fails_the_remaining_steps(self):
         j = self.job_with_steps(["pass", "pass"])
-        with mock.patch.object(jobs, "JOB_TIMEOUT", -1.0):    # already past (a coarse Windows clock reads 0 s elapsed)
+        # already past: 0 s as before on POSIX; Windows -1 s (its coarse clock can read 0 s elapsed, which is not past 0)
+        with mock.patch.object(jobs, "JOB_TIMEOUT", -1.0 if os.name == "nt" else 0.0):
             self.worker.enqueue(j["id"])
             j = self.wait_for(j["id"])
         self.assertEqual([s["error"] for s in j["steps"]], ["job timeout", "job timeout"])

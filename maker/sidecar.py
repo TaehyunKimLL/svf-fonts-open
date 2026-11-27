@@ -212,11 +212,18 @@ def selfcheck():
     except BaseException as exc:
         recipes = "%s: %s" % (type(exc).__name__, exc)
     flags = sys.flags
-    return {"recipes": recipes, "frozen": bool(getattr(sys, "frozen", False)), "version": VERSION, "build_id": _build_id(),
+    extra = {}
+    if os.name == "nt":                                   # Windows: raqm loads FriBiDi from the bundle (fetched DLL)
+        try:
+            from PIL import features
+            extra["raqm"] = bool(features.check("raqm"))
+        except BaseException as exc:
+            extra["raqm"] = "%s: %s" % (type(exc).__name__, exc)
+    return dict(extra, **{"recipes": recipes, "frozen": bool(getattr(sys, "frozen", False)), "version": VERSION, "build_id": _build_id(),
             "python": platform.python_version(),
             "flags": {"isolated": bool(flags.isolated), "ignore_environment": bool(flags.ignore_environment),
                       "safe_path": bool(getattr(flags, "safe_path", False)), "no_site": bool(flags.no_site)},
-            "path": list(sys.path), "tools": sorted(TOOLS), "modules": modules, "budget": budget}
+            "path": list(sys.path), "tools": sorted(TOOLS), "modules": modules, "budget": budget})
 
 
 USAGE = ("usage: svf-maker-sidecar serve [--exit-with-parent=PID]\n"

@@ -176,7 +176,9 @@ def _count_dir(root):
     """
     count = 0
     total = 0
-    for dirpath, _dirs, names in os.walk(root):
+    for dirpath, dirs, names in os.walk(root):
+        if oscompat.WINDOWS:                              # a junction is a directory to os.walk there: never entered
+            dirs[:] = [d for d in dirs if not oscompat.islink(os.path.join(dirpath, d))]
         for name in names:
             if name.startswith(UPLOAD_TMP):
                 continue
@@ -2306,6 +2308,8 @@ def main(argv=None):
     signal.signal(signal.SIGINT, terminate)               # also when the parent started us with SIGINT ignored (a background job)
     server = None
     if oscompat.WINDOWS:
+        # a bare program name (git) is never looked up in the current folder first (CreateProcess, shutil.which)
+        os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
         try:
             oscompat.contain_children()                   # every child dies with this process, even one not yet in its job
         except OSError as exc:

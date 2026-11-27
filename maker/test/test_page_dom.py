@@ -357,9 +357,6 @@ return 1;
         s = detected["settings"]
         s["fonts"][font].update(sizes=[16], bpp=[1], options={"mkfont": {"cell": 12, "width": 16}})
         put = self.api("PUT", "/api/jobs/%s/settings" % job, s)
-        if wincompat.WIN:                              # diagnostics for the Windows run
-            print("clip diag", json.dumps(next(f for f in detected["fonts"] if f["id"] == font))[:800], str(put)[:800],
-                  file=sys.stderr)
         self.font = font
         out = self.drive(job, """
 const row = await waitFor(() => document.querySelector('tr[data-font="FONTID"] input.override') && document.querySelector('tr[data-font="FONTID"]'));
