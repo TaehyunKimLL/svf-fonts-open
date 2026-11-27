@@ -72,8 +72,10 @@ def tool(*argv):
 
 def tbm_faces(path, size, tmp):
     """[main face, symbol face] built from a TBM file by the recipe's commands."""
-    with open(path, "rb") as fh:
-        t = tbmfont.parse(fh.read())
+    try:
+        t = tbmfont.load(path)
+    except tbmfont.TbmError as e:
+        raise SystemExit(f"doc_figures_windows: {e}")
     b = tbmfont.blocks(t)
     if not b or (t["width"], t["height"]) != (size, size):
         raise SystemExit(f"doc_figures_windows: {path}: not a {size}x{size} TBM with the 128 + 8,366 glyph layout")

@@ -91,6 +91,26 @@ class Parse(unittest.TestCase):
         t = tbmfont.parse(tbm(12, counts=(128, 100)))
         self.assertEqual(tbmfont.blocks(t), {})
 
+    def test_other_sizes_have_no_blocks(self):
+        """The right glyph count is not enough: 128 half-width glyphs, then 8,366 of the cell size, or {}."""
+        self.assertEqual(tbmfont.blocks(tbmfont.parse(tbm(16, half=16))), {})    # the ASCII full width
+        self.assertEqual(tbmfont.blocks(tbmfont.parse(tbm(16, counts=(127, 8367)))), {})
+        data = bytearray(tbm(16))
+        struct.pack_into("<HH", data, 0x20, 20, 20)                               # header cell 20x20, glyphs 16x16
+        self.assertEqual(tbmfont.blocks(tbmfont.parse(bytes(data))), {})
+        self.assertNotEqual(tbmfont.blocks(tbmfont.parse(tbm(16))), {})
+
+    def test_load_size_cap(self):
+        with tempfile.TemporaryDirectory() as d:
+            ok = os.path.join(d, "ok.tbm")
+            wr(ok, tbm(12, counts=(4, 4)))
+            self.assertEqual(len(tbmfont.load(ok)["glyphs"]), 8)
+            big = os.path.join(d, "big.tbm")
+            wr(big, tbm(12, counts=(4, 4)) + bytes(tbmfont.MAX_FILE))
+            with self.assertRaisesRegex(tbmfont.TbmError, "larger than"):
+                tbmfont.load(big)
+            self.assertIn("larger than", run("tools/tbmfont.py", "info", big, code=1))
+
     def test_refusals(self):
         good = bytearray(tbm(12, counts=(4, 4)))
         with self.assertRaisesRegex(tbmfont.TbmError, "signature"):

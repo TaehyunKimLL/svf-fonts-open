@@ -87,6 +87,17 @@ def parse(data):
             "size": len(data)}
 
 
+def load(path):
+    """parse() of the file at @p path; TbmError when it is larger than MAX_FILE (checked before it is read)."""
+    if os.path.getsize(path) > MAX_FILE:
+        raise TbmError(f"{path}: larger than {MAX_FILE} bytes")
+    with open(path, "rb") as fh:
+        data = fh.read(MAX_FILE + 1)
+    if len(data) > MAX_FILE:
+        raise TbmError(f"{path}: larger than {MAX_FILE} bytes")
+    return parse(data)
+
+
 def runs(glyphs):
     """[(first index, count, width, height, first offset)] of the glyphs grouped by size."""
     out = []
@@ -100,10 +111,13 @@ def runs(glyphs):
 
 def blocks(t):
     """{name: (file offset, glyphs)} of the ASCII, symbol, syllable and hanja blocks when the file has the 128 +
-    8,366 layout; {} otherwise."""
+    8,366 layout: exactly 128 half-width glyphs (half the cell's width, the cell's height), then 8,366 glyphs of the
+    cell size; {} otherwise."""
     g = t["glyphs"]
     sizes = [len(ks_rows([name])) for name in BLOCKS]
-    if len(g) != ASCII_COUNT + sum(sizes):
+    w, h = t["width"], t["height"]
+    shape = [r[1:4] for r in runs(g)]
+    if shape != [(ASCII_COUNT, w // 2, h), (sum(sizes), w, h)]:
         return {}
     out = {"ascii": (g[0][0], ASCII_COUNT)}
     i = ASCII_COUNT
@@ -132,10 +146,7 @@ def map_lines(names):
 
 
 def cmd_info(a):
-    if os.path.getsize(a.file) > MAX_FILE:
-        raise TbmError(f"{a.file}: larger than {MAX_FILE} bytes")
-    with open(a.file, "rb") as fh:
-        t = parse(fh.read())
+    t = load(a.file)
     print(f"{a.file}: {t['size']} bytes, cell {t['width']}x{t['height']}, {len(t['ranges'])} ranges, "
           f"{len(t['glyphs'])} glyphs, data {t['data']:#x}..{t['end']:#x}, {t['size'] - t['end']} bytes after the data")
     for first, count, w, h, at in runs(t["glyphs"]):
