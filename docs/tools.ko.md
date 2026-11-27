@@ -1030,7 +1030,7 @@ KAIST newmj 16, iyagi 16, philgi 16.
 **목적.** [recipes/classic-mac.ko.md](recipes/classic-mac.ko.md)의 샘플 그림을 그린다. 페이스마다 하나: HangulTalk 1.0 'fbit'
 폰트 Gotic12와 Munjo24, HangulTalk 7.1.2 type-3 'fbit' 폰트 Seoul12, AppleGothic12, AppleMyungjo24, 한글 시스템 7.5.3 비트맵 전용
 폰트의 'bloc'/'bdat' 스트라이크 AppleGothic 12와 16, AppleMyungjo 16과 24, Seoul 12와 16, #신명조 16, #궁서체 16, Mac OS 8.5의
-한강체 16.
+한강체 16. 그리고 7.5.3 Seoul의 스트라이크 여덟 개.
 
 **상태.** 특수 목적(문서).
 
@@ -1061,7 +1061,7 @@ CD의 비트맵 서체 설치 폴더, `NAME/NAME[FFIL].rsrc`), `--kh85 DIR`(Mac 
 
 **내부 모듈.** `doc_figures_x11.py`, `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow와
 fontTools(`mkfont.py`와 `macsfnt.py`를 거쳐). **테스트.** `tools/test_doc_figures_mac.py`(합성 표와 잘린 표에 대한 스트라이크
-읽기, 건너뜀 보고, 부트스트랩의 경로: 모듈을 심어 둔 작업 폴더에서 실행해도 그 폴더가 경로에 없고 사용자 site가 맨 뒤에 온다), `--check`.
+읽기, 건너뜀 보고, 합성 페이스 둘로 그린 크기 그림의 높이, 부트스트랩의 경로: 모듈을 심어 둔 작업 폴더에서 실행해도 그 폴더가 경로에 없고 사용자 site가 맨 뒤에 온다), `--check`.
 
 ## 5. 빌드 스크립트
 

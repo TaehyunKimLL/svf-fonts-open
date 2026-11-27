@@ -68,7 +68,7 @@ All fonts are TrueType in `FFIL` suitcases, precomposed. The `Bitmap 서체 설�
 | #헤드라인A | 18, 20, 24 | 2,768 | 2,350 | 0 | 2,547 | 448,400 B |
 
 - Why Seoul has 9,889 glyphs: 2,350 syllables + 4,888 Hanja + 894 KS X 1001 symbols + 93 compatibility jamo + 103 ASCII (8,328 glyphs for the 8,329 KS X 1001 codes) + 1,197 Apple extension symbols (lead A1–AD, trail 41–A0) + 235 KS-range codes with no Unicode mapping + 38 single-byte Mac characters + 91 blank glyphs no code reaches. AppleGothic and AppleMyungjo have the same coded glyphs and 755 glyphs no code reaches (10,553): 664 proportional forms (below) and 91 others, blank except one inked glyph in AppleGothic (glyph 198).
-- Proportional forms: only AppleGothic and AppleMyungjo have a `mort` table; the other nine 7.5.3 faces have `feat` but no `mort`. Their `feat` offers Vertical Substitution and Text Spacing Type → Proportional Text, and the `mort` chain has three noncontextual subtables: two with flag 0x1 (proportional, 664 substitutions each) and one with flag 0x2 (vertical, 83). The 664 targets are proportional-width versions of full-width KS X 1001 symbol characters (A1A4: advance 1,024 → 244 of 1,024 units; 572 of them are narrower). No code reaches them, so the tools, which take glyphs through the cmap, leave them out; a tool option for them is planned. Of the 83 vertical substitutions, 42 map codes in rows A1, A2, A3 and A5 to vertical forms reached through Apple extension codes (A1A2 → A250), and 41 map proportional forms to proportional vertical forms.
+- Proportional forms: only AppleGothic and AppleMyungjo have a `mort` table; the other nine 7.5.3 faces have `feat` but no `mort`. Their `feat` offers Vertical Substitution and Text Spacing Type → Proportional Text, and the `mort` chain has three noncontextual subtables: two with flag 0x1 (proportional, 664 substitutions each) and one with flag 0x2 (vertical, 83). The 664 targets are proportional-width versions of full-width KS X 1001 symbol characters (A1A4: advance 1,024 → 244 of 1,024 units; narrower ones: 572 in AppleGothic, 525 in AppleMyungjo). No code reaches them, so the tools, which take glyphs through the cmap, leave them out; a tool option for them is planned. Of the 83 vertical substitutions, 42 map codes in rows A1, A2, A3 and A5 to vertical forms reached through Apple extension codes (A1A2 → A250), and 41 map proportional forms to proportional vertical forms.
 
 | KS lead row | A1 | A2 | A3 (full-width ASCII) | A5 (Roman numerals, Greek) | A7 (units) | A8 | A9 | AA (hiragana) | AB (katakana) | AC (Cyrillic) | AD |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -208,7 +208,7 @@ Source: Korean System 7.5.3, the CD for the Power Macintosh 7220 (1996); the fon
 
 ![Seoul of Korean System 7.5.3 at its eight strikes, one line per size from 9 to 24 px: the size, a Korean pangram, ABC 123, x2](../images/recipes/mac/kh753-seoul-sizes.png)
 
-*Korean System 7.5.3 (1996) Seoul, bitmap-only copy, at all eight strikes (9, 10, 12, 14, 16, 18, 20, 24 ppem); each line is drawn on that strike's face. x2.*
+*Korean System 7.5.3 (1996) Seoul, bitmap-only copy, at all eight strikes (9, 10, 12, 14, 16, 18, 20, 24 ppem); each line is drawn on that strike's face. The space advance is 2–3 px at 9–12 ppem, so the word gaps there are narrow. x2.*
 
 ![AppleGothic 12 px strike of Korean System 7.5.3, x2](../images/recipes/mac/kh753-applegothic12.png)
 

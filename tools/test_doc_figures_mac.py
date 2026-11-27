@@ -90,6 +90,28 @@ class SkipTest(unittest.TestCase):
             self.assertIn("kh85-hangang16.png", skipped)                          # its file is not there
 
 
+class SizesTest(unittest.TestCase):
+    def test_draw_sizes_height(self):
+        """Two synthetic 1 bpp faces (cells 8x6 and 8x10, glyphs for '1', '2' and 'A'): the PNG is the two cell
+        heights plus one GAP and two PADs high, times SCALE."""
+        import jamoset
+        with tempfile.TemporaryDirectory() as tmp:
+            faces = []
+            for ppem, h in ((12, 6), (24, 10)):
+                cells = [bytes([0xFF] * h)] * 3                    # 8 px wide: one byte per row, all ink
+                cmap = [(ord("1"), 0), (ord("2"), 1), (ord("A"), 2)]
+                path = os.path.join(tmp, "f%d.svf" % ppem)
+                with open(path, "wb") as fh:
+                    fh.write(jamoset.pack_svfn(8, h, h - 1, 1, 0, cells, cmap))
+                faces.append((ppem, path))
+            png = D.draw_sizes(faces)
+        self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+        width, height = struct.unpack(">II", png[16:24])
+        self.assertEqual(height, (6 + 10 + D.GAP + 2 * D.PAD) * D.SCALE)
+        self.assertEqual(width % D.SCALE, 0)
+        self.assertGreater(width, 2 * D.PAD * D.SCALE)                    # "12 ..." and "24 ..." draw their digits
+
+
 PROBE = """import json, os, sys
 print(json.dumps({"path": sys.path, "cwd": os.getcwd(), "argv": sys.argv}))
 """

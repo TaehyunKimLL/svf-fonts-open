@@ -1098,7 +1098,7 @@ partial run never reports `ok`). The images depend only on the font files.
 **Purpose.** Draws the sample images of [recipes/classic-mac.md](recipes/classic-mac.md): one per face (the HangulTalk 1.0
 'fbit' fonts Gotic12 and Munjo24; the HangulTalk 7.1.2 type-3 'fbit' fonts Seoul12, AppleGothic12 and AppleMyungjo24;
 the 'bloc'/'bdat' strikes of the Korean System 7.5.3 bitmap-only fonts AppleGothic 12 and 16, AppleMyungjo 16 and 24,
-Seoul 12 and 16, #신명조 16 and #궁서체 16; Hangang 16 of Mac OS 8.5).
+Seoul 12 and 16, #신명조 16 and #궁서체 16; Hangang 16 of Mac OS 8.5), and 7.5.3 Seoul at its eight strikes.
 
 **Status.** Special-purpose (documentation).
 
@@ -1133,7 +1133,7 @@ its FreeType (printed); the images in the repository were made with Pillow 10.2.
 
 **Repository modules imported.** `doc_figures_x11.py`, `svfline.py`, `binscan.py` (and the tools it runs).
 **Third-party.** Pillow and fontTools (through `mkfont.py` and `macsfnt.py`). **Test.** `tools/test_doc_figures_mac.py`
-(the strike reader on synthetic and truncated tables, the skip report, the bootstrap's path: run from a working
+(the strike reader on synthetic and truncated tables, the skip report, the sizes image's height on two synthetic faces, the bootstrap's path: run from a working
 directory with a planted module, the directory is not on the path and the user site comes last), `--check`.
 
 ## 5. Build scripts

@@ -68,7 +68,7 @@ HangulTalk 1.0 `fbit`, HangulTalk 7.1.x type-3 `fbit`, System 7.5.3–Mac OS 8.5
 | #헤드라인A | 18, 20, 24 | 2,768 | 2,350 | 0 | 2,547 | 448,400 B |
 
 - Seoul의 글리프가 9,889개인 까닭: 음절 2,350 + 한자 4,888 + KS X 1001 기호 894 + 호환 자모 93 + ASCII 103(KS X 1001 코드 8,329개에 글리프 8,328개) + Apple 확장 기호 1,197(앞 바이트 A1–AD, 뒤 바이트 41–A0) + 유니코드 대응이 없는 KS 영역 코드 235 + 1바이트 Mac 문자 38 + 어느 코드도 가리키지 않는 빈 글리프 91. AppleGothic, AppleMyungjo는 코드가 있는 글리프가 같고, 어느 코드도 가리키지 않는 글리프가 755개다(10,553): 비례폭 글리프 664개(아래)와 나머지 91개. 나머지는 AppleGothic의 글리프 198 하나를 빼면 비어 있다.
-- 비례폭 글리프: `mort` 표는 AppleGothic, AppleMyungjo에만 있고, 나머지 7.5.3 페이스 아홉 개에는 `feat`만 있다. `feat`는 Vertical Substitution과 Text Spacing Type → Proportional Text를 제공하고, `mort` 체인에는 비문맥 하위 표 셋이 있다: 플래그 0x1(비례폭, 각 664개 치환) 둘과 플래그 0x2(세로쓰기, 83개) 하나. 664개 대상은 전각 KS X 1001 기호 문자의 비례폭 글리프다(A1A4: 전진 폭 1,024 → 244, 단위 1,024. 572개가 더 좁다). 어느 코드도 가리키지 않으므로 cmap으로 글리프를 가져오는 도구들은 이들을 빼며, 이를 위한 도구 옵션을 계획하고 있다. 세로쓰기 치환 83개 중 42개는 A1, A2, A3, A5 행의 코드를 Apple 확장 코드로 닿는 세로 글리프로 바꾸고(A1A2 → A250), 41개는 비례폭 글리프를 비례폭 세로 글리프로 바꾼다.
+- 비례폭 글리프: `mort` 표는 AppleGothic, AppleMyungjo에만 있고, 나머지 7.5.3 페이스 아홉 개에는 `feat`만 있다. `feat`는 Vertical Substitution과 Text Spacing Type → Proportional Text를 제공하고, `mort` 체인에는 비문맥 하위 표 셋이 있다: 플래그 0x1(비례폭, 각 664개 치환) 둘과 플래그 0x2(세로쓰기, 83개) 하나. 664개 대상은 전각 KS X 1001 기호 문자의 비례폭 글리프다(A1A4: 전진 폭 1,024 → 244, 단위 1,024. 더 좁은 것은 AppleGothic 572개, AppleMyungjo 525개). 어느 코드도 가리키지 않으므로 cmap으로 글리프를 가져오는 도구들은 이들을 빼며, 이를 위한 도구 옵션을 계획하고 있다. 세로쓰기 치환 83개 중 42개는 A1, A2, A3, A5 행의 코드를 Apple 확장 코드로 닿는 세로 글리프로 바꾸고(A1A2 → A250), 41개는 비례폭 글리프를 비례폭 세로 글리프로 바꾼다.
 
 | KS 앞 바이트 행 | A1 | A2 | A3 (전각 ASCII) | A5 (로마 숫자, 그리스 문자) | A7 (단위) | A8 | A9 | AA (히라가나) | AB (가타카나) | AC (키릴 문자) | AD |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -208,7 +208,7 @@ python3 tools/mkfont.py $OUT/AppleGothicU.ttf $OUT/agothic16.svf --size 16 --bpp
 
 ![한글 System 7.5.3 Seoul의 스트라이크 여덟 개, 9–24 px 크기마다 한 줄: 크기, 한국어 팬그램, ABC 123, 2배](../images/recipes/mac/kh753-seoul-sizes.png)
 
-*한글 System 7.5.3(1996) Seoul 비트맵 전용 사본의 스트라이크 여덟 개(9, 10, 12, 14, 16, 18, 20, 24 ppem). 줄마다 그 스트라이크의 페이스로 그렸다. 2배.*
+*한글 System 7.5.3(1996) Seoul 비트맵 전용 사본의 스트라이크 여덟 개(9, 10, 12, 14, 16, 18, 20, 24 ppem). 줄마다 그 스트라이크의 페이스로 그렸다. 9–12 ppem에서는 공백 전진 폭이 2–3 px라 낱말 사이가 좁다. 2배.*
 
 ![한글 System 7.5.3 AppleGothic 12 px 스트라이크, 2배](../images/recipes/mac/kh753-applegothic12.png)
 
