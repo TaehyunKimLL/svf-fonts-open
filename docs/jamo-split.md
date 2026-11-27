@@ -321,8 +321,10 @@ Engines built before 2026-10 reject more than 8 x 8 classes.
 ### 3.2 What more sets buy: a measured curve
 
 Two OFL outline fonts at 16 px, `jamoset.py --layout L --from-ttf FONT --size 16 --binarize threshold --mask-font none
---check`, scored over all 11,172 syllables (measured for this document; bytes are the whole face with ASCII, JSET
-version 1; time on one core):
+--check`, scored over every syllable the font draws: `--binarize threshold` fits the drawn syllables only
+(`--present-only`), and both fonts in `ttf/` draw all 11,172 (their cmaps and the `fit: 11172 syllables` line of each run:
+2,350 drawn as outlines and 8,822 as composite glyphs, which count as drawn). Measured for this document; bytes are the whole face with ASCII, JSET
+version 1; time on one core:
 
 | Layout | Sets used | NanumGothic Regular: bytes | IoU (p5) | Exact | Time | NanumMyeongjo Bold: bytes | IoU (p5) | Exact | Time |
 |---|---|---:|---|---:|---:|---:|---|---:|---:|
@@ -361,16 +363,18 @@ outside KS weighted 0.1) **per byte saved**, and applies the cheapest. Hard gate
 ㅗ ㅛ ㅜ ㅠ ㅡ tick, bring two KS syllables of one medial group (ㅗ ㅜ ㅡ) closer than they were, drop a stroke from a KS
 syllable, or (with reference planes) leak ink into another jamo; `--recog` adds a recogniser check when one is available.
 
-Measured on the NanumGothic Regular 844 face of 3.2 (`merge --points 17408 16384`, 36 steps, about 4 minutes), scored
-against the same 16 px targets:
+Measured on the NanumGothic Regular 844 face of 3.2 (`merge --points 17408 16384`, 36 steps, about 6 minutes), scored
+against the same 16 px targets. The last two columns count syllables whose composition has fewer (merged) or more (split)
+8-connected ink components than the target:
 
-| Face | Bytes | Pieces | Mean IoU (p5) | Exact | Syllables with merged strokes |
-|---|---:|---:|---|---:|---:|
-| 844 fit | 18,616 | 344 | 0.7074 (0.406) | 133 | 3,356 |
-| merged to 17 K | 17,408 | 335 | 0.7069 (0.406) | 130 | 3,338 |
-| merged to 16 K | 16,380 | 308 | 0.698 (0.402) | 125 | 3,226 |
+| Face | Bytes | Pieces | Mean IoU (p5) | Exact | Blobs merged | Blobs split |
+|---|---:|---:|---|---:|---:|---:|
+| 844 fit | 18,616 | 344 | 0.7074 (0.406) | 133 | 3,356 | 2,938 |
+| merged to 17 K | 17,408 | 335 | 0.7069 (0.406) | 130 | 3,338 | 2,976 |
+| merged to 16 K | 16,380 | 308 | 0.698 (0.402) | 125 | 3,226 | 3,358 |
 
-The first moves are almost free (rare variants tied to a near twin); the cost per byte rises with every step. The same
+The first moves are almost free (rare variants tied to a near twin); the cost per byte rises with every step, and the
+split syllables (a stroke broken or detached) grow by 420 to 16 K: the gates stop lost strokes, not broken ones. The same
 tool made the 12 px Seoul12 presets for the Arduino Uno from the 12,624-byte derived face: S8K 8,160, S7K 7,012, S6K 6,144
 and S5K 5,548 bytes, the last where no allowed move was left
 ([Jamo sets, section 6.4](jamo-sets.md#64-seoul12-one-font-two-structures)). In research, a jamo recogniser read all three jamo
@@ -379,13 +383,14 @@ cutting a third of the bytes cost less than one point there.
 
 **When merging hurts.** The gates protect strokes and the ㅗ ㅜ ㅡ distinction, not the identity of every piece: a tie
 can give a jamo the variant drawn for another context, which composes with few lost pixels and still reads oddly. Merging
-cannot fix a fit that was poor to begin with, and it is slow on a large face (one step every few minutes on the 54 KB
-adaptive face). Fit near the budget first, then merge the last few kilobytes, and look at the result.
+cannot fix a fit that was poor to begin with, and it is slow on a large face: on the 65,136-byte adaptive face of 4.6
+the first step took several minutes and saved 34 bytes (measured for this document; stopped after that step). Fit near the budget first, then merge the last few kilobytes, and look at the result.
 
 ### 3.4 Going up: adaptive, BIG or exceptions
 
-- **844 is exact or close (IoU 0.98 or more)**: stay; more sets buy almost nothing.
-- **844 is between about 0.9 and 0.98**: `adaptive:12,8,6` first, then larger caps while each step still gains.
+- **The first fit is exact or close (IoU 0.98 or more)**: stay, or try a smaller system; more sets buy almost nothing.
+- **The first fit is between about 0.9 and 0.98**: raise the cap (from 844 or 621: `adaptive:12,8,6`) while each step
+  still gains.
 - **The gain per kilobyte flattens** (the last rows of 3.2): stop adding sets. If a few frequent syllables carry the
   errors, a LIST of whole syllables (`jamoexc.py`, up to 255) is cheaper per kilobyte (4.8).
 - **The fit is limited by the format, not the source** (adaptive stops at its cap while the gain per split is still large,
@@ -628,11 +633,13 @@ flowchart TD
   F3 --> G
   G -->|">= 0.98: the source is<br/>an OR of pieces"| H["keep it; try a smaller<br/>system if memory matters"]
   G -->|"below, gain still rising<br/>with the cap (3.2)"| UP["next cap up;<br/>BIG only if the format limits"]
+  G -->|"0.9 - 0.98, gain flat"| FL["keep it; LIST for the<br/>frequent syllables"]
   G -->|"< 0.9 at the cap that fits"| J{"size <= 16 px<br/>or a design not from pieces?"}
   UP --> G
   J -->|yes| K["precomposed, or a small system<br/>+ LIST of the frequent syllables"]
   J -->|no| L["largest cap; jamomerge<br/>--points to the budget (3.3)"]
   H --> M["look: svfline / picker;<br/>check compat jamo and ㅡ"]
+  FL --> M
   K --> M
   L --> M
   M --> N{"over budget?"}
