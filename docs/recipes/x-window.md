@@ -126,10 +126,11 @@ licence holder only: `COPYRIGHT "Copyright (c) 1987, 1988 Daewoo Electronics Co.
 Baekmuk (백묵) Batang, Dotum, Gulim and Headline, the free Korean fonts of Linux distributions in the 2000s, as X BDFs:
 `baekmuk-2.0` and `baekmuk-bdf-2.2` hold the same 42 file names (`batang`, `gulim` 10-24 px with bold; `dotum`, `hline`
 10-24 px). Version 2.2 renames the registry to `KSX1001.1998` and adds the euro sign and ® (8,226 glyphs). The 2,350
-syllables of the 16 px Batang, Dotum and Gulim are the same in both, bitmaps and metrics, and so are every Dotum size
-and Batang 12, 16, 18, 20; elsewhere the versions differ. The syllable bitmaps differ in Gulim 10, 12, 14 and 24 and
-Batang 10 and 14 (and in 3 to 2,384 syllables of every bold font), and the step differs in Batang 14 (2.0: 14, 2.2: 16),
-Batang 24 (24, 25), Headline 12 (14, 12) and Headline 16 (18, 14). The commands below use 2.2.
+syllables, compared as placed pixels (relative to the baseline) and step (`DWIDTH`), are the same in both in every
+Dotum size, Batang 12, 16, 18, 20, Gulim 16, 18, 20 and Headline 10, 14, 18, 20, 24, and in bold Batang 14, 16, 18,
+20, 24 and bold Gulim 16, 18, 20, 24. The pixels differ in Gulim 10, 12, 14, 24, Batang 10 and 14, bold Batang 10 and
+bold Gulim 10, 12, 14; the step differs in Batang 14 (2.0: 14, 2.2: 16), Batang 24 (24, 25), bold Batang 12 (12, 13),
+Headline 12 (14, 12) and Headline 16 (18, 14). The commands below use 2.2.
 
 The boxes are not the cell: Gulim 16 has `FONTBOUNDINGBOX 16 16 0 -2` and `FONT_ASCENT 14`, but Batang and Dotum 16
 have `FONT_ASCENT 12` with syllables reaching 13 rows above the baseline and 3 or 4 below. With the font's own ascent
