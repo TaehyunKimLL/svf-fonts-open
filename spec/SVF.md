@@ -2,6 +2,8 @@
 
 # SVF (SVFN) bitmap font format
 
+<a id="what-svf-is-and-why-to-use-it"></a>
+
 ## 1. What SVF is and why to use it
 
 SVF is a bitmap font format: it stores the pixels of letters ahead of time. Use it to draw the same shapes on a small
@@ -13,6 +15,8 @@ medial and final [pieces](#term-piece) and selection tables, composing syllables
 Both look up characters by Unicode code point ([Unicode Chapter 3](#references)). Readers can access a whole file in memory or flash, or use
 [streaming](#term-streaming) to keep only tables in RAM and read glyphs as needed.
 [1, 2 and 8 bpp](#term-bpp) range from crisp monochrome bitmaps to precomputed antialiased coverage.
+
+<a id="reading-guide"></a>
 
 ### 1.1. Reading guide
 
@@ -33,6 +37,8 @@ converts a v2 face.
 
 <a id="bitmap-fonts"></a>
 
+<a id="bitmap-fonts-g2"></a>
+
 ## 2. Bitmap font structure
 
 A face separates character lookup from pixel storage: the same drawing code can use a Latin glyph, a stored Hangul syllable or composed pieces. [svf_face.c](../c/src/svf_face.c) opens the face and resolves stored glyphs; [svf_draw.c](../c/src/svf_draw.c) places them on a target.
@@ -41,6 +47,8 @@ Lookup uses the file's code point table. One face can contain ASCII, symbols and
 Stored and composed glyphs share the cell, metrics and drawing paths. See the [renderer design](renderer-design.md)
 for face chains and output targets.
 
+<a id="jamo-set-fonts-flags-bit-1"></a>
+<a id="자모-세트-폰트-플래그-비트-1"></a>
 <a id="jamo-block"></a>
 
 ### 2.1. Jamo-set fonts (flags bit 1)
@@ -118,6 +126,13 @@ The standard limits are 12 × 12 lead/tail classes and 32 / 24 / 16 initial/medi
 block is 12,321 bytes. The adaptive default set budget is 32 / 24 / 12. A standalone JSET block whose counts exceed
 the build's limits is unusable (`SVF_FACE_JSET_BAD`).
 
+Readers predating JSET ignore flag bit 1 and the JSET block and read the face as a plain font. This applies only to
+SVFN file versions those readers support; it does not imply support for an unknown file version.
+JSET readers from before the class-limit expansion in 2026-10 reject blocks with more than eight lead or tail classes.
+Faces with 9..12 classes therefore require a reader supporting the expanded limits. The class/set table layout did not
+change, so the block version remains 1. Sources: the class-limit and compatibility comments in `tools/jamoset.py`,
+and the fork's `jamo_set.h` and `jamo_set.cpp`.
+
 `SVF_JSET_BIG` widens the limits of versions 1 and 2 in place (no new version word): 19 lead x 28 tail classes and
 128 / 128 / 64 initial / medial / final sets; the largest blocks are 47,373 bytes (version 1) and 29,708 bytes (version 2, NA = 0;
 45,068 with every slot an alias). A reader built without it treats counts over 12 x 12 / 32 / 24 / 16 as a bad JSET. Writers
@@ -126,6 +141,8 @@ standard limits is byte-identical either way.
 Version 1 sizes: `12 + 19 + 28 + 3 * LC * 21 * TC + 2 * (NI*19 + NM*21 + NF*27 + 51)` bytes.
 
 <a id="jset-v2"></a>
+
+<a id="jset-block-version-2-compact-exception-only"></a>
 
 #### 2.1.1. JSET block version 2 (compact; exception-only)
 
@@ -214,9 +231,14 @@ with a final form (not ㄸ ㅃ ㅉ), and that set's slot for the character is pr
 
 <a id="choose-v2"></a>
 
+<a id="when-to-use-version-2"></a>
+
 #### 2.1.2. When to use version 2
 
 Choose a block encoding together with the reader build: saving flash helps only when the intended device can decode that encoding. [jamoset.py](../tools/jamoset.py) handles the tables; [svf2to3.py](../tools/svf2to3.py) handles old file conversion.
+
+The published jamo faces in `svf/` stay at JSET version 1. Select version 2 explicitly when producing a target build or pack.
+The [JSET identity record](../c/bench/JSET2-IDENTITY.md) follows this policy too.
 
 Version 1 is the default for ordinary JSET writing. The maker preserves the block version of an uploaded face.
 Choose version 2 when a constrained target needs smaller blocks and includes its reader. `--jset-version auto`
@@ -236,6 +258,8 @@ version 2 reader trusts its counts), so a streamed face loads no more than its r
 Python `jamoset.unpack` reads all three versions (1, 2 and the JMAP of version 3). Tools that select a JSET version take `--jset-version 1|2|auto` (default 1). See [tools](../docs/tools.md) for restrictions on rewriting uploaded JMAP faces.
 
 <a id="jmap"></a>
+
+<a id="version-3-mapping-table-jmap"></a>
 
 #### 2.1.3. Version 3: mapping table (JMAP)
 
@@ -349,6 +373,8 @@ The Python reference is `jamoset.unpack_jmap`, whose ValueError text starts
 
 <a id="header"></a>
 
+<a id="per-glyph-dy-header-bytes-17-and-18-metrics-byte-3"></a>
+
 ### 2.2. Header and per-glyph dy (header bytes 17 and 18, metrics byte 3)
 
 The header tells a reader where each table lives and how to interpret it. [Ascent](#term-ascent) sets a common baseline; [dy](#term-dy) moves an individual glyph without changing its stored cell. [svfdy.py](../tools/svfdy.py) adjusts this placement.
@@ -392,6 +418,8 @@ keeps it).
 - A jamo-set face composes syllables at dy 0. Pieces must not carry dy (`jamoset.check` rejects it).
   Other stored glyphs may carry dy.
 
+<a id="cells-layout-bytes-and-reserved-bytes"></a>
+<a id="셀-레이아웃-바이트-예약-바이트"></a>
 <a id="layout"></a>
 
 ### 2.3. Cells, layout bytes and reserved bytes
@@ -472,7 +500,7 @@ units; the pixels of a face are the same in every profile:
 | profile | REC / ROW / TAB (bytes) | box | offsets |
 |---|---|---|---|
 | `mcu-strict` | 4 / 1 / 4 | x-boxed | u16 (u32 when the data passes `65535 << REC`) |
-| `default` | 4 / 1 / 4 | x-boxed | u32 |
+| `default` | 4 / 1 / 4 | x-boxed | u32 (the form used in `svf/`) |
 | `dos`, `wasm` | 1 / 1 / 1 | x-boxed | u16 (u32 above 65,535 bytes) |
 | `full` | 4 / 1 / 4 | full cells | u32 |
 | `simd16` | 16 / 1 / 16 | x-boxed | u32 |
@@ -484,6 +512,7 @@ accept exactly the `mcu-strict` units); the Python tools read every valid layout
 
 Design and measurements: [v3 design](../docs/superpowers/specs/2026-10-21-svf-v3-design.md), [renderer design](renderer-design.md).
 
+<a id="검증"></a>
 <a id="validation"></a>
 
 ### 2.4. Validation
@@ -512,6 +541,8 @@ check order and error reporting can differ:
 
 <a id="retired"></a>
 
+<a id="retired-versions-1-and-2"></a>
+
 ### 2.5. Retired: versions 1 and 2
 
 These are older SVFN file versions, not the still-supported JSET block versions. Convert old files before passing them to a version 3 reader.
@@ -525,6 +556,8 @@ v2 reader left) converts a v2 face to v3 in any profile and proves the pixels di
 not change. Conversion identity measurements are recorded in [V2V3-IDENTITY.md](../c/bench/V2V3-IDENTITY.md).
 
 <a id="marks"></a>
+
+<a id="combining-marks-flags-bit-2"></a>
 
 ### 2.6. Combining marks (flags bit 2)
 
@@ -546,6 +579,8 @@ code points are marks is the reader's choice, not the file's. The C renderer def
 takes a caller predicate (`svf_is_mark_fn` in `c/include/svf.h`).
 
 <a id="scummvm-loading"></a>
+
+<a id="scummvm-loading-appendix"></a>
 
 ## 3. Loading in the ScummVM fork (appendix)
 
@@ -569,6 +604,8 @@ required table is unavailable. The shared conversion layer warns about missing o
 does not call it. Sources: `bitmap_font.cpp`, `codepage_kr.cpp`, `common/str-enc.cpp`.
 
 <a id="load-policy"></a>
+
+<a id="whole-or-streamed-the-load-section"></a>
 
 ### 3.2. Whole or streamed: the `[load]` section
 
@@ -618,6 +655,8 @@ AGS loads SVF faces whole and warns that it does not use it. A path cannot be us
 another path setting can inherit the policy of a `[fonts]` name that resolves to that same path.
 
 <a id="preload-policy"></a>
+
+<a id="preloading-the-glyphs-a-game-draws-the-preload-section"></a>
 
 ### 3.3. Preloading the glyphs a game draws: the `[preload]` section
 
@@ -674,7 +713,52 @@ Line prefetch: `engines/scumm/hires_text.cpp`, `engines/sci/graphics/text16.cpp`
 Debug statistics: `common/file-cache-stats.h`, `gui/debugsocket.cpp`.
 List generation: the fork's `tools/korean/charsetchars.py`.
 
+### 3.4. dy buffers and clipping outside the cell
+
+`SvfnGlyphSource` uses `inkRowsAbove() = -dy_min` and `inkRowsBelow() = dy_max`; the loader sets both to zero for
+an invalid range. `row(cp, y)` answers from `-inkRowsAbove()` through `cellHeight() + inkRowsBelow() - 1`, with the
+glyph already shifted by dy. A NULL row outside the cell is blank. A buffer preserving all ink holds
+`inkRowsAbove() + cellHeight() + inkRowsBelow()` rows and is drawn `inkRowsAbove()` rows above the cell top.
+The baseline and cell height remain distinct from the expanded buffer height. `bearingY` is `ascent - dy`.
+
+Fallback chains use the maximum expansion above and below their sources. `NormalizedGlyphSource` computes the rows
+that actually leave its normalized cell. The jamo source forwards the inner SVF source's above/below range.
+
+| Path | Treatment of rows outside the cell |
+|---|---|
+| SCUMM `drawRows()` | Draws an expanded buffer; vertical mirroring flips the expanded rows and corrects placement relative to the cell |
+| SCI `GfxFontUnicode::draw()` | Draws an expanded buffer; the active-placement path clips vertically to the text line |
+| AGI | Reads expanded rows but discards anything outside the final 16-row box |
+| AGS | Reads from `-inkRowsAbove()` through the lower expansion and applies the output target's clip |
+| Grim `svfnCoverage()` | Reads only cell-height rows, clipping shifted ink that leaves the cell |
+| `HiResGlyphRenderer::drawGlyph(font)` | Reads the whole stored cell and adds dy to output y; does not use a glyph-source expansion buffer |
+
+Sources: `graphics/hires_text/glyph_source.h`, `glyph_source_svfn.h`, `glyph_source_svfn.cpp`,
+`glyph_source_fallback.cpp`, `glyph_source_jamo.cpp`, `glyph_renderer.cpp`;
+`engines/scumm/hires_text.cpp`, `engines/sci/graphics/fontunicode.cpp`, `engines/agi/hirestext.cpp`,
+`engines/ags/shared/font/glyph_font_draw.cpp`, `engines/grim/font.cpp`.
+
+### 3.5. SCUMM combining-mark anchors
+
+`SvfnGlyphSource::metrics()` sets `originX = min(-bearingX, cellWidth)` for a combining mark with flag bit 2 set
+and `bearingX < 0`. SCUMM draws a mark at `_anchorX - originX` when a valid anchor exists on the same y, otherwise
+at the current pen `x - originX`. After a non-mark glyph it updates `_anchorX = drawX + originX + own`.
+`own` is the source advance, falling back to the metrics advance when nonpositive. `drawX` can include slack added
+to center a glyph in the game cell, so this anchor need not equal the current pen. Distinguish it from the portable
+C renderer's current-pen rule. Sources: `graphics/hires_text/glyph_source_svfn.cpp`, `engines/scumm/hires_text.cpp`.
+
+### 3.6. Engine verification record — 2026-09-05
+
+The running-engine verification account added to the fork's `graphics/hires_text/README.md` on 2026-09-05 reports
+checks of shipped fonts in MI2 and Indy3 Korean targets. In the 2,350-glyph Korean sets U+AC00 mapped to glyph 0
+and U+D79D to glyph 2,349; 'A' mapped to glyph 65 in the Latin sets. The engine's legacy `.fnt` files were rejected,
+allowing the caller to fall back. This is a historical record of those runs and fonts, not an index rule for every SVF.
+The current `bitmap_font.cpp`, `test/graphics/hires_text_bitmap_font.h` and `test/graphics/hires_text_codepage_kr.h`
+also support that Korean ordering and its lookup boundaries.
+
 <a id="glossary"></a>
+
+<a id="koreanenglish-glossary"></a>
 
 ## 4. Korean–English glossary
 

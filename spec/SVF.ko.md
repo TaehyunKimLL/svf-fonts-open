@@ -2,6 +2,8 @@
 
 # SVF (SVFN) 비트맵 폰트 형식
 
+<a id="svf는-무엇이고-왜-쓰는가"></a>
+
 ## 1. SVF는 무엇이고 왜 쓰는가
 
 SVF는 글자의 픽셀 모양을 미리 저장하는 비트맵 폰트 형식이다. MCU의 작은 LCD, DOS 화면, 게임의 대사창,
@@ -13,6 +15,8 @@ SVF는 글자의 픽셀 모양을 미리 저장하는 비트맵 폰트 형식이
 어느 쪽이든 문자 조회의 입력은 유니코드 코드 포인트다([Unicode 3장](#references)). 파일을 메모리나 플래시에 두고 직접 읽을 수도 있고,
 [스트리밍](#term-streaming)으로 표만 RAM에 올리고 필요한 글리프만 읽을 수도 있다.
 [1·2·8 bpp](#term-bpp)는 단색 비트맵부터 미리 계산한 안티앨리어싱 [피복도(coverage)](#term-coverage)까지 담는다.
+
+<a id="읽는-순서"></a>
 
 ### 1.1. 읽는 순서
 
@@ -33,6 +37,8 @@ SVFN은 **버전 3**이다. 버전 1과 2는 폐기되었다(아래 "폐기: 버
 
 <a id="bitmap-fonts"></a>
 
+<a id="비트맵-폰트-g2"></a>
+
 ## 2. 비트맵 폰트 구조
 
 페이스는 문자 조회와 픽셀 저장을 분리한다. 같은 그리기 코드가 라틴 글리프, 저장된 한글 음절, 조합한 조각을 사용할 수 있다. [svf_face.c](../c/src/svf_face.c)가 페이스를 열고 저장 글리프를 찾으며, [svf_draw.c](../c/src/svf_draw.c)가 타깃에 배치한다.
@@ -41,6 +47,8 @@ SVFN은 **버전 3**이다. 버전 1과 2는 폐기되었다(아래 "폐기: 버
 저장 글리프와 조합형 글리프는 같은 셀·메트릭·그리기 경로를 사용한다. 페이스 체인과 출력 타깃은
 [렌더러 설계](renderer-design.ko.md)에 설명되어 있다.
 
+<a id="jamo-set-fonts-flags-bit-1"></a>
+<a id="자모-세트-폰트-플래그-비트-1"></a>
 <a id="jamo-block"></a>
 
 ### 2.1. 자모 세트 폰트 (플래그 비트 1)
@@ -111,6 +119,12 @@ NF*27 u16 finPiece    per (set, tail 1..27)
 12,321바이트이다. adaptive의 기본 벌 예산은 32 / 24 / 12이다. 개수가 빌드의 한도를 벗어난 단독 JSET 블록은
 사용하지 않는다(`SVF_FACE_JSET_BAD`).
 
+JSET을 도입하기 전의 리더는 플래그 비트 1과 JSET 블록을 무시하고 일반 폰트로 읽는다. 이는 그 리더가
+지원하는 SVFN 파일 버전에 한한 동작이며, 알 수 없는 파일 버전까지 읽는다는 뜻은 아니다.
+2026-10에 클래스 한도를 넓히기 전의 JSET 리더는 초성 또는 종성 클래스가 8개를 넘는 블록을 거부한다.
+따라서 클래스가 9..12개인 페이스에는 확장된 한도를 지원하는 리더가 필요하다. 클래스·벌 표의 배치는 바뀌지 않아
+블록 버전은 1을 유지한다. 근거: `tools/jamoset.py`의 클래스 한도·호환성 설명과 포크의 `jamo_set.h`, `jamo_set.cpp`.
+
 `SVF_JSET_BIG`은 버전 1과 2의 한도를 제자리에서 넓힌다(새 버전 워드 없음). 초성 19 x 종성 28 클래스와 초성 / 중성 / 종성
 벌 128 / 128 / 64이며, 가장 큰 블록은 47,373바이트(버전 1)와 29,708바이트(버전 2, NA = 0; 모든 슬롯이 별칭이면
 45,068)이다. 이것 없이 빌드한 리더는 12 x 12 / 32 / 24 / 16을 넘는 개수를 잘못된 JSET으로 취급한다. 작성기
@@ -119,6 +133,8 @@ NF*27 u16 finPiece    per (set, tail 1..27)
 버전 1 크기: `12 + 19 + 28 + 3 * LC * 21 * TC + 2 * (NI*19 + NM*21 + NF*27 + 51)` 바이트.
 
 <a id="jset-v2"></a>
+
+<a id="jset-블록-버전-2-압축형-예외-전용"></a>
 
 #### 2.1.1. JSET 블록 버전 2 (압축형, 예외 전용)
 
@@ -207,9 +223,14 @@ k >= 30은 중성 테이블의 vowel `k - 30`이고, 초성 인덱스가 있는 
 
 <a id="choose-v2"></a>
 
+<a id="버전-2를-쓸-때"></a>
+
 #### 2.1.2. 버전 2를 쓸 때
 
 블록 인코딩은 읽을 프로그램의 빌드와 함께 고른다. 목적 장치가 해독할 수 있어야 플래시 절약이 의미가 있다. [jamoset.py](../tools/jamoset.py)는 표를 다루고, [svf2to3.py](../tools/svf2to3.py)는 옛 파일을 변환한다.
+
+배포하는 `svf/`의 자모 페이스는 JSET 버전 1을 유지한다. 버전 2 변환은 대상 빌드나 팩을 만들 때 명시적으로 선택한다.
+[JSET 동일성 기록](../c/bench/JSET2-IDENTITY.md)도 이 정책을 따른다.
 
 일반적인 JSET 작성의 기본값은 버전 1이다. maker는 업로드된 페이스의 블록 버전을 유지한다.
 버전 2는 메모리가 제한된 대상에서 블록 크기 절약이 필요하고 해당 리더를 포함한 경우에 선택한다.
@@ -234,6 +255,8 @@ Python `jamoset.unpack`은 세 버전(1, 2, 버전 3의 JMAP)을 모두 읽는�
 [도구 사용법](../docs/tools.ko.md)을 참고한다.
 
 <a id="jmap"></a>
+
+<a id="버전-3-매핑-테이블-jmap"></a>
 
 #### 2.1.3. 버전 3: 매핑 테이블 (JMAP)
 
@@ -347,6 +370,8 @@ Python 레퍼런스는 `jamoset.unpack_jmap`이며 그 ValueError 텍스트는
 
 <a id="header"></a>
 
+<a id="글리프별-dy-헤더-바이트-17과-18-메트릭-바이트-3"></a>
+
 ### 2.2. 헤더와 글리프별 dy (헤더 바이트 17과 18, 메트릭 바이트 3)
 
 헤더는 각 표의 위치와 해석 방법을 알려 준다. [ascent](#term-ascent)는 공통 기준선을 정하고, [dy](#term-dy)는 저장된 셀을 바꾸지 않고 개별 글리프를 옮긴다. [svfdy.py](../tools/svfdy.py)로 이 배치를 조정한다.
@@ -386,6 +411,8 @@ SVFN v3 헤더는 48바이트이며 리틀 엔디언이다.
 - 자모 세트 페이스는 음절을 dy 0으로 합성한다. 조각에는 dy를 지정하지 않는다(`jamoset.check`가 거부한다).
   그 밖의 저장 글리프는 dy를 가질 수 있다.
 
+<a id="cells-layout-bytes-and-reserved-bytes"></a>
+<a id="셀-레이아웃-바이트-예약-바이트"></a>
 <a id="layout"></a>
 
 ### 2.3. 셀, 레이아웃 바이트, 예약 바이트
@@ -453,7 +480,7 @@ phase가 0이다. 쓰는 쪽이 어떤 상자(셀 전체, 전체 행, 또는 바
 | profile | REC / ROW / TAB (bytes) | box | offsets |
 |---|---|---|---|
 | `mcu-strict` | 4 / 1 / 4 | x-boxed | u16 (데이터가 `65535 << REC`를 넘으면 u32) |
-| `default` | 4 / 1 / 4 | x-boxed | u32 |
+| `default` | 4 / 1 / 4 | x-boxed | u32 (`svf/`의 저장 형태) |
 | `dos`, `wasm` | 1 / 1 / 1 | x-boxed | u16 (65,535바이트를 넘으면 u32) |
 | `full` | 4 / 1 / 4 | full cells | u32 |
 | `simd16` | 16 / 1 / 16 | x-boxed | u32 |
@@ -464,6 +491,7 @@ C 라이브러리는 `SVF_LAYOUTS`로 빌드하지 않는 한 모든 유효한 �
 
 설계와 측정: [v3 설계](../docs/superpowers/specs/2026-10-21-svf-v3-design.md), [렌더러 설계](renderer-design.ko.md).
 
+<a id="검증"></a>
 <a id="validation"></a>
 
 ### 2.4. 검증
@@ -487,6 +515,8 @@ C 라이브러리는 `SVF_LAYOUTS`로 빌드하지 않는 한 모든 유효한 �
 
 <a id="retired"></a>
 
+<a id="폐기-버전-1과-2"></a>
+
 ### 2.5. 폐기: 버전 1과 2
 
 이 절은 옛 SVFN 파일 버전을 다룬다. 여전히 지원하는 JSET 블록 버전과 구별해야 한다. 옛 파일은 버전 3 리더에 넘기기 전에 변환한다.
@@ -498,6 +528,8 @@ C 라이브러리는 `SVF_LAYOUTS`로 빌드하지 않는 한 모든 유효한 �
 프로파일의 v3로든 변환하며 픽셀이 바뀌지 않았음을 증명한다. 변환 동일성의 측정 결과는 [V2V3-IDENTITY.md](../c/bench/V2V3-IDENTITY.md)에 있다.
 
 <a id="marks"></a>
+
+<a id="결합-부호-플래그-비트-2"></a>
 
 ### 2.6. 결합 부호 (플래그 비트 2)
 
@@ -517,6 +549,8 @@ C 라이브러리는 `SVF_LAYOUTS`로 빌드하지 않는 한 모든 유효한 �
 함수(`c/include/svf.h`의 `svf_is_mark_fn`)를 받는다.
 
 <a id="scummvm-loading"></a>
+
+<a id="scummvm-불러오기-부록"></a>
 
 ## 3. ScummVM 포크의 불러오기 (부록)
 
@@ -539,6 +573,8 @@ cmap가 없는 버전 1은 헤더의 코드 페이지를 사용한다. ISO-8859-
 그 표를 호출하지 않는다. 근거: `bitmap_font.cpp`, `codepage_kr.cpp`, `common/str-enc.cpp`.
 
 <a id="load-policy"></a>
+
+<a id="통째로-또는-스트리밍-load-절"></a>
 
 ### 3.2. 통째로 또는 스트리밍: `[load]` 절
 
@@ -582,6 +618,8 @@ AGS는 SVF 페이스를 통째로 불러오고 이를 쓰지 않는다고 경고
 다른 경로 설정으로 연 파일도 `[fonts]` 이름과 같은 경로로 해석되면 그 정책을 적용받을 수 있다.
 
 <a id="preload-policy"></a>
+
+<a id="게임이-그리는-글리프-미리-불러오기-preload-절"></a>
 
 ### 3.3. 게임이 그리는 글리프 미리 불러오기: `[preload]` 절
 
@@ -630,7 +668,53 @@ card=data:GBATB23.HOT  ; a path next to the map, or data:
 디버그 통계: `common/file-cache-stats.h`, `gui/debugsocket.cpp`.
 목록 생성: 포크의 `tools/korean/charsetchars.py`.
 
+### 3.4. dy와 셀 밖 행의 버퍼·클리핑
+
+`SvfnGlyphSource`는 `inkRowsAbove() = -dy_min`, `inkRowsBelow() = dy_max`를 사용한다. 범위가 무효하면
+로더가 둘 다 0으로 만든다. `row(cp, y)`는 `-inkRowsAbove()`부터 `cellHeight() + inkRowsBelow() - 1`까지
+응답하며 행은 이미 글리프의 dy만큼 이동되어 있다. 셀 밖의 NULL 행은 빈 행이다. 전체 잉크를 보존하는 그리기 버퍼는
+`inkRowsAbove() + cellHeight() + inkRowsBelow()`행을 담고 셀 윗변보다 `inkRowsAbove()`행 위에서 그린다.
+기준선과 셀 높이는 확장된 버퍼 높이와 구별한다. `bearingY`는 `ascent - dy`이다.
+
+폴백 체인은 소스들 중 최대 위·아래 확장량을 사용하고, `NormalizedGlyphSource`는 정규화한 셀 밖으로
+실제로 나가는 행 수를 계산한다. 자모 소스는 내부 SVF 소스의 위·아래 범위를 전달한다.
+
+| 경로 | 셀 밖 행 처리 |
+|---|---|
+| SCUMM `drawRows()` | 확장한 버퍼를 그린다. 수직 미러에서는 확장한 행을 뒤집은 뒤 셀 기준 위치를 보정한다 |
+| SCI `GfxFontUnicode::draw()` | 확장한 버퍼를 그리되 placement가 활성화된 경로는 위·아래를 텍스트 줄에 클리핑한다 |
+| AGI | 확장 행을 읽지만 최종 16행 상자 밖은 버린다 |
+| AGS | `-inkRowsAbove()`부터 아래 확장 행까지 읽으며 최종 출력 대상의 클립을 적용한다 |
+| Grim `svfnCoverage()` | 셀 높이의 행만 읽으므로 이동한 잉크가 셀 밖으로 나가면 잘린다 |
+| `HiResGlyphRenderer::drawGlyph(font)` | 저장 셀 전체를 읽고 출력 y에 dy를 더한다. glyph-source 확장 버퍼를 거치지 않는다 |
+
+근거: `graphics/hires_text/glyph_source.h`, `glyph_source_svfn.h`, `glyph_source_svfn.cpp`,
+`glyph_source_fallback.cpp`, `glyph_source_jamo.cpp`, `glyph_renderer.cpp`;
+`engines/scumm/hires_text.cpp`, `engines/sci/graphics/fontunicode.cpp`, `engines/agi/hirestext.cpp`,
+`engines/ags/shared/font/glyph_font_draw.cpp`, `engines/grim/font.cpp`.
+
+### 3.5. SCUMM 결합 부호 앵커
+
+`SvfnGlyphSource::metrics()`는 결합 부호이며 플래그 비트 2가 설정되고 `bearingX < 0`이면
+`originX = min(-bearingX, cellWidth)`로 정한다. SCUMM은 부호를 같은 y의 유효한 앵커가 있으면
+`_anchorX - originX`, 없으면 현재 펜 `x - originX`에 그린다. 부호가 아닌 글리프 뒤에는
+`_anchorX = drawX + originX + own`으로 갱신한다. `own`은 소스의 advance이며 0 이하이면 메트릭 advance를 쓴다.
+`drawX`에는 게임 셀 안에서 가운데 맞추기 위한 여유분이 포함될 수 있으므로 이 앵커는 현재 펜과 항상 같지는 않다.
+이식 가능한 C 렌더러의 현재 펜 규칙과 구별해야 한다. 근거: `graphics/hires_text/glyph_source_svfn.cpp`,
+`engines/scumm/hires_text.cpp`.
+
+### 3.6. 엔진 검증 기록 — 2026-09-05
+
+포크의 `graphics/hires_text/README.md`에 2026-09-05 추가된 실행 검증 기록은 MI2·Indy3 한국어 타깃에서
+배포 폰트를 확인했다. 2,350글리프 한국어 세트의 U+AC00은 글리프 0, U+D79D는 글리프 2,349였고,
+라틴 세트의 'A'는 글리프 65였다. 엔진의 레거시 `.fnt` 파일은 거부되어 호출자가 대체 소스를 사용할 수 있었다.
+이는 해당 실행과 폰트의 역사적 기록이며 모든 SVF의 인덱스 규칙이 아니다.
+현재 코드의 `bitmap_font.cpp`와 `test/graphics/hires_text_bitmap_font.h`,
+`test/graphics/hires_text_codepage_kr.h`도 해당 한국어 순서와 조회 경계를 뒷받침한다.
+
 <a id="glossary"></a>
+
+<a id="한영-용어집"></a>
 
 ## 4. 한영 용어집
 
