@@ -232,9 +232,9 @@ identical to an independent implementation of routine 4DC4h, for the CPC-300 and
 
 ### MSX2: the CPC-400S precomposed font
 
-![The CPC-400S precomposed font from its 256 KB font ROM, x2](../images/recipes/msx/cpc400s.png)
+![The CPC-400S precomposed font from its 256 KB font ROM: two Korean lines, English, ASCII symbols, and a row of KS X 1001 symbols read from the font ROM (the face itself holds Hangul and ASCII only), x2](../images/recipes/msx/cpc400s.png)
 
-*The CPC-400S precomposed font from its 256 KB font ROM, x2*
+*The CPC-400S precomposed font from its 256 KB font ROM: two Korean lines, English, ASCII symbols, and a row of KS X 1001 symbols read from the font ROM (the face itself holds Hangul and ASCII only), x2*
 
 
 `cpc-400s_hangulfont.rom` is 262,144 bytes, 8,192 slots of 32 bytes (16x16, row-major). The driver writes the slot's
