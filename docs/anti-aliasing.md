@@ -82,8 +82,9 @@ Coverage is **area**, not **brightness**. Most screens map input values to light
 therefore not 50 % of the light. The FreeType documentation explains that a 50 % covered pixel needs about 186, not
 128, to look 50 % bright, and that correct rendering blends in linear space and then applies gamma correction [4].
 Without correction, dark text on a light background looks heavier and darker than it should, and light text on a dark
-background looks thin and frail [4]. Conversely, exact gamma correction makes small text look thin, so FreeType and
-macOS pair it with "stem darkening", a slight emboldening [4].
+background looks thin and frail [4]. Conversely, exact gamma correction makes small text look thin, so FreeType offers
+"stem darkening", a slight emboldening also used by Mac OS X.
+It is disabled by default in FreeType’s auto-hinter [4].
 
 SVF does not handle gamma. Stored levels are coverage as is (the tools have no gamma option, section 4), and the
 renderer blends encoded channel values without linear-light conversion (section 2.3). This can darken
@@ -99,7 +100,7 @@ three separately and uses up to three times the horizontal resolution [5][6]. Mi
 
 - The software must **know the subpixel layout** (RGB or BGR, horizontal stripes, a rotated screen). Getting it wrong
   is worse than no subpixel rendering at all [5].
-- The result is **coloured** pixels. Colour fringes have to be filtered, which costs sharpness [5][7].
+- The result is **coloured** pixels. Filters can suppress colour fringes, with a sharpness trade-off [5][7].
 - The background colour must be known and each channel blended separately.
 
 SVF does not do subpixel rendering:

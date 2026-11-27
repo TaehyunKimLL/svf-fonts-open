@@ -9,8 +9,6 @@ together but are independent. A johab font does not need a johab code, nor the o
 of Korean MS-DOS 6.22 holds no Hangul syllables; HBIOS composes them from its own jamo set (sections 1.4 and 3.2). Korean
 VGA cards, the other way round, hold their syllables in a precomposed grid in ROM (section 3.2).
 
-Historical file layouts and driver rules are described in the format analyses [17].
-
 This document covers, in order:
 
 1. Johab as a character set: the bit layout, its relation to the precomposed (완성형) set, the Unicode syllable formula
@@ -215,7 +213,7 @@ A converter can map each field with tables such as `JUNG_FIELD` in [tools/jamose
 
 Korean PC software used johab codes and fonts widely in the 1980s, while the national standard selected a 2,350-syllable precomposed set [12][13][14]. Microsoft preserved that set's byte assignments and added the remaining syllables in CP949; counting its mapping table gives 8,822 additional syllables and 11,172 in total [16].
 
-The timeline shows selected systems and standards; CP949 and the Unicode syllable block appear alongside them as related encodings [12][17].
+The timeline shows selected systems and standards; CP949 and the Unicode syllable block appear alongside them as related encodings [12].
 
 ```mermaid
 flowchart LR
@@ -249,7 +247,7 @@ The 1987 KS C 5601 precomposed code was adopted for information interchange in a
 |---|---|---|
 | 1980s | Commercial johab and other variants used in PC software and Hangul display systems | [12][13] |
 | 1987-08-31 | KS C 5601 precomposed code revised; used for administrative-network interchange | [14] |
-| 1988–1991 | Administrative-network mainframes I and II developed | [15] |
+| 1987–1991 | Administrative-network mainframes I and II developed | [15] |
 | 1992 | KS C 5601 annex 3 accepted a composed form | [12] |
 | 1995 onward | Korean Windows 95 dropped commercial johab support | [12] |
 
@@ -1358,7 +1356,6 @@ In order:
 | [docs/recipes.md](recipes.md) | recipes per font and "Choosing the number of sets (벌 수)" |
 | [docs/tools.md](tools.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | the set system tables (`I844_*`, `F844`, `_844` and others), `pack`, `unpack`, `pieces_of` |
-| [johab-fonts notes](https://github.com/TaehyunKimLL/johab-fonts/tree/e45cb9d09128737171f847e4411ccaa9ed4547f3/notes) | analyses of the original fonts and programs (dos, mac, hanme-dokkaebi, printer, os, os2-dbcs, msx, apple2, hwp1, x11-unix, games) |
 | [Renderer design](../spec/renderer-design.md) | layout, scaling and memory model |
 | [Web renderer guide](web-renderer-guide.md) | inspect composition and coverage in the browser |
 | [Desktop app](desktop-app.md), [maker desktop](maker-desktop.md) | generate faces and compare previews |
@@ -1369,13 +1366,13 @@ In order:
 [1] [Wikipedia: Extended Unix Code](https://en.wikipedia.org/wiki/Extended_Unix_Code)
 [2] [The Open Group, XBD chapter 6: Character Set](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap06.html)
 [3] [Wikipedia: EUC-KR](https://en.wikipedia.org/wiki/EUC-KR)
-[4] [KS X 1001 overview, Unicode](https://www.unicode.org/Public/MAPPINGS/EASTASIA/KSC/KSX1001.TXT)
-[5] [RFC 1557, ISO-2022-KR](https://www.rfc-editor.org/rfc/rfc1557)
+[4] [Unicode: archived KS X 1001 mapping table](https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/KSC/KSX1001.TXT)
+[5] [RFC 1557, ISO-2022-KR](https://www.rfc-editor.org/rfc/rfc1557.html)
 [6] [Microsoft Learn: Code page identifiers](https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers)
-[7] [Unicode Standard, Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G3307)
-[8] [Unicode Standard, Chapter 3.12 Conjoining Jamo Behavior](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24649)
-[9] [Unicode Standard, Chapter 2.5 Encoding Forms](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G25564)
-[10] [Unicode Standard, Chapter 2.6 Encoding Schemes](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G12709)
+[7] [Unicode Standard, Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24646)
+[8] [Unicode Standard, Chapter 3.12 Conjoining Jamo Behavior](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24646)
+[9] [Unicode Standard, Chapter 2.5 Encoding Forms](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G13708)
+[10] [Unicode Standard, Chapter 2.6 Encoding Schemes](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G19273)
 [11] [iolo 8x4x4-fonts](https://github.com/iolo/8x4x4-fonts)
 [12] [Korean commercial johab encoding](https://ko.wikipedia.org/wiki/한글_상용_조합형_인코딩)
 [13] [Hangul representations in the 1980s](https://pat.im/1150)
@@ -1383,7 +1380,6 @@ In order:
 [15] [ET News, administrative mainframe history](https://www.etnews.com/201209110614)
 [16] [Unicode CP949 mapping table](https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP949.TXT)
 
-[17] [johab-fonts: historical font-format analyses](https://github.com/TaehyunKimLL/johab-fonts/tree/e45cb9d09128737171f847e4411ccaa9ed4547f3/notes)
 
 
 [18] [CPython: Korean codecs, EUC-KR Hangul composition](https://github.com/python/cpython/blob/3.12/Modules/cjkcodecs/_codecs_kr.c)

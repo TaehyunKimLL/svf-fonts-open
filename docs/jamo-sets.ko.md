@@ -8,8 +8,6 @@
 하는 것은 아니고, 그 반대도 마찬가지이다. 예를 들어 MS-DOS 6.22 한국어판의 글꼴 파일에는 한글 음절이 없고, HBIOS가 자기 자모
 세트로 음절을 조합한다(1.4절, 3.2절). 거꾸로 한국어 VGA 카드의 ROM은 음절을 완성형 격자로 담는다(3.2절).
 
-옛 파일 형식과 드라이버의 선택 규칙은 글꼴 형식 분석 [17]에 정리되어 있다.
-
 이 문서는 순서대로 다음을 설명한다.
 
 1. 문자 집합으로서의 조합형: 비트 배치, 완성형과의 관계, 유니코드 음절 공식(1장).
@@ -209,7 +207,7 @@ flowchart LR
 
 1980년대 한국의 PC 소프트웨어에는 조합형 코드와 글꼴이 널리 쓰였고, 국가 표준은 2,350자 완성형을 정했다 [12][13][14]. Microsoft는 기존 바이트를 보존하면서 CP949에 나머지 음절을 추가했다. 매핑 표를 세면 추가 8,822자, 전체 11,172자이다 [16].
 
-아래는 주요 시스템과 표준의 연표이며, CP949와 유니코드 음절 블록은 관련 인코딩으로 함께 표시한다 [12][17].
+아래는 주요 시스템과 표준의 연표이며, CP949와 유니코드 음절 블록은 관련 인코딩으로 함께 표시한다 [12].
 
 ```mermaid
 flowchart LR
@@ -243,7 +241,7 @@ flowchart LR
 |---|---|---|
 | 1980년대 | PC 소프트웨어와 한글 표시 장치에서 상용 조합형과 여러 변형 사용 | [12][13] |
 | 1987-08-31 | KS C 5601 완성형 개정, 행정전산망 정보 교환 | [14] |
-| 1988–1991 | 행정전산망 주전산기 I·II 개발 | [15] |
+| 1987–1991 | 행정전산망 주전산기 I·II 개발 | [15] |
 | 1992 | KS C 5601 부속서 3 조합형 수용 | [12] |
 | 1995 이후 | 한국어 Windows 95에서 상용 조합형 지원 중단 | [12] |
 
@@ -1312,7 +1310,6 @@ flowchart TD
 | [docs/recipes.ko.md](recipes.ko.md) | 글꼴별 레시피와 "세트 수(벌 수) 정하기" |
 | [docs/tools.ko.md](tools.ko.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | 벌 체계 표(`I844_*`, `F844`, `_844` 등), `pack`, `unpack`, `pieces_of` |
-| [johab-fonts notes](https://github.com/TaehyunKimLL/johab-fonts/tree/e45cb9d09128737171f847e4411ccaa9ed4547f3/notes) | 원본 글꼴과 프로그램의 분석(dos, mac, hanme-dokkaebi, printer, os, os2-dbcs, msx, apple2, hwp1, x11-unix, games) |
 | [렌더러 설계](../spec/renderer-design.ko.md) | 배치, 스케일링, 메모리 모델 |
 | [웹 렌더러 가이드](web-renderer-guide.ko.md) | 브라우저에서 조합과 coverage 확인 |
 | [데스크톱 앱](desktop-app.ko.md), [maker 데스크톱](maker-desktop.ko.md) | 페이스 생성과 미리보기 비교 |
@@ -1323,13 +1320,13 @@ flowchart TD
 [1] [Wikipedia: Extended Unix Code](https://en.wikipedia.org/wiki/Extended_Unix_Code)
 [2] [The Open Group, XBD chapter 6: Character Set](https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap06.html)
 [3] [Wikipedia: EUC-KR](https://en.wikipedia.org/wiki/EUC-KR)
-[4] [KS X 1001 overview, Unicode](https://www.unicode.org/Public/MAPPINGS/EASTASIA/KSC/KSX1001.TXT)
-[5] [RFC 1557, ISO-2022-KR](https://www.rfc-editor.org/rfc/rfc1557)
+[4] [Unicode: archived KS X 1001 mapping table](https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/KSC/KSX1001.TXT)
+[5] [RFC 1557, ISO-2022-KR](https://www.rfc-editor.org/rfc/rfc1557.html)
 [6] [Microsoft Learn: Code page identifiers](https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers)
-[7] [Unicode Standard, Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G3307)
-[8] [Unicode Standard, Chapter 3.12 Conjoining Jamo Behavior](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24649)
-[9] [Unicode Standard, Chapter 2.5 Encoding Forms](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G25564)
-[10] [Unicode Standard, Chapter 2.6 Encoding Schemes](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G12709)
+[7] [Unicode Standard, Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24646)
+[8] [Unicode Standard, Chapter 3.12 Conjoining Jamo Behavior](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24646)
+[9] [Unicode Standard, Chapter 2.5 Encoding Forms](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G13708)
+[10] [Unicode Standard, Chapter 2.6 Encoding Schemes](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-2/#G19273)
 [11] [iolo 8x4x4-fonts](https://github.com/iolo/8x4x4-fonts)
 [12] [한글 상용 조합형 인코딩](https://ko.wikipedia.org/wiki/한글_상용_조합형_인코딩)
 [13] [1980년대 한글 표현 방식](https://pat.im/1150)
@@ -1337,7 +1334,6 @@ flowchart TD
 [15] [전자신문, 주전산기 역사](https://www.etnews.com/201209110614)
 [16] [Unicode CP949 mapping table](https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP949.TXT)
 
-[17] [johab-fonts: 옛 글꼴 형식 분석](https://github.com/TaehyunKimLL/johab-fonts/tree/e45cb9d09128737171f847e4411ccaa9ed4547f3/notes)
 
 
 [18] [CPython: Korean codecs, EUC-KR Hangul composition](https://github.com/python/cpython/blob/3.12/Modules/cjkcodecs/_codecs_kr.c)
