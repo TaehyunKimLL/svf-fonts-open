@@ -777,6 +777,81 @@ The long form of `-o` is `--out` for `baseline` and `planes`, and `--outdir` for
 **Test.** `tools/test_jamomerge.py` (synthetic faces: build / read round trip and size, normalisation, every move
 composing as it promises, a greedy step, the leak, stroke and tick gates).
 
+### `tools/jamohybrid.py`
+
+**Purpose.** Build a jamo-set face from a precomposed one with a learned split ([Jamo splitting](jamo-split.md), the
+learned split): the composed syllables follow the source, and each piece is its jamo.
+
+**Status.** Builder. Needs numpy (`--pylib DIR` or `$JAMOSET_PYLIB` if it is not on the path) and the weights
+`tools/models/jamohybrid-v1.npz`; freetype-py for `--from-ttf`. Not torch.
+
+**Inputs.** `--from-svf FACE.SVF` (a 1 bpp precomposed face; its other glyphs, metrics and flags are kept) or
+`--from-ttf FONT --size N [--cell WxH] [--baseline R]` (rendered as `jamoset.py --from-ttf` renders).
+
+**Method.**
+1. `tools/jamonet.py` gives each syllable's initial, medial and final planes, conditioned on its jamo.
+2. Structural sets (initial = vowel group x final present, medial = initial class x final kind, final = vowel group),
+   then greedy splits by one initial, vowel or final within the limits.
+3. Each (set, jamo) piece is a probability-weighted vote of its syllables' planes. Pieces of one jamo merge while the
+   merged piece passes the identity gates and no syllable gets worse by more than max(1, cell / 12) pixels.
+4. `jamofit.fit_pieces` re-fits the pieces to the source, each pixel only in a slot the model gave it.
+5. Identity gates, calibrated on the face's own planes: ink and extent, holes, the ticks and stubs of the simple vowels
+   (with a serif tolerance), ㅅ and ㅈ. Contexts the source does not draw take the structurally nearest set's piece.
+
+**Options.**
+
+| Option | Meaning |
+|---|---|
+| (default) | the standard JSET face: 32 / 24 / 16 sets, 12 x 12 classes |
+| `--big` | JSET BIG limits: 64 / 48 / 32 sets, 19 x 28 classes (engines built with `SVF_JSET_BIG`) |
+| `--limits NI,NM,NF` | the set limits |
+| `--max-bytes N` | the most accurate face of the limit ladder within N bytes |
+| `--min-iou X` | the smallest face of the ladder whose composed IoU reaches X |
+| `--rule derived\|structural` | groups learned from the face (default) or the fixed groups |
+| `--model PATH` | other weights |
+| `--report OUT.json` | the chosen point, the ladder, sets, classes, gates, splits refused by the budget |
+| `--check` | compose all 11,172 syllables of the output |
+| `--jset-version 1\|2\|auto` | as `jamoset.py` |
+
+**Outputs.** `-o OUT.SVF` (SVFN v3 with a JSET block); a summary line (bytes, composed IoU, exact syllables, sets,
+classes).
+
+**Synopsis.** `python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--min-iou 0.9 | --max-bytes N] [--big]
+[--report R.json] [--check]`.
+
+**Repository modules imported.** `jamoset.py`, `jamofit.py`, `jamonet.py`. **Third-party.** numpy; freetype-py with
+`--from-ttf`. **Test.** `tools/test_jamohybrid.py`.
+
+### `tools/jamonet.py`
+
+**Purpose.** The numpy forward pass of the jamo split model: a small U-Net on a 32 x 32 canvas (larger cells on the
+next multiple of 8), three sigmoid planes, conditioned on the syllable's jamo; BatchNorm folded into the convolutions.
+Imported by `jamohybrid.py`; no command line.
+
+**Weights format.** One `.npz`: `meta` (JSON, `format` `jamonet-1`, `base`, `cdim`), the convolution, transposed
+convolution and embedding arrays as fp16. `tools/train_jamohybrid.py` writes it.
+
+**Third-party.** numpy. **Test.** `tools/test_jamohybrid.py` (convolution, pooling and transposed convolution against
+loops; a random tiny model).
+
+### `tools/train_jamohybrid.py`
+
+**Purpose.** Train the jamo split model and export its weights. Training-time only: needs torch and numpy; no tool or
+test imports it.
+
+**Inputs.** `--manifest SOURCES.tsv`: one source per line (`name kind path group weight licence note`). Kinds: `svf` (a
+1 bpp jamo-set face of this repository: composed syllables and its pieces), `npz` (a ground-truth set prepared
+elsewhere: `cps`, `jamo`, `pre`, `planes`, optional `has_planes`). Further kinds plug in through `SOURCES`; `--sizes`
+is passed to loaders that render.
+
+**Options.** `--holdout GROUP ...` (leave groups out), `--eval GROUP ...` (measure on them), `--base` (channels, 16
+or 32), `--epochs`, `--seed`, `--out DIR`.
+
+**Outputs.** `DIR/jamohybrid.npz` (fp16 weights), `DIR/provenance.json` (every source with sha256 and licence, seed,
+epochs, the largest numpy-vs-torch probability difference), `DIR/eval.json`.
+
+**Third-party.** torch, numpy. **Test.** None (training only).
+
 ### `tools/jamoexc.py`
 
 **Purpose.** Write a LIST exception face: a jamo-set face plus whole glyphs and piece recombinations for chosen

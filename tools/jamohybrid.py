@@ -699,6 +699,21 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
     return out, layout, info
 
 
+def choose_point(infos, max_bytes=None, min_iou=None):
+    """Index of the ladder point to keep and why: the most accurate within @p max_bytes (else the smallest), or the
+    smallest whose composed IoU reaches @p min_iou (else the most accurate)."""
+    idx = range(len(infos))
+    if max_bytes is not None:
+        ok = [i for i in idx if infos[i]["bytes"] <= max_bytes]
+        if ok:
+            return max(ok, key=lambda i: (infos[i]["comp_iou"], -infos[i]["bytes"])), f"most accurate within {max_bytes} B"
+        return min(idx, key=lambda i: infos[i]["bytes"]), f"none within {max_bytes} B: the smallest"
+    ok = [i for i in idx if infos[i]["comp_iou"] >= min_iou]
+    if ok:
+        return min(ok, key=lambda i: infos[i]["bytes"]), f"smallest with IoU >= {min_iou}"
+    return max(idx, key=lambda i: infos[i]["comp_iou"]), f"none reaches IoU {min_iou}: the most accurate"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     src_g = ap.add_mutually_exclusive_group(required=True)
@@ -742,15 +757,8 @@ def main(argv=None):
         choice = dict(rule="fixed limits")
     else:
         pts = [build_face(src, model, a.rule, lim_, max_classes, a.big, jv, log) for lim_ in LADDER[a.big]]
-        if a.max_bytes is not None:
-            ok = [p for p in pts if p[2]["bytes"] <= a.max_bytes]
-            pick = max(ok, key=lambda p: p[2]["comp_iou"]) if ok else min(pts, key=lambda p: p[2]["bytes"])
-            why = f"most accurate within {a.max_bytes} B" if ok else f"none within {a.max_bytes} B: the smallest"
-        else:
-            ok = [p for p in pts if p[2]["comp_iou"] >= a.min_iou]
-            pick = min(ok, key=lambda p: p[2]["bytes"]) if ok else max(pts, key=lambda p: p[2]["comp_iou"])
-            why = f"smallest with IoU >= {a.min_iou}" if ok else f"none reaches IoU {a.min_iou}: the most accurate"
-        out, layout, info = pick
+        pick, why = choose_point([p[2] for p in pts], a.max_bytes, a.min_iou)
+        out, layout, info = pts[pick]
         choice = dict(rule=why, ladder=[dict(limits=p[2]["limits"], bytes=p[2]["bytes"], comp_iou=p[2]["comp_iou"])
                                         for p in pts])
     info["choice"] = choice

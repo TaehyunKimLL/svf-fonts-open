@@ -87,6 +87,19 @@ The desktop package bundles Electron/Chromium, CPython, Pillow, fontTools and th
 licences are listed in the package's THIRD-PARTY.txt (generated from the bundle by `desktop/build/third-party.mjs`,
 which fails on any unattributed library and on any GPL one). It contains no font that is not in `svf/`.
 
+## Model weights (`tools/models/`)
+
+`tools/models/jamohybrid-v1.npz` holds the weights of the jamo split model of `tools/jamohybrid.py`. It is under the MIT
+licence like the code. It is listed here separately because of what it was trained on:
+
+- bitmaps of proprietary fonts: Apple HangulTalk 7.1.2 jamo planes with the System 7.5.3 strikes of the same families
+  (Seoul, AppleMyungjo, AppleGothic), Apple HangulTalk 1.0 fonts (Gotic, Munjo), and the Windows 95 Gulim bitmap strikes;
+- the open jamo-set faces of `svf/` (OFL-1.1; SANS8J also MIT).
+
+No font bitmap is included in this repository. [tools/models/jamohybrid-v1.md](tools/models/jamohybrid-v1.md) lists
+every training source with its sha256, the training script, the seed and the evaluation. Licence questions about using
+the weights are the user's responsibility, as with the fonts used in this project.
+
 ## Converters for proprietary formats
 
 Some tools read font formats of commercial systems: `tools/macfbit3.py` and `tools/macfbit_svf.py` (classic Mac

@@ -86,6 +86,19 @@ Paperlogy는 폰트 파일에 OFL을 명시한다. 페이스 여섯 개(`NGOTB17
 패키지의 THIRD-PARTY.txt에 나열된다(`desktop/build/third-party.mjs`가 번들로부터 생성하며,
 출처 표시가 없는 라이브러리와 GPL 라이브러리가 있으면 실패한다). `svf/`에 없는 폰트는 포함하지 않는다.
 
+## 모델 가중치 (`tools/models/`)
+
+`tools/models/jamohybrid-v1.npz`는 `tools/jamohybrid.py`가 쓰는 자모 분리 모델의 가중치다. 코드와 같이 MIT 라이선스를 따른다.
+학습 자료 때문에 여기에 따로 적는다.
+
+- 독점 글꼴의 비트맵: 애플 HangulTalk 7.1.2 자모 판과 같은 계열의 System 7.5.3 스트라이크(서울, AppleMyungjo, AppleGothic),
+  애플 HangulTalk 1.0 글꼴(Gotic, Munjo), 윈도 95 굴림 비트맵 스트라이크.
+- `svf/`의 열린 조합형 페이스(OFL-1.1. SANS8J는 MIT도).
+
+이 저장소에는 글꼴 비트맵이 들어 있지 않다. [tools/models/jamohybrid-v1.md](tools/models/jamohybrid-v1.md)에 학습 원본마다
+sha256, 학습 스크립트, 시드, 평가를 적었다. 가중치 사용에 관한 라이선스 문제는 이 프로젝트에서 쓰는 글꼴과 마찬가지로
+사용자의 책임이다.
+
 ## 독점 형식 변환기
 
 일부 도구는 상용 시스템의 폰트 형식을 읽는다. `tools/macfbit3.py`와 `tools/macfbit_svf.py`(클래식 Mac

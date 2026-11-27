@@ -127,7 +127,7 @@ def predict(model, pre, jamo, batch=64):
     out = []
     for i in range(0, len(x), batch):
         logit = model.forward(x[i:i + batch, None], n.asarray(jamo[i:i + batch], n.int64))
-        out.append(1 / (1 + n.exp(-logit)))
+        out.append(1 / (1 + n.exp(-n.clip(logit, -60, 60))))
     prob = from_canvas(n.concatenate(out), h, w, geom).astype(n.float32)
     ink = pre.astype(bool)
     prop = (prob > 0.5) & ink[:, None]
