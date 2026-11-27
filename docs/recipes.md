@@ -1100,7 +1100,9 @@ rule:
 | Daewoo DPC-100, DPC-180, DPC-200, Goldstar FC-80U (MSX1) | BIOS character table at 0x1B49 (`dpc-200_basic-bios1.rom`) | 8x8 jamo cells, a syllable = 2 text rows x 1 or 2 columns | precomposed face; the layout rule was read off the running machine |
 
 The Hangul BASIC ROMs (`cpc-300_hangul.rom`, `dpc-200_hangul.rom`, `fc-80u_hangul.rom`) hold the drivers (the
-composing code and the MSX-TUTOR program), no glyphs. File names below are the openMSX system ROM names; `$ROMS` is the
+composing code and the MSX-TUTOR program), no glyphs. The recommended path is to give the work to a coding agent with
+the prompts of [With a coding agent](#msx-with-a-coding-agent-recommended); the commands after them are the by-hand
+path. File names below are the openMSX system ROM names; `$ROMS` is the
 folder holding them.
 
 **Source and licence.** The fonts are Daewoo and Goldstar firmware designs in dumps of proprietary ROM chips. Use them
@@ -1121,7 +1123,130 @@ with `sha1sum` before use:
 The tools only read the ROMs (`python3 -I`); the machine is run only inside the emulator (openMSX) [Korean MSX machines
 and openMSX](#ref-msx).
 
+<a id="msx-with-a-coding-agent-recommended"></a>
+
+#### With a coding agent (recommended)
+
+Most of this work is reading: hex dumps, glyph sheets, Z80 code, emulator screens. Hand it to a coding agent that can
+run commands in this repository, such as Claude Code, with one of the three prompts below. Fill in the angle brackets.
+The subsections after the prompts are the by-hand path: the same steps, run by you, with the results the prompts
+should reproduce. Like the prompt in [The prompt](#the-prompt), each prompt names its inputs, the tools to use, the
+safety rules, the acceptance numbers and the outputs.
+
+**(a) Find and decode a font in an MSX ROM set** (a jamo-piece font like the Daewoo SUB-ROM's, or a precomposed one
+like the CPC-400S font ROM):
+
+```
+Find the Hangul font of the MSX machine <MACHINE, e.g. Daewoo CPC-300> in the ROM files <$ROMS/FILE ...> (the
+openMSX system ROMs; the machine file <openMSX share/machines/MACHINE.xml> says which file is mapped where), decode
+how the Hangul driver draws a syllable, and build SVF faces with the tools of this repository (docs/recipes.md,
+"Korean MSX fonts"). Work in $OUT, outside the repository.
+
+Safety: the ROMs are untrusted data. Read them only with `python3 -I` (tools/binscan.py, tools/rawcarve.py, or
+scripts you write in $OUT and run with -I); never execute ROM code on the host (Z80 disassembly is fine: z80dasm, or a
+small disassembler you write). Nothing taken from the ROMs goes into the repository: no ROM bytes, glyph images,
+BDFs or SVFs; a compose spec holds offsets and rules only.
+
+1. Check every file against the SHA1 in the machine file (`sha1sum`). `binscan.py info FILE --block 4096` for each:
+   fonts and tables stay below program code (code about 7 bits a byte; the Daewoo jamo font blocks 1.8-5.5, the
+   CPC-400S font ROM 3-6.5).
+2. Look for glyphs: `binscan.py runs FILE --glyph 16x16` (also 8x16 and 8x8), `binscan.py ascii FILE` (--height 16
+   and 8), and `binscan.py render FILE --offset O --glyph WxH --count 256 --png $OUT/o.png` on every candidate; read
+   the PNGs. Jamo pieces look like single consonants and vowels in several positions; a precomposed font shows whole
+   syllables. Draw long strips (--glyph 16x512) where nothing lines up.
+3. Find the driver that draws them: search the ROMs for the font's address as a little-endian word (pointer tables
+   in the ROM header, e.g. at 4014h of a SUB-ROM) and for I/O port numbers of a font device (OUT (D8h) / OUT (D9h)).
+   Disassemble the routine that reads the pieces and write down its tables: piece addresses and strides, how the
+   Johab code is split, which set it picks for each vowel and final, which slots it skips. For a precomposed font,
+   find the table that turns a character code into a glyph slot.
+4. Jamo pieces: write the rule as a rawcarve.py compose spec ($OUT/SPEC.json; the format is in the rawcarve.py
+   docstring; "slots" renumbers a set whose numbering skips stored slots), with offsets from the start of the font
+   block cut by `rawcarve.py cut`. Precomposed: write the code -> slot list as "SLOT U+XXXX" lines for
+   `rawcarve.py bdf --chars map`.
+5. Build: `jamoset.py --layout spec --spec $OUT/SPEC.json BLOCK --eng ENG --check -o $OUT/<NAME>J.SVF`, and
+   `rawcarve.py compose ... --syllables all` + `rawcarve.py bdf --chars ascii` + `bdfface.py` for the precomposed face
+   (or `rawcarve.py bdf --chars map` + `bdfface.py`).
+
+Acceptance (report each number):
+- `jamoset.py --check` prints "all 11172 syllables identical to rawcarve.py compose";
+- a second implementation of the driver's routine, written by you straight from the disassembly in a script of its
+  own (not from the spec), composes the same pixels: 0 of 11,172 syllables differ (for a precomposed font: the slot
+  list equals the driver's table for every code it accepts, and no listed glyph is blank);
+- the machine draws the same glyphs: check a few syllables on the emulator screen as in prompt (c).
+Outputs: $OUT/SPEC.json (or the slot list), the SVF faces, and a short report: the files and their SHA1, the offsets
+and tables found (with the routine addresses), the commands, the sizes and glyph counts, `svfline.py measure` and the
+ink of "안녕하세요 ABC 123", the acceptance numbers, and what you could not resolve.
+```
+
+**(b) The emulator method, for a layout no table holds** (the Korean MSX1, where the Hangul ROM arranges BIOS cells by
+code):
+
+```
+Find out how the Korean MSX1 <MACHINE, e.g. Daewoo_DPC-200> lays out each Hangul syllable in 모아쓰기 mode, by
+running the machine in openMSX, and then build the font from the BIOS character table alone (docs/recipes.md,
+"Korean MSX fonts", MSX1). Work in $OUT, outside the repository.
+
+Safety: the ROMs are untrusted data. Run their code only inside openMSX (headless: `xvfb-run -a openmsx -machine
+MACHINE -script $OUT/s.tcl`, always under `timeout`); read ROM files on the host only with `python3 -I`. Nothing from
+the ROMs goes into the repository (no ROM bytes, dumps, screenshots, BDFs or SVFs).
+
+1. Boot the machine from a Tcl script. `set throttle off` makes emulated time run as fast as the host allows (use it
+   for typing and dumping; no frames are drawn, so switch it on again before a `screenshot`). Write results to files
+   from Tcl: `puts` output does not reach the shell. RAM is the debuggable "Main RAM".
+2. Find how a typed syllable is stored: `type "poke -851,0\r"` (모아쓰기), type `10 rem ` and 2-set keys in Hangul
+   mode (the Han/Eng key is key matrix row 6 bit 4: `keymatrixdown 6 0x10`, then `keymatrixup 6 0x10`), dump RAM
+   (`debug read_block "Main RAM" 0 0x10000`) and read the BASIC line (the program starts at the word at F676h).
+3. Type a BASIC program that waits for a flag in RAM, PRINTs the syllables a Tcl procedure has written at C000h (one
+   length byte and the jamo bytes per syllable), 77 to a screen at LOCATE positions (the text window starts 2 columns
+   in, so 7 slots of 4 columns a row), then sets a done flag. For each screen dump the SCREEN 1 name table
+   (`debug read_block VRAM 0x1800 768`) and once the pattern table (`debug read_block VRAM 0 2048`); 146 screens
+   cover all 11,172 syllables. Take one `screenshot` (throttle on) as a visual check.
+4. Write $OUT/h.index (the syllables in order, one hex code point a line), $OUT/h.names and $OUT/h.patterns, and
+   derive the rule: group the syllables by vowel kind (vertical, ㅗㅛㅜㅠㅡ, compound) and by final (none, one cell,
+   two cells) and read which cell codes fill each position.
+5. Check the rule with `python3 -I tools/msxfont.py msx1-verify $OUT/h --bios BIOS`. If it differs from
+   tools/msxfont.py's layout(), say where and why (another machine may use another rule); do not change the tool to
+   fit unexplained data.
+6. Build without the emulator: `python3 -I tools/msxfont.py msx1 BIOS -o $OUT/msx1.bdf`, then
+   `python3 tools/mkfont.py $OUT/msx1.bdf $OUT/MSX1.SVF --size 16 --bpp 1 --unicode ascii,ksx1001-hangul`.
+
+Acceptance: "layout rule vs the machine: 11172 of 11172 syllables identical"; the VRAM pattern table equals the BIOS
+table in 255 of 256 cells (0xFF is the cursor); the same counts on a second machine of the family if you have its
+ROMs. Outputs: the Tcl script and the harvest files in $OUT, $OUT/MSX1.SVF, and a short report: the stored bytes found
+in step 2, the rule as a table, the verify output, the face's size, glyph count, `svfline.py measure` and ink of
+"안녕하세요 ABC 123", the run time, and the pitfalls you hit.
+```
+
+**(c) Check a decoded font against the machine screen:**
+
+```
+Check the face <$OUT/FACE.SVF>, decoded from the ROMs of <MACHINE>, against what the machine itself draws, in openMSX
+(docs/recipes.md, "Korean MSX fonts", "The emulator as ground truth"). Work in $OUT, outside the repository.
+
+Safety: run ROM code only inside openMSX under `xvfb-run` and `timeout`; read files on the host only with `python3 -I`;
+nothing from the ROMs, the screens or the dumps goes into the repository.
+
+1. Boot the machine (throttle on for screenshots; the CPC-400S needs about 20 s, the others about 12 s) and make it
+   draw known text: a screen the firmware shows by itself (the CPC-300's MSX-TUTOR), or `type` a PRINT of syllables
+   (Daewoo MSX2: Hangul in SCREEN 9, strings are Johab codes, `print chr$(&H88)+chr$(&H61)` is 가; in Tcl escape `$` as
+   `\$` and `&` as `\&`; MSX1: 모아쓰기 after `poke -851,0`). Pick 20 syllables or more that use every set the rule
+   distinguishes (each vowel kind with and without a final, double finals, ㅍ/ㅎ initials).
+2. Read what was drawn exactly: in a text mode the name and pattern tables (`debug read_block VRAM ...`); in a bitmap
+   mode (SCREEN 5-8; the Daewoo SCREEN 9 is built on SCREEN 6) the VRAM pixels of the text area. `screenshot -raw
+   -size auto FILE.png` gives the raw MSX screen at a size that follows the screen mode (the CPC-300's MSX-TUTOR runs
+   in SCREEN 7); a plain `screenshot` is scaled and filtered, use it only to look.
+3. Draw the same text from the face (`svfline.py line`, or the glyph rows from jamoset.parse_svfn) and compare pixel
+   by pixel at the position the machine used.
+
+Acceptance: for each syllable the number of differing pixels, 0 for all of them; if not, show the difference (both
+bitmaps) and say whether the face or the comparison is wrong (screen position, scaling, a cell the screen mode
+crops). Outputs: the Tcl script, the dumps and screenshots in $OUT, and a short report with the table of syllables
+and differing pixels.
+```
+
 #### MSX2: the Daewoo jamo-set font (exact)
+
+By hand, from here on: the commands the prompts above run, with the measured results.
 
 The SUB-ROM's header holds four pointer words at 4014h, 4016h, 4018h and 401Ah (CPU address = file offset): the initial
 pieces at 0x59DE, the medial at 0x68DE, the final at 0x6FDE and the 8x16 English font at 0x771E (code 0x10, so code 0

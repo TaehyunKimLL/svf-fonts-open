@@ -1030,7 +1030,8 @@ experimental)를 위의 명령으로 만든다. `SVF_MAKER_REAL_86BOX`가 내려
 | 대우 DPC-100, DPC-180, DPC-200, 금성 FC-80U (MSX1) | BIOS 문자 표 0x1B49(`dpc-200_basic-bios1.rom`) | 8x8 자모 셀, 음절 하나 = 텍스트 2행 x 1열 또는 2열 | 완성형 페이스. 배치 규칙은 실행 중인 기계에서 읽었다 |
 
 한글 BASIC ROM(`cpc-300_hangul.rom`, `dpc-200_hangul.rom`, `fc-80u_hangul.rom`)에는 드라이버(조합 코드와 MSX-TUTOR 프로그램)가 있고
-글리프는 없다. 아래 파일 이름은 openMSX 시스템 ROM의 이름이고, `$ROMS`는 그 파일들이 든 폴더다.
+글리프는 없다. 권장하는 길은 [코딩 에이전트로](#msx-코딩-에이전트로-권장)의 프롬프트로 코딩 에이전트에게 맡기는 것이고, 그 뒤의
+명령은 손으로 하는 길이다. 아래 파일 이름은 openMSX 시스템 ROM의 이름이고, `$ROMS`는 그 파일들이 든 폴더다.
 
 **출처와 라이선스.** 이 폰트들은 독점 ROM 칩의 덤프에 든 대우와 금성의 펌웨어 디자인이다. 연구용으로만 쓰며, `svf/`의 페이스는
 이것으로 만들지 않는다. openMSX 시스템 ROM 묶음은 file-hunter의 내려받기 서버(폴더 `System ROMs/RomDB SystemROMs OpenMSX`)에 있다.
@@ -1048,7 +1049,108 @@ SHA1이 있으니, 쓰기 전에 `sha1sum`으로 확인한다.
 
 도구는 ROM을 읽기만 한다(`python3 -I`). 기계는 에뮬레이터(openMSX) 안에서만 돌린다([한국 MSX 기종과 openMSX](#ref-msx) 참고).
 
+<a id="msx-코딩-에이전트로-권장"></a>
+
+#### 코딩 에이전트로 (권장)
+
+이 일은 대부분 읽기다: 헥스 덤프, 글리프 시트, Z80 코드, 에뮬레이터 화면. 이 저장소에서 명령을 실행할 수 있는 코딩 에이전트(Claude
+Code 같은)에게 아래 세 프롬프트 가운데 하나로 맡긴다. 꺾쇠 안은 직접 채운다. 프롬프트 다음의 절들은 손으로 하는 길이다: 같은 단계를
+직접 실행하는 명령과, 프롬프트가 다시 얻어야 할 결과가 있다. [프롬프트](#프롬프트)처럼 각 프롬프트는 입력, 쓸 도구, 안전 규칙,
+합격 수치, 출력을 적는다.
+
+**(a) MSX ROM 묶음에서 폰트를 찾아 풀기** (대우 SUB-ROM 같은 자모 조각 폰트, 또는 CPC-400S 폰트 ROM 같은 완성형):
+
+```
+ROM 파일 <$ROMS/FILE ...>(openMSX 시스템 ROM. 기종 파일 <openMSX share/machines/MACHINE.xml>에 어느 파일이 어디에
+놓이는지 있다)에서 MSX 기종 <MACHINE, 예: Daewoo CPC-300>의 한글 폰트를 찾고, 한글 드라이버가 음절을 어떻게 그리는지 풀어서,
+이 저장소의 도구로 SVF 페이스를 만들어라(docs/recipes.ko.md, "한국 MSX 폰트"). 작업은 저장소 밖의 $OUT에서 한다.
+
+안전: ROM은 신뢰할 수 없는 데이터다. `python3 -I`로만 읽는다(tools/binscan.py, tools/rawcarve.py, 또는 $OUT에 직접 쓴
+스크립트를 -I로). ROM 코드를 호스트에서 실행하지 않는다(Z80 역어셈블은 괜찮다: z80dasm, 또는 직접 쓴 작은 역어셈블러).
+ROM에서 얻은 것은 저장소에 넣지 않는다: ROM 바이트, 글리프 그림, BDF, SVF 모두. compose 명세에는 오프셋과 규칙만 있다.
+
+1. 모든 파일을 기종 파일의 SHA1과 대조한다(`sha1sum`). 파일마다 `binscan.py info FILE --block 4096`: 폰트와 표는 프로그램 코드보다
+   낮다(코드는 바이트당 약 7비트, 대우 자모 폰트 블록은 1.8-5.5, CPC-400S 폰트 ROM은 3-6.5).
+2. 글리프를 찾는다: `binscan.py runs FILE --glyph 16x16`(8x16, 8x8도), `binscan.py ascii FILE`(--height 16과 8), 그리고 후보마다
+   `binscan.py render FILE --offset O --glyph WxH --count 256 --png $OUT/o.png`. PNG를 읽는다. 자모 조각은 여러 자리의 낱자로
+   보이고, 완성형은 온전한 음절로 보인다. 맞는 것이 없으면 긴 띠(--glyph 16x512)를 그린다.
+3. 그것을 그리는 드라이버를 찾는다: 폰트 주소를 리틀 엔디언 워드로 검색하고(ROM 머리의 포인터 표, 예: SUB-ROM의 4014h), 폰트
+   장치의 I/O 포트(OUT (D8h) / OUT (D9h))를 검색한다. 조각을 읽는 루틴을 역어셈블하고 그 표를 적는다: 조각 주소와 간격, 조합형
+   코드를 나누는 방법, 모음과 받침마다 고르는 벌, 건너뛰는 칸. 완성형이면 문자 코드를 글리프 슬롯으로 바꾸는 표를 찾는다.
+4. 자모 조각: 규칙을 rawcarve.py compose 명세($OUT/SPEC.json. 형식은 rawcarve.py의 docstring. "slots"는 번호가 저장된 칸을
+   건너뛰는 벌의 번호를 다시 매긴다)로 쓰고, 오프셋은 `rawcarve.py cut`으로 잘라 낸 폰트 블록의 시작에서 잰다. 완성형:
+   코드 -> 슬롯 목록을 `rawcarve.py bdf --chars map`용 "SLOT U+XXXX" 줄로 쓴다.
+5. 만든다: `jamoset.py --layout spec --spec $OUT/SPEC.json BLOCK --eng ENG --check -o $OUT/<NAME>J.SVF`, 완성형 페이스는
+   `rawcarve.py compose ... --syllables all` + `rawcarve.py bdf --chars ascii` + `bdfface.py`(또는 `rawcarve.py bdf --chars map`
+   + `bdfface.py`).
+
+합격(수치를 하나씩 보고한다):
+- `jamoset.py --check`가 "all 11172 syllables identical to rawcarve.py compose"를 찍는다.
+- 명세가 아니라 역어셈블에서 바로, 따로 된 스크립트로 드라이버 루틴을 한 번 더 구현해서 같은 픽셀을 얻는다: 11,172자 가운데
+  다른 음절 0(완성형이면: 드라이버가 받는 모든 코드에서 슬롯 목록이 드라이버의 표와 같고, 목록의 글리프 가운데 빈 것이 없다).
+- 기계도 같은 글리프를 그린다: 프롬프트 (c)처럼 에뮬레이터 화면에서 몇 음절을 확인한다.
+출력: $OUT/SPEC.json(또는 슬롯 목록), SVF 페이스, 짧은 보고: 파일과 SHA1, 찾은 오프셋과 표(루틴 주소와 함께), 명령, 크기와
+글리프 수, "안녕하세요 ABC 123"의 `svfline.py measure`와 잉크, 합격 수치, 풀지 못한 것.
+```
+
+**(b) 표로 남아 있지 않은 배치를 위한 에뮬레이터 방법** (한글 ROM이 코드로 BIOS 셀을 배치하는 한국 MSX1):
+
+```
+한국 MSX1 <MACHINE, 예: Daewoo_DPC-200>이 모아쓰기 모드에서 한글 음절을 어떻게 배치하는지 openMSX에서 기계를 돌려 알아내고,
+그 뒤 BIOS 문자 표만으로 폰트를 만들어라(docs/recipes.ko.md, "한국 MSX 폰트", MSX1). 작업은 저장소 밖의 $OUT에서 한다.
+
+안전: ROM은 신뢰할 수 없는 데이터다. 그 코드는 openMSX 안에서만 실행한다(화면 없이: `xvfb-run -a openmsx -machine MACHINE
+-script $OUT/s.tcl`, 언제나 `timeout`과 함께). 호스트에서는 ROM 파일을 `python3 -I`로만 읽는다. ROM에서 얻은 것은 저장소에
+넣지 않는다(ROM 바이트, 덤프, 스크린샷, BDF, SVF 모두).
+
+1. Tcl 스크립트로 기계를 켠다. `set throttle off`이면 에뮬레이션 시간이 호스트가 허락하는 만큼 빨리 간다(입력과 덤프에 쓴다.
+   프레임을 그리지 않으므로 `screenshot` 전에는 다시 켠다). 결과는 Tcl에서 파일로 쓴다: `puts` 출력은 셸에 오지 않는다.
+   RAM의 디버그 이름은 "Main RAM"이다.
+2. 입력한 음절이 어떻게 저장되는지 찾는다: `type "poke -851,0\r"`(모아쓰기), `10 rem `과 한글 모드의 두벌식 키를 친다(한/영 키는
+   키 행렬 6행 비트 4: `keymatrixdown 6 0x10`, 이어서 `keymatrixup 6 0x10`). RAM을 덤프하고(`debug read_block "Main RAM" 0
+   0x10000`) BASIC 줄을 읽는다(프로그램은 F676h의 워드가 가리키는 곳에서 시작한다).
+3. BASIC 프로그램을 친다: RAM의 깃발을 기다리고, Tcl 프로시저가 C000h에 써 둔 음절(음절마다 길이 바이트와 자모 바이트)을 화면마다
+   77자씩 LOCATE 자리에 PRINT하고(텍스트 창이 2열 안쪽에서 시작하므로 한 행에 4열짜리 칸 7개), 끝 깃발을 놓는다. 화면마다 SCREEN 1
+   이름 표(`debug read_block VRAM 0x1800 768`)를, 한 번은 패턴 표(`debug read_block VRAM 0 2048`)를 덤프한다. 화면 146개가
+   11,172자를 모두 덮는다. 눈으로 확인할 `screenshot`을 하나 찍는다(throttle 켬).
+4. $OUT/h.index(음절 순서, 한 줄에 16진 코드 하나), $OUT/h.names, $OUT/h.patterns를 쓰고 규칙을 이끌어 낸다: 음절을 모음 종류(세로,
+   ㅗㅛㅜㅠㅡ, 겹모음)와 받침(없음, 셀 하나, 셀 둘)으로 모아서 자리마다 어떤 셀 코드가 오는지 읽는다.
+5. `python3 -I tools/msxfont.py msx1-verify $OUT/h --bios BIOS`로 규칙을 확인한다. tools/msxfont.py의 layout()과 다르면 어디가 왜
+   다른지 말한다(다른 기종은 다른 규칙을 쓸 수 있다). 설명되지 않은 데이터에 맞추려고 도구를 고치지 않는다.
+6. 에뮬레이터 없이 만든다: `python3 -I tools/msxfont.py msx1 BIOS -o $OUT/msx1.bdf`, 그리고
+   `python3 tools/mkfont.py $OUT/msx1.bdf $OUT/MSX1.SVF --size 16 --bpp 1 --unicode ascii,ksx1001-hangul`.
+
+합격: "layout rule vs the machine: 11172 of 11172 syllables identical". VRAM 패턴 표가 BIOS 표와 256셀 가운데 255셀에서 같다
+(0xFF는 커서). 같은 계열의 다른 기종 ROM이 있으면 그 기종에서도 같은 수치. 출력: $OUT의 Tcl 스크립트와 수집 파일, $OUT/MSX1.SVF,
+짧은 보고: 2단계에서 찾은 저장 바이트, 표로 적은 규칙, verify 출력, 페이스의 크기와 글리프 수, "안녕하세요 ABC 123"의
+`svfline.py measure`와 잉크, 걸린 시간, 겪은 함정.
+```
+
+**(c) 풀어 낸 폰트를 기계 화면과 대어 보기:**
+
+```
+<MACHINE>의 ROM에서 풀어 낸 페이스 <$OUT/FACE.SVF>를 openMSX에서 기계가 직접 그리는 것과 대어 보라(docs/recipes.ko.md, "한국 MSX
+폰트", "정답으로서의 에뮬레이터"). 작업은 저장소 밖의 $OUT에서 한다.
+
+안전: ROM 코드는 `xvfb-run`과 `timeout` 아래의 openMSX 안에서만 실행한다. 호스트에서는 파일을 `python3 -I`로만 읽는다. ROM,
+화면, 덤프에서 얻은 것은 저장소에 넣지 않는다.
+
+1. 기계를 켜고(스크린샷에는 throttle 켬. CPC-400S는 약 20초, 다른 기종은 약 12초) 알려진 글을 그리게 한다: 펌웨어가 스스로 보이는
+   화면(CPC-300의 MSX-TUTOR), 또는 음절 PRINT를 `type`한다(대우 MSX2: 한글은 SCREEN 9, 문자열은 조합형 코드, `print
+   chr$(&H88)+chr$(&H61)`은 가. Tcl에서 `$`는 `\$`, `&`는 `\&`로. MSX1: `poke -851,0` 뒤 모아쓰기). 규칙이 가르는 모든 벌을 쓰는
+   음절을 20자 이상 고른다(모음 종류마다 받침 있고 없음, 겹받침, 초성 ㅍ/ㅎ).
+2. 그려진 것을 정확히 읽는다: 텍스트 모드는 이름 표와 패턴 표(`debug read_block VRAM ...`), 비트맵 모드(SCREEN 5-8. 대우 SCREEN 9는
+   SCREEN 6 위에 만든 것)는 글이 있는 곳의 VRAM 픽셀. `screenshot -raw -size auto FILE.png`는 화면 모드에 따른 크기의 날 MSX
+   화면이다(CPC-300의 MSX-TUTOR는 SCREEN 7). 그냥 `screenshot`은 크기가 바뀌고 걸러지므로 보는 데만 쓴다.
+3. 같은 글을 페이스로 그리고(`svfline.py line`, 또는 jamoset.parse_svfn의 글리프 행) 기계가 쓴 자리에서 픽셀마다 비교한다.
+
+합격: 음절마다 다른 픽셀 수, 모두 0. 아니면 차이를 보이고(두 비트맵) 페이스가 틀렸는지 비교가 틀렸는지(화면 위치, 확대,
+화면 모드가 자르는 셀) 말한다. 출력: $OUT의 Tcl 스크립트, 덤프, 스크린샷, 그리고 음절과 다른 픽셀 수의 표가 든 짧은 보고.
+```
+
 #### MSX2: 대우 자모 세트 폰트(정확)
+
+여기서부터는 손으로 하는 길이다: 위 프롬프트가 실행하는 명령과 측정한 결과.
 
 SUB-ROM 머리의 4014h, 4016h, 4018h, 401Ah에 포인터 워드 네 개가 있다(CPU 주소 = 파일 오프셋): 초성 조각 0x59DE, 중성 0x68DE,
 종성 0x6FDE, 8x16 영문 폰트 0x771E(코드 0x10부터라서 코드 0은 0x761E. `binscan.py ascii`도 0x761e를 찾는다). 조각은 32바이트(16x16,
