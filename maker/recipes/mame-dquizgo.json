@@ -9,7 +9,7 @@
  "refs": [
   "MAME 0.289 src/mame/dataeast/tumbleb.cpp",
   "archive.org mame-roms-non-merged dquizgo.zip",
-  "docs/recipes.md#date-quiz-go-go-a-2350-syllable-sprite-font"
+  "docs/recipes/rom-mame.md#date-quiz-go-go-a-2350-syllable-sprite-font"
  ],
  "files": [
   {

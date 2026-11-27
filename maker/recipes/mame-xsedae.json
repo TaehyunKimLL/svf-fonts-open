@@ -9,7 +9,7 @@
  "refs": [
   "MAME 0.289 src/mame/seibu/raiden2.cpp",
   "archive.org mame-roms-non-merged xsedae.zip",
-  "docs/recipes.md#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check"
+  "docs/recipes/rom-mame.md#x-se-dae-quiz-taebaek-gothic16-in-the-sprites-a-cross-check"
  ],
  "files": [
   {

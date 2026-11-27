@@ -103,7 +103,7 @@ Python 공유 라이브러리 `libpython3.12t64`도 사용할 수 있어야 한�
    *무엇이 만들어지기 전에 세션마다 한 번 표시되는 안내.*
 
 4. 원하는 행의 **use** 상자를 체크한다(행은 그 폰트와 함께 라이선스 파일이 발견된 경우에만 미리 체크되며, DOS raw 폰트는 절대
-   미리 체크되지 않는다). 일괄 설정을 살펴보고(처음에는 프리셋 `plain`이면 충분하다) **run**을 누른다. 단계 표는 각 단계의 상태, 시간(seconds), stderr를 보여 준다(명령 자체는 출력 폴더의 `build-<id>/BUILD.md`에 기록되며, [recipes.ko.md](recipes.ko.md#데스크톱-앱과-maker-경로)가 각 경로를 그 명령줄에 대응시킨다).
+   미리 체크되지 않는다). 일괄 설정을 살펴보고(처음에는 프리셋 `plain`이면 충분하다) **run**을 누른다. 단계 표는 각 단계의 상태, 시간(seconds), stderr를 보여 준다(명령 자체는 출력 폴더의 `build-<id>/BUILD.md`에 기록되며, [recipes/desktop-routes.ko.md](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로)가 각 경로를 그 명령줄에 대응시킨다).
 
    ![실행 중인 작업의 단계 표: 완성형 단계 둘은 done이고 미리보기가 그려졌으며, 하나는 running, 나머지는 pending](images/maker/running.png)
 
@@ -316,7 +316,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 | bpp | 픽셀당 1비트 또는 2비트. 하나 또는 둘 다 체크한다. |
 | range | 포함할 문자 집합. |
 | preset | 이름 붙은 레시피(5절). "plain"은 도구의 기본값을 쓴다. |
-| also write TTF / BDF | 실행이 만드는 모든 페이스를 SVF 옆에 `<NAME>.ttf`(페이스의 픽셀을 아웃라인으로, 비트맵 strike를 내장한 TrueType 폰트)와/또는 `<NAME>.bdf`로도 쓴다. `tools/svf2ttf.py`가 만든다([recipes.ko.md](recipes.ko.md)의 "SVF 페이스를 TTF 비트맵 폰트로"). 기본은 꺼짐이며, 폰트의 override에서 그 폰트만 켜거나 끌 수 있다. **TTF as composites**(기본 꺼짐)는 자모 세트의 TTF를 `--composite`로 쓴다: 조각을 한 번씩 글리프로 두고 모든 음절을 그 조각의 합성 글리프로 만든다(레시피가 설명하듯 더 작다). 완성형 페이스의 TTF는 그대로이다. |
+| also write TTF / BDF | 실행이 만드는 모든 페이스를 SVF 옆에 `<NAME>.ttf`(페이스의 픽셀을 아웃라인으로, 비트맵 strike를 내장한 TrueType 폰트)와/또는 `<NAME>.bdf`로도 쓴다. `tools/svf2ttf.py`가 만든다([recipes/svf-and-ttf.ko.md](recipes/svf-and-ttf.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로)의 "SVF 페이스를 TTF 비트맵 폰트로"). 기본은 꺼짐이며, 폰트의 override에서 그 폰트만 켜거나 끌 수 있다. **TTF as composites**(기본 꺼짐)는 자모 세트의 TTF를 `--composite`로 쓴다: 조각을 한 번씩 글리프로 두고 모든 음절을 그 조각의 합성 글리프로 만든다(레시피가 설명하듯 더 작다). 완성형 페이스의 TTF는 그대로이다. |
 | advanced panel | 세부 컨트롤: cell, ascent, width, space advance, mono hint, clip cell, fit cell, Latin top, embolden, symbols, JSET version, header ascent, fit baseline, AA refine, clean noise, binarize(threshold, ridge, mono), Latin ascent, Hangul ascent. 여기의 값이 프리셋의 값보다 우선한다. 경로가 쓸 수 없는 컨트롤은 숨겨지거나 비활성화된다. |
 
 ### 3.5 상단 바의 버튼
@@ -337,7 +337,7 @@ Linux에서 패키지는 파일 하나 `svf-maker-<version>.AppImage`(약 133~13
 quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었고 무엇을 출력했는지 볼 수 있다. 페이스의 TTF / BDF는 페이스 바로
 뒤의 별도 단계(kind `export`)이다. 그 result 칸은 파일이 담은 글리프 수(다시 읽어 페이스의 문자와 대조한 것)와 쓰인 위치를 보여 주며,
 페이스 단계가 실패하면 그 export는 "face step failed"로 실패한다. 명령 자체는 이 표에 없다. 출력 폴더의
-`build-<id>/BUILD.md`가 무엇을 어떤 명령으로 실행했는지 나열한다([경로 표](recipes.ko.md#데스크톱-앱과-maker-경로)). 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
+`build-<id>/BUILD.md`가 무엇을 어떤 명령으로 실행했는지 나열한다([경로 표](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로)). 모든 결과 페이스는 렌더러가 캔버스에 그리므로 무엇이 만들어졌는지
 볼 수 있다. (캔버스에 잉크가 있다는 것은 저장소의 테스트가 단언하는 것이지 앱이 검사하는 것이 아니다.)
 
 페이스의 result 칸에는 자체 컨트롤이 있다: 표본 문장, 배율(1/1~4/1), 렌더 대상(GRAY8, MONO, RGB565), MONO 문턱값,
@@ -632,10 +632,10 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
   창이 그려졌으며 로컬 모드 변환이 패키지된 사이드카를 통해 실행되었다. 당시 미검증 범위는 창 관리자와 GPU가 있는 실제 데스크톱 및 Windows·macOS였다. Windows의 이후 상태는 다음 항목을 참고한다.
 - Windows NSIS·portable 빌드는 `windows-build` 브랜치에서 Actions를 통과했으며 main에는 아직 병합되지 않았다. macOS는 빌드하지 않았다. [플랫폼 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 참고한다.
 - TTF / BDF 내보내기: 각 파일을 다시 읽어(TTF는 fontTools로) 페이스의 문자를 정확히 담았는지 확인한다. 왕복 검사(TTF를
-  `mkfont.py`로 다시 구워 비교하는 것, recipes.ko.md)는 실행에 포함되지 않는다. 자모 세트에서는 수 분이 걸린다. 프로그램이 TTF의 2 bpp
+  `mkfont.py`로 다시 구워 비교하는 것, recipes/svf-and-ttf.ko.md)는 실행에 포함되지 않는다. 자모 세트에서는 수 분이 걸린다. 프로그램이 TTF의 2 bpp
   strike를 단계로 그리는지는 그 렌더러에 달렸다(Windows와 macOS는 테스트하지 않음).
 - 알려진 ROM 세트: 실제 파일과의 대조는 `SVF_MAKER_REAL_86BOX` / `SVF_MAKER_REAL_MAME`이 사용자 자신의 사본을 가리킬 때만 한다(모든 페이스가
-  recipes.ko.md에 기록된 크기). 테스트는 OFL 페이스로 그린 합성 ROM을 쓴다.
+  recipes/rom-86box.ko.md와 recipes/rom-mame.ko.md에 기록된 크기). 테스트는 OFL 페이스로 그린 합성 ROM을 쓴다.
 - 마스크 맞춤 명령줄 레시피의 실행 기록은 [레시피](recipes.ko.md)에 있다. 이 기록만으로 maker의
   `mask fit` 전체 실행이 검증되는 것은 아니다. 정체성 검사는 스텁으로만 테스트했으며 `vector fit`은 폰트당 수 분이 걸릴 수 있다.
 - 검증하지 않았으며 실제 데스크톱에서 수동으로 점검해야 한다: 디스플레이가 있는 네이티브 대화상자, 파일 관리자 연동,

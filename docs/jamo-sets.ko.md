@@ -212,9 +212,9 @@ flowchart LR
 ```mermaid
 flowchart LR
   A["1987<br/>KS C 5601-1987 완성형<br/>(HWP 1.20 SAMPLE.HWP가 언급,<br/>notes/hwp1.md)"]
-  B["1987<br/>Samsung SPC-1500<br/>자모 세트 ROM<br/>(docs/recipes.md)"]
+  B["1987<br/>Samsung SPC-1500<br/>자모 세트 ROM<br/>(docs/recipes/rom-mame.ko.md)"]
   C["1988<br/>Mac HangulTalk 1.0<br/>fbit 45벌<br/>(notes/mac.md)"]
-  D["1989<br/>NKP Hercules TSR<br/>(docs/recipes.md)<br/>1989-1990 HWP 1.x"]
+  D["1989<br/>NKP Hercules TSR<br/>(docs/recipes/programs-and-drivers.ko.md)<br/>1989-1990 HWP 1.x"]
   E["1992<br/>KS C 5601-1992 부속서 3<br/>조합형"]
   F["1994<br/>IBM HBIOS V3.0<br/>8x4x4 + 완성형<br/>(notes/os.md)"]
   A --> B --> C --> D --> E --> F
@@ -415,7 +415,7 @@ flowchart TD
 뒤(벌 0, 2)와 그 밖(벌 1, 3)의 비트맵이 같고, ㅗ는 다르다. 종성 ㄱ은 벌 1과 3이 같은 비트맵이다. 같은 비트맵이어도 조각 번호는
 따로이며, 344 조각 중 서로 다른 비트맵은 283개이다(`jamoset.unpack`으로 비교).*
 
-8x4x4 파일 안의 배치(`notes/hanme-dokkaebi.md` 2절, [docs/recipes.ko.md](recipes.ko.md) "그 밖의 DOS 시대 한글 폰트"): 360 슬롯이며,
+8x4x4 파일 안의 배치(`notes/hanme-dokkaebi.md` 2절, [docs/recipes/dos-fonts.ko.md](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) "그 밖의 DOS 시대 한글 폰트"): 360 슬롯이며,
 각 벌의 0번 슬롯은 빈 칸이다.
 
 ```
@@ -430,23 +430,23 @@ flowchart TD
 | 체계 | 초성 / 중성 / 종성 벌 | 조각(파일 슬롯) | 파일 크기 (바이트) | 선택에 쓰는 것 | 출처 |
 |---|---|---:|---:|---|---|
 | 8x4x4 (DOS 원시 `HANGUL.FNT`, 태백 `GOTHIC16.FNT`, Dokkaebi `DKBBG`, HBIOS `$KGOZN16`) | 8 / 4 / 4 | 360 | 11,520 (16 px) | 초성: 모음 5종(받침 없음) 또는 3종(받침 있음); 중성: ㄱㅋ x 받침; 종성: 모음 4종 | `notes/dos.md`, `notes/hanme-dokkaebi.md` 2절, `jamoset.py` `_844` |
-| 8x4x4 IHNM | 8 / 4 / 4 | 360 | 11,520 | ㄱㅋ 중성 벌이 뒤바뀜 | [docs/recipes.ko.md](recipes.ko.md) `844-ihnm` |
+| 8x4x4 IHNM | 8 / 4 / 4 | 360 | 11,520 | ㄱㅋ 중성 벌이 뒤바뀜 | [docs/recipes/dos-fonts.ko.md](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) `844-ihnm` |
 | 10x4x4 (san 1.0) | 10 / 4 / 4 | 400 | 12,800 | 초성: 받침 없을 때의 5벌을 받침 있을 때도 따로 | `notes/dos.md`, `jamoset.py` `_san1044` |
 | 6x2x1 (Apple II 시대) | 6 / 2 / 1 | 192 | 6,144 | 초성: 모음 3종(세로, 가로, 섞임) x 받침; 중성: 받침; 종성 1벌 | `notes/apple2.md`, `jamoset.py` `_621` |
-| hanterm johab | 10 / (3 또는 4) / 4 | 529 글리프 | BDF | 종성 클래스 셋(없음, ㄴ, 그 밖) | [docs/recipes.ko.md](recipes.ko.md) "hanterm", `jamoset.py` `_hanterm` |
+| hanterm johab | 10 / (3 또는 4) / 4 | 529 글리프 | BDF | 종성 클래스 셋(없음, ㄴ, 그 밖) | [docs/recipes/bitmap-fonts.ko.md](recipes/bitmap-fonts.ko.md#hanterm) "hanterm", `jamoset.py` `_hanterm` |
 | Dokkaebi 프린터 16/24 px | 7 / 2 / 2 | 240 (한 글자체) | 15,360 (두 글자체) | 초성: 모음 x 받침 | `notes/hanme-dokkaebi.md` 3절 |
 | Dokkaebi 프린터 40/48 px | 12 / 4 / 4 | 440 (한 글자체) | 176,000 (40 px), 253,440 (48 px), 파일마다 두 글자체 | | 같은 곳 |
 | 한메 한글 3.11 `HANME.FNT` | 5 / 2 / 3 | 218 | 6,976 (한 글자체) | 초성: 모음 5종; 중성: 받침; 종성: 모음 3종 | `notes/hanme-dokkaebi.md` 1절 |
-| Kyrandia `MK15.BIT` | 10 / 4 / 4 (자모 순 배치) | 385 | 11,550 (15x15) | 8x4x4 규칙, 초성 벌 = 2 x 모음 종류 + 받침 | [docs/recipes.ko.md](recipes.ko.md) `kyra-lok`, `jamoset.py` `_kyra` |
+| Kyrandia `MK15.BIT` | 10 / 4 / 4 (자모 순 배치) | 385 | 11,550 (15x15) | 8x4x4 규칙, 초성 벌 = 2 x 모음 종류 + 받침 | [docs/recipes/dos-fonts.ko.md](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) `kyra-lok`, `jamoset.py` `_kyra` |
 | HWP 1.x `HANGUL.SFT` | 10/4/4, 7/2/2, 6/2/2 (글자체별) | 1,193 (세 글자체) | | 초성 클래스(ㄱㅋ/그 밖), 받침, 모음 모양 15종 | `notes/hwp1.md` |
-| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 (210 사용) | 9,280 (SUB-ROM 안) | 초성: 모음 3종 x 받침; 종성: 모음 | [docs/recipes.ko.md](recipes.ko.md#한국-msx-폰트-msx2와-msx1) "한국 MSX 폰트" |
-| Samsung SPC-1500 | 6 / 2 / 2 (ROM에는 초성 8벌) | 210 | ROM 4개 | 초성: 모음 3종 x 받침 | [docs/recipes.ko.md](recipes.ko.md) "삼성 SPC-1500" |
-| NKP (Hercules TSR) | 8 / 2 (모양별로 넷으로 자름) / 1 | 잘린 조각 | | 초성: 모음 4종 x 받침 | [docs/recipes.ko.md](recipes.ko.md) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR" |
-| Mac HangulTalk 1.0 `fbit` | 45개 글리프 set; SVF로는 20 / 15 / 4, 8 x 4 클래스 | 688 (12 px) | | 'fdef' 코드의 18개 표 | `notes/mac.md` "Format 1", [docs/recipes.ko.md](recipes.ko.md) "클래식 Mac 한글 비트맵 폰트" |
+| Daewoo MSX CPC-300 | 6 / 2 / 2 | 234 (210 사용) | 9,280 (SUB-ROM 안) | 초성: 모음 3종 x 받침; 종성: 모음 | [docs/recipes/rom-msx.ko.md](recipes/rom-msx.ko.md#한국-msx-폰트-msx2와-msx1) "한국 MSX 폰트" |
+| Samsung SPC-1500 | 6 / 2 / 2 (ROM에는 초성 8벌) | 210 | ROM 4개 | 초성: 모음 3종 x 받침 | [docs/recipes/rom-mame.ko.md](recipes/rom-mame.ko.md#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확) "삼성 SPC-1500" |
+| NKP (Hercules TSR) | 8 / 2 (모양별로 넷으로 자름) / 1 | 잘린 조각 | | 초성: 모음 4종 x 받침 | [docs/recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#nkp-조각을-잘라-저장한-허큘리스-한글-tsr) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR" |
+| Mac HangulTalk 1.0 `fbit` | 45개 글리프 set; SVF로는 20 / 15 / 4, 8 x 4 클래스 | 688 (12 px) | | 'fdef' 코드의 18개 표 | `notes/mac.md` "Format 1", [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) "클래식 Mac 한글 비트맵 폰트" |
 | Mac HangulTalk 7.1.x `fbit` 유형 3 | 규칙 없음: 음절마다 표 항목 | 482 (2 뱅크 x 241) | 8,760 (`fbit`) | KS 2,350자 각각의 4바이트 항목 | `notes/mac.md` "HangulTalk 7.1.x" |
 
 벌의 수가 같아도 규칙은 시스템마다 다르다. NKP는 받침 있는 초성을 모음 모양 4종으로 나누는데 8x4x4는 3종으로 나눈다. 그래서
-NKP 글꼴을 8x4x4로 맞추면 IoU가 0.998에 그친다([docs/recipes.ko.md](recipes.ko.md) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR"). SPC-1500은 받침 없는 초성을 모음 모양 3종으로
+NKP 글꼴을 8x4x4로 맞추면 IoU가 0.998에 그친다([docs/recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#nkp-조각을-잘라-저장한-허큘리스-한글-tsr) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR"). SPC-1500은 받침 없는 초성을 모음 모양 3종으로
 나누는데 8x4x4는 5종으로 나눈다. 그래서 그 완성형을 8x4x4로 맞춘 결과는 IoU 0.987이다(같은 문서 "삼성 SPC-1500").
 SVF의 JSET이 어느 체계든 "자기 규칙 그대로" 담도록 만들어진 이유가 이것이다(4장).
 
@@ -455,7 +455,7 @@ SVF의 JSET이 어느 체계든 "자기 규칙 그대로" 담도록 만들어진
 ### 3.1 DOS 한글 프로그램과 게임
 
 - **원시 8x4x4 파일**은 머리말 없이 360 x 32바이트이다. 도구는 이런 파일을 크기로 알아본다. 11,520바이트(2바이트
-  머리말이 붙은 11,522), 24/40/48 px는 25,920 / 72,000 / 103,680바이트이다([docs/recipes.ko.md](recipes.ko.md) "그 밖의 DOS 시대 한글
+  머리말이 붙은 11,522), 24/40/48 px는 25,920 / 72,000 / 103,680바이트이다([docs/recipes/dos-fonts.ko.md](recipes/dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) "그 밖의 DOS 시대 한글
   폰트"). 한국 인디 DOS 게임도 대부분 같은 11,520바이트 8x4x4를 쓴다(`notes/games.md`).
 - **HWP 3.0 DOS**의 `HAN16_*.FNT`는 완성형 2,350자 뒤에 360 글리프 8x4x4 자모 세트를 붙였다. 24/40/96 px 파일은 완성형뿐이다
   (`notes/printer.md` 1).
@@ -463,15 +463,15 @@ SVF의 JSET이 어느 체계든 "자기 규칙 그대로" 담도록 만들어진
   더했다(`notes/os.md`).
 - **Dokkaebi**: `DKBBG.FNT`(15,584바이트)는 8x4x4 11,520바이트에 기호 127자를 붙였고, 드라이버 `DKBB.COM`의 오프셋 96에 같은
   바이트가 들어 있다(`notes/hanme-dokkaebi.md` 2절). 드라이버 안에서 글꼴을 직접 찾아 자모 세트로 만든다
-  ([docs/recipes.ko.md](recipes.ko.md) "도깨비: 드라이버 안의 폰트"). DKB3 형식(912 글리프)은 초성+중성 쌍을 미리 합쳐 두고 종성만 따로 OR한다. 조각을 덜 겹치는
+  ([docs/recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#도깨비-드라이버-안의-폰트) "도깨비: 드라이버 안의 폰트"). DKB3 형식(912 글리프)은 초성+중성 쌍을 미리 합쳐 두고 종성만 따로 OR한다. 조각을 덜 겹치는
   대신 글리프 수가 는다(같은 노트 2.1절).
 - **NKP**(Hercules TSR, 1989)의 조각은 셀 전체가 아니라 필요한 행만 잘라 저장한다. 그만큼 바이트를 아끼고, 조각마다 레코드에
-  "셀의 몇째 바이트부터"를 적어 둔다([docs/recipes.ko.md](recipes.ko.md) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR").
+  "셀의 몇째 바이트부터"를 적어 둔다([docs/recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#nkp-조각을-잘라-저장한-허큘리스-한글-tsr) "NKP: 조각을 잘라 저장한 허큘리스 한글 TSR").
 
 ### 3.2 한글 카드와 VGA BIOS ROM
 
 86Box ROM 모음의 한국어 VGA 카드 셋(Trigem, Kasan, ATI)은 각각 512 KB KS C 5601 글꼴 ROM을 갖는다. ROM은 32바이트 슬롯
-16,384개, 128 x 128 격자이다. 조합형이 아니라 **완성형 격자**이고 "가"는 슬롯 0x1821에 있다([docs/recipes.ko.md](recipes.ko.md) "한글 VGA 폰트
+16,384개, 128 x 128 격자이다. 조합형이 아니라 **완성형 격자**이고 "가"는 슬롯 0x1821에 있다([docs/recipes/rom-86box.ko.md](recipes/rom-86box.ko.md#한글-vga-폰트-rom-86box) "한글 VGA 폰트
 ROM (86Box)"). 이 프로젝트는 그 완성형을 8x4x4로 맞춰 자모 세트를 만들 수 있다. 하지만 조각의 OR와 다르게 그린 음절이 많아 IoU가
 0.968 / 0.872 / 0.919에 그친다. MS-DOS 6.22 한국어판은 반대다. 글꼴 파일 `HFONT.SYS`에 음절이 없고 HBIOS가 자기 자모 세트로
 조합한다(1.4절).
@@ -481,7 +481,7 @@ ROM (86Box)"). 이 프로젝트는 그 완성형을 8x4x4로 맞춰 자모 세�
 - **HangulTalk 1.0**(System 4.1)의 `fbit` 글꼴(Gotic12, Munjo12/16/24)은 45개 글리프 set을 담는다. 조합 규칙은 68k 'fdef' 드라이버의
   선택 표 18개이다(`notes/mac.md` "Format 1"). 이것은 규칙형이다. 이 프로젝트의 `--layout mac-fbit-45sets`는 그 규칙을 그대로
   JSET으로 옮긴다. Munjo24는 653 조각, 8 lead x 4 tail 클래스, 20/15/4 벌, 36,660바이트이고 11,172자가 모두 그 규칙과 같다
-  ([docs/recipes.ko.md](recipes.ko.md) "클래식 Mac 한글 비트맵 폰트").
+  ([docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) "클래식 Mac 한글 비트맵 폰트").
 - **HangulTalk 7.1.x**의 Seoul12, AppleGothic12/24, AppleMyungjo12/24는 `fbit` 유형 3이다. 글리프 482개(2 뱅크 x 241)가 있고
   **규칙이 없다**. `InputBackSupport`의 'HTBL' 1 자원에 KS 2,350자마다 4바이트 항목 `[bank][g1][g2][g3]`이 있다(`notes/mac.md`
   "HangulTalk 7.1.x"). 그래서 KS 밖의 8,822자는 이 글꼴로 조합할 수 없다. 벌 구조를 표에서 거꾸로 읽으면 초성 13벌(모음 종류 x
@@ -514,14 +514,14 @@ flowchart LR
 
 - **Samsung SPC-1500**(1987, MAME `spc1500`): 초성, 중성, 종성 조각이 ROM 세 개에 있고, MAME 드라이버가 세 조각을 **AND**한다.
   ROM은 반전되어 있다(0 비트가 잉크). 쓰이는 벌은 초성 6, 중성 2, 종성 2이고, JSET 하나(lead 클래스 1개, 6/2/2 벌)로 정확히
-  표현된다. 결과는 10,652바이트, 조각 210개이며 11,172자가 모두 MAME의 AND와 같다([docs/recipes.ko.md](recipes.ko.md) "삼성 SPC-1500").
+  표현된다. 결과는 10,652바이트, 조각 210개이며 11,172자가 모두 MAME의 AND와 같다([docs/recipes/rom-mame.ko.md](recipes/rom-mame.ko.md#삼성-spc-1500-반전된-rom-네-개의-자모-세트정확) "삼성 SPC-1500").
 - **Daewoo MSX CPC-300/400S**: MSX2 SUB-ROM의 위쪽 16 KB에 초성 6벌 x 20, 중성 2벌 x 28, 종성 2벌 x 29 조각이 있다. 선택 규칙은
   한글 BASIC ROM의 루틴 4DC4h에서 읽었다. compose 명세 `tools/specs/msx2-daewoo.json`이 그 규칙이고, JSET 하나(lead 클래스 1개,
-  6/2/2 벌)로 정확히 표현된다. 결과는 10,584바이트, 조각 210개다([docs/recipes.ko.md](recipes.ko.md#한국-msx-폰트-msx2와-msx1) "한국 MSX 폰트").
+  6/2/2 벌)로 정확히 표현된다. 결과는 10,584바이트, 조각 210개다([docs/recipes/rom-msx.ko.md](recipes/rom-msx.ko.md#한국-msx-폰트-msx2와-msx1) "한국 MSX 폰트").
   CPC-400S에는 256 KB 완성형 폰트 ROM도 있고, 한국 MSX1 기종은 실행 중인 기계에서 읽어 낸 배치 규칙으로 BIOS의 8x8 셀을 모아 음절을
   만든다(같은 절).
 - **OS/2 Warp 4 한국어판**의 시스템 DBCS 글꼴은 완성형(KS X 1001 전체)을 Huffman과 예측 부호로 압축해 담는다(`notes/os2-dbcs.md`).
-  이를 풀어 완성형 페이스로 만들고, 거기에 자모 세트를 맞춘다([docs/recipes.ko.md](recipes.ko.md) "OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기").
+  이를 풀어 완성형 페이스로 만들고, 거기에 자모 세트를 맞춘다([docs/recipes/os2.ko.md](recipes/os2.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기) "OS/2 한글 폰트(완성형)에서 완성형 페이스와 자모 세트 만들기").
 
 ## 4. SVF의 자모 세트: JSET 버전 1
 
@@ -705,7 +705,7 @@ C 렌더러에서는 `svf_jamo_pieces(&face, 0xD55C, pieces)`가 3을 돌려주�
 
 SANS8J는 iolo가 변환한 레거시 8x4x4 비트맵 글꼴을 SANS .fnt에서 `jamoset.py --layout 844 --check`로 변환한 것이다.
 다른 글꼴인 완성형 `NEODG16`과의 비교는 **글꼴 간 그림 예시**이다. KS 2,350자 중 274자가 정확히 같고 평균 IoU는 0.9498이다. 이는 SANS8J 변환 충실도를 측정한 값이 아니며 SANS8J와 같은 글꼴의 완성형 쌍은 제공되지 않는다. 아웃라인 글꼴의 8x4x4 맞춤은 원본과 다를 수 있다. NanumGothic Bold 16 px를
-8x4x4로 맞추면 IoU 0.795, 정확한 음절 126자였다([docs/recipes.ko.md](recipes.ko.md) "세트 수(벌 수) 정하기").
+8x4x4로 맞추면 IoU 0.795, 정확한 음절 126자였다([docs/recipes/sets.ko.md](recipes/sets.ko.md#벌-수-정하기) "세트 수(벌 수) 정하기").
 
 ![비교 예시: 완성형 NEODG16과 8x4x4 SANS8J](images/jamo-sets/precomposed.png)
 
@@ -793,7 +793,7 @@ mask를 하고, 조각마다 presence 비트의 popcount를 센다(`popcount(pre
 [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) "Before -> after JSET v1 + v2", rp2040js 125 MHz, MONO_PAGE `-Os`, 반복당 사이클이다. BASE는 변경 전
 main의 버전 1 리더이고, "v1 face"는 현재 빌드의 버전 1 페이스, "v2 copy"는 같은 페이스의 버전 2 사본이다. 페이스는 HGKEY6J
 (6x2x1, 공개판에 없음)이다. 8x4x4 SANS8J를 버전 2로 바꾸면 JSET이 1,101에서 272바이트로, 파일이 15,740에서 14,911바이트로
-준다([docs/recipes.ko.md](recipes.ko.md) "기존 SVF").
+준다([docs/recipes/svf-and-ttf.ko.md](recipes/svf-and-ttf.ko.md#기존-svf) "기존 SVF").
 
 | 경우 | BASE | v1 face | v2 copy | v2 vs BASE | v2 vs v1 face |
 |---|---:|---:|---:|---:|---:|
@@ -886,7 +886,7 @@ flowchart TD
 
 **통째 글리프와 예외.** LIST 항목의 `i`가 어떤 조각이고 `m = f = 0xFFFF`이면 그 조각 하나가 음절 전체이다. 완성형 셀을 그대로
 넣는 셈이다. `tools/jamoexc.py`는 자모 세트 페이스에 이런 예외(통째 글리프 `"whole"`, 또는 다른 조각 조합 `"pieces"`)를 최대
-255개 더한 LIST 페이스를 쓴다. 원래 JSET은 그대로 대체 블록이 된다(`tools/jamoexc.py` docstring). [docs/recipes.ko.md](recipes.ko.md) "세트 수(벌 수)
+255개 더한 LIST 페이스를 쓴다. 원래 JSET은 그대로 대체 블록이 된다(`tools/jamoexc.py` docstring). [docs/recipes/sets.ko.md](recipes/sets.ko.md#벌-수-정하기) "세트 수(벌 수)
 정하기"는 아웃라인 래스터처럼 8x4x4가 잘 맞지 않는 글꼴이라면 벌을 늘리기보다 "8x4x4 위에 LIST 예외 몇 개"를 고려하라고 권한다.
 
 `jamoexc.py build`가 하는 일(`tools/jamoexc.py`의 docstring과 `build`):
@@ -950,10 +950,10 @@ JSET이 쓰인다. `SVF_JMAP_RECOG` 빌드는 머리 규칙(플래그와 NS, 대
 
 ### 6.4 Seoul12: 같은 글꼴, 두 구조
 
-Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방식으로 SVF에 담아 비교할 수 있는 예이다. 아래 파일 크기는 [docs/recipes.ko.md](recipes.ko.md)의 "클래식 Mac 한글 비트맵 폰트"에 설명되어 있으며 프리셋 크기는 Uno 변환의 값이다.
+Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방식으로 SVF에 담아 비교할 수 있는 예이다. 아래 파일 크기는 [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트)의 "클래식 Mac 한글 비트맵 폰트"에 설명되어 있으며 프리셋 크기는 Uno 변환의 값이다.
 
 **이름 주의.** 이 절의 "SEOUL12J"는 Uno 프리셋의 **derived** 모드(규칙형, Latin 포함,
-12,624바이트) 페이스를 가리킨다. [docs/recipes.ko.md](recipes.ko.md) "클래식 Mac 한글 비트맵 폰트"의 명령 예는 같은 이름 `SEOUL12J.SVF`를
+12,624바이트) 페이스를 가리킨다. [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) "클래식 Mac 한글 비트맵 폰트"의 명령 예는 같은 이름 `SEOUL12J.SVF`를
 **direct** 출력(JMAP)에, `SEOUL12D.SVF`를 derived 출력에 붙인다. 아래 표는 "원본 구조"(direct)와 "SEOUL12J"(derived)로 나누어
 부르며, 크기는 Latin 유무를 맞추어 비교한다.
 
@@ -969,7 +969,7 @@ Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방�
 | 조합하는 음절 | KS 2,350자만 | 11,172자: KS 2,350 정확 + 4,630 regular + 4,192 추정(guessed) |
 | 만드는 도구 | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
 
-Latin 없는 두 크기와 Latin 포함 두 크기(15,016 / 9,716 / 17,924 / 12,624)는 [docs/recipes.ko.md](recipes.ko.md) "클래식 Mac 한글 비트맵 폰트"의 실행
+Latin 없는 두 크기와 Latin 포함 두 크기(15,016 / 9,716 / 17,924 / 12,624)는 [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) "클래식 Mac 한글 비트맵 폰트"의 실행
 결과이다. 구조 항목은 해당 변환의 블록 형태, 클래스, 벌, 조각 수, JSET 바이트와 regular / guessed 수를 나타낸다.
 
 **왜 규칙형으로 Mac 조각을 그대로 쓸 수 없었나.** Mac 표는 중성(과 종성 ㄱ ㄹ ㅇ)을 초성에 따라 아주 잘게 고른다. Mac 슬롯 하나하나를
@@ -1296,7 +1296,7 @@ flowchart TD
 1. 원본이 조각으로 그린 글꼴(DOS, ROM, 픽셀 글꼴)이면 **그 원래 체계 그대로** JSET v1로 옮긴다. 정확하고 표가 작다
    (SPC-1500 10,652바이트, 11,172자 모두 정확).
 2. 완성형에서 만든다면 먼저 8x4x4로 맞추고 IoU를 본다. 약 0.98 이상이면 8x4x4를 쓴다. 그보다 낮으면 `adaptive:12,8,6`을 시도하고,
-   아웃라인 래스터라면 완성형이나 LIST 예외가 대개 바이트를 더 잘 쓴다([docs/recipes.ko.md](recipes.ko.md) "세트 수(벌 수) 정하기").
+   아웃라인 래스터라면 완성형이나 LIST 예외가 대개 바이트를 더 잘 쓴다([docs/recipes/sets.ko.md](recipes/sets.ko.md#벌-수-정하기) "세트 수(벌 수) 정하기").
 3. 목표 예산이 정해져 있으면 넉넉하게 맞춘 뒤 `tools/jamomerge.py merge --points`로 예산까지 줄인다(Seoul 프리셋이 그렇게 만들어졌다).
 4. 대상 빌드가 그 형태를 읽는지 7.1절의 매트릭스로 확인한다. MCU에서 JMAP, LIST, BIG은 **기본으로 꺼져 있다.**
 5. 페이스를 열고 `svf_status`를 확인한다. 일반 페이스는 음절을 조합하지 못하지만 저장된 한글 글리프는 그릴 수 있다.
@@ -1310,7 +1310,7 @@ flowchart TD
 | [c/README.ko.md](../c/README.ko.md) "자모 세트: 각 빌드가 읽는 것" | 빌드 매트릭스 |
 | [docs/c-renderer-guide.ko.md](c-renderer-guide.ko.md) 10-13장 | 한글, 메모리, 스위치, 플랫폼 |
 | [c/cross/SIZES.md](../c/cross/SIZES.md), [c/bench/MEASUREMENTS.md](../c/bench/MEASUREMENTS.md) | 크기와 속도 측정 |
-| [docs/recipes.ko.md](recipes.ko.md) | 글꼴별 레시피와 "세트 수(벌 수) 정하기" |
+| [docs/recipes.ko.md](recipes.ko.md) | 글꼴별 레시피([레시피 문서](recipes.ko.md#레시피-문서) 색인)와 [벌 수 정하기](recipes/sets.ko.md) |
 | [docs/tools.ko.md](tools.ko.md) | `jamoset.py`, `macfbit_svf.py`, `jamoexc.py`, `jamomerge.py`, `doc_figures_jamo.py` |
 | [tools/jamoset.py](../tools/jamoset.py) | 벌 체계 표(`I844_*`, `F844`, `_844` 등), `pack`, `unpack`, `pieces_of` |
 | [렌더러 설계](../spec/renderer-design.ko.md) | 배치, 스케일링, 메모리 모델 |

@@ -54,13 +54,14 @@ Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설�
 | --- | --- |
 | [spec/SVF.ko.md](spec/SVF.ko.md) | SVFN v3 형식(헤더, 레이아웃 바이트, 테이블, 글리프 레코드, 프로파일, 자모 세트 JSET v1/v2, BIG, JMAP과 LIST, 글리프별 dy. v1과 v2는 폐기) |
 | `docs/STATUS.md` | 개발 상태: 구성 요소, 구현 이력, 기능·크기·속도, 한계와 검사 |
-| `docs/tools.ko.md` | 모든 도구: 목적, 입력, 출력, 옵션, 그리고 남은 빈틈. 레시피는 `docs/recipes.ko.md`에 있다 |
+| `docs/tools.ko.md` | 모든 도구: 목적, 입력, 출력, 옵션, 그리고 남은 빈틈. 레시피는 `docs/recipes.ko.md`와 `docs/recipes/`에 있다 |
 | [docs/desktop-app.ko.md](docs/desktop-app.ko.md) | SVF maker 데스크톱 앱: 빠른 시작(체크아웃에서 빌드, 첫 변환), 사용법, 메시지, 복구와 제거, 프라이버시와 보안, 한계 |
 | [docs/c-renderer-guide.ko.md](docs/c-renderer-guide.ko.md) | C 렌더러 통합 가이드: 빌드, 페이스 열기, 줄 그리기, 타깃, 스케일, 한글, 메모리, 문제 해결 |
 | [docs/web-renderer-guide.ko.md](docs/web-renderer-guide.ko.md) | 웹 렌더러 사용법: emsdk 빌드, WASM 로딩, 캔버스·Node 예제, 색상, 측정, 메모리, picker API |
 | `docs/jamo-sets.ko.md` | 조합형 해설: 문자 집합, 글꼴 기법과 벌 체계(8x4x4 등), SVF의 JSET v1/v2/BIG/JMAP/LIST와 실제 페이스로 따라가는 예, MCU에서의 제약 |
 | `docs/anti-aliasing.ko.md` | 안티앨리어싱: coverage, 감마, 서브픽셀 렌더링을 하지 않는 이유, 1/2/8 bpp와 2 bpp 단계, 타깃별 단계-색 변환 규칙, 2 bpp 자모 세트의 최댓값(OR가 아님), 윤곽과 축소로 AA 페이스 만들기, 메모리·속도·bpp 선택(그림은 `tools/doc_figures_aa.py`) |
-| `docs/recipes.ko.md` | 레시피 장: 입력 종류별 빠른 시작(아웃라인, 비트맵, DOS 원시, 클래식 Mac, 기존 SVF), 다시 실행한 수치가 든 각 레시피, maker의 경로 표(경로 대 명령줄), `svf/`의 각 페이스를 만드는 방법 |
+| `docs/recipes.ko.md` | 레시피 색인: 입력 종류별 빠른 시작(아웃라인, 비트맵, DOS 원시, ROM, 클래식 Mac, 기존 SVF), 페이스 점검, KS X 1001과 인코딩 참고, 레시피 문서 목록 |
+| `docs/recipes/` | 입력 종류마다 레시피 문서 하나(아웃라인 폰트, 비트맵 폰트, DOS 시대 폰트, 프로그램 안의 폰트, 86Box / MSX / MAME ROM, OS/2, 클래식 Mac, 기존 SVF와 SVF에서 TTF로), 다시 실행한 수치가 든 각 레시피, 벌 수 정하기, maker의 경로 표(경로 대 명령줄), `svf/`의 각 페이스를 만드는 방법 |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | 기능별 설계 문서와 구현 계획 |
 | `svf/dos/` | 완성형 및 자모 세트 페이스(처음에는 ScummVM 한글 맵용으로 만듦)와 그 라이선스 `.TXT` 파일 |
 | `svf/jamo-extra/` | 합성 글리프 폰트에서 만든 추가 자모 세트 페이스(`FACES.TSV`) |

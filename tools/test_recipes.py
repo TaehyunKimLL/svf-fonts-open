@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The how-tos of docs/recipes.md, run end to end on synthetic fonts built here and on OFL fonts in ttf/ (no other
-font data). Each test runs the commands the document gives, as subprocesses, into a temp dir.
+"""The how-tos of docs/recipes.md and docs/recipes/*.md, run end to end on synthetic fonts built here and on OFL fonts in
+ttf/ (no other font data). Each test runs the commands the documents give, as subprocesses, into a temp dir.
   python3 -m unittest tools.test_recipes
 """
 import io

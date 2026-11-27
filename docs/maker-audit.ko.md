@@ -4,7 +4,7 @@
 
 SVF maker의 입력, 변환 경로, 설정, 미리 보기와 실행 경계를 설명한다.
 사용법은 [데스크톱 앱](desktop-app.ko.md), 패키징은 [데스크톱 구현](maker-desktop.ko.md),
-명령줄 대응은 [레시피](recipes.ko.md#데스크톱-앱과-maker-경로), HTTP API는
+명령줄 대응은 [레시피](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로), HTTP API는
 [maker 안내](../maker/README.ko.md)를 참고한다.
 
 ## 1. 입력과 변환 경로

@@ -9,7 +9,7 @@
  "refs": [
   "MAME 0.289 src/mame/samsung/spc1500.cpp",
   "archive.org mame-roms-non-merged spc1500.zip",
-  "docs/recipes.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact"
+  "docs/recipes/rom-mame.md#samsung-spc-1500-a-jamo-set-in-four-inverted-roms-exact"
  ],
  "files": [
   {

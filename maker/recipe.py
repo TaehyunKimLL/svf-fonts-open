@@ -791,7 +791,8 @@ def face_plan(rec, face_name, files, paths, chars_from, tools_dir, layout=None, 
     --from-svf precomposed.svf --mask-font none [--eng E] --check`; `spec` is `jamoset.py --layout spec --spec NAME
     REGION [--eng E] --check`; `dos raw` is `jamoset.py RAW --layout L [--eng E] --check`. @p files maps a recipe file id
     to the bound file's absolute path, @p chars_from is the range list, @p layout a fit's layout (default the face's).
-    The commands of docs/recipes.md ("Korean VGA font ROMs (86Box)", "Korean font ROMs in MAME sets")."""
+    The commands of docs/recipes/rom-86box.md ("Korean VGA font ROMs (86Box)") and docs/recipes/rom-mame.md ("Korean font
+    ROMs in MAME sets")."""
     faces = {face["name"]: face for face in rec["faces"]}
     face = faces[face_name]
     plan = plan or _Plan(rec, files, paths["work"], tools_dir)

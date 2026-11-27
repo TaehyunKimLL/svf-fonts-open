@@ -174,7 +174,7 @@ Windows의 별도 브랜치 빌드는 [패키징 안내의 2026-11-27 상태](ma
 공개판 주 (2026-11-03): 이 공개 저장소는 원본 저장소에서 SIL OFL 1.1 face (117개)와 도구를 골라 담았다. OFL이 아닌 face
 (라이선스 미기재, MIT, san 1.0)은 제외하고, iolo SANS8J는 2026-11-27 소유자 승인으로 묶음 라이선스 선언을 해석해 OFL-1.1 폰트 예외로 포함했다, 게임 전용 bake 스크립트, Uno Seoul preset은 빠졌다
 ([NOTICE.md](../NOTICE.ko.md)). MCU 예제의 mono face는 HGKEY6J 대신 `svf/dos/NEODG16G.SVF` (Neo Dunggeunmo 6x2x1)다.
-face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces.tsv`. 공개 전(11-03 ec5c6b3 이전)의 commit 번호는 원본 저장소의 것이다. ec5c6b3 이후의 번호는 이 저장소의 것이다.
+face마다 만드는 법은 [recipes/svf-faces.ko.md](recipes/svf-faces.ko.md)와 `tools/build/faces.tsv`. 공개 전(11-03 ec5c6b3 이전)의 commit 번호는 원본 저장소의 것이다. ec5c6b3 이후의 번호는 이 저장소의 것이다.
 
 ### 7.1. 구성 요소 한눈에
 
@@ -339,7 +339,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 **HWP와 KS 원시 폰트 (2026-11-23, t_d4cf7f46)**
 
 - **HWP 2.x / 3.0 `.HFT`는 읽지 못한다**: "HWP 2.0 font file", "Han Unified Font File 1.0" 헤더의 윤곽선 또는 획 폰트(HWP 3.0 CD에
-  160개)로, 헤더만 살폈고 해독기는 없다 (recipes.ko.md "HWP 1.x와 2.x 폰트").
+  160개)로, 헤더만 살폈고 해독기는 없다 (recipes/dos-fonts.ko.md "HWP 1.x와 2.x 폰트").
 - **HWP 1.x 페이스 이름은 메뉴 순서로 추정했다**: 페이스 0/1/2 = 명조/고딕/샘물은 HWP.EXE 메뉴 순서일 뿐 증명되지 않았다
   (johab-fonts notes/hwp1.md). 옛한글 조각(초성 20-31, 중성 22-29, 종성 28-31)은 유니코드 음절이 없어 버린다.
 - **기호·한자 파일은 페이스가 되지 않는다**: HWP 1.x `SPECIAL*`, `JAPAN`, `USER*`, `SYSTEM.PFT`는 목록에만, `HANJA.SFT`와 HWP 3.0

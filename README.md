@@ -54,13 +54,14 @@ Mac) to SVF, by input kind.
 | --- | --- |
 | `spec/SVF.md` | the SVFN v3 format (header, layout bytes, tables, glyph records, profiles, jamo sets JSET v1/v2, BIG, JMAP and LIST, per-glyph dy; v1 and v2 retired) |
 | `docs/STATUS.md` | development status: components, implementation history, features, sizes, speeds, limitations and checks |
-| `docs/tools.md` | every tool: its purpose, inputs, outputs and options, and the gaps that remain; the recipes are in `docs/recipes.md` |
+| `docs/tools.md` | every tool: its purpose, inputs, outputs and options, and the gaps that remain; the recipes are in `docs/recipes.md` and `docs/recipes/` |
 | `docs/desktop-app.md` | the SVF maker desktop app: Quick start (build from a checkout, first conversion), how to use it, messages, recovery and uninstall, privacy and security, limits |
 | `docs/c-renderer-guide.md` | integration guide for the C renderer: build, open faces, draw lines, targets, scaling, Hangul, memory, troubleshooting |
 | [docs/web-renderer-guide.md](docs/web-renderer-guide.md) | web renderer guide: emsdk build, WASM loading, canvas and Node examples, colours, measurement, memory, picker API |
 | `docs/jamo-sets.md` | johab (조합형) explained: the character set, the font technique and its set systems (8x4x4 and others), SVF's JSET v1/v2/BIG/JMAP/LIST with a worked example, and the constraints on MCUs |
 | `docs/anti-aliasing.md` | anti-aliasing: coverage, gamma, no subpixel rendering; 1/2/8 bpp and the 2 bpp levels; level-to-colour rules of each target; maximum (not OR) in 2 bpp jamo sets; making AA faces from outlines and by downscaling; memory, speed and choice of bpp (figures from `tools/doc_figures_aa.py`) |
-| `docs/recipes.md` | the recipes chapter: a quick start by input kind (outline, bitmap, DOS raw, classic Mac, existing SVF), each recipe re-run with its numbers, the maker's route table (route to command line), and how each face of `svf/` is made |
+| `docs/recipes.md` | the recipes index: a quick start by input kind (outline, bitmap, DOS raw, ROMs, classic Mac, existing SVF), checking a face, the KS X 1001 and encoding reference, and the list of the recipe documents |
+| `docs/recipes/` | one recipe document per kind of source (outline fonts, bitmap fonts, DOS-era fonts, fonts inside programs, 86Box / MSX / MAME ROMs, OS/2, classic Mac, existing SVF and SVF to TTF), each recipe re-run with its numbers; choosing the number of sets; the maker's route table (route to command line); how each face of `svf/` is made |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | design documents and implementation plans for each feature |
 | `svf/dos/` | precomposed and jamo-set faces (first made for the ScummVM Korean maps), with their licence `.TXT` files |
 | `svf/jamo-extra/` | extra jamo-set faces from composite-glyph fonts (`FACES.TSV`) |

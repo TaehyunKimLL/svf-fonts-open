@@ -46,7 +46,7 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   place; an archive is listed, not unpacked.
 - A run writes `svf/<dest>/<NAME>.SVF` and its note (and a licence text when one was chosen) and `build-<id>/`
   (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`) into the output folder, and nothing else.
-  `BUILD.md` lists the commands that were run; [docs/recipes.md](../docs/recipes.md#desktop-app-and-maker-routes) maps every
+  `BUILD.md` lists the commands that were run; [docs/recipes/desktop-routes.md](../docs/recipes/desktop-routes.md#desktop-app-and-maker-routes) maps every
   route label of the page to its command line and recipe.
   With `options.export` (`{"ttf": true, "bdf": true}`, batch or per font) every face is also written beside it as
   `<NAME>.ttf` / `<NAME>.bdf`: an `export` step after the face step runs `tools/svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`
@@ -74,16 +74,16 @@ user picked. Nothing is uploaded, nothing is copied into the data directory, no 
   listed with what is missing. HWP 1.x: each `HANGUL.SFT` / `HANGULn.PFT` face (three a file) through `jamoset.py --layout
   hwp1` (HWP's own composition rule, exact) or `hwpfont.py bdf` + `mkfont.py`, with `ASCII.SFT` / `ASCII.PFT` as its English
   companion; HWP 3.0: the `HAN*.FNT` Hangul fonts (2,350 syllables; a 16 px one also through its 8x4x4 set, `--layout
-  844-hwp3`) with `ENG*.FNT` companions (`tools/hwpfont.py`, recipes.md "HWP 1.x and 2.x fonts"). A headerless KS X 1001
+  844-hwp3`) with `ENG*.FNT` companions (`tools/hwpfont.py`, recipes/dos-fonts.md "HWP 1.x and 2.x fonts"). A headerless KS X 1001
   syllable dump (Taebaek `GHAN24.PFT`) is read by its size in both modes. A 12x24 or 14x24 English font (Taebaek `GASCII24.PFT`
   is 12x24, HWP 1.x `ASCII.PFT` 14x24) is a companion for a 24 px face from any folder of the batch. **Known ROM sets**:
   the built-in recipes of `maker/recipes/*.json` (`maker/recipe.py`, the font finder's recipe schema version 1, the subset of
   `files`, `ks-grid` / `english` items, `bdfface` faces and `expect`; anything else is refused by name) name files by size
   and SHA-256, never by content: a file whose size a recipe names is hashed, and a complete set becomes one `recipe` entry
   ("known: <title>", its files pinned together) whose routes run the recipe's commands (`rawcarve.py bdf` of each item,
-  `bdfface.py`, and the `jamoset.py --from-svf` fit). Today: the three 86Box Korean VGA ROM pairs (recipes.md "Korean VGA
+  `bdfface.py`, and the `jamoset.py --from-svf` fit). Today: the three 86Box Korean VGA ROM pairs (recipes/rom-86box.md "Korean VGA
   font ROMs (86Box)") and four MAME sets, SPC-1500 (an exact jamo set, route `spec`), Date Quiz Go Go, X Se Dae Quiz (route
-  `dos raw`) and Quiz King of Fighters (Korea) (recipes.md "Korean font ROMs in MAME sets"; their regions, tile layouts and
+  `dos raw`) and Quiz King of Fighters (Korea) (recipes/rom-mame.md "Korean font ROMs in MAME sets"; their regions, tile layouts and
   pens are recipe data too, and one extension of schema 9.4: a face's `english` may list several items, OR-ed by
   `srcprep.py or-files`). A set with a file missing is "part of <title>: also needs <names>; pick the folder"; a file of a
   recipe's name and size with another hash "looks like <title>, another revision". An upload job only labels them. A licence file next to a font picked as a single file is used only

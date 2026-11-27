@@ -220,7 +220,7 @@ C 렌더러는 이 최댓값을 바이트 하나(또는 32비트 워드 하나)�
 최댓값에도 한계가 있다. 윤곽에서 두 자모가 한 픽셀의 서로 겹치지 않는 절반을 덮으면 합친 coverage는 1이지만, 조각마다 따로 구운 단계의
 최댓값은 그보다 낮다. 그래서 가는 획이 만나는 곳은 완성형 글리프보다 조금 옅게 보인다. `jamoaa.py`는 이 손실을 측정하며
 (`join_loss`), 조각의 단계를 조합 결과에 맞추어 다듬어 줄인다(4.1절)
-([레시피의 주의점](recipes.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기)).
+([레시피의 주의점](recipes/outline-fonts.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기)).
 
 ## 4. 안티앨리어싱 페이스 만들기
 
@@ -257,7 +257,7 @@ coverage를 위 식으로 양자화한다(그림 1). 크기는 `--size`로 정�
 기하학적 합집합의 coverage와도 다를 수 있다(`jamoaa.py`의 `render_coverage`). 1 bpp 맞춤이 정한 영역으로 각 윤곽을 초성, 중성, 종성에 나누고, 조각의 단계는 그 조각을
 쓰는 음절들의 픽셀별 중앙값으로 정한 뒤, 최댓값으로 조합한 결과가 음절을 통째로 그린 것에 가까워지도록 다듬는다(`--aa-refine N`, 기본 2).
 
-명령과 측정값은 [레시피: TrueType/OpenType 폰트에서 2 bpp 안티에일리어싱 페이스 만들기](recipes.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기)에
+명령과 측정값은 [레시피: TrueType/OpenType 폰트에서 2 bpp 안티에일리어싱 페이스 만들기](recipes/outline-fonts.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기)에
 있다. 같은 레시피에 따르면 2 bpp 완성형 페이스는 1 bpp의 1.5-1.6배, 2 bpp 자모 세트는 1 bpp 세트의 약 1.2배이고, 픽셀 글꼴(둥근모)은
 자기 크기에서 중간 coverage가 없어 2 bpp로 만들어도 단계 3만 나온다.
 
@@ -276,7 +276,7 @@ coverage이다. [svfscale.py](../tools/svfscale.py)는 1 bpp 페이스(자모 �
 
 렌더러의 그릴 때 배율(`scale_num / scale_den`, [C 렌더러 가이드 9장](c-renderer-guide.ko.md#9-스케일링))도 넓이 평균을 쓴다. 다만 출력이 8비트 coverage이므로 저장된
 2 bpp 페이스와 비교할 때는 GRAY8 원본이 아니라 **네 단계로 양자화한 결과**를 비교해야 한다. 이 예는 정사각형 셀을
-36에서 16으로 줄이는 4/9 배율이다. 다른 크기에서는 `svfscale.py`가 셀 크기를 축별로 반올림하므로 결과가 다를 수 있다(그림 6의 2 bpp와 4/9, [레시피](recipes.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)는
+36에서 16으로 줄이는 4/9 배율이다. 다른 크기에서는 `svfscale.py`가 셀 크기를 축별로 반올림하므로 결과가 다를 수 있다(그림 6의 2 bpp와 4/9, [레시피](recipes/bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기)는
 OS/2 글꼴의 2,350 음절 모두에서 확인했다). 저장된 페이스는 메모리를, 그릴 때 배율은 시간을 쓴다. 현재 맞춤 경로인 `jamoset.py --bpp 2`는 윤곽 글꼴만 받는다. 축소한 1 bpp 결과에는 1 bpp 자모 세트를 맞출 수 있다.
 
 ### 4.3 품질 측정
@@ -308,7 +308,7 @@ OS/2 글꼴의 2,350 음절 모두에서 확인했다). 저장된 페이스는 �
 | 18 x 18 | 54 B | 90 B | 324 B |
 | 24 x 24 | 72 B | 144 B | 576 B |
 
-페이스 전체(같은 글꼴, 같은 크기; [레시피](recipes.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기)의 나눔고딕 Bold 16 측정):
+페이스 전체(같은 글꼴, 같은 크기; [레시피](recipes/outline-fonts.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기)의 나눔고딕 Bold 16 측정):
 
 | 페이스 | 1 bpp | 2 bpp | 비율 |
 |---|---:|---:|---:|
@@ -353,8 +353,8 @@ GRAY8, MONO_PAGE, MONO_ROW, RGB565만 노출하며, 24/32비트 캔버스 색은
 - [C 렌더러 가이드](c-renderer-guide.ko.md): 타깃(8장), 스케일링(9장), 한글 조합(10장), 메모리(11장).
 - [웹 렌더러 가이드](web-renderer-guide.ko.md): 색상과 RGB565 출력.
 - [조합형과 자모 세트](jamo-sets.ko.md): 조각과 벌, JSET.
-- [레시피](recipes.ko.md): [2 bpp 안티에일리어싱 페이스](recipes.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기),
-  [고해상도 비트맵에서 저해상도 페이스](recipes.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기).
+- [레시피](recipes.ko.md): [2 bpp 안티에일리어싱 페이스](recipes/outline-fonts.ko.md#truetypeopentype-폰트에서-2-bpp-안티에일리어싱-페이스-만들기),
+  [고해상도 비트맵에서 저해상도 페이스](recipes/bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기).
 - [도구](tools.ko.md): [mkfont.py](tools.ko.md#toolsmkfontpy), [jamoaa.py](tools.ko.md#toolsjamoaapy),
   [svfscale.py](tools.ko.md#toolssvfscalepy), [svfline.py](tools.ko.md#toolssvflinepy),
   [doc_figures_aa.py](tools.ko.md#toolsdoc_figures_aapy).

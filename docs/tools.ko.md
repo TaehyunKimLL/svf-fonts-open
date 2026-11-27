@@ -58,7 +58,7 @@
   포크에서, 또는 아웃라인 폰트(`--from-ttf`)나 완성형 1 bpp 페이스(`--from-svf`)를 맞춰서 **자모 세트**(1 또는 2 bpp)를
   쓴다. `jamovec.py`는 폰트의 자모를 한 번 분리해 어떤 크기로든 렌더링하는 방식으로 **자모 세트**를 쓴다.
 - `svfdy.py`는 기존 페이스의 **dy**를 편집한다. `svf_synth.py`는 C 테스트용 합성 페이스를 쓴다.
-- `tools/build/build_faces.py`는 `svf/`의 페이스를 업스트림 폰트에서 다시 빌드한다(`tools/build/faces.tsv`, [recipes.ko.md](recipes.ko.md)).
+- `tools/build/build_faces.py`는 `svf/`의 페이스를 업스트림 폰트에서 다시 빌드한다(`tools/build/faces.tsv`, [recipes/svf-faces.ko.md](recipes/svf-faces.ko.md)).
 - `web/` 도구는 WASM 선택기가 서비스하는 페이스를 인덱싱하고 복사한다.
 
 ## 2. 핵심 빌더
@@ -308,7 +308,7 @@ SVF v3 자모 세트 페이스로 변환한다. 모든 KS X 1001 음절이 Mac�
 **상태.** 특수 목적(HangulTalk type-3 fbit). 사용자가 제공한 리소스를 읽는다.
 
 **입력.** 'fbit' 리소스(글리프 슬롯 482개, 241개씩 2 bank)와 InputBackSupport 'HTBL' 1(KS 코드당 4바이트:
-bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 [recipes.ko.md](recipes.ko.md#클래식-mac-한글-비트맵-폰트)에 설명되어 있다). `--latin`은
+bank와 글리프 바이트 셋. 포맷은 `tools/macfbit3.py`와 [recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트)에 설명되어 있다). `--latin`은
 패밀리 suitcase의 리소스 포크('FOND' + 'NFNT')에서 셀의 포인트 크기로 ASCII 0x20-0x7E를 읽는다.
 
 **방법.** Mac은 모든 Mac 슬롯이 조각 하나일 때(`slot_conflicts`) 중성(그리고 ㄱ ㄹ ㅇ 종성)을 초성에 따라 12개 초성 클래스가 허용하는 것보다 더 세밀하게
@@ -569,8 +569,8 @@ BDF(참고 문헌 11). 그리고 두 페이스를 글리프마다 비교한다(�
 찍고, 원본 폰트의 라이선스가 적용된다는 한 줄을 받는다.
 
 왕복 점검과 여섯 페이스(완성형과 자모 세트, 1과 2 bpp, 16과 24 px, HWP 1.x 페이스)의 결과:
-[recipes.ko.md, SVF 페이스를 다시 TTF 비트맵 폰트로](recipes.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로). 자모 세트 여섯의
-`--composite`(크기, 펼친 비트맵, 한계): [합성 글리프](recipes.ko.md#합성-글리프--composite).
+[recipes/svf-and-ttf.ko.md, SVF 페이스를 다시 TTF 비트맵 폰트로](recipes/svf-and-ttf.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로). 자모 세트 여섯의
+`--composite`(크기, 펼친 비트맵, 한계): [합성 글리프](recipes/svf-and-ttf.ko.md#합성-글리프--composite).
 
 **내부 모듈.** `jamoset.py`, `svfline.py`. **서드파티.** fontTools(`ttf`). **테스트.** `tools/test_svf2ttf.py`(`svf/`의
 페이스로: 글리프 집합과 합성 수, 메트릭과 이름, 페이스와 대조한 스트라이크, 2비트 스트라이크, 1 x, 1.5 x(힌팅 없음), 2 x의 FreeType 렌더, 스트라이크가
@@ -998,7 +998,7 @@ face(`dos/NGOTB15.SVF`) 또는 그 파일 이름이다. 없으면 레시피가 �
 **목적.** `tools/build/build_faces.py`의 레시피 표. `svf/`의 모든 페이스마다 한 행(face, method, source,
 args, codepoints, expect, note). `method`는 `mkfont`, `jamoset`, `없음`(위 도구로는 레시피 없음.
 note가 이유를 말한다)이다. `codepoints`는 `mkfont.py --unicode` 세트 또는 `tools/build/cps/` 아래 파일(한 줄에 16진 코드 포인트
-하나 또는 범위. 페이스 자체의 코드 포인트 목록)을 지명한다. [recipes.ko.md](recipes.ko.md)가 모든 행을 설명하며, `tools/test_build_faces.py`가
+하나 또는 범위. 페이스 자체의 코드 포인트 목록)을 지명한다. [recipes/svf-faces.ko.md](recipes/svf-faces.ko.md)가 모든 행을 설명하며, `tools/test_build_faces.py`가
 표를 완전하게 유지한다.
 
 ## 6. 웹(WASM 선택기)
@@ -1063,8 +1063,8 @@ bytes, licences, hangul, latin_only, subset, family, style, variant). 폰트는 
 
 ## 7. 파일 안의 폰트를 찾아 잘라 내기
 
-실행 예는 [recipes.ko.md](recipes.ko.md#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기)(DOS TSR, DOS 드라이버, 한글 VGA 폰트
-ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)(OS/2)에 있다. 이 도구들은 바이트만 읽고
+실행 예는 [recipes/programs-and-drivers.ko.md](recipes/programs-and-drivers.ko.md#claude와-함께-프로그램이나-데이터-파일-안의-폰트-찾기)(DOS TSR, DOS 드라이버, 한글 VGA 폰트
+ROM)와 [recipes/os2.ko.md](recipes/os2.ko.md#os2-한글-폰트완성형에서-완성형-페이스와-자모-세트-만들기)(OS/2)에 있다. 이 도구들은 바이트만 읽고
 파일의 코드를 실행하지 않는다. 내려받은 파일에는 `python3 -I`로 실행하라.
 
 ### `tools/binscan.py`
@@ -1120,7 +1120,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 ### `tools/msx1_harvest.py`
 
 **목적.** 한국 MSX1 한글 ROM(모아쓰기 모드)의 음절 배치를 openMSX에서 실행 중인 기계로부터 읽는다: 에뮬레이터가 모든 음절을 찍는 BASIC
-프로그램을 치고, 화면마다 이름 표를 덤프한다(recipes.ko.md, 한국 MSX 폰트, MSX1).
+프로그램을 치고, 화면마다 이름 표를 덤프한다(recipes/rom-msx.ko.md, 한국 MSX 폰트, MSX1).
 
 **상태.** 특수 목적(대우 / 금성 MSX1 계열). 다른 기종용 틀이 된다.
 
@@ -1141,7 +1141,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 ### `tools/msxfont.py`
 
 **목적.** 평범한 글리프 표가 아닌 한국 MSX 폰트: 대우 CPC-400 / 400S 완성형 폰트 ROM의 코드-슬롯 대응, 그리고 BIOS의 8x8 셀로
-한글 ROM의 배치 규칙대로 만든 한국 MSX1 음절(recipes.ko.md, 한국 MSX 폰트).
+한글 ROM의 배치 규칙대로 만든 한국 MSX1 음절(recipes/rom-msx.ko.md, 한국 MSX 폰트).
 
 **상태.** 특수 목적(한 기종 계열).
 
@@ -1163,7 +1163,7 @@ ROM)와 [recipes.ko.md](recipes.ko.md#os2-한글-폰트완성형에서-완성형
 ### `tools/nkpspec.py`
 
 **목적.** NKP 한글 TSR(1989년 허큘리스 한글 드라이버 NKP.COM V3.00, NKP3.COM)의 `rawcarve.py compose` 명세를 드라이버 자신의 표에서
-쓴다: 조각 벌 레코드, 자모 표, 한글 루틴의 초성 벌 표와 중성 선택 표(recipes.ko.md, NKP).
+쓴다: 조각 벌 레코드, 자모 표, 한글 루틴의 초성 벌 표와 중성 선택 표(recipes/programs-and-drivers.ko.md, NKP).
 
 **상태.** 특수 목적(한 드라이버 계열). 다른 드라이버용 "드라이버 표에서 명세로" 스크립트의 모양을 보여 준다.
 

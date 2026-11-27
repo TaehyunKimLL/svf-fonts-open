@@ -4,7 +4,7 @@
 
 This page describes the maker's inputs, routes, controls, previews and runtime boundaries.
 See the [desktop app](desktop-app.md) for use, [desktop implementation](maker-desktop.md) for packaging,
-[recipes](recipes.md#desktop-app-and-maker-routes) for command-line equivalents, and
+[recipes](recipes/desktop-routes.md#desktop-app-and-maker-routes) for command-line equivalents, and
 [the maker guide](../maker/README.md) for the HTTP API.
 
 ## 1. Inputs and conversion routes

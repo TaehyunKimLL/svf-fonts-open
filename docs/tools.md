@@ -58,7 +58,7 @@ face's **dy**; and `tools/build/build_faces.py` and the `web/` tools rebuild and
   Kyra `.BIT`, a Mac HangulTalk `fbit` resource fork, or by fitting an outline font (`--from-ttf`) or a precomposed
   1 bpp face (`--from-svf`); `jamovec.py` writes **jamo sets** by separating a font's jamo once and rendering any size.
 - `svfdy.py` edits the **dy** of an existing face; `svf_synth.py` writes synthetic faces for the C tests.
-- `tools/build/build_faces.py` rebuilds the faces of `svf/` from their upstream fonts (`tools/build/faces.tsv`, [recipes.md](recipes.md)).
+- `tools/build/build_faces.py` rebuilds the faces of `svf/` from their upstream fonts (`tools/build/faces.tsv`, [recipes/svf-faces.md](recipes/svf-faces.md)).
 - The `web/` tools index and copy the faces that the WASM picker serves.
 
 ## 2. Core builders
@@ -318,7 +318,7 @@ into an SVF v3 jamo-set face, with every KS X 1001 syllable exactly as the Mac d
 **Status.** Special-purpose (HangulTalk type-3 fbit). Reads resources supplied by the user.
 
 **Inputs.** The 'fbit' resource (482 glyph slots, 2 banks x 241) and InputBackSupport 'HTBL' 1 (4 bytes per KS code:
-bank and three glyph bytes; the format is described in `tools/macfbit3.py` and [recipes.md](recipes.md#classic-mac-korean-bitmap-fonts)). `--latin` reads
+bank and three glyph bytes; the format is described in `tools/macfbit3.py` and [recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts)). `--latin` reads
 the family suitcase's resource fork ('FOND' + 'NFNT') for ASCII 0x20-0x7E at the cell's point size.
 
 **Method.** The Mac picks its medial (and the ㄱ ㄹ ㅇ finals) by the initial more finely than 12 lead classes allow
@@ -597,8 +597,8 @@ under `svf/` that `web/LICENCES.tsv` does not cover exits 1 unless `--licence` i
 elsewhere with no licence note beside it prints a warning and gets a line saying its source font's licence applies.
 
 The round trip and its results on six faces (precomposed and jamo sets, 1 and 2 bpp, 16 and 24 px, an HWP 1.x face):
-[recipes.md, An SVF face back to a TTF bitmap font](recipes.md#an-svf-face-back-to-a-ttf-bitmap-font); `--composite`
-on six jamo sets (sizes, expanded bitmaps, limits): [Composite glyphs](recipes.md#composite-glyphs---composite).
+[recipes/svf-and-ttf.md, An SVF face back to a TTF bitmap font](recipes/svf-and-ttf.md#an-svf-face-back-to-a-ttf-bitmap-font); `--composite`
+on six jamo sets (sizes, expanded bitmaps, limits): [Composite glyphs](recipes/svf-and-ttf.md#composite-glyphs---composite).
 
 **Repository modules imported.** `jamoset.py`, `svfline.py`. **Third-party.** fontTools (`ttf`). **Test.**
 `tools/test_svf2ttf.py` (on faces of `svf/`: glyph set and composition count, metrics and names, the strike against the
@@ -1062,7 +1062,7 @@ with those after it.
 **Purpose.** The recipe table of `tools/build/build_faces.py`: one row for every face of `svf/` (face, method, source,
 args, codepoints, expect, note). `method` is `mkfont`, `jamoset` or `none` (no recipe with the tools above;
 the note says why). `codepoints` names a `mkfont.py --unicode` set or a file under `tools/build/cps/` (one hex code point
-or range a line, the face's own code point list). [recipes.md](recipes.md) explains every row; `tools/test_build_faces.py`
+or range a line, the face's own code point list). [recipes/svf-faces.md](recipes/svf-faces.md) explains every row; `tools/test_build_faces.py`
 keeps the table complete.
 
 ## 6. Web (WASM picker)
@@ -1129,8 +1129,8 @@ bytes, licences, hangul, latin_only, subset, family, style, variant). It writes 
 
 ## 7. Finding and cutting fonts out of files
 
-The worked examples are in [recipes.md](recipes.md#finding-a-font-inside-a-program-or-data-file-with-claude) (a
-DOS TSR, a DOS driver, Korean VGA font ROMs) and [recipes.md](recipes.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)
+The worked examples are in [recipes/programs-and-drivers.md](recipes/programs-and-drivers.md#finding-a-font-inside-a-program-or-data-file-with-claude) (a
+DOS TSR, a DOS driver, Korean VGA font ROMs) and [recipes/os2.md](recipes/os2.md#os2-korean-fonts-완성형-to-a-precomposed-face-and-a-jamo-set)
 (OS/2). These tools read bytes and never run the file's code; run them with `python3 -I` on downloads.
 
 ### `tools/binscan.py`
@@ -1192,7 +1192,7 @@ built by hand, `--bg`, `--fg`, the refusals).
 ### `tools/msx1_harvest.py`
 
 **Purpose.** Read the syllable layout of a Korean MSX1 Hangul ROM (모아쓰기 mode) off the running machine in openMSX:
-the emulator types a BASIC program that prints every syllable, and the name table of each screen is dumped (recipes.md,
+the emulator types a BASIC program that prints every syllable, and the name table of each screen is dumped (recipes/rom-msx.md,
 Korean MSX fonts, MSX1).
 
 **Status.** Special-purpose (the Daewoo / Goldstar MSX1 family); a template for other machines.
@@ -1218,7 +1218,7 @@ emulator).
 
 **Purpose.** The Korean MSX fonts that are not a plain glyph table: the code-to-slot map of the Daewoo CPC-400 / 400S
 precomposed font ROM, and the Korean MSX1 syllables built from the BIOS's 8x8 cells by the Hangul ROM's layout rule
-(recipes.md, Korean MSX fonts).
+(recipes/rom-msx.md, Korean MSX fonts).
 
 **Status.** Special-purpose (one machine family).
 
@@ -1245,7 +1245,7 @@ cursor 0xFF that differs.
 
 **Purpose.** Write the `rawcarve.py compose` spec of an NKP Hangul TSR (the 1989 Hercules Hangul drivers NKP.COM V3.00,
 NKP3.COM) from the driver's own tables: the piece-set records, the jamo tables and the initial-set and medial selection
-tables of its Hangul routine (recipes.md, NKP).
+tables of its Hangul routine (recipes/programs-and-drivers.md, NKP).
 
 **Status.** Special-purpose (one driver family); it shows the shape of a driver-table-to-spec script for other drivers.
 
