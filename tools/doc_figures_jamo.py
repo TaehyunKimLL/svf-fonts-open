@@ -6,7 +6,8 @@
 Reads the OFL-licensed svf/iolo/SANS8J.SVF (iolo conversion of a legacy DOS 8x4x4 bitmap, a 16x16 1 bpp jamo set in
 the 8x4x4 layout, JSET version 1) and svf/dos/NEODG16.SVF (a different Neo Dunggeunmo precomposed font used only for comparison, 16x16 1 bpp, ASCII and
 KS X 1001 without Hanja). Labels use the comparison face glyphs, so no system font is read. No Apple or ROM
-data is read: the figures may be published with the iolo OFL note and the comparison face's OFL notes (svf/iolo/IOLO.TXT, svf/iolo/LICENSE-OFL.txt).
+data is read: the figures use the iolo OFL note (svf/iolo/IOLO.TXT, svf/iolo/LICENSE-OFL.txt)
+and the comparison face's notes (svf/dos/NEODGM.TXT, svf/dos/OFL.TXT).
 
 Writes into DIR (default docs/images/jamo-sets/):
   compose.png       syllables split into their initial / medial / final pieces, colour-coded, and composed
