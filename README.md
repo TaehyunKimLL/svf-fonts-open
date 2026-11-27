@@ -31,6 +31,7 @@ Mac) to SVF, by input kind.
 | `docs/tools.md` | every tool: its purpose, inputs, outputs and options, and the gaps that remain; the recipes are in `docs/recipes.md` |
 | `docs/desktop-app.md` | the SVF maker desktop app: Quick start (build from a checkout, first conversion), how to use it, messages, recovery and uninstall, privacy and security, limits |
 | `docs/c-renderer-guide.md` | integration guide for the C renderer: build, open faces, draw lines, targets, scaling, Hangul, memory, troubleshooting |
+| [docs/web-renderer-guide.md](docs/web-renderer-guide.md) | web renderer guide: emsdk build, WASM loading, canvas and Node examples, colours, measurement, memory, picker API |
 | `docs/jamo-sets.md` | johab (조합형) explained: the character set, the font technique and its set systems (8x4x4 and others), SVF's JSET v1/v2/BIG/JMAP/LIST with a worked example, and the constraints on MCUs |
 | `docs/recipes.md` | the recipes chapter: a quick start by input kind (outline, bitmap, DOS raw, classic Mac, existing SVF), each recipe re-run with its numbers, the maker's route table (route to command line), and how each face of `svf/` is made |
 | `docs/superpowers/specs/`, `docs/superpowers/plans/` | design documents and implementation plans, one pair per feature, named by date; they are the working record and still name faces, tools and paths of the original working repository that this one leaves out |
