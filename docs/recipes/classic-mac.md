@@ -4,7 +4,7 @@
 
 Convert HangulTalk 1.0 `fbit`, HangulTalk 7.1.x type-3 `fbit`, and System 7.5.3–Mac OS 8.5 TrueType bitmap strikes to SVF.
 
-**Before you start.** Run commands from the project root with `$OUT` set as in the [index](../recipes.md). Source fonts are proprietary and supplied separately. Verify every face with the sample line (`안녕하세요 ABC 123`) in [Checking a face](../recipes.md#checking-a-face).
+**Before you start.** Run commands from the project root with `$OUT` set as in the [index](../recipes.md). Source fonts are proprietary and supplied separately. Every face ends with the checks of [Checking a face](../recipes.md#checking-a-face): `measure`, `line`, `fontmetrics.py`, `svf2to3.py --check` and `facecheck.py`. The check lines below use its sample line `안녕하세요 ABC 123`.
 
 Up: [Recipes index](../recipes.md) · Related: [Outline fonts](outline-fonts.md), [Choosing the number of sets (벌 수)](sets.md), [Jamo sets](../jamo-sets.md).
 
@@ -18,38 +18,42 @@ How it was measured: `fbit` fonts by the conversion commands below (`jamoset.py 
 
 ### HangulTalk 1.0 (Korean System 4.1, 1988)
 
-| Font | Kind | Size | Glyphs | Hangul |
-| --- | --- | --- | --- | --- |
-| `Gotic12` | jamo `fbit` (`fdef` rule) | 12 px | 653 pieces, sets 20/15/4 | 11,172 syllables + 51 jamo |
-| `Munjo12` | jamo `fbit` | 12 px | 653 pieces, sets 20/15/4 | 11,172 + 51 |
-| `Munjo16` | jamo `fbit` | 16 px | 653 pieces, sets 20/15/4 | 11,172 + 51 |
-| `Munjo24` | jamo `fbit` | 24 px | 653 pieces, sets 20/15/4 | 11,172 + 51 |
+| Font | Kind | Size | Glyphs | Hangul | Hanja |
+| --- | --- | --- | --- | --- | --- |
+| `Gotic12` | jamo `fbit` (`fdef` rule) | 12 px | 653 pieces, sets 20/15/4 | 11,172 syllables + 51 jamo | 0 |
+| `Munjo12` | jamo `fbit` | 12 px | 653 pieces, sets 20/15/4 | 11,172 + 51 | 0 |
+| `Munjo16` | jamo `fbit` | 16 px | 653 pieces, sets 20/15/4 | 11,172 + 51 | 0 |
+| `Munjo24` | jamo `fbit` | 24 px | 653 pieces, sets 20/15/4 | 11,172 + 51 | 0 |
 
 - The fonts hold Hangul only. The System file's `Gotic` and `Munjo` families add Latin `FONT` strikes: `Gotic` 12 pt (236 glyphs, codes 0–255), `Munjo` 12, 18 and 24 pt (231 glyphs each).
 - The Utilities disk's `Fonts` suitcase holds Latin fonts only.
+- No Hanja on either disk: the other `fbit` resources of the System Folder (in two extension files) are 76–232 B records without glyphs.
 
 ### HangulTalk 7.1.2 CD (1994)
 
-| Font | Kind | Size | Glyphs | Hangul |
-| --- | --- | --- | --- | --- |
-| `Seoul12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 207 pieces | 2,350 syllables + 51 jamo |
-| `AppleGothic12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 364 pieces | 2,350 + 51 |
-| `AppleGothic24` | jamo `fbit` type 3 + `HTBL` 1 | 24 px | 482 planes, 455 pieces | 2,350 + 51 |
-| `AppleMyungjo12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 395 pieces | 2,350 + 51 |
-| `AppleMyungjo24` | jamo `fbit` type 3 + `HTBL` 1 | 24 px | 482 planes, 465 pieces | 2,350 + 51 |
-| `KSSymbol12` | `fbit` handler type 0 (symbols) | 12 px | not read | none (codes A141–ADFE) |
-| AppleGothic | TrueType outlines, no strikes | any | 9,924 | 2,350 syllables, 4,888 Hanja |
-| AppleMyungjo | TrueType outlines, no strikes | any | 9,926 | 2,350 syllables, 4,888 Hanja |
+| Font | Kind | Size | Glyphs | Hangul | Hanja |
+| --- | --- | --- | --- | --- | --- |
+| `Seoul12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 207 pieces | 2,350 syllables + 51 jamo | 0 |
+| `AppleGothic12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 364 pieces | 2,350 + 51 | 0 |
+| `AppleGothic24` | jamo `fbit` type 3 + `HTBL` 1 | 24 px | 482 planes, 455 pieces | 2,350 + 51 | 0 |
+| `AppleMyungjo12` | jamo `fbit` type 3 + `HTBL` 1 | 12 px | 482 planes, 395 pieces | 2,350 + 51 | 0 |
+| `AppleMyungjo24` | jamo `fbit` type 3 + `HTBL` 1 | 24 px | 482 planes, 465 pieces | 2,350 + 51 | 0 |
+| `KSSymbol12` | `fbit` handler type 0 (symbols) | 12 px | not read | none (codes A141–ADFE) | 0 |
+| AppleGothic | TrueType outlines, no strikes | any | 9,924 | 2,350 syllables | 4,888 |
+| AppleMyungjo | TrueType outlines, no strikes | any | 9,926 | 2,350 syllables | 4,888 |
+| `Hanja24Disk` | `splt` archive, 24 px Hanja | 24 px | not converted | — | not converted |
+| `GHanja24Disk` | `splt` archive, a second 24 px Hanja set | 24 px | not converted | — | not converted |
 
 - Pieces are the distinct bitmaps of the `direct` face; `verify` composes all 2,350 + 51 exactly.
 - The family suitcases add Latin `NFNT` strikes: `Seoul` 9 and 12 pt, `AppleGothic` 12 and 24 pt, `AppleMyungjo` 9, 12 and 24 pt.
-- Not read by these tools: `KSSymbol24Disk` (unpacks to 176,091 bytes that are not a resource fork), `Hanja24Disk`, `GHanja24Disk` and `GSymbol24Disk` (the `JM` archive does not unpack).
+- Not read by these tools: `KSSymbol24Disk` (51,504 B; unpacks to 176,091 bytes that are not a resource fork), `Hanja24Disk` (231,388 B), `GHanja24Disk` (211,152 B) and `GSymbol24Disk` (51,510 B); the last three fail in the `JM` decoder. The `JM` headers of both Hanja archives give 353,300 unpacked bytes. No 12 px Hanja archive is on the CD.
+- The TrueType Hanja are exactly the 4,888 KS X 1001 Hanja (rows CA–FD).
 
 ### Korean System 7.5.3 CD (1996)
 
 All fonts are TrueType in `FFIL` suitcases, precomposed. The `Bitmap 서체 설치` folder holds bitmap-only copies (no `glyf`); every strike holds every glyph.
 
-| Font | Strikes (ppem) | Glyphs | Hangul syllables | Hanja | cmap codes | Bitmap-only sfnt |
+| Font | Strikes (ppem) | Glyphs | Hangul syllables | Hanja | KS X 1001 codes | Bitmap-only sfnt |
 | --- | --- | --- | --- | --- | --- | --- |
 | AppleGothic | 9, 10, 12, 14, 16, 18, 20, 24 | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,028 B |
 | AppleMyungjo | 9–24 (8) | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,884 B |
@@ -63,13 +67,15 @@ All fonts are TrueType in `FFIL` suitcases, precomposed. The `Bitmap 서체 설�
 | #태그래픽 | 9–24 (8) | 5,001 | 2,350 | 0 | 3,441 | 1,315,024 B |
 | #헤드라인A | 18, 20, 24 | 2,768 | 2,350 | 0 | 2,547 | 448,400 B |
 
-- Every font also has 93 compatibility jamo in its cmap. The Mac Korean cmap has codes outside KS X 1001 (Apple additions): 1,470 in the fonts with Hanja, 1,522 in #필기체, #공작체 and #태그래픽, and 195 in #헤드라인A.
+- Why Seoul has 9,889 glyphs: 2,350 syllables + 4,888 Hanja + 894 KS X 1001 symbols + 93 compatibility jamo + 103 ASCII (8,328 glyphs for the 8,329 KS X 1001 codes) + 1,197 Apple extension symbols (lead A1–AD, trail 41–A0) + 235 KS-range codes with no Unicode mapping + 38 single-byte Mac characters + 91 glyphs no code reaches. AppleGothic and AppleMyungjo have the same coded glyphs and 755 glyphs no code reaches (10,553).
+- Hanja: in every font with Hanja they are exactly the 4,888 KS X 1001 Hanja (rows CA–FD); no code outside those rows decodes to Hanja. #필기체, #공작체, #태그래픽 and #헤드라인A have none.
+- KS X 1001 codes are the Mac Korean (1,3) entries that decode as KS X 1001 (Seoul: 8,329 of 9,799 entries). Every font has 93 compatibility jamo in its cmap. The Mac Korean cmap has codes outside KS X 1001 (Apple additions): 1,470 in the fonts with Hanja, 1,522 in #필기체, #공작체 and #태그래픽, and 195 in #헤드라인A.
 - Outline copies (`glyf` plus the same `bdat`, byte for byte): all 11 in the installer's `Font Folder`; AppleGothic, AppleMyungjo and Seoul also in `한글 시스템/자형 폴더` (Seoul: 6,159,836 B).
 
 ### Mac OS 7.6.1 (1997), 8.5 (1998), 8.6 (1999)
 
 - **7.6.1:** every Korean `sfnt` (bitmap-only and outline copies) is byte-identical to 7.5.3. `자형 폴더` holds AppleGothic, AppleMyungjo, Seoul, #신명조, #궁서체 and #필기체.
-- **8.5:** AppleGothic and AppleMyungjo keep the 7.5.3 `bdat` and `bloc`; only `cmap` (now with a Unicode subtable), `head` and `hhea` changed. Seoul is redrawn: 9,912 glyphs, new `bdat`. 한강체 (Hangang) is new: precomposed, strikes 9–24 (8), 9,914 glyphs, 2,350 syllables, 94 jamo, 4,888 Hanja, 8,474 Unicode codes. The System file's `.Last Resort` font maps all 11,172 syllables to placeholder glyphs (247 glyphs in all); it is not a Korean face.
+- **8.5:** AppleGothic and AppleMyungjo keep the 7.5.3 `bdat` and `bloc`; only `cmap` (now with a Unicode subtable), `head` and `hhea` changed. Seoul is redrawn: 9,912 glyphs, new `bdat`. 한강체 (Hangang) is new: precomposed, strikes 9–24 (8), 9,914 glyphs, 2,350 syllables, 94 jamo, 4,888 Hanja (the KS X 1001 set; its Mac cmap also has 2 codes in the Hanja rows outside KS X 1001, DBA0 and E162), 8,474 Unicode codes. The System file's `.Last Resort` font maps all 11,172 syllables to placeholder glyphs (247 glyphs in all); it is not a Korean face. The folder's `AppleGothic [fbit]`, `AppleMyungjo [fbit]`, `Seoul [fbit]` and `한강체 [fbit]` files (16–19 KB) are strike descriptors: 8 `fbit` records of 1,367–1,966 B each, plus `fdef` 42 `Main` (6,418 B) except in Seoul; they hold no glyphs.
 - **8.6:** of its font suitcases and System file, only `자형 폴더/Seoul` is Korean, byte-identical to 8.5.
 
 <a id="classic-mac-korean-bitmap-fonts"></a>
@@ -86,6 +92,9 @@ python3 tools/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check
 
 Omit `--symbols` to keep only the font's own glyphs without the `…` and `□` drawn by `jamoset.py`.
 
+- `Munjo24.rsrc`: `macsfnt.py list` shows `fbit` 17409 (47,714 B) and `fdef` 3 (2,398 B). With `--symbols`, `--check` prints `composed 11172 syllables from 655 glyphs`, in about 1.0 s.
+- Maker local mode (`detect.scan(..., local=True)`): "HangulTalk 1.0 fbit (45 sets), 24 x 24" (Munjo24; 12 x 12 for Gotic12 and Munjo12, 16 x 16 for Munjo16), source kind `mac-fbit1`, coverage 2,350 KS / 11,172 syllables + 51 jamo, route `mac fbit 1.0`. Upload mode: "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)".
+
 | Font | Size | Glyphs / pieces | Cell | Ascent / descent | Check line (`안녕하세요 ABC 123`) |
 | --- | --- | --- | --- | --- | --- |
 | `Munjo24` (`--symbols`) | 36,660 B | 653 pieces (20/15/4 sets, 8x4 classes, 11,172 syllables) | 24x24 | 24 / 0 | `width=120`, ink 591, `IoU 1.000` |
@@ -98,6 +107,8 @@ Omit `--symbols` to keep only the font's own glyphs without the `…` and `□` 
 ![Munjo24 of HangulTalk 1.0 as a 24x24 jamo set: two Korean lines only, x2](../images/recipes/mac/ht10-munjo24.png)
 
 *`Munjo24` from the same disk (1988), built without `--symbols` (`36,564 B`, 24x24, ascent 24, descent 0). Hangul only, with no Latin, space, or symbols. x2.*
+
+<a id="classic-mac-hangultalk-71"></a>
 
 ## HangulTalk 7.1.x type-3 `fbit` fonts
 
@@ -140,6 +151,9 @@ python3 tools/jamomerge.py merge --face $OUT/SEOUL12D.SVF --points 8192 7168 --p
 | `AppleGothic12` direct + Latin | 22,860 B | 364 pieces + ASCII | 12x12 | 10 / 2 | `width=122`, ink 285, `ks_bad 0` |
 | `AppleMyungjo24` direct + Latin | 37,244 B | 465 pieces + ASCII | 24x24 | 20 / 4 | `width=242`, ink 944, `ks_bad 0` |
 
+- Seoul12 run: `HTBL1.bin` 9,816 B; `unpack` prints `JM 1843 -> 9673 bytes`; `fbit` 8,760 B; `bdf` 2,401 glyphs. The Latin letters add 1,388 B to the direct face.
+- Maker local mode: the `splt` file, the font fork and a raw fork read as "HangulTalk 7.1 type-3 fbit, 12 px, 482 planes (needs HTBL 1)" (source kind `mac-fbit3`, coverage 2,350 + 51), routes `mac fbit 7.1 direct`, `derived` and `bdf + mkfont`. The extension reads as "HangulTalk 7.1 HTBL 1 (InputBackSupport): the composition table", `Seoul[FFIL]` as "Mac bitmap suitcase (FOND + NFNT): Latin strikes at 9, 12 pt".
+
 ![Seoul12 of HangulTalk 7.1.2, direct face with Latin from Seoul suitcase, x2](../images/recipes/mac/ht712-seoul12.png)
 
 *Korean System 7.1.2 / HangulTalk 7.1.2 CD (1994) `Seoul12`, `direct` with 12 pt `NFNT` from `Seoul[FFIL]` (`17,924 B`, 12x12, ascent 10, descent 2). No KS X 1001 symbols. x2.*
@@ -167,10 +181,11 @@ python3 tools/mkfont.py $OUT/AppleGothicU.ttf $OUT/agothic16.svf --size 16 --bpp
 ```
 
 - `--size` must be one of the eight strike sizes above.
+- Off-strike sizes: a full font (outlines plus strikes, such as 한강체) is rasterised from its outlines (17 px: `133,288 B`); a bitmap-only copy does not open (`invalid pixel size`).
 - Mac OS 8.5 `한강체` (Hangang) already has a Unicode cmap, so skip `macsfnt.py unicode`.
-- The strikes also hold KS X 1001 symbols and, in most faces, hanja, which a wider `--unicode` set includes.
+- Hanja: `--unicode ascii,ksx1001` (the `ksx1001` preset holds symbols, jamo, 2,350 syllables and 4,888 Hanja) takes them. 7.5.3 bitmap-only Seoul at 16 px: `424,316 B`, 8,319 glyphs (2 of the preset are not in the font).
 
-Running the commands above on 7.5.3 bitmap-only `AppleGothic` 16 px produces a precomposed face of `123,360 B` with 2,446 glyphs. The table below lists sample faces holding only the characters of the four sample lines (`--unicode file:`).
+Source: Korean System 7.5.3, the CD for the Power Macintosh 7220 (1996); the fonts say "1994-1995 Elex Computer". Running the commands above on 7.5.3 bitmap-only `AppleGothic` 16 px produces a precomposed face of `123,360 B` with 2,446 glyphs. The table below lists sample faces holding only the characters of the four sample lines (`--unicode file:`).
 
 | Font (strike) | Size | Cell | Ascent / descent | Missing |
 | --- | --- | --- | --- | --- |
@@ -240,7 +255,7 @@ python3 -I tools/doc_figures_mac.py --ht10 "$SRC/HT10/System Folder" --ht712 "$S
 - **HangulTalk 7.5.1 differences:** `Seoul12[fbit]` on the 7.5.1 installer disk is byte-identical to 7.1.2 (8,760 B). The 7.5.1 copy of `InputBackSupport` is compressed, so `srcprep.py mac-htbl` refuses it.
 - **Bitmap-only TrueType:** The 7.5.3 `Bitmap 서체 설치` copies have no outlines and no `head` table. `mkfont.py` reads per-glyph advances from strike metrics via fontTools, and non-strike sizes fail to open.
 - **NFNT shifts:** `macfbit_svf.py` shifts Latin glyphs that extend past the cell back inside (`AppleGothic12` `W` -1 px, `AppleMyungjo24` `j` +1 px).
-- **Real-file tests:** Synthetic tests run by default. To test against your own files, set `JOHAB_FONTS` (1.0) or `MACFBIT3_CD712` and `SVF_MAC71_INPUTS` (7.1.2). The 1.0 golden file (`tools/testdata/mac-fbit-golden.json`) is not shipped.
+- **Real-file tests:** `tools/test_macfbit3.py` and `tools/test_macfbit_svf.py` run on synthetic `fbit`, `HTBL` and `NFNT` data. Real files add checks: `JOHAB_FONTS` names a tree holding `mac/extracted/kh10_system_disk/System Folder/*.rsrc` and the reference renderer (1.0, in `tools/test_jamoset.py`); `MACFBIT3_CD712` the 7.1.2 CD tree; `SVF_MAC71_INPUTS` a folder of `Name.fbit` and `Name.htbl1` files. The 1.0 golden file (`tools/testdata/mac-fbit-golden.json`) is not shipped.
 - **Sample reproducibility:** `fbit` images depend only on the font files; strike images also depend on Pillow and FreeType (built with Pillow 10.2.0 and FreeType 2.13.2).
 
 [Recipes index](../recipes.md) · [Tool reference](../tools.md)

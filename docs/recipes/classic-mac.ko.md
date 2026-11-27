@@ -4,7 +4,7 @@
 
 HangulTalk 1.0 `fbit`, HangulTalk 7.1.x type-3 `fbit`, System 7.5.3–Mac OS 8.5 TrueType 비트맵 스트라이크를 SVF로 변환하는 레시피다.
 
-**시작 전에.** 프로젝트 루트에서 `$OUT`을 정하고 실행한다([레시피 색인](../recipes.ko.md)). 원본 폰트는 독점 파일이므로 직접 준비한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 샘플 줄(`안녕하세요 ABC 123`)로 확인한다.
+**시작 전에.** 프로젝트 루트에서 `$OUT`을 정하고 실행한다([레시피 색인](../recipes.ko.md)). 원본 폰트는 독점 파일이므로 직접 준비한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 점검(`measure`, `line`, `fontmetrics.py`, `svf2to3.py --check`, `facecheck.py`)으로 끝난다. 아래 점검 줄은 그 샘플 줄 `안녕하세요 ABC 123`을 쓴다.
 
 위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [아웃라인 폰트](outline-fonts.ko.md), [벌 수 정하기](sets.ko.md), [자모 세트](../jamo-sets.ko.md).
 
@@ -18,38 +18,42 @@ HangulTalk 1.0 `fbit`, HangulTalk 7.1.x type-3 `fbit`, System 7.5.3–Mac OS 8.5
 
 ### HangulTalk 1.0 (한글 System 4.1, 1988)
 
-| 폰트 | 종류 | 크기 | 글리프 | 한글 |
-| --- | --- | --- | --- | --- |
-| `Gotic12` | 조합형 `fbit` (`fdef` 규칙) | 12 px | 조각 653개, 벌 20/15/4 | 음절 11,172 + 자모 51 |
-| `Munjo12` | 조합형 `fbit` | 12 px | 조각 653개, 벌 20/15/4 | 11,172 + 51 |
-| `Munjo16` | 조합형 `fbit` | 16 px | 조각 653개, 벌 20/15/4 | 11,172 + 51 |
-| `Munjo24` | 조합형 `fbit` | 24 px | 조각 653개, 벌 20/15/4 | 11,172 + 51 |
+| 폰트 | 종류 | 크기 | 글리프 | 한글 | 한자 |
+| --- | --- | --- | --- | --- | --- |
+| `Gotic12` | 조합형 `fbit` (`fdef` 규칙) | 12 px | 조각 653개, 벌 20/15/4 | 음절 11,172 + 자모 51 | 0 |
+| `Munjo12` | 조합형 `fbit` | 12 px | 조각 653개, 벌 20/15/4 | 11,172 + 51 | 0 |
+| `Munjo16` | 조합형 `fbit` | 16 px | 조각 653개, 벌 20/15/4 | 11,172 + 51 | 0 |
+| `Munjo24` | 조합형 `fbit` | 24 px | 조각 653개, 벌 20/15/4 | 11,172 + 51 | 0 |
 
 - 폰트에는 한글만 있다. System 파일의 `Gotic`, `Munjo` 패밀리가 라틴 `FONT` 스트라이크를 더한다: `Gotic` 12 pt(글리프 236개, 코드 0–255), `Munjo` 12, 18, 24 pt(각 231개).
 - Utilities 디스크의 `Fonts` suitcase에는 라틴 폰트만 있다.
+- 두 디스크 어디에도 한자는 없다. System Folder의 다른 `fbit` 리소스(확장 파일 두 개)는 글리프 없는 76–232 B 레코드다.
 
 ### HangulTalk 7.1.2 CD (1994)
 
-| 폰트 | 종류 | 크기 | 글리프 | 한글 |
-| --- | --- | --- | --- | --- |
-| `Seoul12` | 조합형 `fbit` type 3 + `HTBL` 1 | 12 px | 평면 482개, 조각 207개 | 음절 2,350 + 자모 51 |
-| `AppleGothic12` | 조합형 `fbit` type 3 + `HTBL` 1 | 12 px | 평면 482개, 조각 364개 | 2,350 + 51 |
-| `AppleGothic24` | 조합형 `fbit` type 3 + `HTBL` 1 | 24 px | 평면 482개, 조각 455개 | 2,350 + 51 |
-| `AppleMyungjo12` | 조합형 `fbit` type 3 + `HTBL` 1 | 12 px | 평면 482개, 조각 395개 | 2,350 + 51 |
-| `AppleMyungjo24` | 조합형 `fbit` type 3 + `HTBL` 1 | 24 px | 평면 482개, 조각 465개 | 2,350 + 51 |
-| `KSSymbol12` | `fbit` 핸들러 type 0 (기호) | 12 px | 읽지 않음 | 없음 (코드 A141–ADFE) |
-| AppleGothic | TrueType 윤곽선, 스트라이크 없음 | 임의 | 9,924 | 음절 2,350, 한자 4,888 |
-| AppleMyungjo | TrueType 윤곽선, 스트라이크 없음 | 임의 | 9,926 | 음절 2,350, 한자 4,888 |
+| 폰트 | 종류 | 크기 | 글리프 | 한글 | 한자 |
+| --- | --- | --- | --- | --- | --- |
+| `Seoul12` | 조합형 `fbit` type 3 + `HTBL` 1 | 12 px | 평면 482개, 조각 207개 | 음절 2,350 + 자모 51 | 0 |
+| `AppleGothic12` | 조합형 `fbit` type 3 + `HTBL` 1 | 12 px | 평면 482개, 조각 364개 | 2,350 + 51 | 0 |
+| `AppleGothic24` | 조합형 `fbit` type 3 + `HTBL` 1 | 24 px | 평면 482개, 조각 455개 | 2,350 + 51 | 0 |
+| `AppleMyungjo12` | 조합형 `fbit` type 3 + `HTBL` 1 | 12 px | 평면 482개, 조각 395개 | 2,350 + 51 | 0 |
+| `AppleMyungjo24` | 조합형 `fbit` type 3 + `HTBL` 1 | 24 px | 평면 482개, 조각 465개 | 2,350 + 51 | 0 |
+| `KSSymbol12` | `fbit` 핸들러 type 0 (기호) | 12 px | 읽지 않음 | 없음 (코드 A141–ADFE) | 0 |
+| AppleGothic | TrueType 윤곽선, 스트라이크 없음 | 임의 | 9,924 | 음절 2,350 | 4,888 |
+| AppleMyungjo | TrueType 윤곽선, 스트라이크 없음 | 임의 | 9,926 | 음절 2,350 | 4,888 |
+| `Hanja24Disk` | `splt` 아카이브, 24 px 한자 | 24 px | 변환 안 됨 | — | 변환 안 됨 |
+| `GHanja24Disk` | `splt` 아카이브, 두 번째 24 px 한자 세트 | 24 px | 변환 안 됨 | — | 변환 안 됨 |
 
 - 조각은 `direct` 페이스의 서로 다른 비트맵 수다. `verify`는 2,350 + 51자를 모두 정확히 조합한다.
 - 패밀리 suitcase가 라틴 `NFNT` 스트라이크를 더한다: `Seoul` 9, 12 pt, `AppleGothic` 12, 24 pt, `AppleMyungjo` 9, 12, 24 pt.
-- 이 도구들이 읽지 못하는 것: `KSSymbol24Disk`(풀면 176,091바이트이지만 리소스 포크가 아니다), `Hanja24Disk`, `GHanja24Disk`, `GSymbol24Disk`(`JM` 아카이브가 풀리지 않는다).
+- 이 도구들이 읽지 못하는 것: `KSSymbol24Disk`(51,504 B. 풀면 176,091바이트이지만 리소스 포크가 아니다), `Hanja24Disk`(231,388 B), `GHanja24Disk`(211,152 B), `GSymbol24Disk`(51,510 B). 뒤의 셋은 `JM` 디코더에서 실패한다. 두 한자 아카이브의 `JM` 헤더는 풀린 크기를 353,300바이트로 적는다. CD에 12 px 한자 아카이브는 없다.
+- TrueType 한자는 정확히 KS X 1001 한자 4,888자(CA–FD 행)다.
 
 ### 한글 System 7.5.3 CD (1996)
 
 모든 폰트가 `FFIL` suitcase에 든 TrueType이고 완성형이다. `Bitmap 서체 설치` 폴더에는 비트맵 전용 사본(`glyf` 없음)이 있고, 모든 스트라이크가 모든 글리프를 담는다.
 
-| 폰트 | 스트라이크 (ppem) | 글리프 | 한글 음절 | 한자 | cmap 코드 | 비트맵 전용 sfnt |
+| 폰트 | 스트라이크 (ppem) | 글리프 | 한글 음절 | 한자 | KS X 1001 코드 | 비트맵 전용 sfnt |
 | --- | --- | --- | --- | --- | --- | --- |
 | AppleGothic | 9, 10, 12, 14, 16, 18, 20, 24 | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,028 B |
 | AppleMyungjo | 9–24 (8개) | 10,553 | 2,350 | 4,888 | 8,329 | 4,081,884 B |
@@ -63,13 +67,15 @@ HangulTalk 1.0 `fbit`, HangulTalk 7.1.x type-3 `fbit`, System 7.5.3–Mac OS 8.5
 | #태그래픽 | 9–24 (8개) | 5,001 | 2,350 | 0 | 3,441 | 1,315,024 B |
 | #헤드라인A | 18, 20, 24 | 2,768 | 2,350 | 0 | 2,547 | 448,400 B |
 
-- 모든 폰트의 cmap에 호환 자모 93개가 있다. Mac Korean cmap에는 KS X 1001 밖의 코드(Apple 추가분)가 있다: 한자가 있는 폰트는 1,470개, #필기체, #공작체, #태그래픽은 1,522개, #헤드라인A는 195개.
+- Seoul의 글리프가 9,889개인 까닭: 음절 2,350 + 한자 4,888 + KS X 1001 기호 894 + 호환 자모 93 + ASCII 103(KS X 1001 코드 8,329개에 글리프 8,328개) + Apple 확장 기호 1,197(앞 바이트 A1–AD, 뒤 바이트 41–A0) + 유니코드 대응이 없는 KS 영역 코드 235 + 1바이트 Mac 문자 38 + 어느 코드도 가리키지 않는 글리프 91. AppleGothic, AppleMyungjo는 코드가 있는 글리프가 같고, 어느 코드도 가리키지 않는 글리프가 755개다(10,553).
+- 한자: 한자가 있는 폰트는 모두 정확히 KS X 1001 한자 4,888자(CA–FD 행)이고, 그 행 밖의 코드는 한자로 풀리지 않는다. #필기체, #공작체, #태그래픽, #헤드라인A에는 한자가 없다.
+- KS X 1001 코드는 Mac Korean (1,3) 항목 중 KS X 1001로 풀리는 것이다(Seoul: 9,799개 중 8,329개). 모든 폰트의 cmap에 호환 자모 93개가 있다. Mac Korean cmap에는 KS X 1001 밖의 코드(Apple 추가분)가 있다: 한자가 있는 폰트는 1,470개, #필기체, #공작체, #태그래픽은 1,522개, #헤드라인A는 195개.
 - 윤곽선 사본(`glyf`와 바이트까지 같은 `bdat`): 설치 프로그램의 `Font Folder`에 11개 모두, `한글 시스템/자형 폴더`에 AppleGothic, AppleMyungjo, Seoul(Seoul: 6,159,836 B).
 
 ### Mac OS 7.6.1 (1997), 8.5 (1998), 8.6 (1999)
 
 - **7.6.1:** 한글 `sfnt`(비트맵 전용과 윤곽선 사본) 모두 7.5.3과 바이트까지 같다. `자형 폴더`에는 AppleGothic, AppleMyungjo, Seoul, #신명조, #궁서체, #필기체가 있다.
-- **8.5:** AppleGothic, AppleMyungjo는 7.5.3의 `bdat`, `bloc`을 그대로 쓰고 `cmap`(유니코드 하위 표 추가), `head`, `hhea`만 바뀌었다. Seoul은 새로 그렸다: 글리프 9,912개, 새 `bdat`. 한강체가 새로 들어왔다: 완성형, 스트라이크 9–24(8개), 글리프 9,914개, 음절 2,350, 자모 94, 한자 4,888, 유니코드 코드 8,474개. System 파일의 `.Last Resort` 폰트는 11,172음절 모두를 대체 글리프(전체 247개)에 대응시킬 뿐 한글 페이스가 아니다.
+- **8.5:** AppleGothic, AppleMyungjo는 7.5.3의 `bdat`, `bloc`을 그대로 쓰고 `cmap`(유니코드 하위 표 추가), `head`, `hhea`만 바뀌었다. Seoul은 새로 그렸다: 글리프 9,912개, 새 `bdat`. 한강체가 새로 들어왔다: 완성형, 스트라이크 9–24(8개), 글리프 9,914개, 음절 2,350, 자모 94, 한자 4,888(KS X 1001 집합. Mac cmap에는 한자 행 안이지만 KS X 1001 밖인 코드 DBA0, E162 두 개도 있다), 유니코드 코드 8,474개. System 파일의 `.Last Resort` 폰트는 11,172음절 모두를 대체 글리프(전체 247개)에 대응시킬 뿐 한글 페이스가 아니다. 이 폴더의 `AppleGothic [fbit]`, `AppleMyungjo [fbit]`, `Seoul [fbit]`, `한강체 [fbit]` 파일(16–19 KB)은 스트라이크 설명 파일이다: 각 1,367–1,966 B의 `fbit` 레코드 8개와, Seoul을 뺀 나머지에 `fdef` 42 `Main`(6,418 B). 글리프는 없다.
 - **8.6:** 폰트 suitcase와 System 파일 중 한글은 `자형 폴더/Seoul`뿐이고, 8.5와 바이트까지 같다.
 
 <a id="클래식-mac-한글-비트맵-폰트"></a>
@@ -86,6 +92,9 @@ python3 tools/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check
 
 `--symbols`를 빼면 `jamoset.py`가 그리는 `…`와 `□` 없이 순수 폰트 글리프만 담긴다.
 
+- `Munjo24.rsrc`: `macsfnt.py list`는 `fbit` 17409(47,714 B)와 `fdef` 3(2,398 B)을 보여 준다. `--symbols`를 주면 `--check`가 `composed 11172 syllables from 655 glyphs`를 출력하고, 약 1.0초 걸린다.
+- maker 로컬 모드(`detect.scan(..., local=True)`): "HangulTalk 1.0 fbit (45 sets), 24 x 24"(Munjo24. Gotic12, Munjo12는 12 x 12, Munjo16은 16 x 16), 소스 종류 `mac-fbit1`, 커버리지 KS 2,350 / 음절 11,172 + 자모 51, 경로 `mac fbit 1.0`. 업로드 모드: "Mac bitmap font (NFNT/fbit): not converted here (local-only mode)".
+
 | 폰트 | 크기 | 글리프 / 조각 | 셀 | ascent / descent | 점검 줄 (`안녕하세요 ABC 123`) |
 | --- | --- | --- | --- | --- | --- |
 | `Munjo24` (`--symbols`) | 36,660 B | 조각 653개 (20/15/4벌, 8x4 클래스, 11,172음절) | 24x24 | 24 / 0 | `width=120`, 잉크 591, `IoU 1.000` |
@@ -98,6 +107,8 @@ python3 tools/jamoset.py --layout mac-fbit-45sets Munjo24.rsrc --symbols --check
 ![HangulTalk 1.0 Munjo24 24x24 자모 세트, 한국어 두 줄만 표시, 2배](../images/recipes/mac/ht10-munjo24.png)
 
 *같은 디스크(1988)의 `Munjo24`, `--symbols` 없이 생성(`36,564 B`, 24x24, ascent 24, descent 0). 한글만 있고 라틴·공백·기호가 없다. 2배.*
+
+<a id="클래식-mac-hangultalk-71"></a>
 
 ## HangulTalk 7.1.x type-3 `fbit` 폰트
 
@@ -140,6 +151,9 @@ python3 tools/jamomerge.py merge --face $OUT/SEOUL12D.SVF --points 8192 7168 --p
 | `AppleGothic12` direct + Latin | 22,860 B | 조각 364개 + ASCII | 12x12 | 10 / 2 | `width=122`, 잉크 285, `ks_bad 0` |
 | `AppleMyungjo24` direct + Latin | 37,244 B | 조각 465개 + ASCII | 24x24 | 20 / 4 | `width=242`, 잉크 944, `ks_bad 0` |
 
+- Seoul12 실행: `HTBL1.bin` 9,816 B, `unpack`은 `JM 1843 -> 9673 bytes`, `fbit` 8,760 B, `bdf` 글리프 2,401개. 라틴 글자는 direct 페이스에 1,388 B를 더한다.
+- maker 로컬 모드: `splt` 파일, 폰트 포크, 원시 포크는 "HangulTalk 7.1 type-3 fbit, 12 px, 482 planes (needs HTBL 1)"(소스 종류 `mac-fbit3`, 커버리지 2,350 + 51)이고 경로 `mac fbit 7.1 direct`, `derived`, `bdf + mkfont`를 얻는다. 확장은 "HangulTalk 7.1 HTBL 1 (InputBackSupport): the composition table", `Seoul[FFIL]`은 "Mac bitmap suitcase (FOND + NFNT): Latin strikes at 9, 12 pt"로 읽힌다.
+
 ![HangulTalk 7.1.2 Seoul12, Seoul suitcase 라틴 포함 direct 페이스, 2배](../images/recipes/mac/ht712-seoul12.png)
 
 *한글 System 7.1.2 / HangulTalk 7.1.2 CD(1994) `Seoul12`, `Seoul[FFIL]` 12 pt `NFNT` 포함(`17,924 B`, 12x12, ascent 10, descent 2). KS X 1001 기호 없음. 2배.*
@@ -167,10 +181,11 @@ python3 tools/mkfont.py $OUT/AppleGothicU.ttf $OUT/agothic16.svf --size 16 --bpp
 ```
 
 - `--size`는 위 여덟 스트라이크 크기 중 하나여야 한다.
+- 스트라이크 밖 크기: 전체 폰트(윤곽선과 스트라이크, 한강체 등)는 윤곽선으로 래스터화되고(17 px: `133,288 B`), 비트맵 전용 사본은 열리지 않는다(`invalid pixel size`).
 - Mac OS 8.5 `한강체`는 유니코드 cmap이 이미 있어 `macsfnt.py unicode` 단계가 필요 없다.
-- 스트라이크에는 KS X 1001 기호와 대부분 한자도 들어 있으므로 더 넓은 `--unicode` 집합으로 꺼낼 수 있다.
+- 한자: `--unicode ascii,ksx1001`(`ksx1001` 프리셋은 기호, 자모, 음절 2,350, 한자 4,888)로 담는다. 7.5.3 비트맵 전용 Seoul 16 px: `424,316 B`, 글리프 8,319개(프리셋 중 2자는 폰트에 없다).
 
-7.5.3 비트맵 전용 `AppleGothic` 16 px에 위 명령을 실행하면 완성형 페이스 `123,360 B`, 글리프 2,446개가 나온다. 아래 표는 샘플 네 줄 문자(`--unicode file:`)만 담은 페이스 결과다.
+출처: 한글 System 7.5.3, Power Macintosh 7220용 CD(1996). 폰트에는 "1994-1995 Elex Computer"라고 적혀 있다. 7.5.3 비트맵 전용 `AppleGothic` 16 px에 위 명령을 실행하면 완성형 페이스 `123,360 B`, 글리프 2,446개가 나온다. 아래 표는 샘플 네 줄 문자(`--unicode file:`)만 담은 페이스 결과다.
 
 | 폰트 (스트라이크) | 크기 | 셀 | ascent / descent | 빠진 문자 |
 | --- | --- | --- | --- | --- |
@@ -240,7 +255,7 @@ python3 -I tools/doc_figures_mac.py --ht10 "$SRC/HT10/System Folder" --ht712 "$S
 - **HangulTalk 7.5.1 차이:** 7.5.1 설치 디스크의 `Seoul12[fbit]`은 7.1.2와 바이트 단위로 같다(8,760 B). 반면 7.5.1의 `InputBackSupport`는 압축되어 있어 `srcprep.py mac-htbl`이 읽지 못한다.
 - **비트맵 전용 TrueType:** 7.5.3의 `Bitmap 서체 설치` 사본은 윤곽선과 `head` 표가 없다. `mkfont.py`가 fontTools로 스트라이크 메트릭에서 전진 폭을 읽으며, 스트라이크 밖 크기는 열리지 않는다.
 - **NFNT 위치 보정:** `macfbit_svf.py`는 셀을 벗어나는 라틴 글리프를 셀 안으로 옮긴다(`AppleGothic12` `W` -1 px, `AppleMyungjo24` `j` +1 px).
-- **실제 파일 테스트:** 합성 테스트는 기본으로 돈다. 보유한 원본 파일로 검증하려면 `JOHAB_FONTS`(1.0), `MACFBIT3_CD712` / `SVF_MAC71_INPUTS`(7.1.2) 환경 변수를 지정한다. 1.0 독립 비교용 골든 파일(`tools/testdata/mac-fbit-golden.json`)은 배포하지 않는다.
+- **실제 파일 테스트:** `tools/test_macfbit3.py`와 `tools/test_macfbit_svf.py`는 합성 `fbit`, `HTBL`, `NFNT` 데이터로 돈다. 실제 파일 점검은 환경 변수로 더한다: `JOHAB_FONTS`는 `mac/extracted/kh10_system_disk/System Folder/*.rsrc`와 참조 렌더러를 담은 트리(1.0, `tools/test_jamoset.py`), `MACFBIT3_CD712`는 7.1.2 CD 트리, `SVF_MAC71_INPUTS`는 `Name.fbit`와 `Name.htbl1` 파일이 있는 폴더. 1.0 독립 비교용 골든 파일(`tools/testdata/mac-fbit-golden.json`)은 배포하지 않는다.
 - **샘플 재현 환경:** `fbit` 그림은 폰트 파일에만 달려 있고, 스트라이크 그림은 Pillow와 FreeType 버전에 영향을 받는다(Pillow 10.2.0, FreeType 2.13.2로 생성).
 
 [레시피 색인](../recipes.ko.md) · [도구 설명서](../tools.ko.md)
