@@ -2,7 +2,7 @@
 
 # 레시피: 클래식 Mac 한글 비트맵 폰트
 
-HangulTalk 1.0 `fbit` 폰트(글리프 set 45개와 `fdef` 규칙: 정확한 자모 세트)와 HTBL 1을 쓰는 HangulTalk 7.1 type-3 `fbit` 폰트(완성형 페이스와 자모 세트). maker의 로컬 모드가 이들을 제자리에서 읽는다. System 7.5 이후의 TrueType 비트맵 스트라이크와 페이스마다의 샘플 그림이 이어진다.
+HangulTalk 1.0 `fbit` 폰트(글리프 set 45개와 `fdef` 규칙: 정확한 자모 세트)와 HTBL 1을 쓰는 HangulTalk 7.1 type-3 `fbit` 폰트(완성형 페이스와 자모 세트). maker의 로컬 모드가 이들을 제자리에서 읽는다. System 7.5.3부터 Mac OS 8.5까지의 TrueType 비트맵 스트라이크와 페이스마다의 샘플 그림이 이어진다.
 
 **시작 전에.** 명령은 [색인](../recipes.ko.md)에서처럼 `$OUT`을 정하고 프로젝트 루트에서 실행한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 점검으로 끝난다. 원본 파일은 독점 파일이라 따로 마련한다. Mac 형식 TrueType(`.dfont`, 슈트케이스)은 [아웃라인 폰트](outline-fonts.ko.md#mac-형식-truetype)에 있다.
 
@@ -88,7 +88,7 @@ composition table", `Seoul[FFIL]`은 "Mac bitmap suitcase (FOND + NFNT): Latin s
 같은 명령을 위의 HTBL 1과 라틴 글자용 패밀리 suitcase로 CD의 다른 type-3 폰트에 돌렸다. `AppleGothic12[splt]`에
 `--latin "AppleGothic[FFIL].rsrc"`는 `22,860 바이트`, `AppleMyungjo24[splt]`에 `AppleMyungjo[FFIL]`의 24 pt `NFNT`는 `37,244 바이트`
 (`latin_notes`: `j`를 셀 안으로 1 px 옮김)이고, 둘 다 `verify` 이상 없음(ks_bad 0, compat_bad 0, non_ks_present 0). 폰트에도
-suitcase에도 KS X 1001 기호가 없어(기호는 이 도구들이 읽지 않는 별도의 `KSSymbol12` / `KSSymbol24` 아카이브에 있다) 기호 줄에는
+suitcase에도 KS X 1001 기호가 없어(기호는 이 도구들이 읽지 않는 별도의 `KSSymbol12` / `KSSymbol24Disk` 아카이브에 있다) 기호 줄에는
 ASCII 기호만 있다.
 
 ![HangulTalk 7.1.2의 Seoul12, Seoul suitcase의 라틴 글자를 더한 direct 페이스, 2배](../images/recipes/mac/ht712-seoul12.png)
@@ -104,23 +104,24 @@ descent 2. KS X 1001 기호 없음. 2배*
 ![HangulTalk 7.1.2의 AppleMyungjo24, AppleMyungjo suitcase의 라틴 글자를 더한 페이스, 2배](../images/recipes/mac/ht712-applemyungjo24.png)
 
 *같은 CD(1994)의 `AppleMyungjo24`, `AppleMyungjo[FFIL]`의 24 pt `NFNT`를 더한 `direct` 페이스(`37,244 바이트`), 24x24, ascent 20,
-descent 4. KS X 1001 기호 없음. 2배*
+descent 4. KS X 1001 기호가 없고, 24 pt `NFNT`의 백틱은 비어 있다. 2배*
 
-<a id="truetype-비트맵-스트라이크-system-75부터-mac-os-85까지"></a>
+<a id="truetype-비트맵-스트라이크-system-753부터-mac-os-85까지"></a>
 
-### TrueType 비트맵 스트라이크 (System 7.5부터 Mac OS 8.5까지)
+### TrueType 비트맵 스트라이크 (System 7.5.3부터 Mac OS 8.5까지)
 
-한글 System 7.5부터 한글 폰트는 패밀리 suitcase(`FFIL`)에 든 TrueType이고, Apple의 `bloc`/`bdat` 표에 9, 10, 12, 14, 16, 18,
-20, 24 ppem의 1 bpp 스트라이크가 있다. CD의 `Bitmap 서체 설치` 폴더에는 비트맵 전용 사본(스트라이크만 있고 윤곽선 없음)이 있다.
-이 장의 도구는 이들을 읽지 않는다. [Mac 형식 TrueType](outline-fonts.ko.md#mac-형식-truetype) 경로를 쓰며, 스트라이크 크기에서는
+한글 System 7.5.3부터(살펴본 것 중 가장 이른 판. 7.5.1에는 아직 `fbit` Seoul12가 들어 있다) 한글 폰트는 패밀리
+suitcase(`FFIL`)에 든 TrueType이고, Apple의 `bloc`/`bdat` 표에 9, 10, 12, 14, 16, 18, 20, 24
+ppem의 1 bpp 스트라이크가 있다. CD의 `Bitmap 서체 설치` 폴더에는 비트맵 전용 사본(스트라이크만 있고 윤곽선 없음)이 있다. 이 장의 도구는
+이들을 읽지 않는다. [Mac 형식 TrueType](outline-fonts.ko.md#mac-형식-truetype) 경로를 쓰며, 스트라이크 크기에서는
 FreeType이 스트라이크의 픽셀을 그린다([내장 비트맵 스트라이크](bitmap-fonts.ko.md#내장-비트맵-스트라이크)).
 
     python3 tools/macsfnt.py extract "AppleGothic[FFIL].rsrc" $OUT/AppleGothic.ttf
     python3 tools/macsfnt.py unicode $OUT/AppleGothic.ttf $OUT/AppleGothicU.ttf     # only the Mac Korean cmap: add a Unicode one
     python3 tools/mkfont.py $OUT/AppleGothicU.ttf $OUT/agothic16.svf --size 16 --bpp 1 --unicode ascii,ksx1001-hangul
 
-7.5.3의 비트맵 전용 AppleGothic에서 `123,360 바이트`, 글리프 2,446개. `--size`는 스트라이크 크기 중 하나여야 한다(그 사이 크기에서는
-FreeType이 윤곽선을 래스터화하고, 비트맵 전용 사본은 열리지 않는다). 결과는 완성형 페이스다. 스트라이크에는 폰트의 KS X 1001
+7.5.3의 비트맵 전용 AppleGothic에서 `123,360 바이트`, 글리프 2,446개. `--size`는 스트라이크 크기 중 하나여야 한다(그 사이
+크기에서는 FreeType이 윤곽선을 래스터화하고, 비트맵 전용 사본은 열리지 않는다). 결과는 완성형 페이스다. 스트라이크에는 폰트의 KS X 1001
 기호와, 대부분의 페이스에서 한자도 있어 더 넓은 `--unicode` 집합으로 가져올 수 있다. 비트맵 전용 사본에는 `head` 표가 없어
 `mkfont.py`가 글리프마다 전진 폭을 fontTools로 스트라이크의 메트릭에서 가져온다.
 
