@@ -951,10 +951,10 @@ JSET이 쓰인다. `SVF_JMAP_RECOG` 빌드는 머리 규칙(플래그와 NS, 대
 
 ### 6.4 Seoul12: 같은 글꼴, 두 구조
 
-Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방식으로 SVF에 담아 비교할 수 있는 예이다. 아래 파일 크기는 [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트)의 "클래식 Mac 한글 비트맵 폰트"에 설명되어 있으며 프리셋 크기는 Uno 변환의 값이다.
+Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방식으로 SVF에 담아 비교할 수 있는 예이다. 아래 파일 크기는 [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-hangultalk-71)의 "HangulTalk 7.1.x type-3 `fbit` 폰트"에 설명되어 있으며 프리셋 크기는 Uno 변환의 값이다.
 
 **이름 주의.** 이 절의 "SEOUL12J"는 Uno 프리셋의 **derived** 모드(규칙형, Latin 포함,
-12,624바이트) 페이스를 가리킨다. [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) "클래식 Mac 한글 비트맵 폰트"의 명령 예는 같은 이름 `SEOUL12J.SVF`를
+12,624바이트) 페이스를 가리킨다. [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-hangultalk-71) "HangulTalk 7.1.x type-3 `fbit` 폰트"의 명령 예는 같은 이름 `SEOUL12J.SVF`를
 **direct** 출력(JMAP)에, `SEOUL12D.SVF`를 derived 출력에 붙인다. 아래 표는 "원본 구조"(direct)와 "SEOUL12J"(derived)로 나누어
 부르며, 크기는 Latin 유무를 맞추어 비교한다.
 
@@ -970,7 +970,7 @@ Mac HangulTalk 7.1.x의 Seoul12(12 px)는 같은 글리프 데이터를 두 방�
 | 조합하는 음절 | KS 2,350자만 | 11,172자: KS 2,350 정확 + 4,630 regular + 4,192 추정(guessed) |
 | 만드는 도구 | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
 
-Latin 없는 두 크기와 Latin 포함 두 크기(15,016 / 9,716 / 17,924 / 12,624)는 [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) "클래식 Mac 한글 비트맵 폰트"의 실행
+Latin 없는 두 크기와 Latin 포함 두 크기(15,016 / 9,716 / 17,924 / 12,624)는 [docs/recipes/classic-mac.ko.md](recipes/classic-mac.ko.md#클래식-mac-hangultalk-71) "HangulTalk 7.1.x type-3 `fbit` 폰트"의 실행
 결과이다. 구조 항목은 해당 변환의 블록 형태, 클래스, 벌, 조각 수, JSET 바이트와 regular / guessed 수를 나타낸다.
 
 **왜 규칙형으로 Mac 조각을 그대로 쓸 수 없었나.** Mac 표는 중성(과 종성 ㄱ ㄹ ㅇ)을 초성에 따라 아주 잘게 고른다. Mac 슬롯 하나하나를

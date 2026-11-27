@@ -984,11 +984,11 @@ status bits ([spec/SVF.md](../spec/SVF.md) "Reader statuses", [c/include/svf.h](
 
 ### 6.4 Seoul12: one font, two structures
 
-Seoul12 (12 px) of Mac HangulTalk 7.1.x can be put into SVF both ways, which makes it a good comparison. The file sizes below are documented in [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts), "Classic Mac Korean bitmap fonts"; the preset sizes describe the Uno conversions.
+Seoul12 (12 px) of Mac HangulTalk 7.1.x can be put into SVF both ways, which makes it a good comparison. The file sizes below are documented in [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-hangultalk-71), "HangulTalk 7.1.x type-3 `fbit` fonts"; the preset sizes describe the Uno conversions.
 
 **A note on the name.** "SEOUL12J" here names the Uno preset's
-**derived** face (rule form, with Latin, 12,624 bytes). The command examples of [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) "Classic Mac Korean bitmap
-fonts" give the same name `SEOUL12J.SVF` to the **direct** output (JMAP) and `SEOUL12D.SVF` to the derived one. The table
+**derived** face (rule form, with Latin, 12,624 bytes). The command examples of [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-hangultalk-71) "HangulTalk 7.1.x type-3
+`fbit` fonts" give the same name `SEOUL12J.SVF` to the **direct** output (JMAP) and `SEOUL12D.SVF` to the derived one. The table
 calls them "original structure" (direct) and "SEOUL12J" (derived), and compares sizes with and without Latin alike.
 
 | Item | Original structure (direct, table form) | SEOUL12J (derived, rule form) |
@@ -1003,7 +1003,7 @@ calls them "original structure" (direct) and "SEOUL12J" (derived), and compares 
 | Syllables composed | the KS 2,350 only | 11,172: KS 2,350 exact + 4,630 regular + 4,192 guessed |
 | Tool | `tools/macfbit_svf.py build` | `tools/macfbit_svf.py build --mode derived` |
 
-The four file sizes (15,016 / 9,716 / 17,924 / 12,624) are the runs of [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts) "Classic Mac Korean bitmap fonts".
+The four file sizes (15,016 / 9,716 / 17,924 / 12,624) are the runs of [docs/recipes/classic-mac.md](recipes/classic-mac.md#classic-mac-hangultalk-71) "HangulTalk 7.1.x type-3 `fbit` fonts".
 The structure rows give the block form, classes, sets, pieces, JSET bytes and regular / guessed counts for those conversions.
 
 **Why the rule form could not use the Mac pieces as they are.** The Mac table picks the medial (and the finals ㄱ ㄹ ㅇ)

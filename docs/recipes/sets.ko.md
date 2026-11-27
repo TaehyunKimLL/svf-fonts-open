@@ -41,7 +41,7 @@
 비용의 0.05 % 이상, 양쪽에 음절 4개 이상, `jamoadapt.py`에 고정). `jamoset.py --layout adaptive`의 클래스 한도는 12 x 12이다. `--jset-big`은 원본의 더 큰 표를 쓸 수 있게 하지만,
 `adaptive`의 클래스 계산 자체를 바꾸지는 않는다. `jamovec.py master --adaptive NI,NM,NF`와 `--class-limit N`은 벡터 마스터에
 같은 일을 한다(표준 한도를 넘으면 `jamovec.py render --jset-big`과 `SVF_JSET_BIG`으로 빌드한 렌더러가 필요하다. BIG 한도를 넘는 표는 시뮬레이션만 가능하다). 맞춘 뒤에는 `jamomerge.py merge --points BYTES ...`가 변형, 벌,
-클래스를 바이트 예산까지 합치고([클래식 Mac 한글 비트맵 폰트](classic-mac.ko.md#클래식-mac-한글-비트맵-폰트)에 실행 예가 있다), `jamoexc.py`는 벌을
+클래스를 바이트 예산까지 합치고([HangulTalk 7.1.x type-3 `fbit` 폰트](classic-mac.ko.md#클래식-mac-hangultalk-71)에 실행 예가 있다), `jamoexc.py`는 벌을
 늘리는 대신 자주 쓰는 음절 몇 개를 통째로 저장한다(LIST 예외).
 
 **측정**(2026-11-22): 모든 배치를 `jamoset.py --layout L --from-svf FACE --mask-font none --check`로 16 px 완성형 페이스 둘에 맞췄다.

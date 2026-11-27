@@ -94,7 +94,7 @@
 | 자모 글리프가 있는 TTF(첫가끝 자모, PUA 조각, GSUB `ljmo`) | 다른 TTF와 같이 | 합성 글리프는 `jamovec.py --components`, 변형은 `--mask-font`, 그 밖에는 맞춤 | [이미 자모를 가진 TrueType 폰트](recipes/outline-fonts.ko.md#이미-자모를-가진-truetype-폰트) |
 | 16 px나 2 bpp로 쓰고 싶은 24-48 px 비트맵 페이스 | `svfscale.py --size 16 [--bpp 2]` | `jamoset.py --from-svf`(1 bpp 결과) | [고해상도 비트맵 폰트에서 저해상도 페이스 만들기](recipes/bitmap-fonts.ko.md#고해상도-비트맵-폰트에서-저해상도-페이스-만들기) |
 | Mac HangulTalk 1.0 `fbit`(벌 45개 + `fdef`) | 없음 | `jamoset.py --layout mac-fbit-45sets` | [클래식 Mac 한글 비트맵 폰트](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) |
-| Mac HangulTalk 7.1 type-3 `fbit` + HTBL 1 | `macfbit3.py bdf` + `mkfont.py` | `macfbit_svf.py build` | [클래식 Mac 한글 비트맵 폰트](recipes/classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) |
+| Mac HangulTalk 7.1 type-3 `fbit` + HTBL 1 | `macfbit3.py bdf` + `mkfont.py` | `macfbit_svf.py build` | [HangulTalk 7.1.x type-3 `fbit` 폰트](recipes/classic-mac.ko.md#클래식-mac-hangultalk-71) |
 | SVF 페이스 | `svfdy.py`, `svf2to3.py` | `jamoset.py --from-svf`(1 bpp 원본) | [기존 SVF](recipes/svf-and-ttf.ko.md#기존-svf) |
 | 다시 TTF(또는 BDF) 비트맵 폰트로 만들 SVF 페이스 | `svf2ttf.py ttf`(또는 `bdf`) | 같음: 모든 음절을 합성한 완성형 폰트(`--composite`: 조각을 나눠 쓰고 음절은 합성 글리프) | [SVF 페이스를 다시 TTF 비트맵 폰트로](recipes/svf-and-ttf.ko.md#svf-페이스를-다시-ttf-비트맵-폰트로) |
 

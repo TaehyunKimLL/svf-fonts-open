@@ -493,7 +493,7 @@ missing) and 374 outside KS that its driver's lists name. Every syllable the ROM
 ### 4.5 Mac HangulTalk table fonts
 
 Seoul12 is the worked case ([Jamo sets, section 6.4](jamo-sets.md#64-seoul12-one-font-two-structures);
-[Classic Mac](recipes/classic-mac.md#classic-mac-korean-bitmap-fonts)): the direct JMAP keeps the 207 Mac pieces and draws
+[Classic Mac](recipes/classic-mac.md#classic-mac-hangultalk-71)): the direct JMAP keeps the 207 Mac pieces and draws
 the KS 2,350 only (15,016 bytes without Latin); the derived JSET (8 x 4 classes, 9/6/3 sets, 219 pieces, 9,716 bytes) draws
 all 11,172, with the KS 2,350 exact, 4,630 regular and **4,192 guessed**. Whether BIG's 19 lead classes would let the Mac
 slots be used directly as pieces has not been measured. These Apple faces are not distributed.
