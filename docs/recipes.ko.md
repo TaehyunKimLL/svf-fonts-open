@@ -79,6 +79,7 @@
 | HBF | `bdfface.py`의 ASCII 절반으로만 | 없음 | [HBF](recipes/bitmap-fonts.ko.md#hbf) |
 | Windows `.FNT` / `.FON` | 리더 없음(FreeType이 유니코드 맵을 주지 않는다. 먼저 바깥 도구로 BDF로 변환하라) | 없음 | [Windows FNT와 FON](recipes/bitmap-fonts.ko.md#windows-fnt와-fon) |
 | DOS 원시 자모 조각 폰트(8x4x4 `HANGUL.FNT`, san, 도깨비, Kyra...) | `johab844.py`(16 px 8x4x4) | `jamoset.py --layout L` | [DOS 시대 원시 폰트](recipes/dos-fonts.ko.md#dos-시대-원시-폰트) |
+| IBM PC DOS 한글 HBIOS V3.0 폰트(`$KGOZN16.FNT`, `$KMYZN16.FNT`, `$KMYZN24.FNT`, 영문 `$K*HN*.FNT`, 기호와 한자 `$KSPHJ*.FNT`) | `$KMYZN24.FNT`의 음절 2,350자: `rawcarve.py bdf --offset 32409 --stride 90 --dense` + `bdfface.py` | `jamoset.py --layout 844`(16 px) / `844-hbios24`(24 px), `--eng`는 같은 디스크의 SBCS 파일 | [IBM PC DOS 한글 (HBIOS V3.0)](recipes/dos-fonts.ko.md#ibm-pc-dos-한글-hbios-v30) |
 | HWP 1.x `HANGUL.SFT` / `HANGUL*.PFT` | `hwpfont.py bdf --face N` 다음 `mkfont.py` | `jamoset.py --layout hwp1 --face N`(HWP 자체 규칙, 정확) | [HWP 1.x와 2.x 폰트](recipes/dos-fonts.ko.md#hwp-1x와-2x-폰트) |
 | HWP 3.0 `HAN*.FNT`(음절 2,350개, 16 px는 8x4x4 벌 체계 추가) | `hwpfont.py bdf` 다음 `mkfont.py` | `jamoset.py --layout 844-hwp3`(16 px), 그 밖에는 `--from-svf` | [HWP 3.0 FNT 폰트](recipes/dos-fonts.ko.md#hwp-30-fnt-폰트) |
 | KS X 1001 원시 덤프(코드 순서의 음절 2,350개, 또는 94 x 94 표) | `hwpfont.py bdf`(16-48 px 덤프), 또는 `rawcarve.py bdf --dense` / `--grid`; 다음 `mkfont.py`나 `bdfface.py` | `jamoset.py --from-svf` | [KS X 1001 원시 덤프](recipes/dos-fonts.ko.md#ks-x-1001-원시-덤프) |
