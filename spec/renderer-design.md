@@ -21,12 +21,22 @@ The caller owns faces, tables, caches, scratch and output buffers. SVFN versions
 
 | File | Role |
 |---|---|
-| [svf.h](../c/include/svf.h) | Public API, errors, status and build options |
-| [svf_face.c](../c/src/svf_face.c) | Header, table and record validation, lookup, metrics and cell reconstruction |
-| [svf_jamo.c](../c/src/svf_jamo.c) | JSET/JMAP validation and selection, piece composition |
-| [svf_stream.c](../c/src/svf_stream.c) | Read callback, streamed tables and LRU block cache |
-| [svf_draw.c](../c/src/svf_draw.c) | UTF-8, face chains, line layout and measurement, targets and composed-cell cache |
-| [svf_scale.c](../c/src/svf_scale.c) | Scaled coverage cells |
+| [c/include/svf.h](../c/include/svf.h) | Public API, errors, status and build options |
+| [c/src/svf_face.c](../c/src/svf_face.c) | Header, table and record validation, lookup, metrics and cell reconstruction |
+| [c/src/svf_jamo.c](../c/src/svf_jamo.c) | JSET/JMAP validation and selection, piece composition |
+| [c/src/svf_stream.c](../c/src/svf_stream.c) | Read callback, streamed tables and LRU block cache |
+| [c/src/svf_draw.c](../c/src/svf_draw.c) | UTF-8, face chains, line layout and measurement, targets and composed-cell cache |
+| [c/src/svf_scale.c](../c/src/svf_scale.c) | Scaled coverage cells |
+| [c/tests/](../c/tests/) | Host comparisons, malformed-input checks and fuzz harnesses |
+| [c/cross/](../c/cross/) | Cross builds, code-size, symbol and stack checks |
+| [c/bench/](../c/bench/) | Speed measurements, pixel identity checks and raw measurement records |
+| [c/ports/dos/](../c/ports/dos/README.md) | DJGPP, VGA mode 13h and VBE 2.0, streamed faces |
+| [c/ports/pico/](../c/ports/pico/README.md) | RP2040/RP2350, ST7789, SSD1327 and SSD1306 |
+| [c/ports/esp32/](../c/ports/esp32/README.md) | ESP32-C3/S3, ILI9341, SSD1327 and SSD1306 |
+| [c/ports/arduino/](../c/ports/arduino/README.md) | Uno, PROGMEM faces and SSD1306 I2C |
+| [c/ports/ch582/](../c/ports/ch582/README.md) | CH582, SH1106 I2C |
+| [c/ports/web/](../c/ports/web/README.md) | Emscripten glue; the page is in [web/](../web/README.md) |
+| [c/ports/sdl/](../c/ports/sdl/README.md) | SDL2/SDL3 surfaces |
 
 ```mermaid
 flowchart LR
@@ -158,6 +168,33 @@ Build on the host with `make -C c`; the default output is `c/build`, changed wit
 `make -C c check` runs allocator-symbol checks, output-kernel checks, sanitizer builds and Python comparisons.
 [tools/test_c_renderer.py](../tools/test_c_renderer.py) checks glyphs, syllables, lines, targets, scaling and malformed input.
 [jamoset.py](../tools/jamoset.py) is the glyph reference; [svfline.py](../tools/svfline.py) defines line layout and scaling.
+
+### 9.1. Pixel, error and memory checks
+
+Host comparisons read the actual faces in `svf/` and compare every stored glyph's rows and metrics, all 11,172 syllables
+of jamo faces and compatibility pieces byte for byte with Python. Line tests include face chains, dy and a synthetic
+combining-mark face. Integer and area-averaged scaling also use the Python reference; pixel differences are not accepted.
+
+Malformed-input checks include truncated files, out-of-file offsets, invalid dy ranges, JSET counts exceeding the build's
+limits, wrong block lengths and pieces without glyphs. Host sanitizer builds use `-fsanitize=address,undefined` to check
+out-of-bounds access. `c/check.sh` uses `nm` to verify that core objects have no undefined `malloc`, `calloc`, `realloc`
+or `free` symbols. Mapped tables and records are read from the file; cell reconstruction, composition and scaling use
+separate caller scratch.
+
+### 9.2. Toolchains and measurement method
+
+`c/cross/build-all.sh` checks gcc, clang, DJGPP, Arm, AVR, ESP32 and Emscripten builds with C99 and
+`-Wall -Wextra -Werror`. `c/cross/install-toolchains.sh` and `manifest.sh` handle installation and version checks;
+[cross/SIZES.md](../c/cross/SIZES.md) records flags and results. Building successfully is separate from verifying device
+operation and speed.
+
+Speed scripts are `c/bench/run-pico.sh` (rp2040js), `run-avr.sh` (simavr), `run-dos.sh` (DOSBox-X),
+`run-esp32.sh` (Espressif QEMU) and `run-wasm.sh`. Pico and AVR report emulator cycles; ESP32 QEMU reports instruction
+counts. DOSBox-X's 486 setting does not count real 486 clocks, so its times are approximate. Hardware ESP32 runs use
+the separate `run-esp32-hw.sh`. Measurements record the face, compiler, flags, clock and pixel checksum together.
+Report missed performance targets as measured; do not change targets to match results.
+
+### 9.3. Performance targets
 
 The following are design performance targets. To assess an individual build, read [code sizes](../c/cross/SIZES.md)
 and [performance measurements](../c/bench/MEASUREMENTS.md) together with their target, clock, compiler, face and method.

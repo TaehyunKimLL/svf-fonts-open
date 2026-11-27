@@ -21,12 +21,22 @@ C 렌더러는 [SVFN 버전 3](SVF.ko.md) 페이스로 UTF-8 텍스트를 그리
 
 | 파일 | 역할 |
 |---|---|
-| [svf.h](../c/include/svf.h) | 공개 API, 오류·상태, 빌드 옵션 |
-| [svf_face.c](../c/src/svf_face.c) | 헤더·표·레코드 검증, 문자 조회, 메트릭, 셀 복원 |
-| [svf_jamo.c](../c/src/svf_jamo.c) | JSET·JMAP 검증과 선택, 조각 합성 |
-| [svf_stream.c](../c/src/svf_stream.c) | 읽기 콜백, 스트리밍 테이블, LRU 블록 캐시 |
-| [svf_draw.c](../c/src/svf_draw.c) | UTF-8, 페이스 체인, 줄 배치·측정, 출력 타깃, 합성 셀 캐시 |
-| [svf_scale.c](../c/src/svf_scale.c) | 스케일된 coverage 셀 |
+| [c/include/svf.h](../c/include/svf.h) | 공개 API, 오류·상태, 빌드 옵션 |
+| [c/src/svf_face.c](../c/src/svf_face.c) | 헤더·표·레코드 검증, 문자 조회, 메트릭, 셀 복원 |
+| [c/src/svf_jamo.c](../c/src/svf_jamo.c) | JSET·JMAP 검증과 선택, 조각 합성 |
+| [c/src/svf_stream.c](../c/src/svf_stream.c) | 읽기 콜백, 스트리밍 테이블, LRU 블록 캐시 |
+| [c/src/svf_draw.c](../c/src/svf_draw.c) | UTF-8, 페이스 체인, 줄 배치·측정, 출력 타깃, 합성 셀 캐시 |
+| [c/src/svf_scale.c](../c/src/svf_scale.c) | 스케일된 coverage 셀 |
+| [c/tests/](../c/tests/) | 호스트 비교·잘못된 입력 검사, fuzz 하니스 |
+| [c/cross/](../c/cross/) | 크로스 빌드, 코드 크기·심볼·스택 검사 |
+| [c/bench/](../c/bench/) | 속도 측정, 픽셀 동일성 검증, 원시 측정 기록 |
+| [c/ports/dos/](../c/ports/dos/README.ko.md) | DJGPP, VGA 모드 13h와 VBE 2.0, 스트리밍 페이스 |
+| [c/ports/pico/](../c/ports/pico/README.ko.md) | RP2040/RP2350, ST7789·SSD1327·SSD1306 |
+| [c/ports/esp32/](../c/ports/esp32/README.ko.md) | ESP32-C3/S3, ILI9341·SSD1327·SSD1306 |
+| [c/ports/arduino/](../c/ports/arduino/README.ko.md) | Uno, PROGMEM 페이스와 SSD1306 I2C |
+| [c/ports/ch582/](../c/ports/ch582/README.ko.md) | CH582, SH1106 I2C |
+| [c/ports/web/](../c/ports/web/README.ko.md) | Emscripten 접착 코드. 페이지는 [web/](../web/README.ko.md) |
+| [c/ports/sdl/](../c/ports/sdl/README.ko.md) | SDL2/SDL3 표면 |
 
 ```mermaid
 flowchart LR
@@ -158,6 +168,31 @@ JSET 버전 3인 JMAP은 dense·SPARSE·LIST 매핑을 사용하며, 선택적�
 `make -C c check`는 할당 함수 심볼 검사, 출력 커널 검사, sanitizer 빌드와 Python 비교 검사를 실행한다.
 [tools/test_c_renderer.py](../tools/test_c_renderer.py)는 글리프·음절·줄·타깃·스케일과 잘못된 입력을 검사한다.
 픽셀 기준은 [jamoset.py](../tools/jamoset.py), 줄 배치와 스케일 기준은 [svfline.py](../tools/svfline.py)다.
+
+### 9.1. 픽셀·오류·메모리 검증
+
+호스트 비교 검사는 `svf/`의 실제 페이스를 읽어 모든 저장 글리프의 행과 메트릭, 자모 페이스의 음절 11,172자,
+호환 조각을 Python 결과와 바이트 단위로 비교한다. 줄 검사는 페이스 체인·dy·합성 결합 부호 페이스를 포함한다.
+정수배와 면적 평균 스케일도 Python 기준과 비교하며, 픽셀 차이를 허용하지 않는다.
+
+잘못된 입력 검사는 잘린 파일, 파일 밖 오프셋, 잘못된 dy 범위, 빌드 한도를 넘는 JSET 개수, 잘못된 블록 길이,
+글리프 없는 조각을 포함한다. 호스트 sanitizer 빌드는 `-fsanitize=address,undefined`로 범위 밖 접근을 검사한다.
+동적 할당 없음은 `c/check.sh`가 코어 오브젝트에 미정의 `malloc`, `calloc`, `realloc`, `free` 심볼이 없는지
+`nm`으로 검사한다. mapped 페이스의 표와 레코드는 파일에서 읽으며, 셀 복원·합성·스케일에 쓰는 스크래치만 별도로 둔다.
+
+### 9.2. 툴체인과 측정 방법
+
+`c/cross/build-all.sh`는 C99와 `-Wall -Wextra -Werror`로 gcc·clang·DJGPP·Arm·AVR·ESP32·Emscripten 빌드를
+검사한다. 설치·버전 검증은 `c/cross/install-toolchains.sh`와 `manifest.sh`가 맡고, 사용한 플래그와 결과는
+[cross/SIZES.md](../c/cross/SIZES.md)에 기록한다. 빌드 성공과 실제 장치에서의 동작·속도 검증은 별개다.
+
+속도 스크립트는 `c/bench/run-pico.sh`(rp2040js), `run-avr.sh`(simavr), `run-dos.sh`(DOSBox-X),
+`run-esp32.sh`(Espressif QEMU), `run-wasm.sh`에 있다. Pico·AVR은 에뮬레이터의 사이클 수를,
+ESP32 QEMU는 명령 수를 보고한다. DOSBox-X의 486 설정은 실제 486 클록 수가 아니므로 근사 시간으로 읽는다.
+실물 ESP32 측정은 `run-esp32-hw.sh`로 구분한다. 측정에는 페이스·컴파일러·플래그·클럭과 픽셀 체크섬을 함께 기록한다.
+성능 목표를 넘긴 결과도 그대로 보고하며 목표값을 측정 결과에 맞춰 바꾸지 않는다.
+
+### 9.3. 성능 목표
 
 다음 값은 설계 성능 목표다. 개별 빌드의 달성 여부는 [코드 크기](../c/cross/SIZES.md)와
 [성능 측정](../c/bench/MEASUREMENTS.md)의 대상·클럭·컴파일러·페이스·측정 방법을 함께 확인한다.

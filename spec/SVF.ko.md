@@ -518,14 +518,117 @@ C 라이브러리는 `SVF_LAYOUTS`로 빌드하지 않는 한 모든 유효한 �
 
 <a id="scummvm-loading"></a>
 
-## 3. ScummVM 연동 (부록)
+## 3. ScummVM 포크의 불러오기 (부록)
+
+이 부록은 [TaehyunKimLL/scummvm의 `jamo` 브랜치, `graphics/hires_text`](https://github.com/TaehyunKimLL/scummvm/tree/jamo/graphics/hires_text)에
+구현된 동작을 설명한다. 맵 설정은 SVFN 파일 형식의 일부가 아니다. 이 포크의 `bitmap_font.cpp`는 SVFN 파일 버전 1·2를
+읽고 버전 3은 거부한다. 본문의 버전 3과 이식 가능한 C 렌더러에 그대로 적용해서는 안 된다.
+C와 웹 앱은 [C 렌더러 사용법](../docs/c-renderer-guide.ko.md)과 [웹 렌더러 사용법](../docs/web-renderer-guide.ko.md)의 API를 쓴다.
+
+### 3.1. 코드 포인트 조회와 `encoding.dat`
+
+`bitmap_font.cpp`의 `glyphIndex()`는 코드 포인트 표(cmap)가 있으면 그 표를 먼저 검색한다. 버전 2 파일은 cmap를 가지며,
+코드 페이지 순서나 `encoding.dat`에 의존하지 않는다. 정렬되지 않은 표에는 정렬용 인덱스를 만들고, 중복 코드 포인트는
+파일에서 마지막 항목이 우선한다. 이 표에 ASCII를 넣을 수도 있다.
+
+cmap가 없는 버전 1은 헤더의 코드 페이지를 사용한다. ISO-8859-1과 Windows-1252 폰트는 코드 포인트가 256보다 작으면
+그 값을 인덱스로 사용한다. CJK 폰트는 더블 바이트 블록만 다루며 ASCII는 -1이다. `legacyGlyphIndex()`는 각 인덱스에
+대응하는 바이트 쌍을 `Common::U32String`으로 디코드하여 역조회 표를 한 번 만든다. 실제 디코더는 `common/str-enc.cpp`에서
+`encoding.dat`의 CJK 표를 불러오므로, 해당 표가 없으면 이 레거시 CJK 조회는 실패한다. `encoding.dat`의 누락·손상 경고는
+공유 변환 계층이 출력한다. `codepage_kr.cpp`에는 KS X 1001 한글 2,350자의 독립된 표도 있지만, 이 레거시 조회 경로는
+그 표를 호출하지 않는다. 근거: `bitmap_font.cpp`, `codepage_kr.cpp`, `common/str-enc.cpp`.
 
 <a id="load-policy"></a>
+
+### 3.2. 통째로 또는 스트리밍: `[load]` 절
+
+로딩 정책은 RAM과 이후의 입출력 사이에서 균형을 잡는다. 게임이 페이스를 그리는 빈도를 파일 크기만으로 판단하기 어려우면 페이스마다 고른다.
+
+SVF는 통째로 메모리에 읽거나, 메트릭(있으면 글리프당 4바이트)과 cmap(버전 2, 글리프당 8바이트)를 읽고 각 글리프는 필요할 때 파일에서 읽는다(기본 `HIRES_SVF_CACHE_KB = 32`, 즉 32 KiB 예산의 글리프 캐시와 줄 단위 프리페치). 기본으로는 크기가 결정한다. 글리프 데이터가 임계값(64 KiB, `HIRES_SVF_STREAM_MIN`; DOS 포트는 이를
+512 KiB, `dos_svf_preload_kb`로 올린다) 이하이면 통째로 읽고, 그보다 크면 스트리밍한다. DOS의 설정은 전역 설정이나 명령줄에서 읽고 최댓값은 4,096 KiB이다. 값 0은 `auto`에서도 모두 스트리밍한다.
+맵은 페이스별로 대신 정할 수 있다. 어느
+페이스가 매초 대사를 싣고 어느 것이 타이틀 카드에 한 번 그려지는지 맵은 알기 때문이다.
+
+```ini
+[fonts]
+dlg=NGOTB21A.SVF
+card=GBATB23A.SVF
+
+[load]
+dlg=whole        ; always in memory, however large
+card=stream      ; always read from the file, however small
+[load:clut8]
+card=auto        ; the size rule again for the 8-bit set
+```
+
+키는 `[fonts]` 이름이다(여기서 페이스는 경로로 지명하지 않는다). 상대 경로는 맵 파일 디렉터리를 기준으로 하며,
+`data:`는 extrapath와 ScummVM 데이터 디렉터리에서 찾는다. `data:` 뒤의 경로는 상대 경로여야 하고 `..`를 포함할 수 없다. 값은 다음과 같다.
+
+| 값 | 페이스 로딩 |
+|-------|----------|
+| `whole` | 크기와 무관하게 메모리에 읽는다. 할당이 실패해도 스트리밍으로 대체한다 |
+| `stream` | 크기와 무관하게 파일에 남는다 |
+| `auto` | 위의 크기 규칙을 따른다. 절이 지명하지 않은 모든 페이스의 기본값 |
+
+표의 정책과 별개로 `load()`·`loadStreamed()`의 호출자 파일 크기 한도는 기본 64 MiB이다. 구조·읽기 오류는 로딩 실패이며,
+`whole`에서 스트리밍으로 대체하는 것은 통째로 읽을 버퍼의 할당 실패일 때이다. 자모 블록도 열 때 읽고 검증한다.
+
+`[load:<qualifier>]`는 `[fonts]`의 규칙을 따른다. 한정자 없는 절, 그다음 각 한정자를 덜 구체적인 것부터 적용하므로, 한정된 항목은
+그 이름에 대해 한정 없는 항목을 대체한다(`auto` 포함. 한정 없는 `whole`/`stream`을 되돌린다). 선택은 이름이 아니라 파일에
+속한다. 같은 경로로 해석되는 이름들은 같은 로딩 정책을 공유한다. 이름별 한정자 덮어쓰기를 끝낸 뒤 `auto`인 항목은
+경로별 표에 넣지 않는다. 나머지 중 처음 등록된 정책이 우선하고, 다른 이름이 다른 명시적 정책을 주면 경고한다. 따라서
+한 이름의 `auto`가 같은 파일을 가리키는 다른 이름의 명시적 정책을 지우지는 않는다. 맵의 `[fonts]`에 없는 이름은 경고하고 무시한다. 값은 대소문자를 구분하지 않으며, `whole`, `stream`, `auto`가 아닌 값은 경고하고 `auto`로 처리한다. `[load]`가 없는 맵은 기본 크기 규칙을 따른다. 자모 세트 페이스도 같은 폰트를 감싸므로 이 선택을 따른다. SCUMM, SCI, AGI가 이 절을 읽으며,
+AGS는 SVF 페이스를 통째로 불러오고 이를 쓰지 않는다고 경고한다. `[load]`에 경로를 직접 키로 쓸 수는 없다. 실제 열기는 해석된 경로로 정책을 조회하므로,
+다른 경로 설정으로 연 파일도 `[fonts]` 이름과 같은 경로로 해석되면 그 정책을 적용받을 수 있다.
+
 <a id="preload-policy"></a>
 
-`[fonts]`, `[load]`, `[preload]`, `.HOT`는 ScummVM 연동 계층의 설정이며 SVFN 파일 형식의 일부가 아니다.
-이식 가능한 C 렌더러는 이 설정을 읽지 않는다. 메모리 접근 방식은 `svf_open_mapped` 또는 `svf_open_stream`으로 고르고,
-캐시 크기는 호출자가 지정한다. [C 렌더러 사용법](../docs/c-renderer-guide.ko.md)을 참고한다.
+### 3.3. 게임이 그리는 글리프 미리 불러오기: `[preload]` 절
+
+미리 불러오기는 예상되는 읽기를 로딩 시점으로 옮긴다. 스트리밍 페이스의 캐시를 채우는 것이며, 글리프 조회를 바꾸거나 엔트리의 영구 보존을 보장하지는 않는다.
+
+스트리밍 페이스는 필요한 글리프가 글리프 캐시와 하위 읽기 블록에 모두 없으면 디스크에서 읽는다. 맵은 페이스가 그릴 것으로 예상되는 문자를 알려 줄 수 있으며,
+그러면 문자들은 플레이 중에 하나씩이 아니라 맵을 불러올 때 한 번에 읽힌다.
+
+```ini
+[fonts]
+dlg=NGOTB16B.SVF
+card=GBATB23.SVF
+
+[preload]
+dlg=NGOTB16B.HOT       ; characters to keep in memory for this face
+card=data:GBATB23.HOT  ; a path next to the map, or data:
+```
+
+`.HOT` 파일은 UTF-8 텍스트이며 파일 크기는 1바이트 이상, 1 MiB 이하여야 한다. 문자들이 임의의 순서와 임의의 줄바꿈으로 들어 있고, 첫 문자가 `#`인 줄은 주석이며, U+0000..U+0020, U+007F..U+009F, U+FEFF는 건너뛰고 중복 문자는 하나로 합친다. 모든 유니코드 공백 문자를
+제외하는 것은 아니다. 포크의 `tools/korean/charsetchars.py --map MAP --hot-dir DIR`는 맵의 페이스 체인에 쓰이는 파일별로
+목록을 만든다. 해당 체인의 문자 집합, 맵의 대체 문자(`[glyphs]`, `missing=`), 출력 가능한 ASCII를 합친다.
+기본 프리셋은 `U`와 `L` 모두이며 손으로 편집할 수도 있다. 키와 한정자는 `[load]`를
+따른다. 키는 `[fonts]` 이름이고, `[preload:clut8]`은 한정 없는 절 위에 덧씌우며(빈 값은 목록을 버린다), 페이스는 목록 하나를
+갖고(한 파일의 두 이름: 비어 있지 않은 목록 중 먼저 등록된 것이 우선하며, 다르면 경고), 알 수 없는 이름은 경고이고, 읽을 수 없는 목록 파일은 경고 하나와 미리 불러오기
+없음이다. `[preload]`가 없는 맵은 목록 없이 불러온다. 빈 값은 그 이름의 목록을 지우지만, 같은 파일을 가리키는 다른 이름의 목록까지 지우지는 않는다.
+
+엔진은 스트리밍 페이스(`stream`, 임계값을 넘는 `auto`, 또는 통째로 읽을 메모리가 부족한 페이스)를 열 때 다음을 한다. 페이스의 글리프 캐시를 목록에 맞춰 잡는다. 목록에서 페이스가 가진 중복 없는 글리프 수를 `N`,
+`glyphPitch() * cellHeight()`를 `B`라 하면, 캐시 슬롯 수는 `max(32, N, floor(ceil(N * B / R) * R / B))`이며
+`R = HIRES_SVF_READ_BLOCK`(기본 4,096바이트)이다. 각 슬롯의 메모리 비용은 확장된 행과 추정 관리 비용 64바이트이다. 목록에 페이스가 가진 문자가 하나도 없으면 캐시를 바꾸지 않는다. 글리프는 곧바로 캐시에 읽는다. 글리프 인덱스로 정렬하므로 같은 읽기 블록의 글리프는 한 번에 읽힌다.
+하위 읽기 캐시는 `max(1, floor(R / B))`개 글리프를 한 블록으로 다룬다. 이후 캐시는 평소의 LRU이다.
+목록 밖의 글리프는 가장 오래 쓰이지 않은 것을 밀어내며, 그것이 목록에 있던 것일 수 있다(다음에 쓸 때 다시 읽는다). 통째로 가진
+페이스는 목록을 무시한다. 자모 세트 페이스는 목록의 음절을 파일이 가진 조각으로 풀어서 그것들을 미리 불러온다. 캐시용 메모리가
+없으면 페이스는 가진 캐시를 유지하고 아무것도 읽지 않으며 경고 하나가 이를 알린다. SCUMM, SCI, AGI가 이 절을 읽고, AGS는 이를
+쓰지 않는다고 경고한다.
+
+디버그 소켓의 `caches all`은 페이스별로 `list`(목록이 지명한 글리프 중 페이스가 가진 것), `preloaded`(그중 열 때 읽은 것),
+`misses`(히트가 아니었던 조회), `listevict`(이후 밀려난 목록 글리프)를 보여 준다. `hits`, `reads`, `read`는 그리기와 프리페치에 따라 갱신된다. 미리 불러오기는 `lookups`와 `hits`를 복원하지만,
+미리 불러오기 자체의 읽기도 `reads`와 `read`에 포함된다. `reads`는 하위 글리프 블록 읽기 횟수, `read`는 요청한 바이트 수이며 테이블 로딩은 포함하지 않는다.
+
+근거(별도 경로가 없는 파일은 `graphics/hires_text/`): `font_map.h`, `font_map.cpp`의 `buildLoadSection()`·`buildPreloadSection()`·`resolvePath()`,
+`bitmap_font.h`, `bitmap_font.cpp`, `glyph_source_file.h`, `glyph_source_file.cpp`, `glyph_source_svfn.h`,
+`glyph_source_svfn.cpp`, `glyph_source_jamo.h`, `glyph_source_jamo.cpp`.
+엔진별 적용: `engines/scumm/hires_text.cpp`, `engines/sci/graphics/cache.cpp`, `engines/agi/hirestext.cpp`,
+`engines/ags/shared/font/hires_font_chain.cpp`. DOS 기본값: `backends/platform/dos/dos.cpp`.
+줄 프리페치: `engines/scumm/hires_text.cpp`, `engines/sci/graphics/text16.cpp`.
+디버그 통계: `common/file-cache-stats.h`, `gui/debugsocket.cpp`.
+목록 생성: 포크의 `tools/korean/charsetchars.py`.
 
 <a id="glossary"></a>
 
@@ -567,3 +670,4 @@ C 라이브러리는 `SVF_LAYOUTS`로 빌드하지 않는 한 모든 유효한 �
 - [Unicode 17.0, Chapter 3: Conformance](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/): UTF-8과 코드 포인트 정의.
 - [Unicode 17.0, Chapter 18: East Asia](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-18/): 한글 음절 분해·조합과 자모 순서.
 - [Unicode Private-Use Characters](https://www.unicode.org/faq/private_use.html): 평면 15의 사용자 정의 영역.
+- [ScummVM fork: `jamo`, `graphics/hires_text`](https://github.com/TaehyunKimLL/scummvm/tree/jamo/graphics/hires_text): 이 부록의 맵·로딩·조회 구현.

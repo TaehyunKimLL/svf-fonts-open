@@ -547,14 +547,132 @@ takes a caller predicate (`svf_is_mark_fn` in `c/include/svf.h`).
 
 <a id="scummvm-loading"></a>
 
-## 3. ScummVM integration (appendix)
+## 3. Loading in the ScummVM fork (appendix)
+
+This appendix describes the implementation in [TaehyunKimLL/scummvm, branch `jamo`, directory `graphics/hires_text`](https://github.com/TaehyunKimLL/scummvm/tree/jamo/graphics/hires_text).
+Map settings are not part of the SVFN file format. This fork's `bitmap_font.cpp` reads SVFN file versions 1 and 2
+and rejects version 3. Do not apply its reader behavior directly to the version 3 format or portable C renderer.
+C and web applications use the APIs in the [C renderer guide](../docs/c-renderer-guide.md) and [web renderer guide](../docs/web-renderer-guide.md).
+
+### 3.1. Code point lookup and `encoding.dat`
+
+In `bitmap_font.cpp`, `glyphIndex()` searches the code point table (cmap) when present. Version 2 files have a cmap
+and do not depend on code-page order or `encoding.dat`. An unsorted table gets a sorted lookup index; duplicate
+code points resolve to the last entry in file order. The table can include ASCII.
+
+Version 1 without a cmap uses the header's code page. For ISO-8859-1 and Windows-1252 fonts, a code point below 256
+is used directly as the index. CJK fonts hold only the double-byte block and return -1 for ASCII.
+`legacyGlyphIndex()` builds a reverse lookup once by decoding each index's byte pair through `Common::U32String`.
+The actual decoders in `common/str-enc.cpp` load CJK tables from `encoding.dat`; legacy CJK lookup fails when the
+required table is unavailable. The shared conversion layer warns about missing or invalid `encoding.dat`.
+`codepage_kr.cpp` also has an independent table of 2,350 KS X 1001 Hangul syllables, but this legacy lookup path
+does not call it. Sources: `bitmap_font.cpp`, `codepage_kr.cpp`, `common/str-enc.cpp`.
 
 <a id="load-policy"></a>
+
+### 3.2. Whole or streamed: the `[load]` section
+
+Loading policy balances RAM against later I/O. Use a per-face choice when file size alone does not reflect how often the game draws it.
+
+An SVF is either read into memory whole, or only its metrics (four bytes per glyph when present) and cmap (eight bytes per glyph in version 2) are and each glyph is read from the file as it is drawn (a cache of
+`HIRES_SVF_CACHE_KB` (default 32 KiB budget), a per-line prefetch). By default the size decides: glyph
+data up to the threshold is read whole (64 KiB, `HIRES_SVF_STREAM_MIN`; the DOS
+port raises it to 512 KiB, `dos_svf_preload_kb`), anything larger streams. A map
+can decide per face instead, because it knows which faces carry the dialogue
+every second and which are drawn once, on a title card:
+
+The DOS option is read globally or from the command line, capped at 4,096 KiB; zero makes `auto` stream every face.
+
+```ini
+[fonts]
+dlg=NGOTB21A.SVF
+card=GBATB23A.SVF
+
+[load]
+dlg=whole        ; always in memory, however large
+card=stream      ; always read from the file, however small
+[load:clut8]
+card=auto        ; the size rule again for the 8-bit set
+```
+
+Keys are `[fonts]` names, not paths. Relative paths resolve against the map file directory; `data:` searches extrapath
+and ScummVM data folders. The path after `data:` must be relative and contain no `..`. Values:
+
+| value | the face |
+|-------|----------|
+| `whole` | is read into memory whatever its size; when the allocation fails it still falls back to streaming |
+| `stream` | stays in its file whatever its size |
+| `auto` | follows the size rule above; the default for every face the section does not name |
+
+Regardless of policy, `load()` and `loadStreamed()` have a caller-controlled file-size limit, default 64 MiB. Structural
+or read errors fail the load; `whole` falls back to streaming only when the whole-file buffer allocation fails.
+Jamo blocks are also read and validated at open.
+
+`[load:<qualifier>]` follows the rules of `[fonts]`: the bare section and then
+each qualifier, least specific first, so a qualified entry replaces the bare one
+for that name (`auto` included, which undoes a bare `whole`/`stream`). The choice belongs to the resolved path. After merging qualifiers per name, `auto` entries are skipped when building
+the path-keyed table. The first remaining policy wins; a different explicit policy from another name causes a warning.
+Thus one name’s `auto` does not erase another name’s explicit policy for the same file. A name absent from `[fonts]` is warned about and ignored. Values are case-insensitive; an invalid value warns and means `auto`. A map without `[load]` follows the default size rule. A jamo-set face honours the
+choice as well, as it wraps the same font. SCUMM, SCI and AGI read the section;
+AGS loads SVF faces whole and warns that it does not use it. A path cannot be used directly as a `[load]` key. Opening code looks up the resolved path, so a face opened through
+another path setting can inherit the policy of a `[fonts]` name that resolves to that same path.
+
 <a id="preload-policy"></a>
 
-`[fonts]`, `[load]`, `[preload]` and `.HOT` belong to the ScummVM integration layer, not the SVFN file format.
-The portable C renderer does not read them. Choose memory access with `svf_open_mapped` or `svf_open_stream`;
-the caller supplies cache capacity. See the [C renderer guide](../docs/c-renderer-guide.md).
+### 3.3. Preloading the glyphs a game draws: the `[preload]` section
+
+Preloading moves likely reads to loading time. It warms a streamed face’s cache; it does not change glyph lookup or guarantee that an entry stays cached forever.
+
+A streamed face reads from disk when a required glyph is absent from both the glyph cache and lower read blocks. A map can
+say which characters a face is expected to draw, so they are read once, when the
+map is loaded, instead of one by one during play:
+
+```ini
+[fonts]
+dlg=NGOTB16B.SVF
+card=GBATB23.SVF
+
+[preload]
+dlg=NGOTB16B.HOT       ; characters to keep in memory for this face
+card=data:GBATB23.HOT  ; a path next to the map, or data:
+```
+
+A `.HOT` file is UTF-8 text, at least one byte and at most 1 MiB: the characters in any order with any line breaks;
+a line whose first character is `#` is a comment; U+0000..U+0020, U+007F..U+009F and U+FEFF are skipped, and duplicates are collapsed. This does not exclude every Unicode whitespace character.
+The fork's `tools/korean/charsetchars.py --map MAP --hot-dir DIR` writes a list for each file used by the map's face chains.
+It combines their character sets, map replacement characters (`[glyphs]`, `missing=`) and printable ASCII.
+Both `U` and `L` presets are included by default. Lists can also be edited by hand. Keys and
+qualifiers follow `[load]`: keys are `[fonts]` names, `[preload:clut8]` overlays
+the bare section (an empty value drops a list), a face has one list (two names on
+one file: the first nonempty list wins, with a warning if they differ), an unknown name is a warning, and a
+list file that cannot be read is one warning and no preload. A map without `[preload]` loads without a list. An empty value clears that name’s list, but does not clear a list
+from another name resolving to the same file.
+
+What the engine does, when it opens a face that streams (`stream`, `auto` above the threshold, or a face whose whole-file allocation failed): the face's glyph cache is sized to the list. Let `N` be the number of distinct listed code points the face has,
+`B = glyphPitch() * cellHeight()` and `R = HIRES_SVF_READ_BLOCK` (default 4,096 bytes).
+The slot count is `max(32, N, floor(ceil(N * B / R) * R / B))`. Each slot costs its expanded rows plus an estimated 64 bytes of overhead. If no listed character is present in the face, the cache is left unchanged. Glyphs are read immediately in glyph-index order, so glyphs in one read block are read together.
+The lower read cache groups `max(1, floor(R / B))` glyphs per block. After that the cache is the usual LRU one:
+a glyph outside the list pushes out the least recently used, which can be a listed
+one (read again on its next use). A face held whole ignores the list. A jamo-set
+face expands the list's syllables to the pieces the file holds and preloads those.
+When the memory for the cache is not there, the face keeps the cache it has, reads
+nothing and one warning says so. SCUMM, SCI and AGI read the section; AGS warns
+that it does not use it.
+
+The debug socket's `caches all` shows, per face, `list` (glyphs the list named that
+the face has), `preloaded` (of those, read at open), `misses` (lookups that were not
+hits) and `listevict` (listed glyphs pushed out since); `hits`, `reads` and `read`
+are updated by drawing and prefetch. Preload restores `lookups` and `hits`, but its reads remain included in `reads`
+and `read`. `reads` counts lower-level glyph-block read calls and `read` the bytes requested; table loading is not included.
+
+Sources (unqualified file names are in `graphics/hires_text/`): `font_map.h`, `font_map.cpp` (`buildLoadSection()`, `buildPreloadSection()`, `resolvePath()`),
+`bitmap_font.h`, `bitmap_font.cpp`, `glyph_source_file.h`, `glyph_source_file.cpp`, `glyph_source_svfn.h`,
+`glyph_source_svfn.cpp`, `glyph_source_jamo.h`, `glyph_source_jamo.cpp`.
+Engine application: `engines/scumm/hires_text.cpp`, `engines/sci/graphics/cache.cpp`, `engines/agi/hirestext.cpp`,
+`engines/ags/shared/font/hires_font_chain.cpp`. DOS defaults: `backends/platform/dos/dos.cpp`.
+Line prefetch: `engines/scumm/hires_text.cpp`, `engines/sci/graphics/text16.cpp`.
+Debug statistics: `common/file-cache-stats.h`, `gui/debugsocket.cpp`.
+List generation: the fork's `tools/korean/charsetchars.py`.
 
 <a id="glossary"></a>
 
@@ -596,3 +714,4 @@ the caller supplies cache capacity. See the [C renderer guide](../docs/c-rendere
 - [Unicode 17.0, Chapter 3: Conformance](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/): UTF-8 and code point definitions.
 - [Unicode 17.0, Chapter 18: East Asia](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-18/): Hangul syllable decomposition, composition and jamo order.
 - [Unicode Private-Use Characters](https://www.unicode.org/faq/private_use.html): The plane 15 private-use area.
+- [ScummVM fork: `jamo`, `graphics/hires_text`](https://github.com/TaehyunKimLL/scummvm/tree/jamo/graphics/hires_text): map, loading and lookup implementation described in the appendix.
