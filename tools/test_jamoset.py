@@ -466,7 +466,8 @@ class WrittenFile(unittest.TestCase):
         self.assertIn("identical to johab844.py", jamoset.check(b, jamoset.LAYOUTS["hanterm-844"], bdf))
 
     def test_bdf_glyph_reaching_past_the_cell_is_masked(self):
-        # BBX 16 16 -3 -2: the glyph starts 3 px left of the origin; the 3 px past the right edge are dropped
+        # BBX 16 16 -3 -2: the glyph starts 3 px left of the origin; its 3 leftmost columns fall outside the cell and
+        # are dropped
         text = make_bdf().decode("latin-1").replace("ENCODING 5\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 0 -2",
                                                     "ENCODING 5\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 -3 -2")
         self.assertIn("BBX 16 16 -3 -2", text)
@@ -474,6 +475,21 @@ class WrittenFile(unittest.TestCase):
         g = src.glyph(5)
         self.assertTrue(all(0 <= r < 1 << 16 for r in g.rows))
         self.assertEqual(len(g.to_bytes()), 32)
+
+    def test_bdf_glyph_with_an_empty_box_is_blank(self):
+        # BBX 0 0 (an empty glyph, BITMAP with no rows) and BBX 0 16 read as a glyph without ink, not a crash
+        text = make_bdf().decode("latin-1")
+        at = text.index("ENCODING 9\n")
+        end = text.index("ENDCHAR", at)
+        empty = text[:at] + "ENCODING 9\nSWIDTH 0 0\nDWIDTH 16 0\nBBX 0 0 0 0\nBITMAP\n" + text[end:]
+        self.assertEqual(jamoset.open_bdf_glyphs(empty.encode("latin-1")).glyph(9).rows, [0] * 16)
+        zero_w = text.replace("ENCODING 9\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 0 -2",
+                              "ENCODING 9\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 0 16 0 -2")
+        self.assertNotEqual(zero_w, text)
+        self.assertEqual(jamoset.open_bdf_glyphs(zero_w.encode("latin-1")).glyph(9).rows, [0] * 16)
+        bad = text[:at] + "ENCODING 9\nSWIDTH 0 0\nDWIDTH 16 0\nBBX 16 1 0 0\nBITMAP\nZZZZ\n" + text[end:]
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.open_bdf_glyphs(bad.encode("latin-1"))
 
     def test_bdf_with_a_huge_cell_is_refused(self):
         for old, new in (("FONT_ASCENT 14", "FONT_ASCENT 100000000000"),

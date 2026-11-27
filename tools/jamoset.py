@@ -319,17 +319,23 @@ def bdf_glyph_source(d, count, what):
             raise SourceError("BDF glyph without ENCODING")
         enc = int(enc.group(1))
         bbx = re.search(r"^BBX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)", block, re.M)
-        bm = re.search(r"^BITMAP[ \t]*\n(.*)", block, re.M | re.S)
+        bm = re.search(r"^BITMAP[ \t]*(?:\n(.*))?$", block, re.M | re.S)
         if not bbx or not bm:
             raise SourceError(f"BDF glyph {enc} has no BBX or BITMAP")
         bw, bhh, bx, by = map(int, bbx.groups())
         if not (0 <= bw <= CELL_MAX and 0 <= bhh <= CELL_MAX and abs(bx) <= CELL_MAX and abs(by) <= CELL_MAX):
             raise SourceError(f"BDF glyph {enc}: BBX {bw} {bhh} {bx} {by} is outside the {CELL_MAX} pixel limit")
+        if bw == 0 or bhh == 0:			# an empty box: a glyph without ink, whatever its BITMAP holds
+            chars[enc] = (bw, bhh, bx, by, [])
+            continue
         nb = (bw + 7) // 8
-        lines = bm.group(1).split()
+        lines = (bm.group(1) or "").split()
         if len(lines) < bhh or any(len(x) < nb * 2 for x in lines[:bhh]):
             raise SourceError(f"BDF glyph {enc}: BITMAP has {len(lines)} of {bhh} rows")
-        chars[enc] = (bw, bhh, bx, by, [int(x[:nb * 2], 16) >> (nb * 8 - bw) for x in lines[:bhh]])
+        try:
+            chars[enc] = (bw, bhh, bx, by, [int(x[:nb * 2], 16) >> (nb * 8 - bw) for x in lines[:bhh]])
+        except ValueError:
+            raise SourceError(f"BDF glyph {enc}: BITMAP row is not hexadecimal")
     missing = [i for i in range(count) if i not in chars]
     if missing:
         raise SourceError(f"BDF lacks glyph ENCODING {missing[0]} of the {count} {what} glyphs ({len(missing)} missing)")
@@ -345,7 +351,7 @@ def bdf_glyph_source(d, count, what):
                 if 0 <= y < h:
                     sh = w - (bx + bw)
                     v = (r << sh) if sh >= 0 else (r >> -sh)
-                    out[y] = v & ((1 << w) - 1)		# ink right of the cell (bx < 0 pushes it there) is dropped
+                    out[y] = v & ((1 << w) - 1)		# ink left of the cell (a negative bx) is dropped
         return Glyph(w, h, out)
 
     return Source(w, h, count, get)
