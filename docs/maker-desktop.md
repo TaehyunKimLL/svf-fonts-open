@@ -322,24 +322,29 @@ way) and the PyInstaller bootloader.
 #### What differs on Windows (the server)
 
 `maker/oscompat.py` holds every primitive that POSIX and Windows spell differently; on POSIX each function is exactly the
-call the maker made before, so Linux behaviour is unchanged.
+call the maker made before, so Linux behaviour is unchanged. One reader change applies everywhere: a BDF or HBF saved
+with CRLF line ends reads as its LF form (before, its glyphs were dropped on Linux), so a file parses the same on every
+platform.
 
 | What | POSIX | Windows |
 |---|---|---|
-| A tool's process tree | new session; `killpg` SIGTERM, then SIGKILL after 5 s | started suspended in a new process group with no console, put into its own Job Object (`KILL_ON_JOB_CLOSE`), then resumed; a stop terminates the job at once (no grace period: no SIGTERM exists for it). A job that cannot be made or assigned refuses the tool. |
+| A tool's process tree | new session; `killpg` SIGTERM, then SIGKILL after 5 s | started suspended in a new process group with no console, put into its own Job Object (`KILL_ON_JOB_CLOSE`), then resumed; a stop terminates the job at once (no grace period: no SIGTERM exists for it). A job that cannot be made or assigned refuses the tool. The sidecar itself runs in a job of its own (`contain_children`), so a tool still suspended between its creation and its assignment dies with a killed sidecar too. |
 | A dead sidecar's tools | `PR_SET_PDEATHSIG` + the next start's reap | the kernel kills them when the sidecar's job handles close; the reap kills a recorded pid and every process below it (snapshot parent links, creation time checked) |
 | Stopping the sidecar | the shell sends SIGTERM to its group | the shell closes the sidecar's stdin (`serve --stop-on-eof`): the same clean stop as SIGTERM; after 45 s it kills it (TerminateProcess) |
 | The parent watch (`--exit-with-parent`) | `getppid()` polled | the parent's process handle, opened at start and waited on |
 | Data-root and registry locks | `flock` | `msvcrt.locking` of one byte far past the end of the lock file (the file stays readable) |
 | A replace or read racing another thread | atomic, never fails | a sharing violation is retried for up to 2 s (`retry_sharing`) |
 | Links | `S_ISLNK` | a symlink **or any name-surrogate reparse point** (junction, mount point); `lstat` reports a junction as a folder, so it is checked by its reparse tag |
-| No-follow open of an existing file | `O_NOFOLLOW` | `lstat` (a link is refused), open, `fstat`: the file must be the one `lstat` saw (volume serial + file index) |
-| The output tree | directory descriptors and `*at()` calls | every folder written through is held open without delete sharing and without following a reparse point (`hold_dir`): it, and every folder above it, cannot be renamed or removed while the write runs; the path -> identity checks before and after each landing are the same as on POSIX |
+| No-follow open | `O_NOFOLLOW` | opened with `FILE_FLAG_OPEN_REPARSE_POINT` (the open never follows or contacts a link: a dangling link makes a create fail) and refused when the handle's reparse tag is a name surrogate; a deduplicated or cloud placeholder file is opened again normally and must be the same file (volume serial + file index) |
+| The output tree | directory descriptors and `*at()` calls | the output folder and every folder written through are held open without delete sharing and without following a reparse point; each folder below the output folder is made and held relative to its parent's handle (`hold_dir_at`, no path walked), and each file is made and read relative to its folder's handle (`NtCreateFile`, `OBJ_DONT_REPARSE`). None of them, nor a folder above them, can be renamed or removed while the write runs; a held folder turned into a junction in place (possible only while it is empty) is refused before the landing. The path -> identity checks before and after each landing are the same as on POSIX |
 | New-name claim | `link()`, else `O_EXCL` + replace + read-back | the same (`CreateHardLink`; FAT/exFAT and shares without hard links take the second way) |
-| Output names | as the naming rules say | also refused: a device name (`CON`, `NUL.TXT`, `COM1`, ...), a trailing dot or space, the characters `<` `>` `:` `"` `/` `\` `?` `*` and the vertical bar (`TreeRefused`; an upload archive member too) |
+| Output names | as the naming rules say | also refused: a device name (`CON`, `NUL.TXT`, `COM1`, ...), a trailing dot or space, the characters `<` `>` `:` `"` `/` `\` `?` `*` and the vertical bar (`TreeRefused`; an upload archive member too). A face, licence or note name or a destination that is a device name (`CON.SVF`, `new/con`) is a settings error; suggestions add a `0` (`CON0.TXT`) |
+| Archive members | an exact duplicate name stops the unpack | names that differ only in case are duplicates, and each member file is created new only, so an 8.3 alias of an earlier member (`LONGNA~1.TTF`) stops as a duplicate too and is never written over |
+| A local job's tool temp folder | `TMPDIR` | `TMPDIR`, `TEMP` and `TMP` (native code reads only the last two) |
 | Picked paths | absolute | absolute with a drive or a UNC share; a device path (`\\.\`), an extended-length path (`\\?\`), a drive root and an alternate data stream (`name:stream`) are refused; a relative path inside a source may hold no drive and no colon |
-| `SVF_MAKER_ROOTS` | `:`-separated | `;`-separated |
-| Permission bits | `umask 077`, folders 0700, files 0600 | no mode bits: the data folder's privacy is its ACL, inherited from the user's profile (`%APPDATA%`) |
+| `SVF_MAKER_ROOTS` | `:`-separated | `;`-separated; an entry may be a drive root (`D:\`); case is ignored |
+| Permission bits | `umask 077`, folders 0700, files 0600 | no mode bits: the data folder's privacy is its ACL, inherited from the user's profile (`%APPDATA%`); a local job's `.svf-maker-<id>/` (in the user-picked output folder) is made with a protected ACL that grants the current user and SYSTEM only |
+| Bare program names | `PATH` | `PATH` only: the sidecar sets `NoDefaultCurrentDirectoryInExePath`, and the shell's development mode resolves `python.exe` on `PATH`'s absolute folders (a bare name would be looked up in the current folder first) |
 | Text written by the maker and the tools | LF | LF (`newline="\n"` on every text write; a tool's CRLF stdout is read as LF) |
 
 Not the same guarantee: on POSIX a folder swapped between two landings is detected and the write stops (`OutputGone`); on

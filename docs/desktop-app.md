@@ -267,9 +267,9 @@ overlap the output folder or another source, and, when `SVF_MAKER_ROOTS` is set,
 folder under `~/svf-out`; an output folder outside every root is refused with `output folder: outside SVF_MAKER_ROOTS`). A refused
 path is listed with its reason (section 11).
 
-While a job lives the app keeps intermediate files in `.svf-maker-<id>/` inside the output folder (permissions 0700) and
-removes them when the job ends, is deleted or the app quits. Choose an output folder that is **not synced** by a cloud
-client.
+While a job lives the app keeps intermediate files in `.svf-maker-<id>/` inside the output folder (permissions 0700; on
+Windows an ACL that grants only you and SYSTEM) and removes them when the job ends, is deleted or the app quits. Choose an
+output folder that is **not synced** by a cloud client.
 
 Below the panel, **jobs** lists the jobs of this session so you can switch between them.
 
@@ -574,7 +574,7 @@ Optional environment variables (set them before starting the app):
 | `JAMOSET_MASK_FONT` | The font file with OpenType jamo substitution (`ljmo`, `vjmo`, `tjmo`) that `mask fit` uses to confine the pieces. Without it the tool looks for NotoSansKR beside the ScummVM tree, which a packaged app does not have, so set it when you use `mask fit`. |
 | `SVF_MAKER_ROOTS` | Colon-separated absolute folders (on Windows semicolon-separated: `C:\fonts;D:\out`). Every source **and the output folder** must be inside one of them (a path outside is refused with "outside SVF_MAKER_ROOTS"). Example with separate roots: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. Unset: no restriction beyond the rules in section 3.2. |
 | `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | An interpreter (absolute path, with numpy, torch, PIL, fontTools) and a folder with your own `recog.py` for the piece identity check. Scoring only; nothing is shipped. Without them the page says the check is unavailable. |
-| `SVF_MAKER_DEV=1` | Development mode: run `python3 -P maker/server.py` from a checkout instead of the frozen sidecar. `SVF_MAKER_DEV_REPO` names the checkout. |
+| `SVF_MAKER_DEV=1` | Development mode: run `python3 -P maker/server.py` (Windows: the `python.exe` found on `PATH`) from a checkout instead of the frozen sidecar. `SVF_MAKER_DEV_REPO` names the checkout. |
 | `SVF_MAKER_DEVTOOLS=1` | Enables the developer tools and a View > Toggle DevTools item. |
 | `SVF_MAKER_SHELL_LOG=stderr` | The shell log also goes to standard error. |
 | `SVF_MAKER_SMOKE=1` | Start, check `/api/caps`, print one line and quit (used by the release check). |

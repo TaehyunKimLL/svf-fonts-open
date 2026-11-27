@@ -256,8 +256,8 @@ Windows에서 패키지는 설치 프로그램이나 포터블 `.exe`다(빠른 
 허용한다. 어떤 루트에도 속하지 않는 출력 폴더는 `output folder: outside SVF_MAKER_ROOTS`로 거부된다). 거부된 경로는 이유와 함께
 나열된다(11절).
 
-작업이 살아 있는 동안 앱은 중간 파일을 출력 폴더 안의 `.svf-maker-<id>/`(권한 0700)에 두고, 작업이 끝나거나 삭제되거나
-앱이 종료될 때 지운다. 클라우드 클라이언트가 **동기화하지 않는** 출력 폴더를 고른다.
+작업이 살아 있는 동안 앱은 중간 파일을 출력 폴더 안의 `.svf-maker-<id>/`(권한 0700. Windows에서는 나와 SYSTEM에만 권한을 주는
+ACL)에 두고, 작업이 끝나거나 삭제되거나 앱이 종료될 때 지운다. 클라우드 클라이언트가 **동기화하지 않는** 출력 폴더를 고른다.
 
 패널 아래의 **jobs**는 이 세션의 작업을 나열하므로 작업 사이를 전환할 수 있다.
 
@@ -547,7 +547,7 @@ quality, stderr, result이므로 어떤 폰트에 어떤 단계가 실행되었�
 | `JAMOSET_MASK_FONT` | `mask fit`이 조각을 한정하는 데 쓰는, OpenType 자모 치환(`ljmo`, `vjmo`, `tjmo`)이 있는 폰트 파일. 없으면 도구는 ScummVM 트리 옆의 NotoSansKR을 찾는데 패키지된 앱에는 그것이 없으므로, `mask fit`을 쓸 때는 지정한다. |
 | `SVF_MAKER_ROOTS` | 콜론으로 구분한 절대 경로 폴더들(Windows에서는 세미콜론으로 구분: `C:\fonts;D:\out`). 모든 소스와 **출력 폴더**가 이 중 하나 안에 있어야 한다(밖의 경로는 "outside SVF_MAKER_ROOTS"로 거부된다). 루트를 나눈 예: `SVF_MAKER_ROOTS=$HOME/fonts:$HOME/svf-out ./svf-maker-0.1.0.AppImage`. 설정하지 않으면 3.2절의 규칙 외에 제한이 없다. |
 | `SVF_RECOG_PYTHON` + `SVF_RECOG_DIR` | 인터프리터(절대 경로, numpy, torch, PIL, fontTools 포함)와, 조각 정체성 검사를 위한 사용자 자신의 `recog.py`가 있는 폴더. 점수 계산 전용이며 아무것도 함께 배포되지 않는다. 이것이 없으면 페이지는 검사를 쓸 수 없다고 표시한다. |
-| `SVF_MAKER_DEV=1` | 개발 모드: 동결 사이드카 대신 체크아웃에서 `python3 -P maker/server.py`를 실행한다. `SVF_MAKER_DEV_REPO`가 체크아웃을 지정한다. |
+| `SVF_MAKER_DEV=1` | 개발 모드: 동결 사이드카 대신 체크아웃에서 `python3 -P maker/server.py`(Windows: `PATH`에서 찾은 `python.exe`)를 실행한다. `SVF_MAKER_DEV_REPO`가 체크아웃을 지정한다. |
 | `SVF_MAKER_DEVTOOLS=1` | 개발자 도구와 View > Toggle DevTools 항목을 활성화한다. |
 | `SVF_MAKER_SHELL_LOG=stderr` | 셸 로그가 표준 오류에도 출력된다. |
 | `SVF_MAKER_SMOKE=1` | 시작하고, `/api/caps`를 확인하고, 한 줄을 출력한 뒤 종료한다(릴리스 점검에서 사용). |
