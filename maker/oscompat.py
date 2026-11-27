@@ -22,11 +22,14 @@ and `killpg`, `flock`, `O_NOFOLLOW`, `S_ISLNK`), so POSIX behaviour does not cha
   kind of reparse point (a deduplicated or cloud placeholder file, which only reads through its filter) is opened again
   normally and must be the same file (volume serial + file index). With `dir_fd` the name is opened relative to that
   held directory's handle (`NtCreateFile`, `OBJ_DONT_REPARSE`), never by a path through it.
-- **Held directories.** `hold_dir` / `hold_dir_at` open a directory handle that does not share write or delete access
-  (and does not follow a reparse point): while it is open nobody can rename or remove that directory, nor (NTFS) any
-  directory above it, nor open it for writing. The output tree (zipout) makes and holds every directory it writes
-  through relative to its parent's held handle (`hold_dir_at`), in place of POSIX's `mkdirat`/`openat`, and creates
-  its files relative to the held handle, so a folder turned into a junction in place is never written through.
+- **Held directories.** `hold_dir` / `hold_dir_at` open a directory handle that does not share delete access (and does
+  not follow a reparse point): while it is open nobody can rename or remove that directory, nor (NTFS) any directory
+  above it. Write access is shared, as it must be: a rename or a hard link into the folder opens it for writing. So an
+  EMPTY held folder can still be turned into a junction in place; the output tree (zipout) therefore makes and holds
+  every directory it writes through relative to its parent's held handle (`hold_dir_at`, in place of POSIX's
+  `mkdirat`/`openat`), creates its files relative to the held handle (never by a path through the folder), and checks
+  before each landing that no held folder has become a link (`fd_is_link`); a folder with a file in it cannot be made
+  a junction.
 - **Names.** `windows_unsafe_name` is true for the device names (CON, NUL, COM1, ...), a trailing dot or space and the
   characters Windows forbids; the output tree refuses such a name on Windows.
 
@@ -438,7 +441,8 @@ if WINDOWS:
     def _open_handle(path, dir_fd, access, create, directory, attrs, no_reparse):
         """A handle on @p path (one name below the held @p dir_fd when given): created new (@p create) or opened,
         a file or (@p directory) a folder, never following a reparse point at the last name while @p no_reparse."""
-        share = _FILE_SHARE_READ if directory else _FILE_SHARE_READ | _FILE_SHARE_WRITE
+        # a held folder shares write access too: a rename or hard link into it opens the folder for writing
+        share = _FILE_SHARE_READ | _FILE_SHARE_WRITE
         if dir_fd is not None:
             options = _FILE_DIRECTORY_FILE if directory else _FILE_NON_DIRECTORY_FILE
             return _nt_open_at(dir_fd, path, access, share, (_FILE_OPEN_IF if directory else _FILE_CREATE)
@@ -677,7 +681,7 @@ def request_stop():
 
 def hold_dir(path):
     """Windows: a descriptor of directory @p path that keeps it (and, on NTFS, every directory above it) from being
-    renamed, removed or opened for writing while it is open, and never follows a reparse point. `OSError` (`ELOOP`)
+    renamed or removed while it is open, and never follows a reparse point. `OSError` (`ELOOP`)
     when @p path is a link, (`ENOTDIR`) when it is not a directory."""
     return _hold(path, None, False)
 

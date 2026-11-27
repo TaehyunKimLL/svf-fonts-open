@@ -63,6 +63,8 @@ class Pure(unittest.TestCase):
                      "screenshot -raw -doublesize", 'set names "/x/h.names"'):
             self.assertIn(want, t)
 
+    @unittest.skipIf(os.name == "nt", "POSIX only: the harvest runs openMSX under timeout and xvfb-run, and its Tcl "
+                                      "script takes POSIX paths (a Windows path's backslashes are refused)")
     def test_command(self):
         class A:
             emu, openmsx, machine, timeout = "/e", None, "Daewoo_DPC-200", 600
@@ -72,6 +74,8 @@ class Pure(unittest.TestCase):
         self.assertEqual(env["OPENMSX_USER_DATA"], "/e/userdata/share")
         self.assertEqual(env["SDL_AUDIODRIVER"], "dummy")
 
+    @unittest.skipIf(os.name == "nt", "POSIX only: the harvest runs openMSX under timeout and xvfb-run, and its Tcl "
+                                      "script takes POSIX paths (a Windows path's backslashes are refused)")
     def test_script_only_and_refusals(self):
         tool = os.path.join(HERE, "msx1_harvest.py")
         with tempfile.TemporaryDirectory() as d:

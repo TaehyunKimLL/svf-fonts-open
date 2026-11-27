@@ -942,9 +942,9 @@ class _WinOutputTree:
 
     The output folder is held open with `oscompat.hold_dir`, and every folder below it that the write goes through is
     made and held relative to its parent's held handle with `oscompat.hold_dir_at` (`mkdirat` + `openat` in one call,
-    no path walked): a handle that does not follow a reparse point and does not share write or delete access, so while
-    the write runs none of them (and, on NTFS, no folder above them) can be renamed, removed, replaced or opened for
-    writing. A symlink or a junction is refused (`TreeRefused`), and the recorded path must name that same held folder
+    no path walked): a handle that does not follow a reparse point and does not share delete access, so while the write
+    runs none of them (and, on NTFS, no folder above them) can be renamed, removed or replaced. A symlink or a junction
+    is refused (`TreeRefused`), and the recorded path must name that same held folder
     (volume serial + file index). `check()` and `verify()` re-prove the recorded path -> folder identities exactly as
     the POSIX class does, before each folder creation and around each landing, and also that no held folder has been
     turned into a junction in place. `dir()` returns the folder's path as a `_HeldPath`: files are made and read
