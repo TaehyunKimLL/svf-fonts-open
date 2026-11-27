@@ -14,8 +14,8 @@ drivers are never read or run):
   hbios-myeongjo24.png   jamoset.py --layout 844-hbios24 $KMYZN24.FNT --eng $KROHN24.FNT --symbols
   hbios-myeongjo24-precomposed.png
                          the 2,350 precomposed syllables of the same file (rawcarve.py bdf --offset 32409 --stride 90
-                         --chars ks-hangul --dense) with the ASCII of $KROHN24.FNT (rawcarve.py bdf --offset 6
-                         --stride 60), baked by bdfface.py --cell 24x24
+                         --chars ks-hangul --dense --ascent 22) with the ASCII of $KROHN24.FNT (rawcarve.py bdf
+                         --offset 6 --stride 60 --ascent 22), baked by bdfface.py --cell 24x24
 
 and the symbols of the sample from $KSPHJ16.FNT / $KSPHJ24.FNT (rawcarve.py bdf --chars map with the slot map of
 `tbmfont.py map --blocks symbols`, then mkfont.py --only-listed), drawn ahead of the jamo set (whose --symbols box is
@@ -36,13 +36,15 @@ if HERE not in sys.path:  # python -I drops the script's directory
     sys.path.insert(0, HERE)
 import doc_figures_windows as W  # noqa: E402
 
-# image: (layout, jamo file, English file, symbol file, size, symbol offset, symbol stride, glyph)
+# image: (layout, jamo file, English file, symbol file, size, symbol offset, symbol stride); the symbols stand on
+# ASCENT[size], the English baseline (the row under the ink of 'H') that jamoset.py also takes from --eng
 FACES = (
     ("hbios-gothic16.png", "844", "$KGOZN16.FNT", "$KSAHN16.FNT", "$KSPHJ16.FNT", 16, 0, 32),
     ("hbios-myeongjo16.png", "844", "$KMYZN16.FNT", "$KROHN16.FNT", "$KSPHJ16.FNT", 16, 0, 32),
     ("hbios-myeongjo24.png", "844-hbios24", "$KMYZN24.FNT", "$KROHN24.FNT", "$KSPHJ24.FNT", 24, 9, 90),
 )
 PRE24_PNG = "hbios-myeongjo24-precomposed.png"
+ASCENT = {16: 14, 24: 22}
 
 
 def faces(disk, layout, jamo, eng, sym, size, soff, stride, tmp):
@@ -53,7 +55,7 @@ def faces(disk, layout, jamo, eng, sym, size, soff, stride, tmp):
         fh.write(W.SYMBOLS)
     W.tool("tbmfont.py", "map", "--blocks", "symbols", "-o", smap)
     W.tool("rawcarve.py", "bdf", os.path.join(disk, sym), "--offset", soff, "--glyph", f"{size}x{size}", "--stride",
-           stride, "--chars", "map", "--map", smap, "-o", os.path.join(tmp, "symbols.bdf"))
+           stride, "--chars", "map", "--map", smap, "--ascent", ASCENT[size], "-o", os.path.join(tmp, "symbols.bdf"))
     sface = os.path.join(tmp, "symbols.svf")
     W.tool("mkfont.py", os.path.join(tmp, "symbols.bdf"), sface, "--size", size, "--bpp", 1, "--unicode", "file:" + syms,
            "--only-listed")
@@ -70,9 +72,9 @@ def precomposed24(disk, tmp):
     with open(sample, "w", encoding="utf-8") as fh:
         fh.write("".join(W.LINES))
     W.tool("rawcarve.py", "bdf", os.path.join(disk, "$KMYZN24.FNT"), "--offset", PRE24_OFFSET, "--glyph", "24x24",
-           "--stride", 90, "--chars", "ks-hangul", "--dense", "--ascent", 20, "-o", os.path.join(tmp, "hangul.bdf"))
+           "--stride", 90, "--chars", "ks-hangul", "--dense", "--ascent", 22, "-o", os.path.join(tmp, "hangul.bdf"))
     W.tool("rawcarve.py", "bdf", os.path.join(disk, "$KROHN24.FNT"), "--offset", 6, "--glyph", "12x24", "--stride", 60,
-           "--chars", "ascii", "--count", 128, "--ascent", 20, "-o", os.path.join(tmp, "ascii.bdf"))
+           "--chars", "ascii", "--count", 128, "--ascent", 22, "-o", os.path.join(tmp, "ascii.bdf"))
     face = os.path.join(tmp, "pre.svf")
     W.tool("bdfface.py", "--hangul", os.path.join(tmp, "hangul.bdf"), "--ascii", os.path.join(tmp, "ascii.bdf"),
            "--cell", "24x24", "--chars-from", sample, "-o", face)

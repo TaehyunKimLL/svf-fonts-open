@@ -112,10 +112,11 @@ alone).
 
 The 2,350 precomposed syllables of `$KMYZN24.FNT` start after the 360 jamo pieces (360 x 90 = 32,400 bytes), at row 3
 of the cell (+9 bytes); the ASCII of `$KROHN24.FNT` starts at offset 6 (row 3 x 2 bytes), 60 bytes apart. The baseline
-goes under row 20 of the cell:
+is row 22 of the 24-row cut: the 'H' of `$KROHN24.FNT` covers rows 5-24 of its 30-row cell, rows 2-21 of the cut, and
+`jamoset.py` takes the row under it as the baseline of a 12x24 `--eng` face. The precomposed cut uses the same 22:
 
-    python3 -I tools/rawcarve.py bdf "$HB"/'$KMYZN24.FNT' --offset 32409 --glyph 24x24 --stride 90 --chars ks-hangul --dense --ascent 20 -o $OUT/kmyzn24-hangul.bdf
-    python3 -I tools/rawcarve.py bdf "$HB"/'$KROHN24.FNT' --offset 6 --glyph 12x24 --stride 60 --chars ascii --count 128 --ascent 20 -o $OUT/krohn24.bdf
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KMYZN24.FNT' --offset 32409 --glyph 24x24 --stride 90 --chars ks-hangul --dense --ascent 22 -o $OUT/kmyzn24-hangul.bdf
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KROHN24.FNT' --offset 6 --glyph 12x24 --stride 60 --chars ascii --count 128 --ascent 22 -o $OUT/krohn24.bdf
     python3 -I tools/bdfface.py --hangul $OUT/kmyzn24-hangul.bdf --ascii $OUT/krohn24.bdf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/KMYZN24.SVF
 
 The symbols and hanja are cut with the slot map of `tbmfont.py map`, as `HFONT.SYS` in the [Windows
@@ -123,7 +124,7 @@ recipe](windows.md#windows-hfont-sys) (the SPHJ files have no header and start w
 
     python3 -I tools/tbmfont.py map --blocks symbols,hanja -o $OUT/sphj.map
     python3 -I tools/rawcarve.py bdf "$HB"/'$KSPHJ16.FNT' --offset 0 --glyph 16x16 --chars map --map $OUT/sphj.map -o $OUT/ksphj16.bdf
-    python3 -I tools/rawcarve.py bdf "$HB"/'$KSPHJ24.FNT' --offset 9 --glyph 24x24 --stride 90 --chars map --map $OUT/sphj.map --ascent 20 -o $OUT/ksphj24.bdf
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KSPHJ24.FNT' --offset 9 --glyph 24x24 --stride 90 --chars map --map $OUT/sphj.map --ascent 22 -o $OUT/ksphj24.bdf
 
 Measured (check line `안녕하세요 ABC 123`; the ink of the 24 px faces with `line 400 32 0 24`):
 
@@ -132,14 +133,15 @@ Measured (check line `안녕하세요 ABC 123`; the ink of the 24 px faces with 
 | `KGOZN16J.SVF`, gothic 16 px jamo set (`--eng $KSAHN16`) | `15,736` | 441 (344 pieces) | `width=144 ascent=14 descent=2` | 535 |
 | `KMYZN16J.SVF`, myeongjo 16 px jamo set (`--eng $KROHN16`) | `15,864` | 441 (344 pieces) | `width=144 ascent=14 descent=2` | 509 |
 | `KMYZN24J.SVF`, myeongjo 24 px jamo set (`--eng $KROHN24`) | `23,380` | 441 (344 pieces) | `width=216 ascent=22 descent=2` | 966 |
-| `KMYZN24.SVF`, the same file's 2,350 precomposed syllables + `$KROHN24` ASCII | `220,244` | 2,447 | `width=216 ascent=20 descent=4` | 983 |
+| `KMYZN24.SVF`, the same file's 2,350 precomposed syllables + `$KROHN24` ASCII | `220,248` | 2,447 | `width=216 ascent=22 descent=2` | 983 |
 | `ksphj16.bdf` / `ksphj24.bdf` | | 5,872 / 5,871 | | |
 
 For all three jamo sets `--check` composes the 11,172 syllables, and the two 16 px ones equal the syllables of
 `johab844.py` ("identical to johab844.py"). `svf2to3.py --check` leaves all four faces as they are. `fontmetrics.py`
 reports, for the 16 px jamo sets, only the U+2026 of `--symbols` reaching 1 px past its advance. The ascent 22 of the
-24 px jamo set is `jamoset.py`'s default (7/8 of the cell); give `--ascent 20` to put it on the English baseline, as
-the precomposed face (`--ascent 20`) has it.
+24 px jamo set is the baseline of its `--eng` face (the row under the ink of 'H'), which `jamoset.py` takes by default
+for a 12x24 English face; the precomposed face is cut with the same `--ascent 22`, so both stand on the English
+baseline.
 
 **The jamo set against the same file's precomposed syllables.** `$KMYZN24.FNT` holds both, so they can be compared.
 The 2,350 KS X 1001 syllables composed by the jamo set (`KMYZN24J.SVF`), against the file's own precomposed syllables
@@ -149,7 +151,7 @@ pixels precomposed, 294,308 composed). The strokes have the same shapes; the pie
 to syllable: the precomposed glyphs move each jamo to suit the vowel and the final (the ㅎ and ㅓ of `헌`, for example).
 The ㅟ, ㅝ, ㅢ families differ most (`뗍 찌 츤 쮜 쒼 쭤 윗 귓 킥 쪄`). The other way round, fitting an 8x4x4 to the precomposed
 face with `jamoset.py --layout 844 --from-svf $OUT/KMYZN24.SVF --mask-font none --check` gives `fit: 2350 syllables,
-IoU 0.719 (p5 0.457), F1 tol1 0.986`, 17 exact, `30,660 bytes`. The file's jamo set is what HBIOS draws; the
+IoU 0.719 (p5 0.457), F1 tol1 0.986`, 17 exact, `30,664 bytes`. The file's jamo set is what HBIOS draws; the
 precomposed face is a design touched up syllable by syllable (about 9.4 times the bytes).
 
 ![The IBM HBIOS V3.0 gothic 16 px jamo set ($KGOZN16) with the sans English font ($KSAHN16) and the symbols of $KSPHJ16, x2](../images/recipes/dos/hbios-gothic16.png)
