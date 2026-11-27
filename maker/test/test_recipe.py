@@ -113,7 +113,7 @@ class LibraryTest(wincompat.SlashEqual, unittest.TestCase):
         self.assertEqual(lib["86box-atikorvga"]["items"][1]["offset"], 0x4d59)
 
     def test_planner_gives_the_recipe_commands(self):
-        """docs/recipes.md "Korean VGA font ROMs (86Box)", token for token (paths aside)."""
+        """docs/recipes/rom-86box.md "Korean VGA font ROMs (86Box)", token for token (paths aside)."""
         rec = recipe.library()[TG]
         files = {"font": "/u/tg_ksc5601.rom", "bios": "/u/tgkorvga.bin"}
         paths = {"work": "/w", "out": "/w/TGVGA16.SVF"}
@@ -132,7 +132,7 @@ class LibraryTest(wincompat.SlashEqual, unittest.TestCase):
                                                             "--mask-font", "none", "--check", "-o", "/w/TGVGA16J.SVF"])
 
     def test_planner_gives_the_mame_recipe_commands(self):
-        """docs/recipes.md "Korean font ROMs in MAME sets", token for token (paths and hex spellings aside)."""
+        """docs/recipes/rom-mame.md "Korean font ROMs in MAME sets", token for token (paths and hex spellings aside)."""
         lib = recipe.library()
         rest = lambda argvs: [toolrun.split_prefix(a)[1] for a in argvs]
         spc = {f["id"]: "/u/" + f["name"] for f in lib["mame-spc1500"]["files"]}
@@ -454,7 +454,7 @@ class RecipeLocalJobTest(LocalBase):
         self.assertIn("svf/dos/TGVGA16J.SVF", svf)
         self.assertIn("svf/dos/TGVGA16.ttf", svf)
         steps = {s["name"]: s for s in job["steps"]}
-        self.assertEqual(steps["TGVGA16.SVF"]["facts"]["glyphs"], 2447)    # as the real ROMs (docs/recipes.md)
+        self.assertEqual(steps["TGVGA16.SVF"]["facts"]["glyphs"], 2447)    # as the real ROMs (docs/recipes/rom-86box.md)
         self.assertIsNotNone(steps["TGVGA16J.SVF"]["quality"])                   # scored against the precomposed face
         build = open(os.path.join(self.out, "build-%s" % jid, "BUILD.md"), encoding="utf-8").read()
         self.assertIn("tools/rawcarve.py bdf", build)
@@ -490,7 +490,7 @@ def _real_faces(test, roots, want_ids):
 @unittest.skipUnless(os.environ.get("SVF_MAKER_REAL_86BOX"), "SVF_MAKER_REAL_86BOX names a folder with the 86Box ROMs")
 class RealRomTest(wincompat.SlashEqual, unittest.TestCase):
     """The real 86Box files (your own copy; nothing is copied or kept): every pair is `known`, and each recipe's
-    precomposed and jamo faces have the sizes `expect` records (docs/recipes.md's table)."""
+    precomposed and jamo faces have the sizes `expect` records (docs/recipes/rom-86box.md's table)."""
 
     def test_real_pairs(self):
         _real_faces(self, [os.environ["SVF_MAKER_REAL_86BOX"]], {"86box-atikorvga", "86box-kasan16", "86box-tgkorvga"})
@@ -499,7 +499,7 @@ class RealRomTest(wincompat.SlashEqual, unittest.TestCase):
 @unittest.skipUnless(os.environ.get("SVF_MAKER_REAL_MAME"), "SVF_MAKER_REAL_MAME names a folder of unpacked MAME sets")
 class RealMameTest(wincompat.SlashEqual, unittest.TestCase):
     """The real MAME sets (spc1500, dquizgo, xsedae, quizkofk unpacked as <set>/<file>): every set `known`, every face
-    the size docs/recipes.md "Korean font ROMs in MAME sets" records."""
+    the size docs/recipes/rom-mame.md "Korean font ROMs in MAME sets" records."""
 
     def test_real_sets(self):
         _real_faces(self, [os.environ["SVF_MAKER_REAL_MAME"]],

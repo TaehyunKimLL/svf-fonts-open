@@ -46,7 +46,7 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   아카이브는 목록만 보이고 풀지 않는다.
 - 실행하면 `svf/<dest>/<NAME>.SVF`와 그 노트(라이선스 본문을 골랐다면 그것도), 그리고 `build-<id>/`
   (`BUILD.md`, `LICENCES.tsv.lines`, `FAMILIES.tsv.lines`, `FACES.TSV.lines`)를 출력 폴더에 쓰며, 그 밖에는 쓰지 않는다.
-  `BUILD.md`는 실행한 명령을 나열한다. [docs/recipes.ko.md](../docs/recipes.ko.md#데스크톱-앱과-maker-경로)는 페이지의 모든 경로 레이블을
+  `BUILD.md`는 실행한 명령을 나열한다. [docs/recipes/desktop-routes.ko.md](../docs/recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로)는 페이지의 모든 경로 레이블을
   그 명령줄과 레시피에 대응시킨다.
   `options.export`(`{"ttf": true, "bdf": true}`, 일괄 또는 폰트별)가 있으면 모든 페이스를 그 옆에 `<NAME>.ttf` / `<NAME>.bdf`로도
   쓴다. 페이스 단계 뒤의 `export` 단계가 `tools/svf2ttf.py ttf|bdf FACE OUT [--licence FILE]`을 실행하고(작업이 그 폰트에 대해 아는
@@ -72,14 +72,14 @@ built: run maker/build-wasm.sh"라고 알리고 모든 미리보기 셀이 그 �
   무엇이 빠졌는지와 함께 목록에 나온다. HWP 1.x: `HANGUL.SFT` / `HANGULn.PFT`의 페이스(파일마다 셋)를 `jamoset.py --layout
   hwp1`(HWP 자체의 조합 규칙, 정확)이나 `hwpfont.py bdf` + `mkfont.py`로 읽고, `ASCII.SFT` / `ASCII.PFT`가 영문 짝이다. HWP 3.0:
   `HAN*.FNT` 한글 폰트(음절 2,350자. 16 px 파일은 8x4x4 세트로도, `--layout 844-hwp3`)와 `ENG*.FNT` 짝(`tools/hwpfont.py`,
-  recipes.ko.md "HWP 1.x와 2.x 폰트"). 헤더 없는 KS X 1001 음절 덤프(태백 `GHAN24.PFT`)는 두 모드 모두 크기로 읽는다. 12x24나 14x24 영문
+  docs/recipes/dos-fonts.ko.md "HWP 1.x와 2.x 폰트"). 헤더 없는 KS X 1001 음절 덤프(태백 `GHAN24.PFT`)는 두 모드 모두 크기로 읽는다. 12x24나 14x24 영문
   폰트(태백 `GASCII24.PFT`는 12x24, HWP 1.x `ASCII.PFT`는 14x24)는 24 px 페이스의 동반 파일이며 배치의 어느 폴더에 있어도 된다.
   **알려진 ROM 세트**: `maker/recipes/*.json`의 내장 레시피(`maker/recipe.py`, 글꼴 찾기 설계의 레시피 스키마 버전 1 중 `files`,
   `ks-grid` / `english` 항목, `bdfface` 페이스, `expect`만. 그 밖의 것은 이름을 들어 거부한다)는 파일을 내용이 아니라 크기와
   SHA-256으로 지정한다. 레시피가 이름 붙인 크기의 파일만 해시를 구하며, 완전한 세트는 `recipe` 항목 하나("known: <제목>", 파일들이
   함께 고정됨)가 되고 그 경로는 레시피의 명령(각 항목의 `rawcarve.py bdf`, `bdfface.py`, `jamoset.py --from-svf` fit)을 실행한다.
-  현재: 86Box 한글 VGA ROM 쌍 셋(recipes.ko.md "한글 VGA 글꼴 ROM (86Box)")과 MAME 세트 넷, SPC-1500(정확한 자모 세트, 경로 `spec`),
-  Date Quiz Go Go, X Se Dae Quiz(경로 `dos raw`), Quiz King of Fighters(한국판)(recipes.ko.md "MAME 세트의 한글 폰트 ROM". 영역, 타일
+  현재: 86Box 한글 VGA ROM 쌍 셋(docs/recipes/rom-86box.ko.md "한글 VGA 폰트 ROM (86Box)")과 MAME 세트 넷, SPC-1500(정확한 자모 세트, 경로 `spec`),
+  Date Quiz Go Go, X Se Dae Quiz(경로 `dos raw`), Quiz King of Fighters(한국판)(docs/recipes/rom-mame.ko.md "MAME 세트의 한글 폰트 ROM". 영역, 타일
   배치, 펜도 레시피 데이터이며, 스키마 9.4를 넘는 확장 하나: 페이스의 `english`는 여러 항목을 나열할 수 있고 `srcprep.py or-files`로
   OR한다). 파일이 빠진 세트는 "part of <제목>: also needs
   <이름>; pick the folder", 레시피의 이름과 크기이지만 해시가 다른 파일은 "looks like <제목>, another revision"이다. 업로드

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of the ROM-tile paths of docs/recipes.md ("Korean font ROMs in MAME sets"): inverted fonts (binscan.py /
+"""Tests of the ROM-tile paths of docs/recipes/rom-mame.md ("Korean font ROMs in MAME sets"): inverted fonts (binscan.py /
 rawcarve.py --invert), multi-bit tiles (--gfx, --bg), ROM regions (rawcarve.py region), 1 bpp ink maps (rawcarve.py
 ink), 16-wide English fonts (rawcarve.py eng --width 16, jamoset.py --eng / --eng-advance) and exact jamo sets from a
 compose spec (jamoset.py --layout spec, the built-in spc1500 spec), on synthetic files built here (no ROM or font data).

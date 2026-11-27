@@ -36,4 +36,4 @@ characters a base face lacks, drawn to follow it in a chain. The file names
 are abbreviations, not a Reserved Font Name, and the faces carry no font name
 inside: they are Modified Versions under the SIL OFL 1.1 that do not use the
 Reserved Font Names of the original. How each face is made: tools/build/faces.tsv
-and docs/recipes.md.
+and docs/recipes/svf-faces.md.

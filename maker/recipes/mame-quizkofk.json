@@ -9,7 +9,7 @@
  "refs": [
   "MAME 0.289 src/mame/snk/neogeo.cpp, neogeo_spr.cpp",
   "archive.org mame-roms-non-merged quizkofk.zip",
-  "docs/recipes.md#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen"
+  "docs/recipes/rom-mame.md#quiz-king-of-fighters-korea-a-2350-syllable-font-with-an-outline-pen"
  ],
  "files": [
   {

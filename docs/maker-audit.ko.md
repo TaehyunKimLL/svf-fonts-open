@@ -1,9 +1,128 @@
-[English](maker-audit.md) | **한국어**
+[English](maker-audit.ko.md) | **한국어**
 
-# SVF maker 감사: 입력 종류, 제어, 미리보기, 데스크톱 준비 상태
+# SVF maker 기능 점검
+
+SVF maker의 입력, 변환 경로, 설정, 미리 보기와 실행 경계를 설명한다.
+사용법은 [데스크톱 앱](desktop-app.ko.md), 패키징은 [데스크톱 구현](maker-desktop.ko.md),
+명령줄 대응은 [레시피](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로), HTTP API는
+[maker 안내](../maker/README.ko.md)를 참고한다.
+
+## 1. 입력과 변환 경로
+
+경로는 `maker/routes.py`의 `routes()`가 제시한다. **native**는 그 입력 종류에 대한 기본 경로라는
+분류이며, 원본 전체를 무손실로 보존한다는 뜻은 아니다. 비기본 경로는 폰트별 `experimental` 허용이 필요하다.
+
+| 입력 | 완성형 경로 | 자모 세트 경로와 조건 |
+|---|---|---|
+| 아웃라인 TTF/OTF | `mkfont` | 합성 글리프 폰트의 `composite`; 그 밖의 `experimental fit`; GSUB 자모 치환이 있는 폰트의 `mask fit`; `vector fit` |
+| TTC, 가변 폰트, Mac cmap·컨테이너 | 선택한 페이스·인스턴스·문자 매핑을 준비한 뒤 해당 경로 사용 | 준비된 폰트의 종류에 따라 위 경로 사용 |
+| 비트맵 전용 sfnt, ISO 10646 BDF/PCF | `mkfont`, 원본에 있는 크기, 1 bpp | 직접 경로 없음 |
+| KS C 5601 BDF/PCF | `bdfface`, 라틴 동반 폰트 필요 | `bdfface + from-svf fit`(experimental) |
+| Hanterm Johab BDF/PCF | 직접 경로 없음 | `hanterm`, `hanterm-johab` 레이아웃 |
+| ISO 8859 BDF, HBF | 독립 경로 없음 | KS C 5601의 라틴 동반 폰트로만 사용 |
+| DOS 원시 조합형 폰트 | 지원하는 16 px 8x4x4 입력의 `johab844` | `dos raw`; 파일 크기로 나온 후보 중 레이아웃 확인 필요 |
+| HWP 1.x `.SFT`/`.PFT` | `hwp bdf + mkfont` | `hwp1`; 로컬 모드 전용 |
+| HWP 3.0 `.FNT`, 헤더 없는 KS X 1001 덤프 | `hwp bdf + mkfont` | 16 px HWP 3.0의 `hwp3 844`; `hwp bdf + from-svf fit`(experimental) |
+| Mac HangulTalk 1.0 | 직접 경로 없음 | `mac fbit 1.0`; `fdef`가 있는 리소스 포크 필요, 로컬 전용 |
+| Mac HangulTalk 7.1 type-3 `fbit` | `mac fbit 7.1 bdf + mkfont` | `mac fbit 7.1 direct`, `mac fbit 7.1 derived`(experimental); HTBL 필요, 로컬 전용 |
+| 기존 SVF v2/v3(1·2 bpp) | `copy`, 또는 TTF/BDF만 쓰는 `svf2ttf` | 자모 페이스의 `copy`/`svf2ttf`; 1 bpp 완성형의 `from-svf fit`(experimental) |
+| 알려진 ROM 세트 | 레시피가 지정한 `bdfface` 등 | 레시피별 `spec`, `dos raw`, fit 등; 로컬 전용, 파일 크기·SHA-256과 동반 파일 확인 |
+
+HWP 1.x와 헤더로 식별한 HWP 3.0은 로컬 모드에서만 변환한다. 헤더 없는 KS 덤프는 업로드 모드에서도 읽는다.
+SVF v2는 `copy` 경로에서 v3로 변환하며, SVF v1과 8 bpp SVF는 maker 경로를 제공하지 않는다.
+HWP `.HFT`와 해독하지 못하는 `.PFT`는 변환 경로가 없다. 폰트로 인식되지 않거나 동반 파일이 빠진 입력은
+이유를 표시하며, 경로가 없는 행은 선택할 수 없다. ROM 레시피는 `maker/recipes/`에 있다.
+
+감지는 `maker/detect.py`, 폰트 준비는 `maker/srcprep.py`, 경로 검증은 `maker/settings.py`가 담당한다.
+합성 입력 검증은 `test_detect_inputs.py`, `test_plan_inputs.py`, `test_hwp_inputs.py`,
+`test_recipe.py` 등 `maker/test/`의 테스트에 있다. 실제 파일 검사는 해당 `SVF_MAKER_REAL_*` 변수가 있어야 실행된다.
+
+## 2. 설정과 도구 대응
+
+| 설정 | 현재 동작 | 구현 |
+|---|---|---|
+| 기본 일괄 설정 | `dest=dos`, 완성형, `layout=844`, 크기 16, bpp 1·2, 범위 `2350`, 프리셋 `plain` | `settings.BATCH_DEFAULTS` |
+| 범위 | `2350`, `11172`, `ksx1001-nohanja`, `ksx1001-symbols`, `ksx1001`, `jamo`, `cp949` 또는 배치의 목록 파일; 생성 범위에 ASCII 추가 | `settings.RANGE_FILES`, `routes.py` |
+| 셀·ascent·advance | `mkfont`의 셀·ascent·폭·공백 advance, `jamoset`의 헤더 ascent·fit 기준선, `bdfface`의 라틴·한글 ascent | `presets.panel_argv()` |
+| 클리핑 | `clip_cell`, `fit_cell`, 사전 probe와 행별 클리핑 표시; 완성 후 mkfont 보고서의 잘림·이동·축소 결과 | `settings.py`, `maker/static/clip.js`, `tools/mkfont.py` |
+| 자모 맞춤 | `aa_refine`, 2 bpp의 `clean`, 1 bpp의 `binarize`(threshold/ridge/mono); 경로가 지원하는 값만 허용 | `presets.py`, `settings.py` |
+| 글리프별 수직 이동 | 완성형의 dy 표를 `svfdy.py` 단계로 적용; 미리 보기에서 시험 가능 | `settings.py`, `maker/static/svfview.js` |
+| 내보내기 | TTF/BDF, 자모 TTF의 `--composite`; 기본은 모두 꺼짐, 폰트별 덮어쓰기 가능 | `settings.DEFAULT_OPTIONS`, `jobs.py`, `tools/svf2ttf.py` |
+| 조각 정체성 | 선택적 외부 인식기의 점수; 내장 모델 없음 | `caps.py`, `recog_score.py` |
+
+표의 기본값을 모든 폰트가 그대로 사용할 수 있는 것은 아니다. 비트맵 경로 등은 크기와 bpp를 제한하므로
+저장·실행 전에 유효성을 검사한다. 고급 옵션은 프리셋을 덮어쓰며 폰트별 값은 일괄 설정을 덮어쓴다.
+`--punct-extra`, `--ink-advance`, `--fallback-ttf` 등 모든 명령줄 옵션을 UI에서 제공하지는 않는다.
+도구의 전체 옵션은 [도구 안내](tools.ko.md)를 참고한다.
+
+`mask fit`과 `binarize mono`에는 freetype-py와 uharfbuzz가 필요하며 `JAMOSET_PYLIB`로 경로를 지정할 수 있다.
+마스크 폰트는 `JAMOSET_MASK_FONT`로 지정한다. 인식기는 `SVF_RECOG_DIR`의 `recog.py`와 선택적
+`SVF_RECOG_PYTHON`을 사용한다. 외부 인터프리터는 numpy·torch·PIL·fontTools import 검사를 통과해야 한다.
+
+## 3. 미리 보기와 품질 검사
+
+생성된 페이스는 C 렌더러의 WASM 빌드로 페이지에서 그린다. `maker/build-wasm.sh`와 `web/build.sh`는
+`c/ports/web/emcc-flags.sh`를 공유한다. 폰트 구조와 메트릭은 [SVF 명세](../spec/SVF.ko.md),
+합성은 [자모 세트](jamo-sets.ko.md), coverage와 타깃별 색 변환은 [안티앨리어싱](anti-aliasing.ko.md)을 참고한다.
+
+`maker/static/svfview.js`는 텍스트, 스케일, GRAY8·MONO·RGB565 타깃, 임계값, 가이드, 글리프 격자를 제공한다.
+ascent와 dy 시험은 페이지의 글리프 합성기가 수행한다. FreeType이 읽는 원본 폰트의 PNG는 서버의
+`preview.source_png()`가 만들며, 결과 SVF의 페이지 표시는 서버 PNG에 의존하지 않는다.
+
+`/api/jobs/<id>/` 아래의 `face/<step>.svf`, `source/<font>.svf`, `report/<step>.json`,
+`probe/<font>/<size>/<bpp>.svf`·`.json`, `identity/<step>.json` 등이 결과와 probe를 제공한다.
+`/api/caps`의 공개 키는 `wasm`, `mask_libs`, `recog`, `local` 네 개이다.
+C/WASM 내보내기 함수는 `c/ports/web/svf_web.c`에 있으며 사용법은 [웹 렌더러](web-renderer-guide.ko.md)에 있다.
+
+`--check`로 모든 현대 한글 음절 11,172자의 조합 가능성을 검사하는 것과 조각이 올바른 자모인지 판정하는 것은 다르다.
+IoU도 기준 비트맵과의 겹침 정도이며 가독성을 보장하지 않는다.
+TTF/BDF 내보내기는 다시 읽어 문자 집합을 확인하지만 TTF를 다시 래스터화하는 왕복 검사는 매 실행에 포함하지 않는다.
+
+## 4. 로컬 모드와 데스크톱 경계
+
+토큰을 설정한 로컬 모드는 루프백 바인딩만 허용한다. 선택한 소스를 제자리에서 읽고 결과와 임시 파일을
+출력 폴더에 쓰며, 소스를 데이터 폴더로 복사하지 않는다. 작업 메타데이터는 데이터 폴더에 따로 둔다.
+경로는 절대 경로·심벌릭 링크·입출력 겹침·데이터 폴더·`SVF_MAKER_ROOTS` 허용 목록을 검사한다.
+임시 `.svf-maker-<id>/`는 정리 대상이며, 정리에 실패하면 다음 시작 때 재시도할 기록을 남긴다.
+
+토큰 없는 서버는 업로드 모드이다. 요청 본문 한도는 64 MiB, 작업은 256 MiB·2,000파일이며,
+gzip 해제 한도는 128 MiB이다. 로컬 모드는 업로드 복사 한도를 적용하지 않지만 형식별 읽기 한도는 적용한다.
+서버는 작업 수 20개·생성 후 7일 기준으로 오래된 완료 작업을 정리한다. 로컬의 감지된 작업이 30분 동안
+변경되지 않으면 작업 파일 디렉터리를 회수할 수 있다(`server.LOCAL_IDLE_SWEEP_S`).
+
+Electron은 실행마다 토큰을 생성하고 `userData` 아래 데이터 폴더를 지정하며 사이드카 수명을 관리한다.
+상세 보안·실패 처리·파일 위치는 [데스크톱 앱](desktop-app.ko.md)에 있다.
+`SOURCE_DATE_EPOCH`는 직접 실행한 서버가 도구에 전달하지만 데스크톱 셸의 환경 허용 목록에는 없다.
+
+## 5. 검증 경계
+
+- 자동 입력 테스트는 합성 파일을 사용한다. 실제 Mac·HWP·ROM 원본은 사용자가 별도로 제공해야 한다.
+- 마스크 맞춤 명령줄 실행 기록은 [recipes/outline-fonts.ko.md](recipes/outline-fonts.ko.md#truetype와-opentype-폰트에서-만드는-자모-세트)(방법 2)와 [recipes/desktop-routes.ko.md](recipes/desktop-routes.ko.md#데스크톱-앱과-maker-경로)에 있다. 그것이 maker의 전체 `mask fit` 실행을 검증하지는 않는다.
+- 조각 인식기의 실제 모델은 검증되지 않았으며 통합 테스트는 스텁을 사용한다.
+- 데스크톱 자동 테스트는 대화상자를 스텁으로 바꾸고 GPU를 끈다. 실제 대화상자·파일 관리자·창 관리자·GPU·샌드박스 검증은 별도이다.
+- Windows NSIS·portable 빌드는 `windows-build` 브랜치에서 Actions를 통과했으나 main에 병합되지 않았다. macOS와 오래된 glibc는 미검증이다. [플랫폼 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 참고한다. 서버 배포용 systemd unit은 제공하지 않는다.
+
+사용 가능한 테스트와 패키지 검증은 [패키징 안내](maker-desktop.ko.md#5-자동-검증과-기록된-실행)에 있다.
+렌더러 통합은 [C 가이드](c-renderer-guide.ko.md), 구조는 [렌더러 설계](../spec/renderer-design.ko.md),
+문서의 시작점은 [README](../README.ko.md)를 참고한다.
+
+## 6. 참고 문헌 / References
+
+- Unicode Hangul composition — <https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/>
+- OpenType Hangul shaping — <https://learn.microsoft.com/en-us/typography/script-development/hangul>
+
+## 7. 기록 / Records
+
+2026-11-03의 입력·제어 감사와 이후 11-04~22의 구현·종결 기록을 보존한다.
+본문의 날짜, 커밋, 카드 ID, 당시 테스트 개수와 미검증 항목은 그 시점의 기록이다.
+원문이 개별 실행일을 적지 않은 부분은 날짜를 새로 추정하지 않았다.
+“현재”, “없음”, “해야 한다” 등은 당시 상태를 뜻한다. 현재 동작은 1~5절을 따른다.
+HWP는 이후 확장이 원문에 덧붙어 있으며, Windows는 [2026-11-27 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 따른다.
+실행 기록의 명령은 보존했으며 이번에 다시 실행했다는 뜻은 아니다.
+
 
 카드 t_c3d8c80b. `maker/`(detect.py, jobs.py, routes.py, presets.py, settings.py, naming.py,
-preview.py, server.py, static/*)를 [recipes.ko.md](recipes.ko.md)와 대조한 읽기 전용 감사이며, 2026-11-03에 `ec5c6b3`(선별된 OFL 전용
+preview.py, server.py, static/*)를 레시피(당시 한 파일, 지금은 [색인](recipes.ko.md)과 [그 문서들](recipes.ko.md#레시피-문서))와 대조한 읽기 전용 감사이며, 2026-11-03에 `ec5c6b3`(선별된 OFL 전용
 저장소)에서 수행했다. 근거는 해당 커밋의 `file:line`이다(이 브랜치를 위해 다시 쓴 행은 줄 번호가 변하므로 심볼 이름을 인용한다). "Not verified"는 읽기만 하고 실행하지 않은 부분을 뜻한다.
 
 maker의 동작을 한 단락으로 설명하면 다음과 같다. `detect.sniff`(maker/detect.py:84)가 매직 바이트와 크기로 파일에 태그를 붙이고,
@@ -14,7 +133,7 @@ maker의 동작을 한 단락으로 설명하면 다음과 같다. `detect.sniff
 FreeType으로 읽을 수 있는 원본의 원본 PNG만 Pillow(`preview.source_png`)로 그린다. 아래 1절과 2절은 `ec5c6b3`에서 감사한 내용이며 당시의 행을
 그대로 두되, 브랜치에서 바뀐 곳에는 갱신을 덧붙였다("Now:"가 현재 상태를 나타낸다). 3절과 7절은 현재 상태이다.
 
-## 1. 레시피 입력 종류
+### 7.1. 레시피 입력 종류
 
 열: **Detect** = 경로(route)가 있는 `source_kind`; **Convert** = 경로가 실행하는 명령; **Preview** = 원본 미리보기(감사 당시 기준. 생성된 모든 페이스의 결과 미리보기는 이제 페이지에서 WASM으로 그린다, 3절).
 
@@ -34,7 +153,7 @@ FreeType으로 읽을 수 있는 원본의 원본 PNG만 Pillow(`preview.source_
 | DOS johab raw (`.FNT`, `*.KOR`, HBIOS, san, 621, Dokkaebi, Kyra) | 예: 정확한 크기(`DOS_SIZES`)로 판별하고, 후보를 레이아웃 opener로 거른다; 소유자가 레이아웃을 확인한다 | `jamoset.py SRC --layout L --check [--eng ENG] [--face 0\|1]`; `--eng` = 옆에 있는 2048/4096바이트 파일 | 예: 첫 크기에서 같은 명령으로 구운 뒤 `svfline` | detect.py:29-33, 241-253, 417-436; routes.py:144-150, 277-279; preview.py:146-197; server.py:906-913 |
 | DOS `johab844.py` (raw 조각에서 만든 완성형) | 예: 후보 `844`를 가진 11,520바이트 raw 폰트(`dos_bytes`) | 완성형 경로 `johab844`: `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng ENG]`; 레이아웃 844와 8x16 영문 폰트만; 선택한 범위는 무시되고 노트가 기준 페이스를 명시한다 | 해당 없음 | routes.py `_johab844_commands`; settings.py `_route_errors`; B5 |
 | 12x24 영문 `.PFT` (12,288바이트: 태백 `GASCII24.PFT`. HWP 1.x 자신의 `ASCII.PFT`는 14x24, 41,654바이트이며 t_d4cf7f46부터 헤더로 읽는다) / HBIOS 12x24 영문 (15,360) | 예: 둘 다 `eng` 항목이다(`eng` = 바이트와 셀); 15,360바이트 파일은 `hbios_eng_like`(빈 여백 행, 12 px 셀, `A`에 잉크)일 때만 HBIOS 영문이고, 아니면 Dokkaebi 페이스이다; UI 재정의 없음 | DOS 자모 경로의 `jamoset.py --eng FILE`; 24 px 미만 페이스에서는 거부 | 아니오 | detect.py `hbios_eng_like`; settings.py `_route_errors`; A5/B6 |
-| HWP 한글 `.PFT` | 로컬 모드 전용(Task 14): 크기가 `eng` 크기가 아닐 때 `.pft` 확장자(바이트 규칙 없음)로 이름 붙은 `other` 항목, 형식 `hwp-pft`, 다른 곳에서 변환해 그 파일을 추가하라는 레이블을 가진다; 업로드는 `unknown (...)`을 유지한다. 12,288바이트 12x24 영문 `.PFT`(태백 `GASCII24.PFT`. 테스트의 `ASCII.PFT` 픽스처)는 배치의 어느 폴더에 있든 24 px DOS raw 페이스와 짝지어진다(`detect.detect_file`, `HWP_PFT_LABEL`, `scan`). t_d4cf7f46부터 HWP 1.x `.SFT`/`.PFT`(자신의 `ASCII.PFT`는 14x24, 41,654바이트), HWP 3.0 `.FNT`, KS X 1001 덤프는 `tools/hwpfont.py`가 읽는다(종류 `hwp1`, `ks-raw`). `hwp-pft`는 여기서 읽는 레이아웃이 아닌 `.PFT`만 가리킨다 | 당시에는 없음(recipes: BDF 또는 완성형 SVF를 넣을 것). 지금은 `hwp1` / `hwp bdf + mkfont` / `hwp3 844` / `hwp bdf + from-svf fit` 경로 | 아니오 | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py), `test_hwp_inputs.py`; 실제 HWP 파일은 손으로, 그리고 `JOHAB_FONTS`와 함께 `tools/test_hwpfont.py`로 실행했다(recipes.ko.md) |
+| HWP 한글 `.PFT` | 로컬 모드 전용(Task 14): 크기가 `eng` 크기가 아닐 때 `.pft` 확장자(바이트 규칙 없음)로 이름 붙은 `other` 항목, 형식 `hwp-pft`, 다른 곳에서 변환해 그 파일을 추가하라는 레이블을 가진다; 업로드는 `unknown (...)`을 유지한다. 12,288바이트 12x24 영문 `.PFT`(태백 `GASCII24.PFT`. 테스트의 `ASCII.PFT` 픽스처)는 배치의 어느 폴더에 있든 24 px DOS raw 페이스와 짝지어진다(`detect.detect_file`, `HWP_PFT_LABEL`, `scan`). t_d4cf7f46부터 HWP 1.x `.SFT`/`.PFT`(자신의 `ASCII.PFT`는 14x24, 41,654바이트), HWP 3.0 `.FNT`, KS X 1001 덤프는 `tools/hwpfont.py`가 읽는다(종류 `hwp1`, `ks-raw`). `hwp-pft`는 여기서 읽는 레이아웃이 아닌 `.PFT`만 가리킨다 | 당시에는 없음(recipes: BDF 또는 완성형 SVF를 넣을 것). 지금은 `hwp1` / `hwp bdf + mkfont` / `hwp3 844` / `hwp bdf + from-svf fit` 경로 | 아니오 | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py), `test_hwp_inputs.py`; 실제 HWP 파일은 손으로, 그리고 `JOHAB_FONTS`와 함께 `tools/test_hwpfont.py`로 실행했다(recipes/dos-fonts.ko.md) |
 | Windows `.FNT` / `.FON` | 예: `fnt`/`fon` -> `bitmap`; FON은 페이스 0만 | 스트라이크에서 mkfont, 1 bpp | 예 | detect.py:109-112, 391-415; routes.py:273-276 |
 | Unicode cmap을 가진 Mac TrueType (`true` 매직) | 예: `ttf` | TTF와 같음 | 예 | detect.py:90-91 |
 | Mac Korean (1,3) 또는 Wansung (3,5) cmap만 가진 Mac TrueType | 예: `mac_cmap_only`가 항목에 `mac-cmap` prep 연산을 주고 커버리지를 그것을 통해 읽는다(Unicode 서브테이블도 있는 폰트에는 주지 않는다) | `source` 단계: `macsfnt.py unicode IN OUT`, 이어서 TTF 경로 | Now 예(준비된 사본을 그린다) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |
@@ -55,7 +174,7 @@ hanterm, KS X 1001 BDF(완성형, 그리고 실험적 `--from-svf` 자모 경로
 한글 `.PFT`에 대해서는 아무것도 없다. Now(maker-controls 브랜치): GSUB로 분해 가능한 폰트는 `mask fit`과 `vector fit` 경로를 얻고
 (mask fit은 여기서 실행된 적이 없다), 원본 미리보기와 프로브는 선택한 variable 인스턴스, TTC 페이스, Mac 폰트를 보여 준다.
 
-## 2. 레시피에 비해 빠진 제어
+### 7.2. 레시피에 비해 빠진 제어
 
 **`ec5c6b3`에서 감사한 대로**(아래 표는 발견된 격차를 그대로 두며, "Now" 열은 브랜치가 추가한 것을, 7절의 격차 목록은 각각을 닫은 작업을 알려 준다): 당시 페이지가 제공하던 것(maker/static/index.html;
 maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63-90)은 배치 종류(완성형 / 자모), 레이아웃(844 / adaptive), 크기(목록), bpp(1, 2),
@@ -75,7 +194,7 @@ maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63
 | 조각 정체성 검사 | 아니오 | 경로는 `--check`를 실행하는데, 이는 표가 11,172개 음절을 모두 조합함을 증명할 뿐 각 조각이 해당 자모임을 증명하지 않는다. `quality.py`는 기준에 대한 IoU만 점수 낸다. 이 저장소에는 자모 인식기가 없다(tools/에서 "recogni"를 grep하면 JMAP_RECOG 플래그 처리만 나온다); 카드 t_9acea7ab 요건은 인식기를 가져오거나 작성해야 한다 | `SVF_RECOG_DIR`가 인식기를 가리킬 때 자모 단계마다 `maker/recog_score.py`; **실제 인식기는 실행되지 않았다: 스텁만 있다**(이 저장소에는 없다) |
 | Mac/HWP 옵션 (fbit용 `--symbols`, `--mode derived`, `jamomerge.py`, `jamoexc.py`) | 아니오 | 이 도구 중 어느 것도 호출되지 않는다 | 변경 없음 |
 
-## 3. 미리보기: 브라우저가 WASM 렌더러로 그린다
+### 7.3. 미리보기: 브라우저가 WASM 렌더러로 그린다
 
 **상태(카드 t_9acea7ab).** 생성된 모든 페이스와 구워 낸 모든 원본 페이스는 WebAssembly로 빌드된 C 렌더러가 페이지에서 그린다
 (`maker/build-wasm.sh`가 `maker/static/wasm/`로 빌드하며, 컴파일 줄은 `c/ports/web/emcc-flags.sh`를 통해 `web/build.sh`와 공유한다).
@@ -99,7 +218,7 @@ maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63
 - **Caps:** `wasm`(모듈이 빌드됨), `mask_libs`(`mask fit`과 `binarize mono`를 위한 freetype-py와 uharfbuzz),
   `recog`(정체성 검사를 위해 numpy와 torch가 있는 `SVF_RECOG_DIR`).
 
-## 4. 127.0.0.1의 Python 사이드카를 가진 Electron 셸
+### 7.4. 127.0.0.1의 Python 사이드카를 가진 Electron 셸
 
 현재 있는 것과 바뀔 것:
 
@@ -124,7 +243,7 @@ maker/static/maker.js:62-83; maker/settings.py:32-37; maker/presets.py:16-60, 63
 작업 파일은 작업 후 지워지는 임시 디렉터리에 둔다; 원본을 데이터 디렉터리에 복사하지 않으며 zip에 쓰지도 않는다(지금 zip에는 생성된 페이스와 라이선스 텍스트만 들어 있다, zipout.py). 이를 위한 테스트는
 listen 소켓이 127.0.0.1 전용이고 출력 폴더와 임시 디렉터리 밖에는 아무것도 쓰이지 않음을 보여야 한다.
 
-## 5. 웹 UI v1 계획과 열린 카드
+### 7.5. 웹 UI v1 계획과 열린 카드
 
 계획 `docs/superpowers/plans/2026-10-21-svf-maker.md`(16개 작업). 체크박스는 모두 비어 있고(`- [ ]` 82개, `- [x]` 0개)
 "Implemented" 노트도 없다; 아래 상태는 파일과 `docs/STATUS.md:29, 120`에서 얻었다
@@ -140,7 +259,7 @@ listen 소켓이 127.0.0.1 전용이고 출력 폴더와 임시 디렉터리 밖
 카드: t_a1cf496b(web UI v1 목표)는 2026-11-09에 재조정되었다: tailnet 서비스 없음; maker를 로컬(데스크톱 앱, 또는 loopback의 `maker/server.py`)에서 실행해
 TTF+BDF+PCF+DOS Johab 테스트 폴더를 `facecheck.py`를 통과하는 페이스로 변환하고, T16이 통과하며, 리뷰를 마치면 닫힌다. T15(t_bbceabe9)는 재조정되어 닫혔다; T16(t_e073891a)은 위 16행이다.
 
-## 6. 실행 상태 (2026-11-03, 이 worktree)
+### 7.6. 실행 상태 (2026-11-03, 이 worktree)
 
 - `~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'`: **Ran 431 tests in 77.3 s, OK**
   (tools/jamoset.py:1808에서 ResourceWarning 하나, 테스트에서 닫히지 않은 파일).
@@ -154,7 +273,7 @@ TTF+BDF+PCF+DOS Johab 테스트 폴더를 `facecheck.py`를 통과하는 페이�
 heavy를 통한 `make -C c check`: exit 0; `sh c/cross/test-check-features.sh`: OK; google-chrome에서 `maker/test/smoke_dom.py`: exit 0;
 `git diff 01a943f -- c/src c/include`: 비어 있음.
 
-## 7. 격차 목록(우선순위 순)과 각각이 속한 카드
+### 7.7. 격차 목록(우선순위 순)과 각각이 속한 카드
 
 1. **t_9acea7ab** - 완료(Tasks 6-8): 페이지가 생성된 페이스를 WASM 렌더러로 그린다; `GET .../face/<step>.svf`;
    `svfline` PNG는 테스트 오라클일 뿐이다.
@@ -181,7 +300,7 @@ heavy를 통한 `make -C c check`: exit 0; `sh c/cross/test-check-features.sh`: 
    페이스를 그것이 재현하는 배포 페이스와 바이트 단위로 동일하게 만들었다: 경로가 `svf2to3.py --profile default`로 끝나며
    `PresetAcceptanceTest`가 바이트 단위로 고정한다); T15의 unit/README와 t_a1cf496b의 tailnet 조항은 데스크톱 방향으로 재조정해야 한다.
 
-## 8. 로컬 모드: 마감 근거, 셸 계약, 검증하지 못한 것(카드 t_cbd14d61)
+### 7.8. 로컬 모드: 마감 근거, 셸 계약, 검증하지 못한 것(카드 t_cbd14d61)
 
 **카드의 마감 측정과 테스트의 대응**(모두 합성; 저장소에 독점 바이트는 없다):
 
@@ -288,7 +407,7 @@ the cleanup"을 대체한다. 이제 무엇이 제한되고 무엇이 제한되�
 | 락 걸린 I/O, 락 순서 | `test_a_create_is_not_held_by_a_hung_output_stat_in_ensure`, `test_a_create_is_not_held_by_a_hung_mkdir`, `test_a_lifecycle_holder_does_not_wait_for_a_held_job_lock`, `test_a_preview_and_a_settings_change_of_one_font_do_not_deadlock`, `test_a_settings_put_never_waits_for_a_preview_lock_under_the_job_lock`, `test_after_a_settings_put_returns_the_old_preview_is_never_served` |
 | 실행 준비와 commit | `test_a_create_is_not_held_by_a_run_reading_a_hung_input`, `test_a_create_is_not_held_by_a_run_hashing_a_hung_licence`, `test_a_create_is_not_held_by_a_run_planning_on_a_hung_volume`, `test_run_preparation_holds_no_lifecycle_lock`, `test_a_run_whose_job_changed_while_preparing_is_refused`, `test_a_second_run_during_preparation_is_refused`, `test_a_run_waits_a_bounded_time_for_a_preview_lock` |
 
-## 9. 데스크톱 앱: 마감 근거(카드 t_f04f1355 셸, t_e64a56a7 패키징)
+### 7.9. 데스크톱 앱: 마감 근거(카드 t_f04f1355 셸, t_e64a56a7 패키징)
 
 | 마감 측정 | 근거 |
 |---|---|

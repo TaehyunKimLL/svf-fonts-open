@@ -1,0 +1,10 @@
+iolo 8x4x4 SANS8J Gothic face (16 px, SVFN JSET)
+====================================================
+
+Converted from the SANS face in https://github.com/iolo/8x4x4-fonts
+using jamoset.py --layout 844 --check. The collection contains conversions
+of legacy DOS 8x4x4 bitmap fonts. Copyright (c) 2025 Dongsu Jang.
+The upstream project supplies OFL-1.1 and MIT licences without explicitly
+assigning each to individual files. SVF interprets OFL-1.1 as covering the
+font and MIT as covering code and conversion metadata. The original author
+of Sans is not identified upstream. See LICENSE-OFL.txt and LICENSE-MIT.txt.

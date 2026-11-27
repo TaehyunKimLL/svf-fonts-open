@@ -1,9 +1,129 @@
 **English** | [한국어](maker-audit.ko.md)
 
-# SVF maker audit: input kinds, controls, preview, desktop readiness
+# SVF maker capability audit
+
+This page describes the maker's inputs, routes, controls, previews and runtime boundaries.
+See the [desktop app](desktop-app.md) for use, [desktop implementation](maker-desktop.md) for packaging,
+[recipes](recipes/desktop-routes.md#desktop-app-and-maker-routes) for command-line equivalents, and
+[the maker guide](../maker/README.md) for the HTTP API.
+
+## 1. Inputs and conversion routes
+
+`routes()` in `maker/routes.py` offers the routes. **Native** classifies a default route for that input kind;
+it does not promise lossless preservation of the entire source. Non-native routes need the font's `experimental` permission.
+
+| Input | Precomposed route | Jamo-set routes and conditions |
+|---|---|---|
+| Outline TTF/OTF | `mkfont` | `composite` for composite-glyph fonts; otherwise `experimental fit`; `mask fit` for fonts with GSUB jamo substitution; `vector fit` |
+| TTC, variable fonts, Mac cmaps/containers | Prepare the selected face, instance or character mapping, then use its route | Routes above according to the prepared font's kind |
+| Bitmap-only sfnt, ISO 10646 BDF/PCF | `mkfont`, existing sizes, 1 bpp | No direct route |
+| KS C 5601 BDF/PCF | `bdfface`, needs a Latin companion | `bdfface + from-svf fit` (experimental) |
+| Hanterm Johab BDF/PCF | No direct route | `hanterm`, layout `hanterm-johab` |
+| ISO 8859 BDF, HBF | No independent route | Used only as a Latin companion for KS C 5601 |
+| DOS raw Johab fonts | `johab844` for supported 16 px 8x4x4 input | `dos raw`; confirm a layout from the candidates inferred from file size |
+| HWP 1.x `.SFT`/`.PFT` | `hwp bdf + mkfont` | `hwp1`; local mode only |
+| HWP 3.0 `.FNT`, headerless KS X 1001 dumps | `hwp bdf + mkfont` | `hwp3 844` for 16 px HWP 3.0; `hwp bdf + from-svf fit` (experimental) |
+| Mac HangulTalk 1.0 | No direct route | `mac fbit 1.0`; needs a resource fork with `fdef`, local only |
+| Mac HangulTalk 7.1 type-3 `fbit` | `mac fbit 7.1 bdf + mkfont` | `mac fbit 7.1 direct`, `mac fbit 7.1 derived` (experimental); needs HTBL, local only |
+| Existing SVF v2/v3 (1 or 2 bpp) | `copy`, or `svf2ttf` for TTF/BDF only | `copy`/`svf2ttf` for jamo faces; `from-svf fit` for 1 bpp precomposed faces (experimental) |
+| Known ROM sets | `bdfface` or another recipe-specified route | Recipe-specific `spec`, `dos raw`, fit, etc.; local only, with size/SHA-256 and companion-file checks |
+
+HWP 1.x and header-identified HWP 3.0 convert only in local mode. Headerless KS dumps also work in upload mode.
+The `copy` route converts SVF v2 to v3; SVF v1 and 8 bpp SVF have no maker route.
+HWP `.HFT` and `.PFT` layouts without a decoder have no conversion route. Unrecognised inputs or missing companions
+are shown with a reason; rows without a route cannot be selected. ROM recipes live in `maker/recipes/`.
+
+`maker/detect.py` handles detection, `maker/srcprep.py` prepares fonts, and `maker/settings.py` validates routes.
+Synthetic input checks include `test_detect_inputs.py`, `test_plan_inputs.py`, `test_hwp_inputs.py` and
+`test_recipe.py` under `maker/test/`. Real-file checks require the corresponding `SVF_MAKER_REAL_*` variables.
+
+## 2. Controls and tool mapping
+
+| Control | Current behaviour | Implementation |
+|---|---|---|
+| Batch defaults | `dest=dos`, precomposed, `layout=844`, size 16, bpp 1 and 2, range `2350`, preset `plain` | `settings.BATCH_DEFAULTS` |
+| Range | `2350`, `11172`, `ksx1001-nohanja`, `ksx1001-symbols`, `ksx1001`, `jamo`, `cp949`, or a list file in the batch; ASCII added to generated ranges | `settings.RANGE_FILES`, `routes.py` |
+| Cell, ascent, advance | `mkfont` cell/ascent/width/space advance; `jamoset` header ascent/fit baseline; `bdfface` Latin/Hangul ascent | `presets.panel_argv()` |
+| Clipping | `clip_cell`, `fit_cell`, pre-build probe and clipped-row display; mkfont report shows cuts, nudges and fitted size | `settings.py`, `maker/static/clip.js`, `tools/mkfont.py` |
+| Jamo fitting | `aa_refine`, 2 bpp `clean`, 1 bpp `binarize` (threshold/ridge/mono); only values supported by the route are accepted | `presets.py`, `settings.py` |
+| Per-glyph vertical shift | Applies a precomposed face's dy table through an `svfdy.py` step; can be tried in preview | `settings.py`, `maker/static/svfview.js` |
+| Export | TTF/BDF and jamo TTF `--composite`; all off by default, per-font overrides allowed | `settings.DEFAULT_OPTIONS`, `jobs.py`, `tools/svf2ttf.py` |
+| Piece identity | Scores from an optional external recogniser; no bundled model | `caps.py`, `recog_score.py` |
+
+Not every font can use these batch defaults unchanged. Bitmap routes, for example, restrict sizes and bpp;
+settings are validated before saving or running. Advanced options override presets; per-font values override batch values.
+The UI does not expose every command-line flag, including `--punct-extra`, `--ink-advance` and `--fallback-ttf`.
+See the [tool reference](tools.md) for the full options.
+
+`mask fit` and `binarize mono` require freetype-py and uharfbuzz; `JAMOSET_PYLIB` can name their directory.
+`JAMOSET_MASK_FONT` names the mask font. Recognition uses `recog.py` under `SVF_RECOG_DIR` and optionally
+`SVF_RECOG_PYTHON`. An external interpreter must pass imports of numpy, torch, PIL and fontTools.
+
+## 3. Preview and quality checks
+
+The page draws produced faces with a WASM build of the C renderer. `maker/build-wasm.sh` and `web/build.sh` share
+`c/ports/web/emcc-flags.sh`. See the [SVF specification](../spec/SVF.md) for structure and metrics,
+[jamo sets](jamo-sets.md) for composition, and [anti-aliasing](anti-aliasing.md) for coverage and target colours.
+
+`maker/static/svfview.js` provides text, scale, GRAY8/MONO/RGB565 targets, threshold, guides and a glyph grid.
+The page's glyph compositor implements ascent/dy trials. `preview.source_png()` on the server creates source PNGs
+for FreeType-readable fonts; the page's result SVF display does not depend on server PNGs.
+
+Under `/api/jobs/<id>/`, endpoints include `face/<step>.svf`, `source/<font>.svf`, `report/<step>.json`,
+`probe/<font>/<size>/<bpp>.svf`/`.json` and `identity/<step>.json`.
+The four public `/api/caps` keys are `wasm`, `mask_libs`, `recog` and `local`.
+C/WASM exports are in `c/ports/web/svf_web.c`; see the [web renderer guide](web-renderer-guide.md) for use.
+
+Checking composition of all 11,172 modern Hangul syllables with `--check` differs from deciding whether each piece
+is the intended jamo. IoU measures overlap with a reference bitmap and does not guarantee readability.
+TTF/BDF exports are read back to check their character sets; re-rasterising a TTF for a round trip is not part of every run.
+
+## 4. Local mode and desktop boundaries
+
+Token-enabled local mode allows loopback binding only. It reads selected sources in place and writes results and
+temporary files under the output folder without copying sources into the data folder. Job metadata is stored
+separately in the data folder. Path checks cover absolute paths, symlinks, input/output overlap, the data folder and
+the `SVF_MAKER_ROOTS` allow-list. Temporary `.svf-maker-<id>/` directories are cleaned up; failed cleanup leaves a
+record for retry on the next start.
+
+Without a token, the server uses upload mode. Limits are 64 MiB per request body, 256 MiB and 2,000 files per job,
+and 128 MiB for gzip decompression. Local mode avoids upload-copy limits but retains format-specific read limits.
+The server prunes old finished jobs using a 20-job limit and a 7-day age from creation. A detected local job untouched
+for 30 minutes can lose its working-files directory (`server.LOCAL_IDLE_SWEEP_S`).
+
+Electron creates a token per launch, chooses a data folder under `userData` and manages the sidecar lifecycle.
+See the [desktop app](desktop-app.md) for security, failure handling and paths.
+A directly launched server forwards `SOURCE_DATE_EPOCH` to tools; the desktop shell's environment allow-list omits it.
+
+## 5. Verification boundaries
+
+- Automated input tests use synthetic files. Users must provide real Mac, HWP and ROM sources separately.
+- Command-line mask-fit runs are recorded in [recipes/outline-fonts.md](recipes/outline-fonts.md#jamo-sets-from-truetype-and-opentype-fonts) (way 2) and [recipes/desktop-routes.md](recipes/desktop-routes.md#desktop-app-and-maker-routes); these do not establish an end-to-end maker `mask fit` run.
+- A real piece-recognition model is unverified; integration tests use a stub.
+- Desktop automation stubs dialogs and disables the GPU. Real dialogs, file-manager integration, a window manager, GPU and sandbox need separate checks.
+- Windows NSIS/portable builds passed Actions on `windows-build`, which is not merged into main. macOS and older glibc remain unverified; see [platform status](maker-desktop.md#65-windows-and-macos-status-on-2026-11-27). No server-deployment systemd unit is supplied.
+
+See [packaging](maker-desktop.md#5-automated-checks-and-recorded-runs) for tests and package verification,
+the [C guide](c-renderer-guide.md) for integration, the [renderer design](../spec/renderer-design.md) for architecture,
+and the [README](../README.md) for the document overview.
+
+## 6. 참고 문헌 / References
+
+- Unicode Hangul composition — <https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/>
+- OpenType Hangul shaping — <https://learn.microsoft.com/en-us/typography/script-development/hangul>
+
+## 7. 기록 / Records
+
+This preserves the input/control audit dated 2026-11-03 and subsequent implementation/closing records from November 4–22.
+Dates, commits, card IDs, test counts and unverified items describe their recorded point in time.
+No execution date has been inferred where the original did not provide one.
+“Today”, “none” and “must” below refer to that historical state; sections 1–5 describe current behaviour.
+Later HWP additions remain in the original; Windows follows the [2026-11-27 status](maker-desktop.md#65-windows-and-macos-status-on-2026-11-27).
+Recorded commands are preserved without claiming they were rerun for this update.
+
 
 Card t_c3d8c80b. A read-only audit of `maker/` (detect.py, jobs.py, routes.py, presets.py, settings.py, naming.py,
-preview.py, server.py, static/*) against [recipes.md](recipes.md), run on 2026-11-03 at `ec5c6b3` (the curated OFL-only
+preview.py, server.py, static/*) against the recipes (then one file, now [the index](recipes.md) and [its documents](recipes.md#recipe-documents)), run on 2026-11-03 at `ec5c6b3` (the curated OFL-only
 repository). Evidence is `file:line` at that commit (rows rewritten for this branch cite symbol names, because line numbers drift). "Not verified" marks what was read but not run.
 
 How the maker works, in one paragraph: `detect.sniff` (maker/detect.py:84) tags a file by magic and size,
@@ -15,7 +135,7 @@ the page draws every produced face and every baked source face itself with the C
 and 2 below were audited at `ec5c6b3` and are kept as the rows they were, each updated where the branch changed it
 ("Now:" marks the current state); sections 3 and 7 are the current state.
 
-## 1. Recipe input kinds
+### 7.1. Recipe input kinds
 
 Columns: **Detect** = a `source_kind` with a route; **Convert** = the command the route runs; **Preview** = the source
 preview (as audited; the result preview of any produced face is now drawn in the page by WASM, section 3).
@@ -36,7 +156,7 @@ preview (as audited; the result preview of any produced face is now drawn in the
 | DOS johab raw (`.FNT`, `*.KOR`, HBIOS, san, 621, Dokkaebi, Kyra) | yes: by exact size (`DOS_SIZES`), candidates filtered by the layout opener; the owner confirms the layout | `jamoset.py SRC --layout L --check [--eng ENG] [--face 0\|1]`; `--eng` = a 2048/4096-byte file beside it | yes: baked with the same command at the first size, then `svfline` | detect.py:29-33, 241-253, 417-436; routes.py:144-150, 277-279; preview.py:146-197; server.py:906-913 |
 | DOS `johab844.py` (precomposed from raw pieces) | yes: an 11,520-byte raw font with candidate `844` (`dos_bytes`) | precomposed route `johab844`: `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng ENG]`; layout 844 and an 8x16 English font only; the chosen range is ignored and the note names the base face | n/a | routes.py `_johab844_commands`; settings.py `_route_errors`; B5 |
 | a 12x24 English `.PFT` (12,288 bytes: Taebaek `GASCII24.PFT`; HWP 1.x's own `ASCII.PFT` is 14x24, 41,654 bytes, read by its header since t_d4cf7f46) / HBIOS 12x24 English (15,360) | yes: both are `eng` entries (`eng` = bytes and cell); a 15,360-byte file is HBIOS English only when `hbios_eng_like` (blank margin rows, 12 px cell, ink in `A`), else a Dokkaebi face; no UI override | `jamoset.py --eng FILE` on a DOS jamo route; refused below a 24 px face | no | detect.py `hbios_eng_like`; settings.py `_route_errors`; A5/B6 |
-| HWP Hangul `.PFT` | Local mode only (Task 14): an `other` entry, format `hwp-pft`, named by its `.pft` extension (no byte rule) when its size is not an `eng` size, with the label that says to convert it elsewhere and add that file; an upload keeps `unknown (...)`. A 12,288-byte 12x24 English `.PFT` (Taebaek `GASCII24.PFT`; the tests' `ASCII.PFT` fixture) pairs with a 24 px DOS raw face from any folder of the batch (`detect.detect_file`, `HWP_PFT_LABEL`, `scan`). Since t_d4cf7f46 HWP 1.x `.SFT`/`.PFT` (its own `ASCII.PFT` is 14x24, 41,654 bytes), HWP 3.0 `.FNT` and KS X 1001 dumps are read by `tools/hwpfont.py` (kinds `hwp1`, `ks-raw`); `hwp-pft` names only a `.PFT` of no layout read here | at the time none (recipes: feed a BDF or precomposed SVF); now the `hwp1` / `hwp bdf + mkfont` / `hwp3 844` / `hwp bdf + from-svf fit` routes | no | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py), `test_hwp_inputs.py`; real HWP files run by hand and by `tools/test_hwpfont.py` with `JOHAB_FONTS` (recipes.md) |
+| HWP Hangul `.PFT` | Local mode only (Task 14): an `other` entry, format `hwp-pft`, named by its `.pft` extension (no byte rule) when its size is not an `eng` size, with the label that says to convert it elsewhere and add that file; an upload keeps `unknown (...)`. A 12,288-byte 12x24 English `.PFT` (Taebaek `GASCII24.PFT`; the tests' `ASCII.PFT` fixture) pairs with a 24 px DOS raw face from any folder of the batch (`detect.detect_file`, `HWP_PFT_LABEL`, `scan`). Since t_d4cf7f46 HWP 1.x `.SFT`/`.PFT` (its own `ASCII.PFT` is 14x24, 41,654 bytes), HWP 3.0 `.FNT` and KS X 1001 dumps are read by `tools/hwpfont.py` (kinds `hwp1`, `ks-raw`); `hwp-pft` names only a `.PFT` of no layout read here | at the time none (recipes: feed a BDF or precomposed SVF); now the `hwp1` / `hwp bdf + mkfont` / `hwp3 844` / `hwp bdf + from-svf fit` routes | no | `test_hwp_pft_label`, `test_ascii_pft_from_another_folder`, `test_8x16_eng_keeps_the_folder_rule` (test_detect_inputs.py), `test_hwp_inputs.py`; real HWP files run by hand and by `tools/test_hwpfont.py` with `JOHAB_FONTS` (recipes/dos-fonts.md) |
 | Windows `.FNT` / `.FON` | yes: `fnt`/`fon` -> `bitmap`; FON face 0 only | mkfont at the strike, 1 bpp | yes | detect.py:109-112, 391-415; routes.py:273-276 |
 | Mac TrueType with a Unicode cmap (`true` magic) | yes: `ttf` | as TTF | yes | detect.py:90-91 |
 | Mac TrueType with only a Mac Korean (1,3) or Wansung (3,5) cmap | yes: `mac_cmap_only` gives the entry a `mac-cmap` prep op and coverage is read through it (a font that also has a Unicode subtable gets none) | `source` step: `macsfnt.py unicode IN OUT`, then the TTF routes | Now yes (the prepared copy is drawn) | detect.py `_sfnt_entry`; srcprep.py `mac_cmap_only`; B1 |
@@ -57,7 +177,7 @@ hanterm, KS X 1001 BDF (precomposed, and an experimental `--from-svf` jamo route
 Hangul `.PFT`. Now (branch maker-controls): GSUB-decomposable fonts get the `mask fit` and `vector fit` routes (the mask
 fit never ran here), and the source previews and probes show a chosen variable instance, a TTC face and a Mac font.
 
-## 2. Controls missing compared with the recipes
+### 7.2. Controls missing compared with the recipes
 
 **As audited at `ec5c6b3`** (the table below keeps the gaps as found; the "Now" column says what the branch added, the
 gap list in section 7 says which task closed each): what the page offered then (maker/static/index.html;
@@ -78,7 +198,7 @@ range (2350 / 11172 / an uploaded list), preset, and an advanced panel with `cel
 | Piece identity check | no | the routes run `--check`, which proves the table composes all 11,172 syllables, not that each piece is its jamo. `quality.py` scores IoU against the reference only. No jamo recogniser is in this repository (grep for "recogni" in tools/ finds only JMAP_RECOG flag handling); the card t_9acea7ab requirement needs one brought in or written | `maker/recog_score.py` per jamo step when `SVF_RECOG_DIR` names a recogniser; **no real recogniser was run: a stub only** (none is in this repository) |
 | Mac/HWP options (`--symbols` for fbit, `--mode derived`, `jamomerge.py`, `jamoexc.py`) | no | none of these tools is called | unchanged |
 
-## 3. Preview: the browser draws with the WASM renderer
+### 7.3. Preview: the browser draws with the WASM renderer
 
 **State (card t_9acea7ab).** Every produced face and every baked source face is drawn in the page by the C renderer
 built to WebAssembly (`maker/build-wasm.sh` into `maker/static/wasm/`, the compile line shared with `web/build.sh`
@@ -105,7 +225,7 @@ result PNG.
 - **Caps:** `wasm` (the module is built), `mask_libs` (freetype-py and uharfbuzz for `mask fit` and `binarize mono`),
   `recog` (`SVF_RECOG_DIR` with numpy and torch for the identity check).
 
-## 4. Electron shell with a Python sidecar on 127.0.0.1
+### 7.4. Electron shell with a Python sidecar on 127.0.0.1
 
 What exists and what would change:
 
@@ -132,7 +252,7 @@ into the chosen output folder, with work files in a temp dir removed after the j
 dir, never write it into the zip (the zip today holds only produced faces and licence texts, zipout.py). Its test must
 show the listen socket is 127.0.0.1 only and that nothing is written outside the output folder and the temp dir.
 
-## 5. The web UI v1 plan and the open cards
+### 7.5. The web UI v1 plan and the open cards
 
 Plan `docs/superpowers/plans/2026-10-21-svf-maker.md` (16 tasks). Its checkboxes are all unticked (82 `- [ ]`, 0 `- [x]`)
 and it carries no "Implemented" notes; the state below comes from the files and `docs/STATUS.md:29, 120`
@@ -150,7 +270,7 @@ Cards: t_a1cf496b (web UI v1 goal) was re-scoped on 2026-11-09: no tailnet servi
 (desktop app, or `maker/server.py` on loopback) converting a TTF+BDF+PCF+DOS Johab test folder into faces that pass
 `facecheck.py`, T16 green, reviewed. T15 (t_bbceabe9) was re-scoped and closed; T16 (t_e073891a) is row 16 above.
 
-## 6. Run state (2026-11-03, this worktree)
+### 7.6. Run state (2026-11-03, this worktree)
 
 - `~/.local/bin/heavy python3 -m unittest discover -s maker/test -p 'test_*.py'`: **Ran 431 tests in 77.3 s, OK**
   (one ResourceWarning from tools/jamoset.py:1808, an unclosed file in a test).
@@ -165,7 +285,7 @@ freetype-py/uharfbuzz, numpy, `SVF_MAKER_REAL_*`); `tools/test_*.py` via heavy: 
 included; `make -C c check` via heavy: exit 0; `sh c/cross/test-check-features.sh`: OK; `maker/test/smoke_dom.py`: exit 0
 under google-chrome; `git diff 01a943f -- c/src c/include`: empty.
 
-## 7. Gap list (priority order) and the card each belongs to
+### 7.7. Gap list (priority order) and the card each belongs to
 
 1. **t_9acea7ab** - DONE (Tasks 6-8): the page draws produced faces with the WASM renderer; `GET .../face/<step>.svf`;
    `svfline` PNG is only the test oracle.
@@ -193,7 +313,7 @@ under google-chrome; `git diff 01a943f -- c/src c/include`: empty.
    faces byte-identical to the shipped faces they reproduce: the route ends with `svf2to3.py --profile default`, and
    `PresetAcceptanceTest` pins it byte for byte); T15's unit/README and the tailnet clause of t_a1cf496b should be re-scoped to the desktop direction.
 
-## 8. Local mode: closing evidence, the shell contract and what was not verified (card t_cbd14d61)
+### 7.8. Local mode: closing evidence, the shell contract and what was not verified (card t_cbd14d61)
 
 **The card's closing measurement, mapped to tests** (all synthetic; no proprietary byte is in the repository):
 
@@ -316,7 +436,7 @@ Evidence (tests in `maker/test/test_local_bounds.py` unless named):
 | locked I/O, lock order | `test_a_create_is_not_held_by_a_hung_output_stat_in_ensure`, `test_a_create_is_not_held_by_a_hung_mkdir`, `test_a_lifecycle_holder_does_not_wait_for_a_held_job_lock`, `test_a_preview_and_a_settings_change_of_one_font_do_not_deadlock`, `test_a_settings_put_never_waits_for_a_preview_lock_under_the_job_lock`, `test_after_a_settings_put_returns_the_old_preview_is_never_served` |
 | run prepare and commit | `test_a_create_is_not_held_by_a_run_reading_a_hung_input`, `test_a_create_is_not_held_by_a_run_hashing_a_hung_licence`, `test_a_create_is_not_held_by_a_run_planning_on_a_hung_volume`, `test_run_preparation_holds_no_lifecycle_lock`, `test_a_run_whose_job_changed_while_preparing_is_refused`, `test_a_second_run_during_preparation_is_refused`, `test_a_run_waits_a_bounded_time_for_a_preview_lock` |
 
-## 9. Desktop app: closing evidence (cards t_f04f1355 shell, t_e64a56a7 packaging)
+### 7.9. Desktop app: closing evidence (cards t_f04f1355 shell, t_e64a56a7 packaging)
 
 | Closing measurement | Evidence |
 |---|---|

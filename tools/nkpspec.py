@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Write the `rawcarve.py compose` spec of an NKP Hangul TSR (the 1989 Hercules Hangul drivers NKP.COM V3.00 and NKP3.COM)
-from the driver's own tables: the worked example of docs/recipes.md, "NKP: a Hercules Hangul TSR with cropped pieces".
+from the driver's own tables: the worked example of docs/recipes/programs-and-drivers.md, "NKP: a Hercules Hangul TSR with cropped pieces".
 
   nkpspec.py find NKP.COM                  the table addresses, found by the instruction bytes that use them
   nkpspec.py spec NKP.COM -o NKP.json      the compose spec (addresses found, or given with --desc ... --med)

@@ -1,0 +1,210 @@
+[English](svf-and-ttf.md) | **한국어**
+
+# 레시피: 기존 SVF, 그리고 SVF에서 다시 TTF로
+
+SVF 페이스에서 시작하는 작업: 세로 이동(dy) 설정, 완성형 페이스를 자모 세트로 다시 굽기, 페이스를 TTF(또는 BDF) 비트맵 폰트로 다시 쓰기(자모 세트의 조각을 공유하는 합성 글리프 포함).
+
+**시작 전에.** 명령은 [색인](../recipes.ko.md)에서처럼 `$OUT`을 정하고 프로젝트 루트에서 실행한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 점검으로 끝난다. 입력은 아무 SVF 페이스, 예를 들면 `svf/`의 페이스이다.
+
+위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [svf/의 페이스](svf-faces.ko.md), [벌 수 정하기](sets.ko.md), [도구 설명서](../tools.ko.md).
+
+<a id="기존-svf"></a>
+
+## 기존 SVF
+
+원본: `svf/dos/NEODG16.SVF`(완성형 1 bpp 페이스, 16x16, 글리프 2,905개, 메트릭 표 있음).
+
+dy 설정(글리프 픽셀과 나머지 메트릭을 유지하며 파일은 다시 패킹한다):
+
+    python3 tools/svfdy.py svf/dos/NEODG16.SVF $OUT/neodg16-dy.svf --range 0x20-0x7e --dy 3
+
+검증: `133,720 바이트`(변함 없음), 글리프 2,905개, 글리프 95개에 dy 설정, 범위 0..3. 렌더는 `width=144 ascent=12 descent=7`
+(descent가 dy만큼 커졌다), 잉크 559.
+
+자모 세트로 다시 변환(1 bpp 페이스의 완성형 음절에 대한 맞춤. 조각과 페이스의 나머지 글리프는 유지된다):
+
+    python3 tools/jamoset.py --layout 844 --from-svf svf/dos/NEODG16.SVF --mask-font none -o $OUT/neodg16-from-svf.svf
+
+검증: `34,332 바이트`, 글리프 892개, 조각 344개. 맞춤: 음절 2,357개, IoU 1.000(Neo Dunggeunmo는 그 자체가 조각의 OR이다). 렌더는
+`width=144 ascent=12 descent=4`, 잉크 559. 기존 SVF는 같은 크기의 안티앨리어싱 원본이 아니다. 1 bpp 페이스를 같은 크기의 2 bpp로 바꾸는 도구는 없고(`svfscale.py --bpp 2`는 더 작은 크기로 다시 샘플링한다),
+`svfdy.py`는 dy만 바꾼다.
+
+**버전과 프로필.** SVFN v2는 폐기되었다. `svf2to3.py`는 v2를 읽고 v3 페이스를 다시 배치한다. maker의 "copy" 경로는 업로드된 SVF에 이를 쓴다
+(`svf2to3.py SRC OUT --jset-version V --check`: v2 페이스를 v3로 담거나, JSET 블록을 다시 쓴 v3 페이스). 자모 세트는 표를 JSET v1(기본)
+또는 v2(메모리가 제한된 대상에서 더 작다)로 담는다. `--jset-version auto`는 v1 블록이 1,024 바이트 이상 크면 v2를 고른다. JMAP 블록(JSET
+버전 3)은 그대로 복사되며 그 경우 이 플래그는 아무 일도 하지 않는다.
+
+    python3 tools/svf2to3.py $OUT/NG16J.SVF $OUT/NG16J-v2.SVF --jset-version 2 --check
+    python3 tools/svf2to3.py svf/dos/NEODG16A.SVF $OUT/NEODG16A-v2.SVF --jset-version 2 --check
+    python3 tools/svf2to3.py svf/dos/NEODG16.SVF $OUT/NEODG16-canon.SVF --profile default --check
+
+검증: NanumGothic Bold의 1 bpp 자모 세트는 `--jset-version 2`로 `20,064` -> `19,232 바이트`(JSET 블록 1,101 -> 272 바이트, 글리프 데이터 11,884 변함 없음, 모든 글리프 비교 일치); 배포된 NEODG16A는 `16,408` -> `15,576 바이트`; `--jset-version auto`에서 NEODG16A는 v1로 남는다(`jset=1`. v1 블록이 v2보다 829 바이트만 커서 1,024 기준에 못 미친다). 마지막 명령은 배포된 페이스를 `default` 프로필로 다시 배치하며 바이트가 같다: 입출력 모두 133,720 바이트(`cmp`가 차이를 보고하지 않는다). `--profile`은 대상별 레이아웃을
+고른다(`mcu-strict`, `default`, `dos`, `wasm`, `full`, `simd16`). `--check`는 픽셀이 바뀌지 않았음을 증명한다.
+
+
+<a id="svf-페이스를-다시-ttf-비트맵-폰트로"></a>
+
+## SVF 페이스를 다시 TTF 비트맵 폰트로
+
+반대 방향이다. `tools/svf2ttf.py`는 완성형이든 자모 세트든 SVF 페이스를 OS나 응용 프로그램이 설치할 수 있는 TrueType 폰트로,
+그리고 BDF로 되돌린다. 페이스는 C 라이브러리가 읽는 방식(`svfline.Face`)으로 읽는다. 그래서 자모 세트는 그 표가 합성하는 모든
+음절(전체 표라면 11,172개 모두, `svfline.py`가 그리는 대로 `jamoset.compose`로 합성)과 표가 매핑하는 호환 자모를 나머지 글리프와
+함께 내며, 어느 쪽이든 출력은 완성형 폰트이다. 모든 글리프는 `svfline.py`가 그리는 자리에 선다: 셀의 왼쪽 열이 펜에, 맨 위 행이
+기준선 위 `ascent - dy`행에, 결합 부호는 그 원점에 advance 0으로, advance는 페이스 자신의 값이다([OpenType 글리프, 셰이핑, 비트맵 스트라이크](../recipes.ko.md#ref-opentype) 참고).
+
+    python3 tools/svf2ttf.py ttf svf/dos/NEODG16.SVF $OUT/NEODG16.ttf
+    python3 tools/svf2ttf.py ttf svf/dos/NEODG16A.SVF $OUT/NEODG16A.ttf --family "My Pixel" --style Regular --version 1.001
+    python3 tools/svf2ttf.py bdf svf/dos/NEODG16A.SVF $OUT/NEODG16A.bdf
+
+**TTF에 담기는 것.**
+
+- **아웃라인**(`glyf`): 각 글리프의 픽셀을 가장자리를 따라 윤곽선으로 추적한 것(구멍은 유지, 대각선으로 닿는 픽셀은 떼어 둠, 힌팅 없음.
+  바이트코드는 no-op 하나뿐인 `prep`(`PUSHB 0, POP`)만 있다: FreeType은 바이트코드가 전혀 없는 TrueType을 자동 힌터에 넘기는데, 자동
+  힌터는 1.5 x에서 NEODG16의 아웃라인을 최대 한 픽셀까지 옮겼고(24 px 샘플 줄에서 591 픽셀), prep이 있으면 정확한 면적 커버리지를
+  그린다: `svfline.py`의 3/2 배율과 1 단계 이내).
+  `unitsPerEm` = ppem x 64이므로 한 픽셀이 64 단위이고, 아웃라인은 ppem과 그 정수배에서 페이스의 픽셀을 정확히 덮는다. 폰트는
+  확대·축소할 수 있고 설치할 수 있다. ppem의 기본은 셀 높이이다(다른 값은 `--ppem N`, 예: 24행 셀에 17 px로 구운 페이스는 17).
+  줄 높이는 셀이다(ascent + descent = 셀 높이).
+- **내장 비트맵 스트라이크**(`EBLC`/`EBDT`, 이미지 형식 1, 인덱스 형식 1): ppem에서 페이스 자신의 비트 깊이로. 1 bpp 페이스는 1비트
+  스트라이크, 2 bpp 페이스는 2비트 스트라이크(네 단계를 그대로), 8 bpp는 8비트. 내장 비트맵을 쓰는 렌더러(FreeType, Windows)는
+  ppem에서 페이스 자신의 픽셀과 단계를 그리고, 그 밖의 모든 크기에서는 아웃라인을 그린다. `--no-strike`는 아웃라인만 쓰고,
+  `--apple`은 같은 스트라이크를 `bloc`/`bdat`으로 더한다.
+- **2 bpp 페이스.** 아웃라인에는 단계가 없으므로 2 bpp 페이스의 아웃라인은 커버리지 128 이상의 픽셀(단계 2와 3, C 라이브러리의
+  mono 대상 규칙. 다른 값은 `--threshold C`)을 취한다. ppem에서는 스트라이크가 단계를 주고, 다른 크기에서는 아웃라인이 그 1비트
+  절단이다.
+- **메트릭**: `hmtx`의 advance = 페이스의 advance x 64. `hhea`와 OS/2 typo ascender / descender = 페이스의 ascent와 셀 높이 - ascent
+  (`USE_TYPO_METRICS`). OS/2 win ascent / descent는 dy가 셀 밖으로 옮긴 잉크까지 덮는다. 스트라이크 자체의 small metrics가 글리프마다
+  bearing과 advance를 담는다.
+- **cmap**(형식 4, U+FFFF를 넘으면 12), `post` 형식 3(글리프 이름 없음), `head`, `maxp`, `gasp`, OS/2(굵기 400, `--style`에
+  "Bold"가 있으면 700과 bold 비트. 코드 페이지 비트는 Latin 1, 한국어 완성형, 그리고 11,172 음절이 다 있으면 조합형), `.notdef` 상자.
+- **name**: 패밀리 `--family`(기본 `<페이스 이름> SVF`, 예: `NEODG16 SVF`. 원본 폰트 자신의 이름은 쓰지 않는다: OFL의 Reserved Font
+  Name은 수정본에 그 이름을 금할 수 있다), 스타일 `--style`(기본 Regular), 버전 `--version`(기본 1.000), 페이스를 밝히는 설명
+  (`Generated by svf2ttf.py from NEODG16.SVF (16x16 cell, 1 bpp, precomposed, 2905 glyphs, 16 px strike)`), 그리고 라이선스. 이 저장소
+  `svf/`의 페이스는 `web/LICENCES.tsv`의 해당 행이 지명하는 라이선스 파일을 받는다(노트와 OFL 파일, 예: `NEODG*`는 `NEODGM.TXT`와
+  `OFL.TXT`, `PAPER*`는 `PAPMARU.TXT`와 `OFLPAPLG.TXT`, `MARU*`는 `OFLMARU.TXT`, `BHSAN28`과 `NSQR*` 등은 OFL 파일만). `svf/` 아래에서
+  어느 행에도 해당하지 않는 페이스는 `--licence`가 없으면 오류이다. 그 밖의 페이스는 옆에서 제목 줄이 그 파일 이름이나 그에 맞는
+  패턴을 적은 `*.TXT`와 그 노트가 이름을 든 라이선스 파일(모두: 두 폰트를 다루는 노트는 둘 다, 경고와 함께), 없으면 옆
+  `FACES.TSV`의 licence 열을 받는다. 텍스트는 라이선스 설명으로, OFL 파일의 저작권 문단(`SIL OPEN FONT LICENSE` 머리 위에서
+  "Copyright"나 "(c)"를 말하는 문단, 없으면 첫 문단: Neo Dunggeunmo Pro의 퍼블릭 도메인 출처 표기처럼)은 저작권으로, OFL URL은 OFL
+  텍스트가 들어갈 때만 넣는다. `--licence FILE`로 노트를 지정하고 `--licence none`은 넣지 않는다. 저장소 밖에서 노트가 없는
+  페이스(`$OUT`에서 직접 만든 것)에는 원본 폰트의 라이선스가 적용된다는 한 줄과 경고가 붙는다: `--licence`를 주어라.
+- **코드 포인트**: 자모 세트의 조각(평면 U+F0000..U+FFFFF)은 내보내지 않는다. 완성형 페이스는 거기와 그 너머의 사용자 정의 영역
+  글리프를 지킨다. 서로게이트와 U+FFFF는 글자가 되지 않는다. 내보낼 것이 없는 페이스나 전체 글리프(`.notdef`와 공유 구성 요소 포함)가 65,535개를 넘는 TTF는 오류이다.
+- **만들지 않는 것**: 첫가끝 자모(U+1100) 셰이핑, GSUB나 GPOS, 커닝, 힌팅 명령, 세로 메트릭. 타임스탬프는 `$SOURCE_DATE_EPOCH`가 있으면 그 값, 없으면 지금이다.
+
+**BDF**(`bdf`): 코드 포인트마다 글리프 하나(BBX는 잉크 상자, DWIDTH는 advance), `FONT_ASCENT` / `FONT_DESCENT`는 페이스의 값,
+`PIXEL_SIZE`는 72 dpi의 ppem(`SIZE ppem 72 72`, `POINT_SIZE`는 ppem x 10, `SWIDTH`는 advance x 1000 / ppem), `AVERAGE_WIDTH`는
+평균 advance x 10, 라이선스 노트는 `COMMENT` 줄로, 저작권은 `COPYRIGHT`로, UTF-8로 쓴다(노트의 한글은 그대로 남고 FreeType이 읽는다).
+1 bpp 페이스는 BDF 2.1을 쓰고, 2 또는 8 bpp 페이스는
+`SIZE`의 네 번째 필드에 비트 깊이를 적은 BDF 2.3을 쓴다(FreeType이 읽는다). `--bpp1`이면 1 bpp로 쓴다(`--threshold` 이상의 픽셀).
+
+**왕복(round trip).** TTF를 스트라이크 크기와 페이스의 비트 깊이로 `mkfont.py`에 다시 굽고 비교한다:
+
+    python3 tools/mkfont.py $OUT/NEODG16A.ttf $OUT/back.svf --size 16 --bpp 1 --probe --width 16 --only-listed \
+        --unicode $(python3 tools/svf2ttf.py cps svf/dos/NEODG16A.SVF)
+    python3 tools/svf2ttf.py compare svf/dos/NEODG16A.SVF $OUT/back.svf
+
+`cps`는 페이스의 코드 포인트를 `--unicode` 범위로 찍고(NEODG16A는 `20-7e,25a1,3131-3163,ac00-d7a3`), `--only-listed`는 그것만
+굽는다. `--probe`는 아무것도 자르지 않는 키 큰 셀을 잡고 기준선 하나를 지키며, `--width`는 페이스의 셀 폭이다. `compare`는 두
+페이스의 모든 글리프를 `svfline.py`처럼 놓고, 픽셀(커버리지로)이나 advance가 다른 글리프와 한쪽에만 있는 잉크 있는 글리프를 센다.
+한쪽에만 있는 빈 글리프는 따로 센다: `mkfont.py`는 공백을 뺀 모든 빈 글리프를 버린다(한쪽에만 있는 U+0020, U+00A0, U+3000은
+불일치이다: `mkfont.py`가 이들은 지킨다). 불일치가 0이면 종료 코드 0이고, 읽을 수 없는 페이스는 1이다.
+
+검증(2026-11-23). 모든 페이스를 `ttf`와 `bdf`로 만들고, 각 출력을 위와 같이 `mkfont.py`로 다시 구워(2 bpp 페이스는 `--bpp 2`)
+비교했다. Pillow(FreeType)로 ppem과 2 x ppem에서 `가각간한글 ABC 123` 줄을 그려 `svfline.py`와 비교했다(2 x에서는 2 bpp 줄을 128에서
+자르고 2 x 2 블록으로). OTS 9.2.0(`ots-sanitize`)은 모든 TTF를 통과시키고, `fc-scan`은 모든 TTF를 읽는다(scalable, outline,
+패밀리와 스타일):
+
+| 페이스 | 종류 | 글리프 | SVF | TTF | BDF | TTF / BDF 왕복 | 렌더 1 x / 2 x |
+|---|---|---|---|---|---|---|---|
+| `svf/dos/NEODG16.SVF` | 완성형 1 bpp 16x16 | 2,905 | `133,720` | `481,800` | `440,766` | 2,905개 중 불일치 0 / 0 | 같음 / 같음 |
+| `svf/dos/NEODG16A.SVF` | 자모 세트 1 bpp 16x16 | 11,319 | `16,408` | `2,038,968` | `1,745,233` | 11,318개 중 0 / 0 (빈 글리프 1: U+3161) | 같음 / 같음 |
+| `svf/jamo-extra/GOTHA16A.SVF` | 자모 세트 2 bpp 16x16 | 11,319 | `73,752` | `2,418,300` | `2,519,856` | 11,319개 중 0 / 0 | 단계까지 같음 / 같음 |
+| `svf/dos/NGOTB16.SVF` | 완성형 2 bpp 16x16 | 2,880 | `219,480` | `563,900` | `621,422` | 2,880개 중 0 / 0 | 단계까지 같음 / 같음 |
+| `svf/jamo-extra/GOTHB24.SVF` | 자모 세트 1 bpp 24x24 | 11,319 | `96,180` | `2,796,288` | `2,757,257` | 11,319개 중 0 / 0 | 같음 / 같음 |
+| HWP 1.x `HANGUL1.PFT` face 1 + `ASCII.PFT`(`jamoset.py --layout hwp1`, [HWP 1.x](dos-fonts.ko.md#hwp-1x와-2x-폰트)) | 자모 세트 1 bpp 24x24 | 11,318 | `16,712` | `2,849,128` | `2,726,291` | 11,318개 중 0 / 0 | 같음 / 같음 |
+
+8 bpp 페이스(`ttf/nanumgothic/NanumGothic-Bold.ttf`를 16 px, `ascii,ksx1001-hangul`로 `mkfont.py --bpp 8`한 것, 글리프 2,446개,
+`579,152 바이트`)는 8비트 스트라이크를 받는다: TTF `876,820`, BDF `1,307,960 바이트`, 두 왕복(`--bpp 8`) 모두 불일치 0. HWP 1.x 페이스(HWP 1.20, 독점)는 옆에 라이선스 노트가 없으므로 그 TTF에는 원본 폰트의 라이선스가 적용된다는 줄이 들어가며,
+페이스와 마찬가지로 `$OUT`에 남는다.
+
+`ttf`는 11,172 음절의 자모 세트에 2.5-4.8초, 글리프 2,905개의 완성형 페이스에 1초 미만이 걸린다. TTF의 대부분은 아웃라인이다
+(`glyf`: NEODG16A의 2,038,968 바이트 중 1,561,590. 스트라이크는 348,244 + 45,352). 그래서 TTF는 완성형 페이스의 2.5-3.6배, 자모
+세트의 29-170배이다. NEODG16A는 U+3161(ㅡ)을 빈 글리프로 그린다(그 호환 조각이 비어 있다). 그래서 `mkfont.py`가 이를 버리고
+`compare`는 이를 빈 글리프 하나로 센다.
+
+**설치.** [fontconfig](../recipes.ko.md#ref-fontconfig)를 참고한다. Linux: `.ttf`를 `~/.local/share/fonts/`에 복사하고 `fc-cache`를 실행한다. 별도의 fontconfig 설정(`$OUT` 아래의 `<dir>`와
+`<cachedir>`, 이를 가리키는 `FONTCONFIG_FILE`)으로 점검했다: `fc-list`가 `NEODG16A SVF`와 `GOTHA16A SVF`를 나열하고,
+`fc-match "NEODG16A SVF:pixelsize=16"`이 그 파일을 고른다. fontconfig는 한국어 철자 목록의 모든 글자(호환 자모 U+3165-U+318E 포함)를
+가진 페이스에만 언어 `ko`를 붙인다(NGOTB16은 붙고, NEODG16과 자모 세트들은 안 붙는다). 이는 언어에 따른 대체 폰트 선택에만
+영향을 준다. Windows와 macOS: 여기서 테스트하지 않았다(다른 `.ttf`처럼 설치한다. ppem에서 스트라이크를 그릴지 아웃라인을 그릴지는
+렌더러가 정한다. Windows는 `EBLC`/`EBDT` 스트라이크를 읽지만 2 또는 8비트 스트라이크를 단계로 그리는지는 테스트하지 않았다. `--apple`은 같은 표를 Apple의 이름 `bloc`/`bdat`으로 더하지만 Mac에서
+테스트하지 않았다).
+
+**한계.** 스트라이크는 페이스의 크기 하나만 담는다. 다른 크기에서는 아웃라인이 네모난 픽셀을 그린다(정수배에서 정확하고, 그 밖에서는
+렌더러가 안티앨리어싱한다). 2 bpp 페이스의 단계는 스트라이크에만 있다. 출력은 완성형이다: 자모 세트의 작은 크기는 변환 뒤에 남지
+않는다(아래의 `--composite`는 조각을 나눠 써서 보통 TTF의 4분의 1에서 절반 미만이 된다). 스트라이크의 메트릭은 바이트이다: advance는 0..255(SVF의 모든 advance가 들어간다), ascent, descent, 글리프마다의 bearing x와 잉크 위끝,
+스트라이크의 극값(최소 왼쪽·오른쪽 side bearing, 가장 높고 낮은 잉크. 글리프 자신의 오른쪽 side bearing은 저장되지 않으므로 넓은 글리프와
+좁은 글리프가 함께 있는 200폭 셀도 들어가고, '.' 하나뿐인 200폭 셀처럼 127을 넘는 최소 오른쪽 side bearing은 여전히 하한인 127로 저장된다. 글리프마다의 bearing x와 잉크 위끝이 들어가면 127을 넘을 수 있는 극값은 이것뿐이다)은 부호 있는 -128..127이라, ascent나 잉크가 기준선에서 127행보다 멀리 가는 페이스(셀이 약 127행을 넘는 것)는 그 필드를 밝히는 오류로
+멈춘다. `--no-strike`는 이를 아웃라인만으로 변환하며, BDF에는 이 한계가 없다. TTF에는 페이스의
+원본 폰트 라이선스가 적용된다. OFL 폰트의 Reserved Font Name은 새 패밀리 이름이 되어서는 안 된다(기본 이름은 이를 피한다).
+
+<a id="합성-글리프--composite"></a>
+
+### 합성 글리프(`--composite`)
+
+`ttf --composite`는 자모 세트의 구조를 TTF에 남긴다: 자모 조각마다 글리프 하나로 한 번만 쓰고(아웃라인과 스트라이크 비트맵,
+합성된 음절이 놓는 자리에), 합성되는 음절은 모두 그 조각들의 합성(composite) 글리프가 되며, 호환 자모는 cmap이 그 조각 글리프
+자체를 가리킨다. 나머지 글리프(ASCII 등)는 보통 글리프로 남는다. 완성형 페이스는 나눌 것이 없으므로 `--composite`는 보통 TTF를
+쓰고 안내를 찍는다.
+
+    python3 tools/svf2ttf.py ttf svf/dos/NEODG16A.SVF $OUT/NEODG16A-c.ttf --composite
+
+- **아웃라인**(`glyf`): 음절의 빈 조각이 아닌 조각들을 각각 오프셋 (0, 0)에 둔 합성 글리프(조각은 셀 전체이고 dy가 없다), `hmtx`에는
+  음절 자신의 advance. TrueType은 구성요소의 합집합을 그리고, 조각 아웃라인의 합집합은 합성된 음절의 `--threshold` 이상 픽셀의
+  아웃라인과 같다(단계의 최댓값을 취한 뒤 문턱으로 자르는 것은 조각마다 잘라서 합치는 것과 같다). 그래서 1, 2, 8 bpp 모두 정확하다.
+  첫 구성요소에 `OVERLAP_COMPOUND`를 둔다(그러면 FreeType이 합성 글리프를 오버샘플링해 그려, 정수배 사이 크기에서 두 조각이 함께
+  덮는 가장자리 픽셀을 두 번 칠하지 않는다). 모든 TTF가 갖는 no-op `prep`(위)은 여기서 더 중요하다: 그것이 없으면 FreeType의 자동
+  힌터가 합성 글리프의 겹친 윤곽선을 최대 반 픽셀 옮긴다(2 x ppem에서도. 32 px에서 NEODG16A의 음절 6,463개). `maxp`의 구성요소
+  필드는 다시 계산된다(`maxComponentElements` 3, `maxComponentDepth` 1).
+- **스트라이크**(`EBDT`): 음절은 복합(compound) 비트맵, 이미지 형식 8(small metrics, 패딩 바이트, 그리고 조각마다 글리프 id와 복합
+  비트맵 왼쪽 위에서의 x / y 오프셋)이며, 형식 1 글리프들 뒤의 별도 인덱스 하위 테이블에 있다. 형식 9(big metrics)는 폰트에 없는
+  세로 메트릭 때문에 음절마다 3바이트를 더한다. FreeType은 복합 비트맵을 읽는다(`ttsbit.c`): 각 구성요소의 행을 복합 비트맵에 OR한다.
+  1 bpp에서는 그것이 SVF의 규칙이다. 2와 8 bpp에서는 두 가지가 다르다: FreeType은 구성요소를 x 오프셋만큼 픽셀이 아니라 비트 단위로
+  밀므로 2 / 8 bpp 페이스의 조각 비트맵은 모두 펜에서 시작하고(그러면 x 오프셋은 0), 두 단계의 OR는 최댓값이 아니다(2 bpp: 1 | 2 = 3,
+  페이스는 2를 그린다). 조각들이 한 픽셀에서 a | b != max(a, b)인 단계 a, b로 겹치는 음절은 펼친 형식 1 비트맵을 유지한다(아웃라인은
+  합성 그대로). 요약 줄이 그 수를 센다(GOTHA16A는 `strike: 6091 compound, 5081 expanded bitmaps`). 펼친 비트맵 없이 만들면 FreeType에서
+  GOTHA16A는 정확히 그 5,081 음절을(픽셀 9,487개가 단계 2 대신 3으로), NSQRB36A는 그 5,831 음절을 잘못 그린다.
+  구성요소 오프셋은 부호 있는 바이트라서, 128 px를 넘는 셀에서 조각들이 127픽셀보다 멀리 떨어진 음절도 펼친 비트맵을 유지한다:
+  잉크가 x 127보다 오른쪽에서 시작하는 조각은 자기 비트맵을 펜에서 시작한다(bearing x가 바이트에 들어가지 않으므로).
+  `--composite`는 보통 스트라이크가 되는 모든 페이스를 변환한다.
+
+확인(2026-11-23): 각 페이스를 `ttf`와 `ttf --composite`로 만들고, 합성 TTF를 위와 같이 `mkfont.py`로 되구워 비교했다. 모든 글리프를
+Pillow로 ppem과 2 x ppem에서, freetype-py로 ppem에서(스트라이크, 그리고 `FT_LOAD_NO_BITMAP`의 아웃라인) 그려 보통 TTF의 같은 글리프와
+같았다. fontTools가 읽고 모든 테이블을 풀고 다시 컴파일한다. `fc-query` / `fc-scan`이 읽는다(scalable, outline). OTS(`ots-sanitize`
+9.2.0)를 통과한다. OTS는 통과시킨 폰트에서 `EBLC`/`EBDT`를 뺀다(보통 TTF도 같다): 웹 폰트를 OTS로 거르는 브라우저는 아웃라인만
+그린다. 스트라이크는 위의 FreeType이 확인한다. HWP 1.x 페이스는 라이선스 노트가 없어서 두 TTF 모두 원본 폰트의 라이선스가
+적용된다는 줄을 담는다(위 표와 같다):
+
+| 페이스 | 조각 | 보통 TTF | 합성 TTF | 스트라이크: 복합 / 펼침 | 왕복 | 렌더, OTS |
+|---|---|---|---|---|---|---|
+| `svf/dos/NEODG16A.SVF`(1 bpp 16x16, 8/4/4 벌) | 344 | `2,038,968` | `694,384`(34 %) | 11,172 / 0 | 11,318개 중 불일치 0(빈 글리프 1: U+3161) | 같음, 통과 |
+| `svf/jamo-extra/GOTHA16A.SVF`(2 bpp 16x16, 24/16/16) | 1,224 | `2,418,300` | `1,037,104`(43 %) | 6,091 / 5,081 | 11,319개 중 0 | 단계까지 같음, 통과 |
+| `svf/jamo-extra/GOTHB24.SVF`(1 bpp 24x24, 24/16/16) | 1,224 | `2,796,288` | `844,780`(30 %) | 11,172 / 0 | 11,319개 중 0 | 같음, 통과 |
+| `svf/dos/MARUS24.SVF`(1 bpp 24x24, 24/16/16) | 1,178 | `3,415,744` | `854,684`(25 %) | 11,172 / 0 | 11,335개 중 0 | 같음, 통과 |
+| `svf/dos/NSQRB36A.SVF`(2 bpp 36x36, 24/16/16) | 1,070 | `5,901,072` | `2,432,800`(41 %) | 5,341 / 5,831 | 11,319개 중 0 | 단계까지 같음, 통과 |
+| HWP 1.x `HANGUL1.PFT` 페이스 1 + `ASCII.PFT`(1 bpp 24x24, 7/2/2) | 229 | `2,849,128` | `684,916`(24 %) | 11,172 / 0 | 11,318개 중 0 | 같음, 통과 |
+
+바닥은 음절마다의 레코드다: 조각 3개의 합성 글리프는 `glyf` 약 30바이트, `loca` 4, `hmtx` 4, `EBDT` 20, `EBLC` 4바이트이다
+(NEODG16A: `glyf` 334,881, `EBDT` 227,283바이트). 그래서 11,172 음절의 합성 TTF는 이 예시에서는 조각이 작아도 0.7 MB 근처에 머물고, 펼친
+2 bpp 비트맵과 큰 셀이 거기에 더해진다. `--composite`는 16-24 px에서 0.5-1.2초(NSQRB36A는 4.0초. 보통 TTF는 2.4-4.4초와 8.7초)로, 조각마다 한 번만 추적하므로
+보통 TTF보다 빠르다.
+
+**`--composite`의 한계.** FreeType(Pillow, fontconfig, freetype-py)만 확인했다. Windows(GDI, DirectWrite)나 Mac(`--apple`: 형식 8 복합
+비트맵이 든 `bdat`)이 복합 비트맵을 그리는지는 시험하지 않았고, 이를 무시하는 렌더러는 ppem에서 아웃라인을 그린다. ppem의 정수배
+사이에서 FreeType이 `OVERLAP_COMPOUND` 글리프를 오버샘플링해 그린 것은 보통 TTF가 받는 정확한 면적 커버리지가 아니다: 20, 24 px에서는
+NEODG16A와 GOTHA16A의 표본 음절(7개마다 하나)이 모두 보통 TTF처럼 그려지고, 17 px에서는 1,596개 중 303개(19 %, NEODG16A)와 454개(28 %,
+GOTHA16A)가 가장자리 픽셀에서 255 중 최대 32, 42만큼 다르다. 단계가 겹치는 2, 8 bpp 음절은 펼친 비트맵을 유지한다(위). 조각에는 유니코드가 없다
+(첫가끝 자모 셰이핑은 전과 같이 없다).
+
+[레시피 색인](../recipes.ko.md) · [도구 설명서](../tools.ko.md)

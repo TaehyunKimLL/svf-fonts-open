@@ -1,23 +1,182 @@
 ---
-title: "svf-fonts 개발 현황 (development status) 2026-11-22"
+title: "svf-fonts 개발 현황 (development status) 2026-11-27"
 type: status
 status: running
-date: 2026-11-22
-keywords: [status, 개발 현황, SVF v3, JSET, JMAP, LIST, BIG, C renderer, ports, maker, desktop app, AppImage, e2e, 한국어 문서, WASM picker, research, open work, decisions, known gaps]
+date: 2026-11-27
+keywords: [status, 개발 현황, SVF v3, JSET, JMAP, LIST, BIG, C renderer, ports, maker, desktop app, AppImage]
 ---
 
-# svf-fonts 개발 현황 (2026-11-22)
+# svf-fonts 개발 현황 (2026-11-27)
+
+SVF v3 리더와 변환 도구, C 렌더러, 웹 미리 보기, Linux 데스크톱 변환 앱을 제공한다.
+시작점은 [README](../README.ko.md), 형식과 용어는 [SVF 명세](../spec/SVF.ko.md),
+구조는 [렌더러 설계](../spec/renderer-design.ko.md)를 참고한다.
+
+## 1. 구성 요소
+
+| 구성 요소 | 제공 기능 | 안내 |
+|---|---|---|
+| SVF v3 | 완성형과 자모 세트, JSET v1/v2, BIG, JMAP dense/SPARSE와 LIST, 글리프별 dy | [명세](../spec/SVF.ko.md), [자모 세트](jamo-sets.ko.md) |
+| C 렌더러 | 메모리·스트리밍 읽기, UTF-8 줄 그리기, 스케일, 타깃별 출력; 빌드 옵션으로 기능 제한 | [C 가이드](c-renderer-guide.ko.md), [C API](../c/README.ko.md) |
+| 포트 예제 | Pico, ESP32-C3/S3, Arduino Uno/Mega, CH582M, DOS, WASM, SDL2/SDL3 | [포트와 페이스](../c/ports/FACES.ko.md) |
+| Python 도구 | 폰트 변환, 프로파일, 부분집합, 자모 맞춤, 내보내기와 검사 | [도구](tools.ko.md), [레시피](recipes.ko.md) |
+| SVF maker | 입력 감지, 경로 선택, 설정, 작업 실행, WASM 미리 보기, TTF/BDF 내보내기; 업로드·로컬 모드 | [서버](../maker/README.ko.md), [기능 점검](maker-audit.ko.md) |
+| 데스크톱 앱 | Electron 셸, 동결 사이드카, Linux x86_64 AppImage, 패키지 점검 | [앱 사용법](desktop-app.ko.md), [패키징](maker-desktop.ko.md) |
+| 웹 렌더러·선택기 | C/WASM 렌더링, Canvas 표시, 페이스 색인과 선택 | [웹 가이드](web-renderer-guide.ko.md), [선택기](../web/README.ko.md) |
+| 폰트 배포 | 페이스별 라이선스와 생성 경로 | [NOTICE](../NOTICE.ko.md), [레시피](recipes.ko.md) |
+
+배포 페이스는 SIL OFL 1.1 대상으로 관리한다. 라이선스 해석과 예외는 NOTICE가 설명한다.
+MCU 단색 예제는 `svf/dos/NEODG16G.SVF`를 사용한다. Apple·Windows 등 사용자가 제공한 폰트는
+변환 도구의 입력일 수 있지만 해당 원본을 앱과 함께 배포하지 않는다.
+
+## 2. 주요 구현 이력
+
+| 날짜 | 기능 | 구현·사용법 |
+|---|---|---|
+| 2026-10-20 | 이식 가능한 C 렌더러 | `c/src/`, `c/include/svf.h` |
+| 2026-10-21 | WASM 선택기 | `web/`, `c/ports/web/` |
+| 2026-10-22 | SVF v3 전환; v2 변환 도구 | `tools/svf2to3.py` |
+| 2026-10-26 | SDL2/SDL3와 매개변수형 GRAY 타깃 | `c/ports/sdl/`, `c/src/svf_draw.c` |
+| 2026-10-27~28 | JMAP·BIG·LIST | `c/src/svf_jamo.c`, `spec/SVF.ko.md` |
+| 2026-11-03~05 | maker 입력 확장, 컨트롤·WASM 미리 보기, 로컬 모드 | `maker/detect.py`, `routes.py`, `settings.py`, `server.py` |
+| 2026-11-09 | Electron 데스크톱 앱과 AppImage 빌드 | `desktop/`, `maker/sidecar.py` |
+| 2026-11-17~18 | 로컬 정리 수명 주기, e2e, busy·409 처리 | `maker/jobs.py`, `server.py`, `static/maker.js` |
+| 2026-11-20~22 | 정적 AppImage 런타임, 샘플 변환 e2e, 깨끗한 Ubuntu에서 Xvfb 실행 | `desktop/build/`, `desktop/test/`, `maker/test/uisample.py` |
+| 2026-11-23 | HWP 1.x/3.0과 KS 원시 덤프 리더 | `tools/hwpfont.py`, `maker/test/test_hwp_inputs.py` |
+| 2026-11-24 | maker TTF/BDF 내보내기를 포함한 샘플 e2e | `tools/svf2ttf.py`, `maker/test/uisample.py` |
+
+## 3. C 빌드 기능과 기록된 수치
+
+### 3.1. 자모 블록 지원
+
+다음은 `c/include/svf.h`의 기본값과 포트의 빌드 옵션을 구별한 표이다.
+옵션 이름과 오류 코드는 [C API 안내](../c/README.ko.md)에 있다.
+
+| 대상·설정 | JSET v1 | JSET v2 | BIG | JMAP·LIST | 스트리밍 | 스케일 |
+|---|---|---|---|---|---|---|
+| host, DOS, WASM, SDL 기본값 | 예 | 예 | 예 | 예 | 예 | 예 |
+| Arduino Uno 포트 | 예 | 아니오 | 아니오 | 아니오 | 아니오 | 아니오 |
+| 일반 MCU 헤더 기본값(AVR 제외) | 예 | 예 | 아니오 | 아니오 | 예 | 예 |
+| Pico·ESP32 포트 프로파일 | 예 | 예 | 아니오 | 아니오 | 프로파일에 따라 끔 | 끔 |
+| CH582 포트 | 예 | 아니오 | 아니오 | 아니오 | 끔 | 끔 |
+
+MCU에서도 명시적 옵션으로 기능을 켤 수 있다. Arduino Mega의 rich 빌드는 JMAP 등을 켠 별도 설정이며
+Uno 설정과 같지 않다. 메모리·플래시 한도는 별도로 확인해야 한다.
+
+### 3.2. 크기
+
+아래 값은 [SIZES.md](../c/cross/SIZES.md)의 기록이다. 라이브러리 행은 빈 프로그램을 뺀
+text 바이트 수이며, P1 probe는 메모리 매핑한 자모 페이스와 MONO_PAGE를 사용한다.
+
+| 빌드 | AVR text | Cortex-M0+ text | 판정 |
+|---|---:|---:|---|
+| `minimal` | 12,930 | 6,162 | 정확히 일치하는 게이트 |
+| `default` | — | 7,381 | 정확히 일치하는 게이트 |
+| `minimal+RECOG` | 13,238 | 6,358 | 예산 13,250 / 6,366 |
+| `minimal+JMAP` | 15,370 | 7,646 | 예산 15,532 / 7,688 |
+| `minimal+JMAP+nolist` | 15,002 | 7,398 | 예산 15,032 / 7,398 |
+| `ksonly` | 13,460 | 6,822 | 예산 13,648 / 6,900 |
+| `minimal+BIG` / `minimal+BIG+V2` | 12,956 / 15,314 | 6,158 / 7,369 | 정보용 |
+
+| 전체 프로그램·이미지 | text | data | bss | 비고 |
+|---|---:|---:|---:|---|
+| Arduino Uno | 23,676 | 18 | 1,085 | 페이스 10,124 B, `mcu-strict` |
+| Arduino Mega, Uno 설정 / rich | 23,802 / 40,490 | 18 | 1,085 / 1,094 | 64 KiB 아래 PROGMEM만 읽음 |
+| ESP32-C3 / S3 단색 | 22,174 / 20,576 | 0 | 1,088 / 1,092 | SDK 스텁 링크 |
+| 원래 ESP32 (Xtensa LX6), P1 probe | 7,794 | 0 | 848 | 포트 이미지가 아닌 크기 측정 |
+| Pico 단색, pico-sdk 2.3.1 | 35,484 | 0 | 2,384 | SDK 이미지 |
+| CH582 단색 | 22,456 | 20 | 1,232 | SDK 이미지, RAM 사용 5,876 B |
+| DOS `SVFDEMO.EXE` / WASM `svf.wasm` | — | — | — | 파일 크기 266,265 / 39,234 B |
+
+### 3.3. 속도
+
+[MEASUREMENTS.md](../c/bench/MEASUREMENTS.md)의 측정 환경과 Set A/B를 구별해야 한다.
+아래 Set A 수치는 HGKEY6J로 잰 값이며 현재 단색 예제의 NEODG16G 수치가 아니다.
+
+| 환경·작업 | 기록된 시간 | 예산 |
+|---|---:|---|
+| Pico 에뮬레이션 `-Os`, `syl_ga` | 48.39 µs | 50 µs 충족 |
+| Pico 에뮬레이션 `-Os`, `syl_bwelk` | 58.23 µs | 50 µs 초과 (`-O2` 47.18 µs는 충족) |
+| Pico 에뮬레이션 `screen32` | 1,498.39 µs | 2 ms 충족 |
+| DOS 486DX2-66 `line40_mapped` | 11,876.45 µs | 16 ms 충족 |
+| WASM `line40_mapped` | 13.74 µs | 1 ms 충족 |
+
+측정은 대상 CPU 실기 전체의 성능 보장이 아니다. 에뮬레이터, 호스트, 컴파일러와 페이스의 영향을 받는다.
+coverage·bpp별 출력과 비용은 [안티앨리어싱](anti-aliasing.ko.md)을 참고한다.
+
+## 4. 알려진 한계
+
+### 4.1. 렌더러와 포트
+
+- Cortex-M0+ `minimal+JMAP+nolist`는 기록된 예산 7,398 B에 여유가 없다.
+  인라인된 `jlist_` 심벌의 부재만으로 LIST 코드 누출을 검사할 수 없으므로 크기 게이트도 필요하다.
+- Arduino Mega의 64 KiB 이상 PROGMEM far read는 지원하지 않는다.
+- 원래 ESP32의 포트 이미지는 없으며 크기 측정만 있다. CH582M의 패널 오프셋·변형·LED 극성은 실기 확인이 필요하다.
+- Arduino 예제의 스텁 빌드는 `arduino-cli`와 설치한 코어의 빌드를 대신하지 않는다.
+- ScummVM 통합은 별도이다. 이 C 리더의 JSET 지원을 ScummVM의 기존 `jamo_set.h` 지원과 같다고 해석하면 안 된다.
+- Pico의 위 `syl_bwelk` 예산, DOS cold 스트리밍·DX-33의 16 ms 목표는 아직 충족되지 않은 측정 행이 있다.
+
+### 4.2. 입력과 맞춤
+
+- HWP `.HFT`는 해독하지 않는다. 일부 한자·기호 파일은 BDF까지만 내보내거나 변환 경로가 없다.
+- HWP 1.x의 세 페이스 이름은 추정이며 원본의 이름으로 확정하지 않는다. 현대 한글 조합에 사용하지 않는 옛한글 조각은 보존하지 않는다.
+- HWP 3.0 16 px의 완성형 2,350자와 8x4x4 조합 결과는 항상 같지 않다. 완성형과 자모 페이스를 별도로 만든다.
+- KS 원시 덤프와 큰 HWP 3.0 입력의 자모 세트는 맞춤 결과이며 원본의 정확한 분해가 아니다.
+- HWP 1.x의 여러 페이스나 Dokkaebi 프린터 페이스를 함께 고르면 제안 이름이 충돌할 수 있으므로 이름을 바꾼다.
+- Windows FNT/FON처럼 Unicode 문자 맵이 없는 입력은 maker가 경로 없이 표시할 수 있다.
+- 마스크 맞춤의 명령줄 실행과 maker 전체 실행을 구별한다. 실제 조각 인식 모델은 검증되지 않았다.
+
+형식별 세부 한계와 실행 조건은 [도구](tools.ko.md), [레시피](recipes.ko.md), [maker 기능 점검](maker-audit.ko.md)에 있다.
+
+### 4.3. 데스크톱 앱
+
+- Windows NSIS·portable 빌드는 `windows-build` 브랜치에서 Actions를 통과했으나 main에는 아직 병합되지 않았다. macOS는 빌드하지 않았다. [플랫폼 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 참고한다. Linux glibc 2.39보다 오래된 환경은 미검증이다.
+- Ubuntu 24.04.5에서 FUSE 마운트와 Xvfb 창 실행 기록은 있다. 실제 창 관리자·GPU·네이티브 대화상자·파일 관리자·샌드박스는 별도 검증이 필요하다.
+- 자동 테스트는 대화상자를 스텁으로 바꾸고 GPU를 끈다. 실제 입력 파일 테스트는 사용자 사본을 가리키는 환경 변수가 필요하다.
+- AppImage는 비트 단위 재현성을 보장하지 않고 자동 업데이트도 없다. LGPL 대응 소스 보관은 공개 릴리스 점검 조건이다.
+
+## 5. 확장 후보와 검증 방법
+
+GRAY4·회색 OLED 프로파일, SIMD, Pico PIO-DMA, u8g2·LVGL 연동은 현재 제공 기능과 구별한다.
+ScummVM의 v3 페이스 통합과 게임별 묶음 재생성도 별도의 통합 작업이다.
+
+주요 검사 진입점은 다음과 같다. 필요한 도구 체인과 선택적 의존성은 각 안내를 따른다.
+
+| 대상 | 명령 |
+|---|---|
+| C 렌더러 | `make -C c check` |
+| Python 도구 | `python3 -B -m unittest discover -s tools -p 'test_*.py'` |
+| maker | `python3 -B -m unittest discover -s maker/test -p 'test_*.py'` |
+| 데스크톱 단위 검사 | `npm test --prefix desktop` |
+| 포트와 화면 | `sh c/cross/build-all.sh --ports` (필수 에뮬레이터가 없으면 화면 검사를 건너뛸 수 있음) |
+| AppImage | `bash desktop/build/release-check.sh <AppImage> --release` |
+
+## 6. 참고 문헌 / References
+
+- SIL Open Font License 1.1 — <https://openfontlicense.org/open-font-license-official-text/>
+- Electron 보안 권고 — <https://www.electronjs.org/docs/latest/tutorial/security>
+- AppImage type2-runtime 20251108 — <https://github.com/AppImage/type2-runtime/releases/tag/20251108>
+
+## 7. 기록 / Records
+
+### 7.0. 상태 기록 (2026-11-22 기준, 11-23·11-27 추가 포함)
+
+다음은 당시 구성 요소·연표·열린 일·결정·측정·한계의 기록이다. 제목의 기준일 이후에 추가된 HWP와
+2026-11-27 라이선스 해석도 날짜 그대로 보존했다. 카드 ID는 기록 식별자이며 현재 지원 여부를 뜻하지 않는다.
+당시의 “진행 중”, “미검증”, “비공개” 등은 현재 상태로 읽지 않는다. 현재 기능과 한계는 위의 1~5절을 따른다.
+Windows의 별도 브랜치 빌드는 [패키징 안내의 2026-11-27 상태](maker-desktop.ko.md#65-windows와-macos-2026-11-27-상태)를 따른다.
+
 
 이 문서는 2026-11-22 기준 저장소 전체의 상태 요약이다. 2026-11-01 판 이후의 일(11-03..11-22: 공개판, maker 입력 종류·컨트롤·로컬 모드, 데스크톱 앱, 문서)은 연표와 4, 6장에 더했다. 숫자는 모두 이름을 밝힌 파일에서 옮겼다: 크기는
 `c/cross/SIZES.md`, 속도는 `c/bench/MEASUREMENTS.md`, 결정과 후속 과제는 `docs/superpowers/specs/*.md`의 "Implemented"
-노트와 별도 연구 저장소(비공개)의 `docs/experiments/*.md`. 2026-11-01 부분의 기준 commit은 `main` 124baec (JMAP-LIST 병합 ca86268 + 실험 문서), 2026-11-22 부분의 기준은 `main` e1ef269 (C 렌더러 안내서 병합)이다. 열린 일은 2026-11-01의 작업 목록에서 옮기고 이후 끝난 것을 뺐다. C 라이브러리의 사용법은 [c/README.md](../c/README.md).
+노트와 별도 연구 저장소(비공개)의 `docs/experiments/*.md`. 2026-11-01 부분의 기준 commit은 `main` 124baec (JMAP-LIST 병합 ca86268 + 실험 문서), 2026-11-22 부분의 기준은 `main` e1ef269 (C 렌더러 안내서 병합)이다. 열린 일은 2026-11-01의 작업 목록에서 옮기고 이후 끝난 것을 뺐다. C 라이브러리의 사용법은 [c/README.md](../c/README.ko.md).
 
-공개판 주 (2026-11-03): 이 공개 저장소는 원본 저장소에서 SIL OFL 1.1 face (116개)와 도구를 골라 담았다. OFL이 아닌 face
-(라이선스 미기재, MIT, 묶음 단위 선언만 있는 iolo와 san 1.0), 게임 전용 bake 스크립트, Uno Seoul preset은 빠졌다
-([NOTICE.md](../NOTICE.md)). MCU 예제의 mono face는 HGKEY6J 대신 `svf/dos/NEODG16G.SVF` (Neo Dunggeunmo 6x2x1)다.
-face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces.tsv`. 공개 전(11-03 ec5c6b3 이전)의 commit 번호는 원본 저장소의 것이다. ec5c6b3 이후의 번호는 이 저장소의 것이다.
+공개판 주 (2026-11-03): 이 공개 저장소는 원본 저장소에서 SIL OFL 1.1 face (117개)와 도구를 골라 담았다. OFL이 아닌 face
+(라이선스 미기재, MIT, san 1.0)은 제외하고, iolo SANS8J는 2026-11-27 소유자 승인으로 묶음 라이선스 선언을 해석해 OFL-1.1 폰트 예외로 포함했다, 게임 전용 bake 스크립트, Uno Seoul preset은 빠졌다
+([NOTICE.md](../NOTICE.ko.md)). MCU 예제의 mono face는 HGKEY6J 대신 `svf/dos/NEODG16G.SVF` (Neo Dunggeunmo 6x2x1)다.
+face마다 만드는 법은 [recipes/svf-faces.ko.md](recipes/svf-faces.ko.md)와 `tools/build/faces.tsv`. 공개 전(11-03 ec5c6b3 이전)의 commit 번호는 원본 저장소의 것이다. ec5c6b3 이후의 번호는 이 저장소의 것이다.
 
-## 1. 구성 요소 한눈에
+### 7.1. 구성 요소 한눈에
 
 | 구성 요소 | 상태 | 위치 | 마지막 관련 commit / 문서 |
 |---|---|---|---|
@@ -25,7 +184,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 | JSET 계열: v1, v2, BIG, JMAP (dense/SPARSE), LIST | done | `spec/SVF.md` "Jamo-set fonts", "Version 3" | JMAP·BIG f880976 (10-27); LIST ca86268 (10-28) |
 | C 렌더러 | done (유지보수) | `c/src`, `c/include/svf.h` | ca86268; plan `2026-10-27-jmap-list.md` |
 | 포트 예제 | done; CH582 실기 첫 실행 보류 | `c/ports/{pico,esp32,arduino,ch582,dos,web,sdl}` | f880976 (Mega·ESP32 원본 size row 포함) |
-| Python 도구 | done (유지보수) | `tools/`, [docs/tools.md](tools.md) | `jamoexc.py` 47cc044, LIST 소비자 ee5db51 (10-28) |
+| Python 도구 | done (유지보수) | `tools/`, [docs/tools.md](tools.ko.md) | `jamoexc.py` 47cc044, LIST 소비자 ee5db51 (10-28) |
 | SVF maker | done (끝난 일은 아래 연표 11-03..11-22: 입력 종류 t_f3ef3189, 컨트롤과 WASM 미리보기 t_9acea7ab, 로컬 모드 t_cbd14d61, 로컬 모드의 제한된 수명 주기, busy 409, e2e T16, 샘플 세트 e2e). 서버 배포용 systemd unit은 없다(t_bbceabe9) | `maker/` | 병합 837f525 (10-23); LIST 대응 0d73568 (10-28); 97f7ce3 (11-17) |
 | SVF maker 데스크톱 앱 | done (데스크톱 목표 종결 11-22): Electron 셸 + 동결 사이드카 + 정적 type2 AppImage 런타임(libfuse2 불필요), 릴리스 점검(`runtime` 포함)과 e2e(OFL 샘플 세트 포함). 깨끗한 Ubuntu 24.04.5 호스트에서 Xvfb 아래 시작 확인(11-22). Windows·macOS 미검증, 창 관리자가 있는 실제 데스크톱 미검증, LGPL 소스 보관은 릴리스 게이트 | `desktop/`, `maker/sidecar.py`, `docs/maker-desktop.md`, `docs/desktop-app.md` | t_f04f1355, t_e64a56a7; t_ea7dcc8e (4eb8e46), t_30b843b8 (4569676), t_afb4689b |
 | WASM picker | done, parked minors 보류 | `web/`, `c/ports/web` | 병합 ed0e2d9 (10-21); JMAP 대응 c5f4efa (10-27) |
@@ -33,7 +192,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 | 한국어 문서와 안내서 | done (11-22): 공개 문서의 `*.ko.md` 쌍, 데스크톱 앱 설치·사용 문서, C 렌더러 안내서 플랫폼·임베딩 | `*.ko.md`, `docs/desktop-app.md`, `docs/c-renderer-guide.md` | 3d40de8, e5a6c39, e1ef269 |
 | ScummVM 연동 | todo | ScummVM `graphics/hires_text` | spec `2026-10-26-jset-limits-design.md` follow-up (a) |
 
-## 2. 연표 (git log와 plan 파일 이름 기준)
+### 7.2. 연표 (git log와 plan 파일 이름 기준)
 
 | 날짜 | 무엇 | 근거 |
 |---|---|---|
@@ -72,10 +231,10 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 | 11-23 | HWP 폰트 리더 `tools/hwpfont.py`: HWP 1.x `.SFT`/`.PFT`(`jamoset.py --layout hwp1`, HWP.EXE 규칙 그대로의 자모 세트), HWP 3.0 `.FNT`(`--layout 844-hwp3`), 헤더 없는 KS X 1001 덤프; maker 종류 `hwp1`, `ks-raw`와 경로 넷 | t_d4cf7f46 |
 | 11-22 | 데스크톱 목표 종결: 커밋 3d40de8에서 빌드한 AppImage를 깨끗한 Ubuntu 24.04.5 호스트(libfuse2 없음)에서 Xvfb 아래 시작, 창이 그려지고 로컬 모드 변환이 패키지된 사이드카로 실행됨 | t_afb4689b; `docs/desktop-app.md` 13절 |
 
-## 3. 현재 기능 표 (무엇을 읽는가, 얼마나 큰가)
+### 7.3. 현재 기능 표 (무엇을 읽는가, 얼마나 큰가)
 
 기본 빌드가 읽는 JSET 형태 (`svf.h`의 기본값을 각 toolchain의 `-dM -E`로 2026-11-01 확인; 자세한 표는
-[c/README.md](../c/README.md) "Jamo sets: what each build reads"):
+[c/README.md](../c/README.ko.md) "Jamo sets: what each build reads"):
 
 | 대상 | v1 | v2 | BIG | JMAP dense/SPARSE | LIST | 스트리밍 | 스케일 |
 |---|---|---|---|---|---|---|---|
@@ -111,7 +270,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 58.23 µs (**미달**, `-O2` 47.18 µs는 충족), `screen32` 1,498.39 µs (예산 2 ms); DOS 486DX2-66 `line40_mapped` 11,876.45 µs
 (예산 16 ms 충족; cold 스트리밍과 DX-33 행은 미달); WASM `line40_mapped` 13.74 µs (예산 1 ms).
 
-## 4. 열린 일 (2026-11-22)
+### 7.4. 열린 일 (2026-11-22)
 
 주제별로 묶었다. "보류"는 계획만 있고 진행하지 않는 일이다. 2026-11-01 판의 열린 일 중 "SVF maker web UI v1; systemd unit, README, docs (T15); end-to-end 시험 (T16)"은 끝났다 (web UI v1 목표 t_a1cf496b는 11-09에 로컬 실행으로 재조정, T15 재조정 004a449·t_bbceabe9, T16 t_e073891a 11-17, 데스크톱 앱 목표 11-22). 아직 남은 빈틈은 6장에 있다.
 
@@ -143,7 +302,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 연구 백로그 전체 (R1-R11)와 실험 목록·결정 기록·용어집은 별도 연구 저장소(비공개)의 `experiments/research-backlog.md`,
 `experiments/README.md`에 있다.
 
-## 5. 유효한 결정
+### 7.5. 유효한 결정
 
 | 날짜 | 결정 | 출처 |
 |---|---|---|
@@ -157,10 +316,10 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 | 10-28 | 포맷 표현력은 충분 (JSET v1/v2, BIG, JMAP, LIST); 새 포맷 기능 없음; 노력은 페이스 품질 연구로 | 작업 기록 |
 | 상시 | Apple·Windows·Galmuri 파생 데이터와 bitmap은 로컬 전용, git에는 수치·경로·hash만 | experiments/README.md "데이터 취급"; malgun-noto-jamo-studies.md |
 | 상시 | 렌더러는 기본 byte-identical (svfline.py 기준), fast mode만 허용 오차 | experiments/README.md 규칙 |
-| 상시 | 라이선스는 face 선택 기준이 아님 (pack은 배포하지 않음); 단 이 공개 저장소에는 SIL OFL 1.1 face만 담는다 | experiments/README.md 규칙; 공개판 |
+| 상시 | 라이선스는 face 선택 기준이 아님 (pack은 배포하지 않음); 단 이 공개 저장소에는 SIL OFL 1.1 face만 담으며, iolo SANS8J는 위의 승인된 예외이다 | experiments/README.md 규칙; 공개판 |
 | 미정 | 연구 부분의 저장소 분리: 현재 연구가 끝날 때까지 보류였고 그 연구(맑은 고딕·Noto)는 끝났으므로 **논의 예정** | 사용자 지시; research-backlog.md 머리말은 분리를 백로그 밖 정리 작업으로만 언급 |
 
-## 6. 알려진 빈틈과 위험
+### 7.6. 알려진 빈틈과 위험
 
 - **M0+ `minimal+JMAP+nolist` budget 여유 0** (7,398 / 7,398): LIST=0 arm이나 JMAP 리더에 1 byte만 늘어도 gate가 깨진다.
   올리는 것은 판정 사항이다 (`c/cross/SIZES.md` "JMAP-LIST identity, budgets and follow-ups", jmap-list spec follow-up (h)).
@@ -180,7 +339,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
 **HWP와 KS 원시 폰트 (2026-11-23, t_d4cf7f46)**
 
 - **HWP 2.x / 3.0 `.HFT`는 읽지 못한다**: "HWP 2.0 font file", "Han Unified Font File 1.0" 헤더의 윤곽선 또는 획 폰트(HWP 3.0 CD에
-  160개)로, 헤더만 살폈고 해독기는 없다 (recipes.ko.md "HWP 1.x와 2.x 폰트").
+  160개)로, 헤더만 살폈고 해독기는 없다 (recipes/dos-fonts.ko.md "HWP 1.x와 2.x 폰트").
 - **HWP 1.x 페이스 이름은 메뉴 순서로 추정했다**: 페이스 0/1/2 = 명조/고딕/샘물은 HWP.EXE 메뉴 순서일 뿐 증명되지 않았다
   (johab-fonts notes/hwp1.md). 옛한글 조각(초성 20-31, 중성 22-29, 종성 28-31)은 유니코드 음절이 없어 버린다.
 - **기호·한자 파일은 페이스가 되지 않는다**: HWP 1.x `SPECIAL*`, `JAPAN`, `USER*`, `SYSTEM.PFT`는 목록에만, `HANJA.SFT`와 HWP 3.0
@@ -203,7 +362,7 @@ face마다 만드는 법은 [recipes.ko.md](recipes.ko.md)와 `tools/build/faces
   함께 하는 실제 FUSE 마운트 시작, GPU 경로, 샌드박스된 렌더러는 **아직 하지 않은 수동 점검**이다. 자동 테스트는 대화상자를
   스텁으로 바꾸고 GPU를 끈다.
 - **`mask fit`**: 2026-11-22에 freetype-py와 uharfbuzz를 스크래치 폴더에 설치해 `jamoset.py`의 마스크 맞춤을 neodgm, Noto Sans CJK KR, 맑은 고딕으로
-  실행했다(recipes.ko.md). 작성자 호스트의 시스템에는 라이브러리가 여전히 없어서 maker의 정체성 검사는 스텁으로만 테스트했다. 실제 Mac, HWP,
+  실행했다(recipes/outline-fonts.ko.md). 작성자 호스트의 시스템에는 라이브러리가 여전히 없어서 maker의 정체성 검사는 스텁으로만 테스트했다. 실제 Mac, HWP,
   Johab 파일은 환경 변수가 사용자 자신의 사본을 가리킬 때만 테스트되고, 저장소의 테스트는 합성 입력을 쓴다. 레시피는 2026-11-22에 실제 원본
   (Mac fbit 1.0 / 7.1, HWP 1.20 / 2.1, DOS 원시 폰트, 스트라이크, hanterm, HBF)으로 실행했고(recipes.ko.md), 그 실행에서 나온 빈틈은 `docs/tools.ko.md`
   "도구의 남은 한계"에 있다: Windows FNT/FON은 아무것도 그리지 못한다(maker는 경로 없이 "no Unicode character map"으로 표시한다). 그 실행의

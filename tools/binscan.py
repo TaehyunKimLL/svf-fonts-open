@@ -27,7 +27,7 @@ the ROM region, which `rawcarve.py region` assembles from the ROM files); a pixe
 outline pen); `--invert` then makes the other pens the ink. Offsets accept 0x hex. `render --cols N` sets glyphs per row of the picture, `--scale S` the PNG pixel
 size; the text form marks ink `#` and paper `.`, and labels every glyph with its index and file offset.
 
-The size signatures (`info`) are the byte counts of the layouts the repository reads (docs/recipes.md, "Other DOS-era
+The size signatures (`info`) are the byte counts of the layouts the repository reads (docs/recipes/dos-fonts.md, "Other DOS-era
 Korean fonts") and of whole-syllable dumps: 8x4x4 = 360 glyphs (11,520 at 16 px, 25,920 at 24, 72,000 at 40,
 103,680 at 48; 15,584 for Dokkaebi's 8x4x4 + 127 symbols), 10x4x4 = 12,800, 6x2x1 = 6,144, KS X 1001 syllables =
 2,350 x the glyph's bytes (75,200 at 16x16, 169,200 at 24x24), a full KS X 1001 94 x 94 table = 8,836 x the glyph's
