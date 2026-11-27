@@ -1025,6 +1025,41 @@ KAIST newmj 16, iyagi 16, philgi 16.
 **내부 모듈.** `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow(hanterm 폰트의 ASCII 페이스를 만드는
 `mkfont.py`를 거쳐). **테스트.** `--check`.
 
+### `tools/doc_figures_mac.py`
+
+**목적.** [recipes/classic-mac.ko.md](recipes/classic-mac.ko.md)의 샘플 그림을 그린다. 페이스마다 하나: HangulTalk 1.0 'fbit'
+폰트 Gotic12와 Munjo24, HangulTalk 7.1.2 type-3 'fbit' 폰트 Seoul12, AppleGothic12, AppleMyungjo24, 한글 시스템 7.5.3 비트맵 전용
+폰트의 'bloc'/'bdat' 스트라이크 AppleGothic 12와 16, AppleMyungjo 16과 24, Seoul 12와 16, #신명조 16, #궁서체 16, Mac OS 8.5의
+한강체 16.
+
+**상태.** 특수 목적(문서).
+
+**입력.** 폴더를 인수로 받는다. `--ht10 DIR`(HangulTalk 1.0 System Folder: `Gotic12.rsrc`, `Munjo24.rsrc`), `--ht712 DIR`와
+`--htbl FILE`(7.1.2 CD의 `[splt]` 아카이브와 패밀리 suitcase, 그리고 그 CD의 `InputBackSupport[INIT].rsrc`), `--kh753 DIR`(7.5.3
+CD의 비트맵 서체 설치 폴더, `NAME/NAME[FFIL].rsrc`), `--kh85 DIR`(Mac OS 8.5 자형 폴더, `한강체[FFIL].rsrc`). 스크립트에는 폰트
+경로가 없고, 파일이 없는 페이스는 건너뛴다. 페이스마다 임시 폴더에서 레시피의 명령(`jamoset.py --layout mac-fbit-45sets --check`;
+`srcprep.py mac-htbl`, `macfbit3.py unpack` / `fbit`, `macfbit_svf.py build --latin`과 `verify`; `macsfnt.py extract` / `unicode`와
+스트라이크 크기에서의 `mkfont.py --size N --bpp 1`. 스트라이크 크기는 스크립트가 폰트의 `bloc` / `EBLC` 표를 경계 검사하는
+읽기 함수로 읽는다)을 `python3 -I`로 실행해 만든다. 짧은 부트스트랩이 도구의 경로에 사용자 site-packages를 더해 `macsfnt.py`와
+`mkfont.py`가 사용자 설치 fontTools를 찾게 한다(폰트 폴더와 작업 폴더는 경로에 들어가지 않는다).
+
+**출력.** `docs/images/recipes/mac/`의 PNG 파일(8비트 회색, 흰 바탕에 검은 글자, 픽셀마다 2배, 메타데이터 없음): 페이스마다
+`tools/doc_figures_x11.py`의 네 줄. 페이스에 없는 문자는 그 줄에서 빼고 출력하며, 비게 된 줄은 뺀다(HangulTalk 1.0 폰트에는 한글만
+있고, 7.1.2 페이스에는 KS X 1001 기호가 없다). U+0020이 없는 페이스는 공백에서 반 셀을 띄운다. 출력하는 줄마다 페이스의 셀,
+바이트 크기, 첫 줄의 `width ascent descent`를 보여 준다.
+
+**사용법.**
+
+    python3 -I tools/doc_figures_mac.py [--ht10 DIR] [--ht712 DIR --htbl F] [--kh753 DIR] [--kh85 DIR] [--out DIR] [--check]
+
+`--check`는 메모리에서 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없으면 종료 코드 1. 옵션을 주지 않았거나
+파일이 없어 건너뛴 페이스가 있어도 1이고 그 목록을 출력하므로, 일부만 돌린 실행은 `ok`를 내지 않는다). 'fbit' 그림은 폰트 파일에만
+달려 있고, 스트라이크 그림은 Pillow와 그 FreeType에도 달려 있다(출력한다). 저장소의 그림은 Pillow 10.2.0, FreeType 2.13.2로 만들었다.
+
+**내부 모듈.** `doc_figures_x11.py`, `svfline.py`, `binscan.py`(그리고 실행하는 도구들). **서드파티.** Pillow와
+fontTools(`mkfont.py`와 `macsfnt.py`를 거쳐). **테스트.** `tools/test_doc_figures_mac.py`(합성 표와 잘린 표에 대한 스트라이크
+읽기, 건너뜀 보고), `--check`.
+
 ## 5. 빌드 스크립트
 
 ### `tools/build/build_faces.py`

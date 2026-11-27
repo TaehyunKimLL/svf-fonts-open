@@ -1093,6 +1093,45 @@ partial run never reports `ok`). The images depend only on the font files.
 **Repository modules imported.** `svfline.py`, `binscan.py` (and the tools it runs). **Third-party.** Pillow (through
 `mkfont.py`, for the ASCII face of the hanterm fonts). **Test.** `--check`.
 
+### `tools/doc_figures_mac.py`
+
+**Purpose.** Draws the sample images of [recipes/classic-mac.md](recipes/classic-mac.md): one per face (the HangulTalk 1.0
+'fbit' fonts Gotic12 and Munjo24; the HangulTalk 7.1.2 type-3 'fbit' fonts Seoul12, AppleGothic12 and AppleMyungjo24;
+the 'bloc'/'bdat' strikes of the Korean System 7.5.3 bitmap-only fonts AppleGothic 12 and 16, AppleMyungjo 16 and 24,
+Seoul 12 and 16, #신명조 16 and #궁서체 16; Hangang 16 of Mac OS 8.5).
+
+**Status.** Special-purpose (documentation).
+
+**Inputs.** Folders as arguments: `--ht10 DIR` (the HangulTalk 1.0 System Folder: `Gotic12.rsrc`, `Munjo24.rsrc`),
+`--ht712 DIR` with `--htbl FILE` (the 7.1.2 CD's `[splt]` archives and family suitcases, and its
+`InputBackSupport[INIT].rsrc`), `--kh753 DIR` (the 7.5.3 CD's bitmap font install folder, `NAME/NAME[FFIL].rsrc`),
+`--kh85 DIR` (the Mac OS 8.5 font folder, `한강체[FFIL].rsrc`). No path to a font is written in the script, and a face
+whose files are not there is skipped. Each face is built in a temporary directory by the recipes' commands
+(`jamoset.py --layout mac-fbit-45sets --check`; `srcprep.py mac-htbl`, `macfbit3.py unpack` / `fbit`,
+`macfbit_svf.py build --latin` and `verify`; `macsfnt.py extract` / `unicode` and `mkfont.py --size N --bpp 1` at a
+strike's size, which the script reads from the font's `bloc` / `EBLC` table with a bounds-checked reader), run with
+`python3 -I`; a short bootstrap adds the user site-packages to the tools' path so that `macsfnt.py` and `mkfont.py`
+find a user-installed fontTools (the font folders and the working directory never enter the path).
+
+**Outputs.** PNG files in `docs/images/recipes/mac/` (8-bit grey, black on white, every pixel doubled, no metadata): per
+face the four lines of `tools/doc_figures_x11.py`. A character the face lacks is left out of its line and printed, and
+a line left empty is dropped (the HangulTalk 1.0 fonts hold Hangul only; the 7.1.2 faces have no KS X 1001 symbols). A
+face without U+0020 advances half a cell at a space. Each line printed gives the face's cell, size in bytes and the
+first line's `width ascent descent`.
+
+**Synopsis.**
+
+    python3 -I tools/doc_figures_mac.py [--ht10 DIR] [--ht712 DIR --htbl F] [--kh753 DIR] [--kh85 DIR] [--out DIR] [--check]
+
+`--check` renders in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference or a missing
+file, and when a face was skipped because its option was not given or its file is not there; it lists them, so a
+partial run never reports `ok`). The 'fbit' images depend only on the font files; the strike images also on Pillow and
+its FreeType (printed); the images in the repository were made with Pillow 10.2.0 and FreeType 2.13.2.
+
+**Repository modules imported.** `doc_figures_x11.py`, `svfline.py`, `binscan.py` (and the tools it runs).
+**Third-party.** Pillow and fontTools (through `mkfont.py` and `macsfnt.py`). **Test.** `tools/test_doc_figures_mac.py`
+(the strike reader on synthetic and truncated tables, the skip report), `--check`.
+
 ## 5. Build scripts
 
 ### `tools/build/build_faces.py`
