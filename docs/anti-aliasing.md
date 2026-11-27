@@ -23,8 +23,8 @@ Glyph pixels go through the project's own code: faces are read by [svfline.py](.
 library's rules (jamo syllables composed by `jamoset.compose`), lines are laid out by `svfline.placements`, and target
 conversion is `svfline.Target` (the same rules as C's `svf_target`). The outline figures draw the glyph with
 [mkfont.py](../tools/mkfont.py)'s `render()`, pack it into an in-memory SVF and read it back. Only this repository's
-OFL fonts are read (Gothic A1, Single Day, Nanum Square Round, Paperlogy, Neo Dunggeunmo, the NanumGothic TTF). Every
-run gives the same bytes; `--check` verifies them. Korean labels in the figures are glossed in the captions.
+OFL fonts are read (Gothic A1, Single Day, Nanum Square Round, Paperlogy, Neo Dunggeunmo, the NanumGothic TTF). With the same font files, Pillow and FreeType versions, every
+run gives the same bytes; `--check` verifies them (the supplied figures use Pillow 10.2.0 and FreeType 2.13.2). Korean labels in the figures are glossed in the captions.
 
 ## 1. What anti-aliasing is
 
@@ -37,7 +37,7 @@ outside. Each pixel is then 0 or 1: a 1 bpp (bit per pixel) bitmap.
 Anti-aliasing computes the **share of the pixel's area** that the outline covers, its **coverage**, and mixes that
 much ink colour into the pixel [1][2]. A pixel half covered by a stroke edge becomes halfway between ink and
 background. In signal-processing terms, the image is averaged over each pixel's area (a box filter) before it is
-sampled, removing the frequencies the grid cannot hold [1].
+sampled, attenuating high frequencies that would cause aliasing [1].
 
 ![The outline (drawn 8 times larger, red lines are the pixel borders), its 8-bit coverage, the 2 bpp quantisation to 4 levels, and the 1 bpp cut at 128](images/anti-aliasing/outline.png)
 
@@ -49,7 +49,7 @@ diagonal's pixels have coverage between 0 and 1, so at 1 bpp each is either on o
 
 ### 1.2 Why small text looks jagged at 1 bpp
 
-A 16 px Hangul syllable has strokes 1-2 pixels wide. At this size 1 bpp loses three things:
+A 16 px Hangul syllable can have strokes only 1-2 pixels wide. At this size 1 bpp loses three things:
 
 - **Staircases on diagonals and curves.** The diagonals and curves of ㅅ, ㅈ, ㅇ become pixel steps (right of Figure 1).
 - **Quantised stroke width and position.** A stroke 1.4 pixels wide in the outline becomes 1 or 2 pixels. The same
@@ -57,7 +57,7 @@ A 16 px Hangul syllable has strokes 1-2 pixels wide. At this size 1 bpp loses th
 - **Lost thin parts.** Thin strokes and tails that never cover half a pixel disappear.
 
 Small 1 bpp faces are therefore usually drawn by hand pixel by pixel, or tuned by the outline font's **hinting**
-(instructions in the font that fit strokes to the pixel grid) [2]. Pixel fonts such as Dunggeunmo are drawn for
+(fitting outlines to the pixel grid using font instructions or renderer heuristics) [2]. Pixel fonts such as Dunggeunmo are drawn for
 1 bpp from the start.
 
 ### 1.3 What grey levels buy
@@ -65,7 +65,7 @@ Small 1 bpp faces are therefore usually drawn by hand pixel by pixel, or tuned b
 With intermediate values at the edges, the eye reads stroke position and width more finely than one pixel. A
 1.4-pixel stroke reads as "one full pixel plus one light pixel", and a diagonal reads as a smooth slope instead of a
 staircase. How many levels are needed depends on size and screen, but at the edges of small text a few levels already
-do much. This is why SVF has a separate 2 bpp form (four levels, section 2). The price is memory (2 or 8 times 1 bpp)
+do much. This is why SVF has a separate 2 bpp form (four levels, section 2). The price is more cell memory (see the row-padding examples in section 5.1)
 and a screen that can show grey or colour.
 
 ![The syllable 한 at 1, 2 and 8 bpp: top row NanumGothic TTF baked by mkfont.py, bottom row the Gothic A1 jamo sets of svf/jamo-extra](images/anti-aliasing/bpp.png)
@@ -86,9 +86,8 @@ background looks thin and frail [4]. Conversely, exact gamma correction makes sm
 macOS pair it with "stem darkening", a slight emboldening [4].
 
 SVF does not handle gamma. Stored levels are coverage as is (the tools have no gamma option, section 4), and the
-renderer blends coverage linearly without gamma (section 2.3). The result is that of most embedded graphics libraries
-that blend in value space: dark text on a light background looks slightly darker. For short strings on small screens
-this often helps legibility. When gamma matters, take coverage with `SVF_T_GRAY8` or `SVF_T_COVERAGE_CB` and blend
+renderer blends encoded channel values without linear-light conversion (section 2.3). This can darken
+black text on a white background [4]. When gamma matters, take coverage with `SVF_T_GRAY8` or `SVF_T_COVERAGE_CB` and blend
 with correction in the application ([C renderer guide section 8](c-renderer-guide.md#8-targets-where-the-pixels-go)),
 or put gamma-adjusted colours into an `SVF_T_INDEXED8` palette ramp.
 
@@ -106,9 +105,9 @@ three separately and uses up to three times the horizontal resolution [5][6]. Mi
 SVF does not do subpixel rendering:
 
 - **The screen would be baked into the font.** SVF stores coverage baked in advance. Baked subpixel coverage fits one
-  subpixel layout (RGB horizontal stripes, say) and one orientation. SVF's targets include monochrome OLEDs (SSD1306),
-  grey OLEDs (SSD1327), small TFTs with assorted subpixel layouts and palette modes on DOS.
-- **Monochrome and grey targets have no subpixels.** One face must serve MONO, GRAY and RGB targets (section 2.3).
+  subpixel layout (RGB columns, for example) and one orientation. SVF's targets include monochrome and
+  grey displays, small TFTs with assorted subpixel layouts and palette modes on DOS.
+- **MONO and GRAY targets expose no separate colour channels.** One face must serve MONO, GRAY and RGB targets (section 2.3).
 - **Storage.** Subpixel coverage needs three values a pixel. Even 2 bpp being twice 1 bpp weighs on small machines
   (section 5).
 
@@ -176,7 +175,7 @@ coverage. All arithmetic is unsigned integer; rounding is `+ 127` then division 
 
 RGB565 applies it to the 5/6/5-bit channel values (red 0..31, green 0..63, blue 0..31); RGB555 to 5/5/5 bits, with
 bit 15 of the pixel taken from bit 15 of `fg565`. XRGB8888 and RGB888 apply it to 8-bit channels, computed in
-`uint32_t` since the products pass 16 bits. Colour targets **do not read the existing pixel**: `bg` must be the real
+`uint32_t` using explicit 32-bit unsigned operands. Colour targets **do not read the existing pixel**: `bg` must be the real
 background colour, and blending over a patterned background needs the callback target
 ([C renderer guide section 8](c-renderer-guide.md#8-targets-where-the-pixels-go)). For 2 bpp and 1 bpp cells the
 colours of levels 1..3 are computed once a cell and picked per pixel (`rgb16_pix`); only 8 bpp blends per pixel.
@@ -188,8 +187,10 @@ keeps level 3 only, 1 keeps every inked pixel.
 
 **GRAY8.** One coverage byte a pixel, written as `max(existing, cov)`: a mask the application composites itself.
 
-**GRAY (1, 2, 4, 8 bits) and INDEXED8.** With n levels (`2^gray_bits - 1` for GRAY, `index_levels` for INDEXED8) the
-level is `L = (cov x n + 127) / 255`, and the maximum with the existing value is written. At n = 3 a 2 bpp level k stays
+**GRAY (1, 2, 4, 8 bits) and INDEXED8.** With maximum level n (`2^gray_bits - 1` for GRAY, `index_levels` for INDEXED8) the
+level is `L = (cov x n + 127) / 255`. GRAY writes `max(existing, L)`. INDEXED8 leaves level 0
+untouched and otherwise writes `max(existing, index_base + L)`, comparing palette indices. The palette ramp
+must therefore increase in coverage order. At n = 3 a 2 bpp level k stays
 k; at n = 15 (4-bit grey) the levels are 0, 5, 10, 15. At n = 1 (GRAY 1 bit, INDEXED8 with `index_levels 1`) the MONO
 threshold rule applies.
 
@@ -198,7 +199,8 @@ threshold rule applies.
 *Figure 4. The line "SVF 2 bpp 안티앨리어싱 글꼴" ("SVF 2 bpp anti-aliased font") on each target (left magnified 3x,
 right actual size). The first row is the 1 bpp face NEODG16; the others are the colour and grey ports' faces PAPLG16 +
 PAPLG18 (2 bpp). The second row, "2 bpp, 임계값 128" (2 bpp, threshold 128), is the same 2 bpp face on MONO: level 1
-vanishes and strokes thin and break. "SSD1327 같은 회색": grey like an SSD1327, a 2-bit grey screen.*
+vanishes and strokes thin and break. "SSD1327 같은 회색" labels a 2-bit GRAY target. The actual SSD1327 ports pack output into 4-bit pixels
+(`c/ports/pico/disp_ssd1327.c`, `c/ports/esp32/main/disp_ssd1327.c`); this row illustrates four coverage levels.*
 
 ### 2.4 Overlapping cells
 
@@ -227,11 +229,11 @@ flowchart LR
 **Why OR is wrong.** ORing 2 bpp bytes ORs the 2-bit fields too: level 1 (`01`) over level 2 (`10`) gives `11`,
 level 3. Where two pieces' light edges meet, a dark dot appears. The maximum keeps level 2. Where the levels are equal
 or one is 0, OR and maximum agree, so they differ only where two different intermediate levels (1 and 2) overlap. At
-8 bpp OR gives a wrong value at almost every overlap.
+8 bpp OR can also differ from the maximum: 85 | 170 = 255, whereas max(85, 170) = 170.
 
 The C renderer computes this maximum with bit operations on one byte (or one 32-bit word): for 2-bit fields a and b,
-`gt = a & ~b`, `eq = ~(a ^ b)`, and the high bit of each field decides "a > b" (`svf__max2w`). A 2 bpp composition
-therefore costs little more than a 1 bpp OR.
+`gt = a & ~b`, `eq = ~(a ^ b)`, and the high bit of each field decides "a > b" (`svf__max2w`). This processes four 2-bit pixels per byte, or sixteen per word when the word path is enabled; it does not
+establish a fixed timing ratio to 1 bpp.
 
 ![Two syllables of 2 bpp jamo sets: the initial, medial and final pieces, the maximum (SVF), the byte OR (wrong), and the pixels where they differ](images/anti-aliasing/compose.png)
 
@@ -241,8 +243,7 @@ therefore costs little more than a 1 bpp OR.
 level 1 (01) | level 2 (10) = level 3 (11): overlapping grey becomes black". Such pixels occur in 788 of the 2,350
 KS X 1001 syllables of GOTHA16A and in 660 of SGDAY16A.*
 
-The maximum has a limit too. When two jamo each cover half of one pixel in the outline, the true coverage is the sum
-(nearly 1), but the maximum of the separately baked pieces is lower, so thin strokes look slightly lighter where they
+The maximum has a limit too. When two jamo cover disjoint halves of one pixel in the outline, their union covers the whole pixel, but the maximum of the separately baked pieces is lower, so thin strokes look slightly lighter where they
 meet than in the precomposed glyph. `jamoaa.py` measures this loss (`join_loss`) and reduces it by refining the
 pieces' levels against the composed result (section 4.1)
 ([recipe pitfalls](recipes.md#2-bpp-anti-aliased-faces-from-a-truetypeopentype-font)).
@@ -252,7 +253,7 @@ pieces' levels against the composed result (section 4.1)
 ```mermaid
 flowchart TD
   TTF["TrueType / OpenType outline"] --> R1["mkfont.py --bpp 2<br/>FreeType anti-aliased coverage"]
-  TTF --> R2["jamoset.py --from-ttf --bpp 2<br/>(jamoaa.py) exact-area coverage"]
+  TTF --> R2["jamoset.py --from-ttf --bpp 2<br/>(jamoaa.py) flattened-outline area coverage"]
   BIG["high-resolution 1 bpp bitmap<br/>(SVF, BDF)"] --> R3["svfscale.py --bpp 2<br/>box filter: inked share"]
   R1 --> Q["level = (cov x 3 + 127) // 255"]
   R2 --> Q
@@ -266,18 +267,21 @@ All three routes reduce 8-bit coverage to four levels with the same formula:
 
     level = (coverage x 3 + 127) // 255        (mkfont.quantize2, jamoaa.quantize2, svfscale)
 
-The reader turns a level back into level x 85, so the error is at most 43 a pixel. Very light edges below coverage 43
-(about 17 %) become level 0 and vanish. There is no gamma, threshold or oversampling option (section 1.4).
+The reader turns a level back into level x 85, so the error is at most 42 on the integer 0..255 coverage scale. Very light edges below coverage 43
+(about 17 %) become level 0 and vanish. The 2 bpp quantiser has no gamma, threshold or oversampling option (section 1.4).
+`svfscale.py --threshold` controls only its 1 bpp output.
 
 ### 4.1 From outline fonts
 
 **Precomposed: `mkfont.py --bpp 2`.** Each glyph is drawn by FreeType's anti-aliased renderer through Pillow (FreeType's
-default hinting) and its 8-bit coverage quantised by the formula above (Figure 1). The only control is the size
-(`--size`, with `--cell` and `--ascent` for placement). `--bpp 8` stores coverage as is; 1 bpp cuts coverage at 128, or
+default hinting) and its 8-bit coverage quantised by the formula above (Figure 1). Size is set with `--size`; placement and cell fitting also use `--cell`, `--width`, `--ascent`,
+`--fit-cell` and `--clip-cell` (see [tools](tools.md#toolsmkfontpy)). `--bpp 8` stores coverage as is; 1 bpp cuts coverage at 128, or
 with `--mono-hint` uses FreeType's monochrome renderer and the font's hinting.
 
 **Jamo sets: `jamoset.py --from-ttf --bpp 2`.** [jamoaa.py](../tools/jamoaa.py) reads the outlines with fontTools and
-draws the syllables with its own exact-area rasteriser (no hinting). The regions of a 1 bpp fit assign each contour to
+flattens curves into line segments and
+rasterises their signed areas without hinting. Coverage is an approximation to the original curved outlines;
+it can also differ from the geometric union where contours overlap (`render_coverage` in `jamoaa.py`). The regions of a 1 bpp fit assign each contour to
 the initial, medial or final; each piece's levels are the per-pixel median over the syllables that use it, then refined
 so that the max-composed syllables come closer to the syllables drawn whole (`--aa-refine N`, default 2).
 
@@ -288,7 +292,7 @@ By that recipe, a 2 bpp precomposed face is 1.5-1.6 times its 1 bpp face and a 2
 
 ### 4.2 From high-resolution bitmaps: downscaling
 
-A bitmap font has no coverage, but when a large bitmap is shrunk, the inked share of the source area each output pixel
+A 1 bpp bitmap has only binary coverage, but when a large bitmap is shrunk, the inked share of the source area each output pixel
 covers is its coverage. [svfscale.py](../tools/svfscale.py) box-filters each glyph of a 1 bpp face (a jamo set's
 syllables composed first) or a BDF into the new cell and stores it at 1 bpp (share >= `--threshold`, default 0.5) or
 2 bpp (the quantisation above).
@@ -302,10 +306,11 @@ on GRAY8 ("배율 4/9, 그릴 때 GRAY8"); then ("16 px 로 그린 페이스": f
 Shrinking is not redrawing: thin strokes turn grey, and the faces made at 16 px are crisper.*
 
 The renderer's draw-time scale (`scale_num / scale_den`, [C renderer guide section 9](c-renderer-guide.md#9-scaling))
-is the same box filter, so a stored 2 bpp downscaled face and draw-time scaling give the same pixels (the 2 bpp and 4/9
+also uses area averaging. Its output is 8-bit coverage, so compare a stored 2 bpp face with that output
+**quantised to four levels**, rather than with raw GRAY8. The example uses square 36-to-16 cells at 4/9;
+other sizes can differ because `svfscale.py` rounds cell dimensions separately (the 2 bpp and 4/9
 panels of Figure 6; the [recipe](recipes.md#a-low-resolution-face-from-a-high-resolution-bitmap-font) checked all 2,350
-syllables of an OS/2 font). The stored face costs memory, the draw-time scale costs time. No 2 bpp jamo set can be
-made from a bitmap (`jamoset.py --bpp 2` takes outline fonts only); a 1 bpp jamo set can be fitted to the 1 bpp result.
+syllables of an OS/2 font). The stored face costs memory, the draw-time scale costs time. The fitting path `jamoset.py --bpp 2` currently takes outline fonts only; a 1 bpp jamo set can be fitted to the 1 bpp result.
 
 ### 4.3 Measuring quality
 
@@ -326,8 +331,11 @@ shows a face at its levels ([web renderer guide](web-renderer-guide.md)).
 
 ### 5.1 Memory
 
-A cell is `((cell width x bpp + 7) / 8) x cell height` bytes (`svf_cell_bytes`). The renderer's scratch is one cell, and
-the syllable cache one cell more a slot ([C renderer guide section 11](c-renderer-guide.md#11-memory-budget)).
+A cell is `((cell width x bpp + 7) / 8) x cell height` bytes, with integer division (`svf_cell_bytes`).
+At scale 1/1, drawing needs one cell of scratch, or two for a streamed face without a block cache.
+Scaling needs two source cells plus the scaled 8-bit cell. Use `svf_chain_scratch_bytes` to size the buffer.
+Each syllable-cache slot uses 8 bytes plus the largest unscaled cell in the chain
+([C renderer guide section 11](c-renderer-guide.md#11-memory-budget)).
 
 | Cell | 1 bpp | 2 bpp | 8 bpp |
 |---|---:|---:|---:|
@@ -343,28 +351,28 @@ Whole faces (same font, same size; the NanumGothic Bold 16 measurements of the
 | precomposed (`mkfont.py`, 2,446 glyphs) | 125,520 B | 195,760 B | 1.56 |
 | jamo set (`jamoset.py`, composes 11,172 syllables) | 20,064 B | 24,960 B | 1.24 |
 
-Pieces are small and stored with their empty parts cropped, so a jamo set grows little at 2 bpp. For anti-aliasing on a
-small machine a 2 bpp jamo set is the most economical. This repository's `PAPLG18` (an 18 px 2 bpp jamo set) is
+File growth depends on cropped ink boxes, glyph count, tables and layout padding, so these ratios are examples,
+not a general bound. A 2 bpp jamo set can save space when its composition quality is sufficient. `PAPLG18` (an 18 px 2 bpp jamo set) is
 67,200 B in the `mcu-strict` layout ([C renderer guide section 6](c-renderer-guide.md#6-choosing-a-face-for-your-target)).
 
 ### 5.2 Speed
 
 In the emulated measurements of `c/bench/MEASUREMENTS.md` (Raspberry Pi Pico, rp2040js at 125 MHz, gcc `-Os`, GRAY8),
 drawing the syllable 가 takes 58.83 µs with a 16 px 1 bpp jamo set, 126.58 µs with the 18 px 2 bpp jamo set (PAPLG18),
-and 142.45 µs with PAPLG18 on an RGB565 target. The faces differ in size and pieces, so this is not the bpp alone, but
-2 bpp has twice the bits a pixel and a larger cell here: count on a little over twice. All numbers are from emulators,
-not real boards. 8 bpp blends every pixel on colour targets (section 2.3) and does not suit small machines.
+and 142.45 µs with PAPLG18 on an RGB565 target. The 1 bpp face is HGKEY6J, absent from the public font set. These faces differ in size, pieces and tables;
+the measurements do not isolate the cost of bpp or predict a general timing ratio. All numbers are from emulators,
+not real boards. 8 bpp blends each nonzero pixel on colour targets (section 2.3); measure its memory and time costs on the intended target.
 
 ### 5.3 What to choose
 
 | Screen / situation | Choose | Why |
 |---|---|---|
-| Monochrome OLED (SSD1306), 1-bit LCD, e-paper | **1 bpp** | no grey; a 2 bpp face is cut at the threshold (2.3), strokes thin and memory grows |
-| 2- or 4-bit grey OLED (SSD1327 and the like) | **2 bpp** | levels map straight onto the screen (GRAY 2 bits: level k = k) |
+| 1-bit display or 1-bit display mode | **1 bpp** | no grey; a 2 bpp face is cut at the threshold (2.3), strokes thin and memory grows |
+| 2- or 4-bit grey target | **2 bpp** | levels map straight onto the screen (GRAY 2 bits: level k = k) |
 | 16-bit colour TFT (RGB565), plain background | **2 bpp** | only three level colours a cell to compute; the default of the small colour ports |
 | A pixel font (Dunggeunmo and the like) at its own size | **1 bpp** | no intermediate coverage: 2 bpp is the same picture at twice the memory |
-| Very small flash (Arduino Uno, 32 KB) | **1 bpp jamo set** | 2 bpp sets start at tens of KB |
-| Hosts, web, 32-bit screens, your own gamma correction | 2 bpp, or **8 bpp** | 8 bpp loses no coverage but is 8 times 1 bpp |
+| Very small flash (Arduino Uno, 32 KB) | **1 bpp jamo set** | check the complete firmware size; the example 2 bpp faces use tens of KB |
+| Hosts, web, 32-bit screens, your own gamma correction | 2 bpp, or **8 bpp** | 8 bpp retains the rasteriser's 8-bit coverage; cell bytes depend on row padding |
 | Patterned background, overlapping cells | 2 bpp + GRAY8 or the callback | colour targets do not read the existing pixel (2.3, 2.4) |
 
 The port examples of this repository split the same way: the colour (RGB565) and grey (SSD1327) profiles of the Pico
@@ -388,6 +396,10 @@ comparing the 2 bpp face with a 1 bpp `--mono-hint` face of a hinted font on the
 - [Tools](tools.md): [mkfont.py](tools.md#toolsmkfontpy), [jamoaa.py](tools.md#toolsjamoaapy),
   [svfscale.py](tools.md#toolssvfscalepy), [svfline.py](tools.md#toolssvflinepy),
   [doc_figures_aa.py](tools.md#toolsdoc_figures_aapy).
+
+- [Renderer design](../spec/renderer-design.md): layout and scaling model.
+- [Desktop app](desktop-app.md), [maker desktop](maker-desktop.md): create faces and compare previews.
+- [README](../README.md): document and application entry points.
 
 ## References
 
