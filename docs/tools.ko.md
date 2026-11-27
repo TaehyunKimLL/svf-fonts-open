@@ -1345,15 +1345,15 @@ TTF/OTF, TTC, 가변 폰트, Mac 폰트, BDF/PCF/HBF, DOS 원시 폰트와 기�
 
 ## 11. 참고 문헌
 
-1. [Unicode Standard: Conjoining Jamo Behavior](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G24649)
-2. [Unicode: KS X 1001 mapping](https://www.unicode.org/Public/MAPPINGS/EASTASIA/KSC/KSX1001.TXT)
+1. [Unicode Standard: Hangul syllables](https://www.unicode.org/versions/Unicode16.0.0/core-spec/chapter-3/#G3307)
+2. [Unicode: CP949 mapping](https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP949.TXT)
 3. [Pillow: ImageFont.truetype](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype)
 4. [FreeType: Glyph Retrieval](https://freetype.org/freetype2/docs/reference/ft2-glyph_retrieval.html)
 5. [OpenType: EBDT](https://learn.microsoft.com/en-us/typography/opentype/spec/ebdt)
 6. [OpenType: EBLC](https://learn.microsoft.com/en-us/typography/opentype/spec/eblc)
 7. [OpenType: cmap](https://learn.microsoft.com/en-us/typography/opentype/spec/cmap)
-8. [SIL Open Font License 1.1](https://openfontlicense.org/open-font-license-꺼짐icial-text/)
-9. [MAME: graphics layout definitions](https://github.com/mamedev/mame/blob/master/src/emu/drawgfx.h)
-10. [MAME: SPC-1500 driver](https://github.com/mamedev/mame/blob/master/src/mame/samsung/spc1500.cpp)
+8. [SIL Open Font License 1.1](https://openfontlicense.org/open-font-license-official-text/)
+9. [MAME: graphics layout definitions](https://raw.githubusercontent.com/mamedev/mame/master/src/emu/drawgfx.h)
+10. [MAME: SPC-1500 driver](https://raw.githubusercontent.com/mamedev/mame/master/src/mame/samsung/spc1500.cpp)
 11. [Adobe: Glyph Bitmap Distribution Format (BDF) 2.2](https://adobe-type-tools.github.io/font-tech-notes/pdfs/5005.BDF_Spec.pdf)
 12. [iolo: 8x4x4 fonts](https://github.com/iolo/8x4x4-fonts)
