@@ -2,11 +2,11 @@
 
 # Recipes: Bitmap fonts
 
-Bitmap font files to SVF faces: BDF and PCF in ISO 10646 or KS C 5601, hanterm johab BDFs, HBF, Windows FNT and FON, the bitmap strikes embedded in outline fonts, and a low-resolution (or 2 bpp) face scaled down from a high-resolution bitmap font.
+Bitmap font files to SVF faces: BDF and PCF in ISO 10646 or KS C 5601 (the X Window Korean fonts themselves, hanterm's johab fonts among them, have [their own document](x-window.md)), HBF, Windows FNT and FON, the bitmap strikes embedded in outline fonts, and a low-resolution (or 2 bpp) face scaled down from a high-resolution bitmap font.
 
 **Before you start.** Commands run from the project root with `$OUT` set as in the [index](../recipes.md); every face ends with the checks of [Checking a face](../recipes.md#checking-a-face). The KS C 5601 recipe writes `$OUT/ks.txt` (the 2,350 KS X 1001 syllables) that the `bdfface.py` lines of every document read.
 
-Up: [Recipes index](../recipes.md) · Related: [Outline fonts](outline-fonts.md), [DOS-era raw fonts](dos-fonts.md), [Anti-aliasing](../anti-aliasing.md).
+Up: [Recipes index](../recipes.md) · Related: [Korean fonts from X Window and Unix](x-window.md), [Outline fonts](outline-fonts.md), [DOS-era raw fonts](dos-fonts.md), [Anti-aliasing](../anti-aliasing.md).
 
 <a id="bitmap-fonts"></a>
 
@@ -16,7 +16,9 @@ Up: [Recipes index](../recipes.md) · Related: [Outline fonts](outline-fonts.md)
 
 Two kinds of bitmap fonts reach the tools by different paths: Unicode-encoded ones (`CHARSET_REGISTRY "ISO10646"`, or a
 TrueType with embedded strikes) go through `mkfont.py` and FreeType; KS C 5601 / KS X 1001 encoded ones (`ENCODING` = the
-GL code, the X Window Korean fonts) go through `bdfface.py`.
+GL code, the X Window Korean fonts) go through `bdfface.py`. The X Window and Unix Korean fonts family by family
+(Daewoo, Baekmuk, Hanyang, KAIST, Mizi, hanterm), with commands, measurements, licences and samples, are in
+[Korean fonts from X Window and Unix](x-window.md).
 
 <a id="iso-10646-bdf-and-pcf"></a>
 
@@ -60,26 +62,17 @@ clipped, `width=156 ascent=14 descent=2`, ink 354; the jamo set `18,436 bytes`, 
 halves (`--hangul wqy_12pt.bdf --ascii wqy_12pt.bdf`): face `115,700 bytes`, jamo set `16,272 bytes`, IoU 1.000.
 
 `bdfface.py` keeps only the Hangul syllables `--chars-from` names (any text; `mkfont.py`'s rules), ASCII 0x20-0x7E from
-`--ascii`, and its own U+2026 / U+25A1: no symbols or jamo come from the BDF. The cell defaults to 24x24 whatever the BDF's
+`--ascii`, and its own U+2026 / U+25A1: no symbols or jamo come from the BDF unless `--symbols` is given, which also
+takes the other characters `--chars-from` names (KS X 1001 symbols, jamo, Hanja) from the Hangul BDF
+([the X Window recipe](x-window.md#preparing-the-syllable-list-the-ascii-half-and-pcf) uses it). The cell defaults to 24x24 whatever the BDF's
 box is, so give `--cell`; `--ascent` / `--hangul-ascent` place the baselines. Synthetic (`tools/test_recipes.py`): a KS C
 5601 BDF of 10 syllables and an ISO 10646 ASCII BDF give a face with exactly those syllables, rows in place.
 
 <a id="hanterm"></a>
 
-### hanterm
-
-hanterm fonts (johab-1 encoding, glyph numbers as `ENCODING`, 10x(3|4)x4 sets, 529 glyphs) are read directly:
-
-    python3 tools/jamoset.py --layout hanterm-johab johabm16.bdf --check -o $OUT/HTERM16J.SVF
-
-Run on KAIST Myeongjo and KAIST Gothic, the 16 px Johab fonts of the hanterm 3.0.4 font set (`johabm16.bdf`,
-`johabg16.bdf`; 529 glyphs each, `CHARSET_REGISTRY "JOHAB-1"`; KAIST; redistribution terms not stated), with the command above:
-
-Myeongjo: `13,740 bytes`, 368 pieces, `check: composed 11172 syllables from 368 glyphs, JSET 1303 bytes`, `width=80 ascent=14
-descent=2` (the five syllables of the sample; the BDF has no ASCII, give `--eng` a raw 8x16 English font for it), ink 310;
-Gothic: `13,180 bytes`, ink 214. The maker's `detect.scan` gives both kind `bdf-johab`, label "BDF (johab)", sizes [16] and the
-route `hanterm`. The same set's `10-6-6` folder (10x6x6 sets) is another layout and was not run. Synthetic
-(`tools/test_recipes.py`): a 529-glyph hanterm BDF composes all 11,172 syllables in 10/4/4 sets.
+**hanterm** (moved). The hanterm johab BDFs (the johab-1 fonts of hanterm 3.0.4 and the johab844-1 fonts of
+hanterm-font 3.1, with `jamoset.py --layout hanterm-johab` and `--layout hanterm-844`) are now in
+[hanterm johab fonts](x-window.md#hanterm) of [Korean fonts from X Window and Unix](x-window.md).
 
 <a id="hbf"></a>
 

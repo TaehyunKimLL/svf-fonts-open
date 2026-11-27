@@ -192,6 +192,57 @@ class XWindow(unittest.TestCase):
             t = jamoset.unpack(face(out).jset)
             self.assertEqual((t.ni, t.nm, t.nf), (10, 4, 4))
 
+    def test_hanterm_844_bdf(self):
+        # docs/recipes/x-window.md "hanterm johab fonts": a johab844-1 BDF (hanterm-font 8-4-4), ENCODING = the glyph
+        # number of the DOS 8x4x4 order, with an ASCII base face; --check compares with johab844.py's composition
+        raw = raw_johab(16, 360, [s * 20 for s in range(8)] + [160 + s * 22 for s in range(4)] + [248 + s * 28 for s in range(4)])
+        glyphs = {i: [int.from_bytes(raw[i * 32 + 2 * y:i * 32 + 2 * y + 2], "big") for y in range(16)] for i in range(360)}
+        ascii_glyphs = {c: [c if y == 7 else 0x00 if y < 3 or y > 12 else 0x81 for y in range(16)]  # each its own
+                        for c in range(0x21, 0x7F)}
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "dkbgoth.bdf")
+            with open(src, "w") as fh:
+                fh.write(bdf(glyphs, 16, 16, 14, "johab844", "1"))
+            asc = os.path.join(d, "8x16.bdf")
+            with open(asc, "w") as fh:		# 72 dpi: FreeType opens the strike at 16 px
+                fh.write(bdf(ascii_glyphs, 8, 16, 14, "ISO8859", "1").replace("SIZE 16 75 75", "SIZE 16 72 72"))
+            base = os.path.join(d, "ASCII16.SVF")
+            run(os.path.join(HERE, "mkfont.py"), asc, base, "--size", 16, "--bpp", 1, "--unicode", "ascii")
+            out = os.path.join(d, "HT844.SVF")
+            text = run(os.path.join(HERE, "jamoset.py"), "--layout", "hanterm-844", src, "--base", base, "--check",
+                       "-o", out)
+            self.assertIn("identical to johab844.py", text)
+            f = face(out)
+            self.assertIn(0x41, f.glyphs)
+            t = jamoset.unpack(f.jset)
+            self.assertEqual((t.ni, t.nm, t.nf), (8, 4, 4))
+
+    def test_ksc5601_bdf_with_symbols(self):
+        # docs/recipes/x-window.md: bdfface.py --symbols takes the KS X 1001 symbols the list names from the Hangul BDF
+        sym = {"※": 0x2158, "★": 0x215A, "→": 0x2166}
+        glyphs = {0x3021: [0xFFFF] * 16}
+        for k, gl in enumerate(sym.values()):
+            glyphs[gl] = [1 << k] * 16
+        ascii_glyphs = {c: [0x3C] * 16 for c in range(0x20, 0x7F)}
+        with tempfile.TemporaryDirectory() as d:
+            han = os.path.join(d, "hanglg16.bdf")
+            asc = os.path.join(d, "8x16.bdf")
+            with open(han, "w") as fh:
+                fh.write(bdf(glyphs, 16, 16, 14, "KSC5601.1987", "0"))
+            with open(asc, "w") as fh:
+                fh.write(bdf(ascii_glyphs, 8, 16, 14, "ISO8859", "1"))
+            chars = os.path.join(d, "ksnh.txt")
+            with open(chars, "w", encoding="utf-8") as fh:
+                fh.write("".join(chr(c) for c in mkfont.NAMED_RANGES["ksx1001-nohanja"]()))
+            pre = os.path.join(d, "DW16.SVF")
+            text = run(os.path.join(HERE, "bdfface.py"), "--hangul", han, "--ascii", asc, "--cell", "16x16",
+                       "--chars-from", chars, "--symbols", "-o", pre)
+            self.assertIn("3 other characters from the Hangul face", text)
+            f = face(pre)
+            for ch in sym:
+                self.assertIn(ord(ch), f.glyphs)
+            self.assertNotIn(ord("☆"), f.glyphs)
+
 
 class KsX1001(unittest.TestCase):
     """(h) the KS X 1001 sets of mkfont.py and jamoset.py agree with Python's euc_kr codec."""

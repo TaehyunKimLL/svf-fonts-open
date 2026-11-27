@@ -44,7 +44,7 @@ Both kinds may carry a **dy** range; a jamo set composes its syllables at dy 0 (
 
 A **layout** is a jamo set's set system: the lead and tail classes, the initial/medial/final set tables, and the piece
 tables. The named layouts are `844` (the DOS 8x4x4 standard), `844-ihnm`, `844-hbios24`, `844-hwp3`, `hwp1`, `1044-san`, `621`, `hanterm-johab`,
-`dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets`, `spec` and `adaptive[:NI,NM,NF]`.
+`hanterm-844`, `dkb-printer-7x2x2`, `dkb-printer-12x4x4`, `kyra-lok`, `mac-fbit-45sets`, `spec` and `adaptive[:NI,NM,NF]`.
 
 The one-paragraph map: `mkfont.py` bakes **precomposed faces** from an outline font and `bdfface.py`/`johab844.py`
 from a bitmap one;
@@ -78,7 +78,8 @@ HangulTalk, HWP 1.x) but is not tied to one game.
   (`844-hbios24`, 243900 bytes), SAGA IHNM (`844-ihnm`), Kyra `MK15.BIT` (11550 bytes), Dokkaebi printer
   `HANGUL16/24.FNT` (15360/34560, column-major) and `HANGUL40/48.FNT` (176000/253440);
 - a hanterm BDF (`hanterm-johab`) whose `ENCODING` is the johab-1 glyph number, parsed with a regular-expression
-  reader;
+  reader; a hanterm johab844-1 BDF (`hanterm-844`: 360 glyphs, `ENCODING` = the glyph number of the DOS 8x4x4
+  order, read by the same reader and composed by the `844` tables);
 - a Mac HangulTalk 1.0 `fbit` resource fork (`mac-fbit-45sets`), parsed from its raw resource map;
 - an HWP 1.x `HANGUL.SFT` / `HANGUL1/2/3.PFT` (`hwp1`, `--face 0..2`): the JSET tables are HWP.EXE's own rule for the
   face, read through `hwpfont.py`; an HWP 3.0 `HAN16_*.FNT` (`844-hwp3`: the 360-glyph 8x4x4 set after its 2,350
@@ -112,7 +113,7 @@ HangulTalk `fbit` resource fork, a mode of its own: it takes no `--from-*`, `--e
 
 | Option (default) | Modes | Meaning |
 |---|---|---|
-| `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` and `hwp1` are modes of their own (the positional file is the `fbit` resource fork, the HWP 1.x Hangul file) |
+| `--layout` (required) | all | a set system: `1044-san`, `621`, `844`, `844-hbios24`, `844-hwp3`, `844-ihnm`, `dkb-printer-12x4x4`, `dkb-printer-7x2x2`, `hanterm-844`, `hanterm-johab`, `hwp1`, `kyra-lok`, `mac-fbit-45sets`, `spec`, `adaptive[:NI,NM,NF]`. `adaptive` needs `--from-ttf` or `--from-svf`; `mac-fbit-45sets` and `hwp1` are modes of their own (the positional file is the `fbit` resource fork, the HWP 1.x Hangul file) |
 | `--face N` (0) | `source`, `hwp1` | typeface of a Dokkaebi printer font (0 or 1), of an HWP 1.x Hangul file (0, 1, 2) |
 | `--eng FILE` (none) | `source`, `hwp1`, `--from-ttf`, `--from-svf` | raw 8x16 English font for ASCII (2048 or 4096 bytes; the 12x24, 20x40 and 24x48 faces and the HWP English fonts above also read); refused with `--bpp 2` and with `mac-fbit-45sets` |
 | `--spec SPEC.json\|spc1500` (none) | `spec` | the `rawcarve.py` compose spec of the positional file (a JSON file, or the built-in `spc1500`: that name always means the built-in, a file of that name is given as `./spc1500`); a JSET initial set per initial piece set the spec names (its `novowel` set first), a medial set per medial table (`nofinal`, `final`, and the `*_kk` tables, which make two lead classes), a final set per final piece set, two tail classes; refused with another layout |
@@ -258,8 +259,10 @@ or an HBF). It was written for the MI1/MI2 "L" faces but is not game-specific.
 **Inputs.** Its own regular-expression BDF reader (KS X 1001 `ENCODING` or Unicode) and HBF reader (single-byte code
 ranges with the bitmap files beside them, optionally gzipped). A Hangul BDF and an ASCII BDF/HBF. It keeps only the
 Hangul syllables `--chars-from` names (so it needs a text file listing them), ASCII 0x20-0x7E from `--ascii`, and its
-own U+2026/U+25A1; it takes no symbols or jamo from either bitmap face. The cell defaults to 24x24 whatever the BDF's
-own box is.
+own U+2026/U+25A1; it takes no symbols or jamo from either bitmap face unless `--symbols` is given, which also keeps
+the other characters `--chars-from` names (KS X 1001 symbols, jamo, Hanja) where the Hangul BDF has them. The cell
+defaults to 24x24 whatever the BDF's own box is. An `ENCODING` outside two bytes (the -1 of an unencoded glyph) is
+skipped.
 
 **Outputs.** A precomposed SVFN v3 face, 1 bpp, variable width, flags 5 (variable width + marks at origin). It writes
 U+2026 (three dots) and U+25A1 (the missing-glyph box) itself. With `--fill-absent` it composes the requested syllables
@@ -279,6 +282,7 @@ the face lacks from jamo pieces fitted to the face (through `jamoset.fit_font`).
 | `--chars-from FILE...` (required) | - | files naming the characters (`mkfont.py` rules) |
 | `--hangul-advance N` | the BDF's DWIDTH | syllable advance |
 | `--fill-absent` | off | compose the requested syllables the face lacks |
+| `--symbols` | off | also take the other characters `--chars-from` names (symbols, jamo, Hanja) from the Hangul BDF, on its baseline with its DWIDTH; its own U+2026 / U+25A1 then replace the drawn ones |
 | `--mask-font FILE` | `$JAMOSET_MASK_FONT` / shipped NotoSansKR | `--fill-absent` mask font (`none` = free pieces) |
 | `--pylib DIR` | `$JAMOSET_PYLIB` | directory holding freetype and uharfbuzz |
 | `--profile NAME`, `--box x\|y\|full` | `default`, the profile's | the SVFN v3 layout profile and ink box policy |
@@ -1058,6 +1062,36 @@ both printed), and one line saying whether the 2 bpp downscale equals the draw-t
 
 **Repository modules imported.** `jamoset.py`, `svfline.py`, `mkfont.py`, `svfscale.py`. **Third-party.** Pillow.
 **Test.** `--check`.
+
+### `tools/doc_figures_x11.py`
+
+**Purpose.** Draws the sample images of [recipes/x-window.md](recipes/x-window.md): one per face the recipe builds
+(Daewoo Gothic 16, Daewoo Mincho 16 and 24, Baekmuk Gulim, Batang and Dotum 16 and Gulim 12, the hanterm johab844-1
+font `dkbgoth` and johab-1 font `johabm16`, Hanyang Gothic 16, KAIST newmj 16, iyagi 16 and philgi 16).
+
+**Status.** Special-purpose (documentation).
+
+**Inputs.** Folders and files as arguments: `--misc DIR` (the X11 core fonts folder: the Daewoo PCFs and the ASCII fonts
+`8x16.pcf.gz`, `12x24.pcf.gz`, `6x12.pcf.gz`, required), `--baekmuk DIR`, `--hanterm DIR`, `--hanyang DIR`, `--newmj F`,
+`--iyagi F`, `--philgi F`; no path to a font is written in the script, and a face whose files are not there is
+skipped. Each face is built in a temporary directory by the recipe's commands (`maker/srcprep.py pcf-bdf`,
+`bdfface.py --symbols`; `mkfont.py` for the ASCII face and `jamoset.py --layout hanterm-844 / hanterm-johab --base
+--check` for the hanterm fonts), run with `python3 -I`.
+
+**Outputs.** PNG files in `docs/images/recipes/x-window/` (8-bit grey, black on white, every pixel doubled, no
+metadata): per face four lines, two Korean pangrams, an English line, the ASCII symbols and the KS X 1001 symbols
+`※☆★○●◎◇◆□■△▲→←↑↓`. A character the face lacks is left out of its line and printed (the jamo sets have no symbols).
+
+**Synopsis.**
+
+    python3 -I tools/doc_figures_x11.py --misc DIR [--baekmuk DIR] [--hanterm DIR] [--hanyang DIR] [--newmj F] [--iyagi F] [--philgi F] [--out DIR] [--check]
+
+`--check` renders in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference or a missing
+file, and when a face was skipped because its option was not given or its file is not there; it lists them, so a
+partial run never reports `ok`). The images depend only on the font files.
+
+**Repository modules imported.** `svfline.py`, `binscan.py` (and the tools it runs). **Third-party.** Pillow (through
+`mkfont.py`, for the ASCII face of the hanterm fonts). **Test.** `--check`.
 
 ## 5. Build scripts
 

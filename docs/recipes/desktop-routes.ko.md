@@ -29,7 +29,7 @@ maker(`maker/`, [desktop-app.md](../desktop-app.ko.md)의 데스크톱 앱, [mak
 | 자모, `vector fit` | outline, outline-composite | `jamovec.py master SRC -o M.json [--adaptive]`(`--components` 없음) 다음 같은 `render` | [TrueType와 OpenType 폰트에서 만드는 자모 세트, 방법 3: 완성형 음절에 맞추기](outline-fonts.ko.md#truetype와-opentype-폰트에서-만드는-자모-세트) (`--components` 없는 `jamovec.py master`) |
 | 완성형, `johab844` | dos-raw, 정확히 11,520 바이트(16 px 8x4x4) | `johab844.py SRC svf/dos/NEODG16.SVF OUT [--eng E]`(maker는 베이스를 `svf/` 아래에서 찾는다) | [그 밖의 DOS 시대 한글 폰트](dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) |
 | 자모, `dos raw` | dos-raw | `jamoset.py SRC --layout L --check -o OUT [--eng E] [--face 0\|1]`(`--face`는 도깨비 프린터 레이아웃용) | [그 밖의 DOS 시대 한글 폰트](dos-fonts.ko.md#그-밖의-dos-시대-한글-폰트) |
-| 자모, `hanterm` | bdf-johab | `jamoset.py SRC --layout hanterm-johab --check -o OUT [--eng E]` | [hanterm](bitmap-fonts.ko.md#hanterm) |
+| 자모, `hanterm` | bdf-johab | `jamoset.py SRC --layout hanterm-johab --check -o OUT [--eng E]` | [hanterm](x-window.ko.md#hanterm) |
 | 완성형, `bdfface` | bdf-ksc5601(BDF, 또는 `pcf-bdf` 단계를 거친 PCF) | `bdfface.py --hangul SRC --ascii LATIN --cell WxH --chars-from LIST -o OUT`(`WxH` = BDF의 박스) | [KS C 5601 BDF와 PCF](bitmap-fonts.ko.md#ks-c-5601-bdf와-pcf) |
 | 자모, `bdfface + from-svf fit` | bdf-ksc5601 | `bdfface.py` 페이스 다음 `jamoset.py --layout L --from-svf precomposed.svf --check -o OUT` | [KS C 5601 BDF와 PCF](bitmap-fonts.ko.md#ks-c-5601-bdf와-pcf) |
 | 자모, `mac fbit 1.0` | mac-fbit1 | `jamoset.py --layout mac-fbit-45sets SRC --check -o OUT` | [클래식 Mac 한글 비트맵 폰트](classic-mac.ko.md#클래식-mac-한글-비트맵-폰트) |

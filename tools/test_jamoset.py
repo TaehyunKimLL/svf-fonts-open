@@ -246,7 +246,7 @@ def sel_dkb40(L, V, T):
 
 REFERENCE = {"844": sel_844, "844-ihnm": sel_ihnm, "1044-san": sel_1044, "621": sel_621, "hanterm-johab": sel_hanterm,
              "dkb-printer-7x2x2": sel_dkb16, "dkb-printer-12x4x4": sel_dkb40, "kyra-lok": sel_kyra,
-             "844-hbios24": sel_844, "844-hwp3": sel_844}
+             "844-hbios24": sel_844, "844-hwp3": sel_844, "hanterm-844": sel_844}
 
 # 가 각 한 의 뷁 흙, by hand from the research doc's formulas (3.2, 3.3, 3.4, 6.1, formats 2.5-2.9).
 SAMPLES = (0xAC00, 0xAC01, 0xD55C, 0xC758, 0xBDC1, 0xD759)
@@ -272,6 +272,8 @@ def make_source(layout_name, seed=1):
         gb, n, blanks = 32, 360, [s * 20 for s in range(8)] + [160 + s * 22 for s in range(4)] + [248 + s * 28 for s in range(4)]
     elif layout_name == "844-hbios24":
         return DosFace24.hbios(seed)
+    elif layout_name == "hanterm-844":		# the same pieces as a hanterm johab844-1 BDF
+        return bdf_of_raw844(make_source("844", seed))
     elif layout_name == "844-hwp3":		# an HWP 3.0 HAN16 FNT: header, 2,350 syllables, then the 8x4x4 set
         head = bytearray(72)
         head[:6] = b"FNT\x01\x01\x01"
@@ -313,6 +315,20 @@ def make_bdf(seed=1):
     return ("\n".join(out) + "\n").encode("latin-1")
 
 
+def bdf_of_raw844(raw, name="test"):
+    """A hanterm johab844-1 BDF (hanterm-font 8-4-4) holding the 360 glyphs of a raw 16x16 8x4x4 font: ENCODING = glyph
+    number, BBX 16 16 0 -2, ascent 14."""
+    out = ["STARTFONT 2.1", f"FONT -postech-{name}-medium-r-normal--16-160-75-75-c-160-johab844-1",
+           "SIZE 16 72 72", "FONTBOUNDINGBOX 16 16 0 -2", "STARTPROPERTIES 2", "FONT_ASCENT 14", "FONT_DESCENT 2",
+           "ENDPROPERTIES", "CHARS 360"]
+    for enc in range(360):
+        out += [f"STARTCHAR C{enc:03d}", f"ENCODING {enc}", "SWIDTH 0 0", "DWIDTH 0 0", "BBX 16 16 0 -2", "BITMAP"]
+        out += ["%02x%02x" % (raw[enc * 32 + 2 * y], raw[enc * 32 + 2 * y + 1]) for y in range(16)]
+        out.append("ENDCHAR")
+    out.append("ENDFONT")
+    return ("\n".join(out) + "\n").encode("latin-1")
+
+
 def raw_piece(name, data, i):
     """Glyph i of a synthetic source as the SVFN 1bpp rows, read straight from the bytes (not through jamoset)."""
     if name in ("844", "844-ihnm", "1044-san"):
@@ -336,7 +352,7 @@ def raw_piece(name, data, i):
             for r in range(16):
                 rows[r] |= (col >> (15 - r) & 1) << (15 - c)
         return b"".join(r.to_bytes(2, "big") for r in rows)
-    if name == "hanterm-johab":			# the glyph's hex rows, top first (BBX 16 16 0 -2, ascent 14)
+    if name in ("hanterm-johab", "hanterm-844"):	# the glyph's hex rows, top first (BBX 16 16 0 -2, ascent 14)
         text = data.decode("latin-1")
         at = text.index("ENCODING %d\n" % i)
         rows = text[text.index("BITMAP\n", at) + 7:text.index("ENDCHAR", at)].split()
@@ -345,7 +361,7 @@ def raw_piece(name, data, i):
 
 
 def source_for(name):
-    return make_bdf() if name == "hanterm-johab" else make_source(name)
+    return make_bdf() if name == "hanterm-johab" else make_source(name)	# hanterm-844: make_source writes the BDF
 
 
 def src_pieces(layout, data):
@@ -361,7 +377,7 @@ class TablesMatchResearchTools(unittest.TestCase):
                 self.assertEqual(jamoset.pieces_of(t, cp), ref(*lvt(cp)), f"{name} U+{cp:04X}")
 
     def test_844_and_hbios24_equal_hanterms_own_844_code_and_ioloS_script(self):
-        for name in ("844", "844-hbios24"):
+        for name in ("844", "844-hbios24", "hanterm-844"):
             t = jamoset.tables_for(jamoset.LAYOUTS[name])
             for cp in range(0xAC00, 0xD7A4):
                 self.assertEqual(jamoset.pieces_of(t, cp), hanterm_844_glyphs(cp), f"{name} U+{cp:04X}")
@@ -438,6 +454,62 @@ class WrittenFile(unittest.TestCase):
             self.assertEqual(jamoset.compose(f, t, cp), johab844.compose(data, cp), f"U+{cp:04X}")
         msg = jamoset.check(out, layout, data)
         self.assertIn("identical to johab844.py", msg)
+
+    def test_hanterm_844_bdf_is_its_raw_8x4x4_font(self):
+        # a johab844-1 BDF builds the same jamo set as the raw font it holds, and --check compares with johab844.py
+        raw = make_source("844")
+        bdf = bdf_of_raw844(raw)
+        a, _, _ = jamoset.build(jamoset.LAYOUTS["844"], raw)
+        b, _, _ = jamoset.build(jamoset.LAYOUTS["hanterm-844"], bdf)
+        self.assertEqual(a, b)
+        self.assertEqual(jamoset.raw_of(jamoset.open_bdf844(bdf)), raw)
+        self.assertIn("identical to johab844.py", jamoset.check(b, jamoset.LAYOUTS["hanterm-844"], bdf))
+
+    def test_bdf_glyph_reaching_past_the_cell_is_masked(self):
+        # BBX 16 16 -3 -2: the glyph starts 3 px left of the origin; its 3 leftmost columns fall outside the cell and
+        # are dropped
+        text = make_bdf().decode("latin-1").replace("ENCODING 5\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 0 -2",
+                                                    "ENCODING 5\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 -3 -2")
+        self.assertIn("BBX 16 16 -3 -2", text)
+        src = jamoset.open_bdf_glyphs(text.encode("latin-1"))
+        g = src.glyph(5)
+        self.assertTrue(all(0 <= r < 1 << 16 for r in g.rows))
+        self.assertEqual(len(g.to_bytes()), 32)
+
+    def test_bdf_glyph_with_an_empty_box_is_blank(self):
+        # BBX 0 0 (an empty glyph, BITMAP with no rows) and BBX 0 16 read as a glyph without ink, not a crash
+        text = make_bdf().decode("latin-1")
+        at = text.index("ENCODING 9\n")
+        end = text.index("ENDCHAR", at)
+        empty = text[:at] + "ENCODING 9\nSWIDTH 0 0\nDWIDTH 16 0\nBBX 0 0 0 0\nBITMAP\n" + text[end:]
+        self.assertEqual(jamoset.open_bdf_glyphs(empty.encode("latin-1")).glyph(9).rows, [0] * 16)
+        zero_w = text.replace("ENCODING 9\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 0 -2",
+                              "ENCODING 9\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 0 16 0 -2")
+        self.assertNotEqual(zero_w, text)
+        self.assertEqual(jamoset.open_bdf_glyphs(zero_w.encode("latin-1")).glyph(9).rows, [0] * 16)
+        bad = text[:at] + "ENCODING 9\nSWIDTH 0 0\nDWIDTH 16 0\nBBX 16 1 0 0\nBITMAP\nZZZZ\n" + text[end:]
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.open_bdf_glyphs(bad.encode("latin-1"))
+
+    def test_bdf_with_a_huge_cell_is_refused(self):
+        for old, new in (("FONT_ASCENT 14", "FONT_ASCENT 100000000000"),
+                         ("FONTBOUNDINGBOX 16 16 0 -2", "FONTBOUNDINGBOX 100000 16 0 -2"),
+                         ("FONTBOUNDINGBOX 16 16 0 -2", "FONTBOUNDINGBOX 0 16 0 -2")):
+            text = make_bdf().decode("latin-1").replace(old, new, 1)
+            with self.assertRaises(jamoset.SourceError, msg=new):
+                jamoset.open_bdf_glyphs(text.encode("latin-1"))
+        text = make_bdf().decode("latin-1").replace("ENCODING 7\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 0 -2",
+                                                    "ENCODING 7\nSWIDTH 1000 0\nDWIDTH 16 0\nBBX 16 16 -100000 -2")
+        with self.assertRaises(jamoset.SourceError):
+            jamoset.open_bdf_glyphs(text.encode("latin-1"))
+
+    def test_hanterm_844_refuses_a_bdf_that_is_not_8x4x4(self):
+        with self.assertRaises(jamoset.SourceError) as cm:	# fill slots inked: a johab-1 font cut to 360 glyphs
+            jamoset.open_bdf844(bdf_of_raw844(bytes(random.Random(3).randbytes(360 * 32))))
+        self.assertIn("fill slots", str(cm.exception))
+        with self.assertRaises(jamoset.SourceError) as cm:
+            jamoset.open_bdf844(make_bdf().replace(b"ENCODING 17\n", b"ENCODING 9999\n"))
+        self.assertIn("johab844-1", str(cm.exception))
 
     def test_every_layout_composes_the_or_of_its_source_pieces(self):
         for name, layout in jamoset.LAYOUTS.items():

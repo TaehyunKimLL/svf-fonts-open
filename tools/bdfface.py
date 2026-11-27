@@ -18,7 +18,8 @@ tool makes one from a KS X 1001 BDF (a DOS-era 24 dot jamo font goes through jam
 The face stays precomposed (flag 5: variable width + marks at origin, as the other L faces): a syllable steps by
 --hangul-advance (default: the BDF's DWIDTH of the first syllable), ASCII by its own width. U+2026 is three
 square dots on the baseline and U+25A1 the missing-glyph box, both drawn here, so the SVF holds no glyph from
-a face other than the two named.
+a face other than the two named. --symbols also takes the other characters --chars-from names (KS X 1001 symbols,
+jamo, Hanja) from the Hangul BDF where it has them; a U+2026 / U+25A1 of the BDF then replaces the drawn one.
 """
 
 import argparse
@@ -99,7 +100,10 @@ def _read(path, limit=-1):
 
 
 def _gl_to_unicode(code):
-    """KS X 1001 GL code (0x2121..0x7E7E) -> code point, or None."""
+    """KS X 1001 GL code (0x2121..0x7E7E; a GR code 0xA1A1..0xFEFE reads the same) -> code point, or None (also for
+    an ENCODING outside two bytes, such as the -1 of an unencoded BDF glyph)."""
+    if not 0 <= code <= 0xFFFF:
+        return None
     try:
         return ord(bytes([(code >> 8) | 0x80, (code & 0xFF) | 0x80]).decode("cp949"))
     except (UnicodeDecodeError, TypeError):
@@ -285,9 +289,12 @@ def fill_rows(placed, absent, cell_w, cell_h, mask_font=None, pylib=None):
 
 
 def build(hangul, ascii_face, cell_w, cell_h, ascent, chars, hangul_advance=None, hangul_ascent=None, fill=False,
-          mask_font=None, pylib=None, profile="default"):
+          mask_font=None, pylib=None, profile="default", symbols=False):
     """Returns (font bytes, info dict). @p ascent is the cell row of the ASCII baseline (and of the dots and the box);
-    syllables stand on @p hangul_ascent (default: the Hangul face's own FONT_ASCENT)."""
+    syllables stand on @p hangul_ascent (default: the Hangul face's own FONT_ASCENT). With @p symbols the characters of
+    @p chars that are neither syllables nor ASCII are also taken from the Hangul face where it has them (KS X 1001
+    symbols, jamo, Hanja), on the syllables' baseline with their own DWIDTH; a U+2026 or U+25A1 of the face then
+    stands instead of the drawn one."""
     hface, hglyphs = hangul
     aface, aglyphs = ascii_face
     out = {}
@@ -318,6 +325,18 @@ def build(hangul, ascii_face, cell_w, cell_h, ascent, chars, hangul_advance=None
             ix, iw = ink(rows, cell_w)
             out[cp] = (pack_rows(rows, cell_w), adv_h, ix, iw)
             filled += 1
+    taken = 0
+    if symbols:
+        for cp in sorted(c for c in chars if not 0xAC00 <= c <= 0xD7A3 and not 0x20 <= c <= 0x7E):
+            g = hglyphs.get(cp)
+            if g is None or not g[4]:
+                continue
+            rows, clip = place(g, cell_w, cell_h, hangul_ascent if hangul_ascent is not None else hface.ascent)
+            if clip:
+                clipped.append(cp)
+            ix, iw = ink(rows, cell_w)
+            out[cp] = (pack_rows(rows, cell_w), g[5], ix, iw)
+            taken += 1
     for cp in range(0x20, 0x7F):
         g = aglyphs.get(cp)
         if g is None:
@@ -329,14 +348,17 @@ def build(hangul, ascii_face, cell_w, cell_h, ascent, chars, hangul_advance=None
         out[cp] = (pack_rows(rows, cell_w), g[5], ix, iw)
     sp = aglyphs.get(0x20)
     adv_sp = sp[5] if sp else (aface.box_w or 12)
-    dots_rows = dots(cell_w, cell_h, ascent, adv_sp)
-    ix, iw = ink(dots_rows, cell_w)
-    out[0x2026] = (pack_rows(dots_rows, cell_w), adv_sp, ix, iw)
-    box_rows = box(cell_w, cell_h, ascent)
-    ix, iw = ink(box_rows, cell_w)
-    out[0x25A1] = (pack_rows(box_rows, cell_w), hangul_advance or adv_h, ix, iw)
+    if 0x2026 not in out:
+        dots_rows = dots(cell_w, cell_h, ascent, adv_sp)
+        ix, iw = ink(dots_rows, cell_w)
+        out[0x2026] = (pack_rows(dots_rows, cell_w), adv_sp, ix, iw)
+    if 0x25A1 not in out:
+        box_rows = box(cell_w, cell_h, ascent)
+        ix, iw = ink(box_rows, cell_w)
+        out[0x25A1] = (pack_rows(box_rows, cell_w), hangul_advance or adv_h, ix, iw)
     info = {"cell": [cell_w, cell_h], "ascent": ascent, "syllables": sum(1 for c in out if 0xAC00 <= c <= 0xD7A3),
-            "syllable_advance": adv_h, "missing_syllables": len(missing) - filled, "filled": filled, "clipped": len(clipped), "glyphs": len(out)}
+            "syllable_advance": adv_h, "missing_syllables": len(missing) - filled, "filled": filled, "clipped": len(clipped), "glyphs": len(out),
+            "symbols": taken}
     return write_face(cell_w, cell_h, ascent, out, profile), info
 
 
@@ -355,6 +377,8 @@ def main():
     ap.add_argument("--mask-font", help="--fill-absent: mask font as for jamoset.py (default: $JAMOSET_MASK_FONT or the "
                     "shipped NotoSansKR when freetype/uharfbuzz import; 'none' = free pieces)")
     ap.add_argument("--pylib", help="directory holding freetype and uharfbuzz (also $JAMOSET_PYLIB)")
+    ap.add_argument("--symbols", action="store_true", help="also take the other characters --chars-from names (KS X 1001 "
+                    "symbols, jamo, Hanja) from the Hangul BDF where it has them")
     jamoset.add_profile_args(ap)
     ap.add_argument("-o", "--output", required=True)
     args = ap.parse_args()
@@ -374,7 +398,7 @@ def main():
                 print("bdfface: no freetype/uharfbuzz, fitting without the mask font", file=sys.stderr)
                 mask = None
         data, info = build(hangul, ascii_face, cell_w, cell_h, ascent, set(cps), args.hangul_advance,
-                           args.hangul_ascent, args.fill_absent, mask, args.pylib, profile)
+                           args.hangul_ascent, args.fill_absent, mask, args.pylib, profile, args.symbols)
     except (FaceError, OSError) as e:
         sys.exit(f"bdfface: {e}")
     with open(args.output, "wb") as f:
@@ -382,7 +406,8 @@ def main():
     print(f"{args.output}: {len(data)} bytes, {info['syllables']} syllables, cell {cell_w}x{cell_h}, ascent {ascent}, "
           f"step {info['syllable_advance']}, {info['filled']} absent syllables composed, "
           f"{info['missing_syllables']} left absent, "
-          f"{info['clipped']} glyphs clipped")
+          + (f"{info['symbols']} other characters from the Hangul face, " if args.symbols else "")
+          + f"{info['clipped']} glyphs clipped")
 
 
 if __name__ == "__main__":

@@ -42,7 +42,8 @@
 | 문서 | 다루는 내용 |
 |---|---|
 | [아웃라인 폰트](recipes/outline-fonts.ko.md) | TTF, OTF, TTC/OTC, 가변 폰트, Mac TrueType; 아웃라인 폰트와 자모를 가진 폰트에서 만드는 자모 세트; 2 bpp 안티앨리어싱; 기준선과 클리핑 |
-| [비트맵 폰트](recipes/bitmap-fonts.ko.md) | BDF/PCF(ISO 10646, KS C 5601), hanterm, HBF, Windows FNT/FON, 내장 스트라이크; 고해상도 비트맵 폰트에서 만드는 저해상도 페이스 |
+| [비트맵 폰트](recipes/bitmap-fonts.ko.md) | BDF/PCF(ISO 10646, KS C 5601), HBF, Windows FNT/FON, 내장 스트라이크; 고해상도 비트맵 폰트에서 만드는 저해상도 페이스 |
+| [X 윈도와 유닉스의 한글 폰트](recipes/x-window.ko.md) | X와 유닉스 한글 폰트를 계열별로: 대우, 백묵, 한양, KAIST, 미지, jfbterm, zhcon(KS C 5601 BDF/PCF), hanterm의 johab844-1과 johab-1 자모 세트 폰트; 라이선스와 샘플 |
 | [DOS 시대 원시 폰트](recipes/dos-fonts.ko.md) | 원시 자모 조각 폰트(8x4x4, san, 도깨비, Kyrandia), HWP 1.x/2.x와 3.0 폰트, KS X 1001 원시 덤프 |
 | [프로그램과 드라이버 안의 폰트](recipes/programs-and-drivers.ko.md) | Claude와 함께 프로그램이나 데이터 파일 안의 폰트 찾기: 도구, 프롬프트, NKP, 도깨비 |
 | [한글 VGA 폰트 ROM (86Box)](recipes/rom-86box.ko.md) | 86Box ROM 세트의 한글 VGA 폰트 ROM(Trigem, 가산, ATI) |
@@ -74,8 +75,9 @@
 | Mac TrueType(`.dfont`, suitcase, 한글 전용 cmap) | `macsfnt.py extract` / `unicode` 다음 위와 같이 | 위와 같이 | [Mac 형식 TrueType](recipes/outline-fonts.ko.md#mac-형식-truetype) |
 | 내장 스트라이크(`EBDT`, `bdat`)가 있는 아웃라인 폰트 | 스트라이크의 크기로 `mkfont.py --size`, 1 bpp | 없음 | [내장 비트맵 스트라이크](recipes/bitmap-fonts.ko.md#내장-비트맵-스트라이크) |
 | 유니코드(`ISO10646`) BDF 또는 PCF | 파일 자신의 픽셀 크기로 `mkfont.py`, 1 bpp | `jamoset.py --from-svf`로 맞춤 | [ISO 10646 BDF와 PCF](recipes/bitmap-fonts.ko.md#iso-10646-bdf와-pcf) |
-| KS C 5601 / KS X 1001(X Window) BDF 또는 PCF | `srcprep.py pcf-bdf`(PCF만) 다음 `bdfface.py` | `jamoset.py --from-svf` | [KS C 5601 BDF와 PCF](recipes/bitmap-fonts.ko.md#ks-c-5601-bdf와-pcf) |
-| hanterm johab BDF | 없음 | `jamoset.py --layout hanterm-johab` | [hanterm](recipes/bitmap-fonts.ko.md#hanterm) |
+| KS C 5601 / KS X 1001(X Window) BDF 또는 PCF | `srcprep.py pcf-bdf`(PCF만) 다음 `bdfface.py`(기호는 `--symbols`) | `jamoset.py --from-svf` | [KS C 5601 BDF와 PCF](recipes/bitmap-fonts.ko.md#ks-c-5601-bdf와-pcf). 폰트 계열별: [X 윈도와 유닉스의 한글 폰트](recipes/x-window.ko.md#x-윈도와-유닉스의-한글-폰트) |
+| hanterm johab-1 BDF(`10-6-6`, 글리프 529개) | 없음 | `jamoset.py --layout hanterm-johab` | [hanterm 조합형 폰트](recipes/x-window.ko.md#hanterm) |
+| hanterm johab844-1 BDF(`8-4-4`, 글리프 360개) | 없음 | `jamoset.py --layout hanterm-844`(정확) | [hanterm 조합형 폰트](recipes/x-window.ko.md#hanterm) |
 | HBF | `bdfface.py`의 ASCII 절반으로만 | 없음 | [HBF](recipes/bitmap-fonts.ko.md#hbf) |
 | Windows `.FNT` / `.FON` | 리더 없음(FreeType이 유니코드 맵을 주지 않는다. 먼저 바깥 도구로 BDF로 변환하라) | 없음 | [Windows FNT와 FON](recipes/bitmap-fonts.ko.md#windows-fnt와-fon) |
 | DOS 원시 자모 조각 폰트(8x4x4 `HANGUL.FNT`, san, 도깨비, Kyra...) | `johab844.py`(16 px 8x4x4) | `jamoset.py --layout L` | [DOS 시대 원시 폰트](recipes/dos-fonts.ko.md#dos-시대-원시-폰트) |
@@ -226,10 +228,11 @@ EUC-KR / 완성형 바이트 쌍 = GL 코드 + 0x8080 (`가` = B0A1 = GL 3021). 
 | <a id="ttc와-otc"></a><a id="opentype-cff-컬렉션-가변-폰트"></a><a id="37-ttc와-otc"></a>`#ttc와-otc`, `#opentype-cff-컬렉션-가변-폰트`, `#37-ttc와-otc` | [TTC와 OTC](recipes/outline-fonts.ko.md#ttc와-otc) |
 | <a id="가변-폰트"></a><a id="38-가변-폰트"></a>`#가변-폰트`, `#38-가변-폰트` | [가변 폰트](recipes/outline-fonts.ko.md#가변-폰트) |
 | <a id="mac-형식-truetype"></a><a id="39-mac-형식-truetype"></a>`#mac-형식-truetype`, `#39-mac-형식-truetype` | [Mac 형식 TrueType](recipes/outline-fonts.ko.md#mac-형식-truetype) |
-| <a id="비트맵-폰트"></a><a id="x-window-한글-폰트"></a><a id="4-비트맵-폰트"></a>`#비트맵-폰트`, `#x-window-한글-폰트`, `#4-비트맵-폰트` | [비트맵 폰트](recipes/bitmap-fonts.ko.md#비트맵-폰트) |
+| <a id="비트맵-폰트"></a><a id="4-비트맵-폰트"></a>`#비트맵-폰트`, `#4-비트맵-폰트` | [비트맵 폰트](recipes/bitmap-fonts.ko.md#비트맵-폰트) |
+| <a id="x-window-한글-폰트"></a>`#x-window-한글-폰트` | [X 윈도와 유닉스의 한글 폰트](recipes/x-window.ko.md#x-window-한글-폰트) |
 | <a id="iso-10646-bdf와-pcf"></a><a id="41-iso-10646-bdf와-pcf"></a>`#iso-10646-bdf와-pcf`, `#41-iso-10646-bdf와-pcf` | [ISO 10646 BDF와 PCF](recipes/bitmap-fonts.ko.md#iso-10646-bdf와-pcf) |
 | <a id="ks-c-5601-bdf와-pcf"></a><a id="42-ks-c-5601-bdf와-pcf"></a>`#ks-c-5601-bdf와-pcf`, `#42-ks-c-5601-bdf와-pcf` | [KS C 5601 BDF와 PCF](recipes/bitmap-fonts.ko.md#ks-c-5601-bdf와-pcf) |
-| <a id="hanterm"></a><a id="43-hanterm"></a>`#hanterm`, `#43-hanterm` | [hanterm](recipes/bitmap-fonts.ko.md#hanterm) |
+| <a id="hanterm"></a><a id="43-hanterm"></a>`#hanterm`, `#43-hanterm` | [hanterm 조합형 폰트](recipes/x-window.ko.md#hanterm) |
 | <a id="hbf"></a><a id="44-hbf"></a>`#hbf`, `#44-hbf` | [HBF](recipes/bitmap-fonts.ko.md#hbf) |
 | <a id="windows-fnt와-fon"></a><a id="45-windows-fnt와-fon"></a>`#windows-fnt와-fon`, `#45-windows-fnt와-fon` | [Windows FNT와 FON](recipes/bitmap-fonts.ko.md#windows-fnt와-fon) |
 | <a id="내장-비트맵-스트라이크"></a><a id="46-내장-비트맵-스트라이크"></a>`#내장-비트맵-스트라이크`, `#46-내장-비트맵-스트라이크` | [내장 비트맵 스트라이크](recipes/bitmap-fonts.ko.md#내장-비트맵-스트라이크) |
