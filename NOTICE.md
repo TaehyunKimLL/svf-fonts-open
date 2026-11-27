@@ -5,6 +5,12 @@
 The code, the format specification and the documentation written for this repository (`c/`, `tools/`, `maker/`, `web/`,
 `spec/`, `docs/`, the notes beside the faces) are under the MIT licence in [LICENSE](LICENSE), copyright Taehyun Kim.
 
+The sample images in `docs/images/recipes/` are excluded from that licence. They are small illustration samples, made
+with the owner's approval, of faces the recipes built from third-party fonts: Microsoft's Korean Windows fonts (glyph
+design HanYang I&C), IBM Korea's HBIOS fonts, the font ROMs of Korean MSX computers and the like. Those fonts belong to
+their owners and are not licensed here; the images show a few lines of text only, and neither the fonts nor the faces
+made from them are in this repository.
+
 The fonts and the faces made from them are **not** covered by that licence. Every font and face in this repository is
 under the **SIL Open Font License 1.1**, and its licence text sits beside it. A face in `svf/` is a Modified Version of
 its source font (rasterised, subset, or split into jamo pieces). `web/LICENCES.tsv` maps every face to its licence files
@@ -87,15 +93,16 @@ Some tools read font formats of commercial systems: `tools/macfbit3.py` and `too
 HangulTalk 'fbit' fonts), `jamoset.py --layout mac-fbit-45sets` (HangulTalk 1.0), `tools/macsfnt.py` (TrueType in Mac
 resource forks and .dfont files, Mac Korean cmaps), and the DOS / X11 raw layouts of
 `jamoset.py` and `johab844.py`. They are original code and read **user-supplied** font files only. No such font, no
-bitmap taken from one and no golden data derived from one is distributed here; their tests use synthetic fixtures made
+bitmap taken from one (apart from the sample images of `docs/images/recipes/` above) and no golden data derived from one
+is distributed here; their tests use synthetic fixtures made
 in the tests, and the checks against real files run only when an environment variable points at the user's own copies.
 
 The maker (`maker/`) has a local mode for such fonts: the desktop app passes it the paths of files or folders the
 user picked and an output folder; the fonts are read in place, converted, and the faces are written only into that
 folder. In that mode nothing is uploaded, nothing is copied into the maker's data directory, no zip is made, and
 the files the conversion needs on the way are kept inside the output folder and removed when the job ends. The
-maker has no code that connects anywhere but to its own local page on 127.0.0.1 (the tests check its imports and its own sockets; docs/maker-audit.md section 8 says what they do not cover). No proprietary font, bitmap or table is in this
-repository; the local-mode tests build synthetic inputs in the test and the checks on real files run only where an
+maker has no code that connects anywhere but to its own local page on 127.0.0.1 (the tests check its imports and its own sockets; docs/maker-audit.md section 8 says what they do not cover). No proprietary font or table is in this
+repository, and no proprietary bitmap apart from those sample images; the local-mode tests build synthetic inputs in the test and the checks on real files run only where an
 environment variable names the user's own copies. Having the right to convert a font is the user's own responsibility
 (the maker checks no licence in local mode and asks for an acknowledgement); anyone who publishes a result should check
 the font's licence.

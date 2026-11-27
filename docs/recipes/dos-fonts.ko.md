@@ -74,6 +74,95 @@ GOTHIC16.FNT(레이블 "844, 844-ihnm". 두 레이아웃의 크기가 같다)는
 24x48(49,152 바이트) PFT 영문 폰트를 받아 셀에 맞게 정수배로 키운다. 데스크톱 앱은 40, 48 px 페이스에 같은 높이의 영문 폰트를, 같은
 계열(G / M)을 먼저 짝짓는다.
 
+<a id="ibm-pc-dos-한글-hbios-v30"></a>
+
+### IBM PC DOS 한글 (HBIOS V3.0)
+
+한국IBM의 HBIOS V3.0 디스크(1994년판, 파일 날짜 1998)는 한글 BIOS(`HBIOS.EXE`)와 폰트 파일을 따로 둔다. 폰트 파일에는 헤더가
+없고, 드라이버가 설정 파일 `DOSK.INI`의 키(`SBCS0816`, `SBCS1224`, `DBCS1616`, `DBCS2424`, `SPHJ1616`, `SPHJ2424`, `FONTPATH`)로
+경로를 읽는다. 이름의 HN은 반각(SBCS, 영문), ZN은 전각(DBCS, 한글), SPHJ는 기호와 한자다(일본 DOS/V와 같은 짜임).
+
+| 키 | 파일 | 바이트 | 내용 |
+|---|---|---:|---|
+| `DBCS1616` | `$KGOZN16.FNT`, `$KMYZN16.FNT` | 11,520 | 16x16 8x4x4 자모 세트 360개(고딕, 명조) |
+| `DBCS2424` | `$KMYZN24.FNT` | 243,900 | 24x30 셀 2,710개(90 바이트, 잉크는 3-26행): 8x4x4 자모 세트 360개, 그다음 KS X 1001 음절 2,350자 |
+| `SBCS0816` | `$KSAHN16.FNT`(산세리프), `$KROHN16.FNT`(로만) | 4,096 | 8x16 영문 256자 |
+| `SBCS1224` | `$KROHN24.FNT` | 15,360 | 16x30 셀 256자(60 바이트, 12x24 그림은 3-26행) |
+| `SPHJ1616` | `$KSPHJ16.FNT` | 192,512 | 16x16, 기호 1,128칸 + 한자 4,888자(KS X 1001 순서, 32 바이트) |
+| `SPHJ2424` | `$KSPHJ24.FNT` | 541,440 | 24x30 셀, 기호 1,128칸 + 한자 4,888자(90 바이트) |
+
+`$KGOZN24.FNT`(고딕 24)는 설정 프로그램 `HCONFIG.EXE`의 폰트 목록에 이름이 있지만 디스크에 없다. `HJSPC.TBL`(12,508 바이트)은 코드 표이고 글리프가 없다. `*.DRV`는
+화면과 키보드 드라이버다. 음절은 드라이버가 자모 세트로 조합하므로, 16 px 파일은 [위의 표](#그-밖의-dos-시대-한글-폰트)의 원시
+8x4x4이고 24 px 파일은 `844-hbios24` 레이아웃이다(태백 3.5의 `GOTHIC24.FNT`, `MY24.FNT`와 같은 배치). 영문 절반은 같은 디스크의
+SBCS 파일이다: 8x16은 원시 4,096 바이트, 16x30 셀의 12x24는 `--eng`가 크기(15,360)로 알아본다.
+
+**출처와 라이선스.** 한국IBM의 독점 펌웨어 폰트다. 사용자 자신의 디스크에서 읽었고, 연구용으로만 쓰며, `svf/`의 페이스는 이것으로
+만들지 않는다. 아래 그림은 레시피가 만든 페이스를 작은 샘플로 보여 줄 뿐이고, 폰트와 거기서 만든 파일은 배포하지 않는다. 폰트
+파일은 신뢰할 수 없는 데이터다: 도구는 바이트만 읽는다(`python3 -I`). `HBIOS.EXE`는 실행하지 않는다. `$HB`는 디스크의 파일이 든 폴더다(이름의
+`$`가 셸에서 풀리지 않게 작은따옴표로 감싼다).
+
+    python3 -I tools/jamoset.py --layout 844 "$HB"/'$KGOZN16.FNT' --eng "$HB"/'$KSAHN16.FNT' --symbols --check -o $OUT/KGOZN16J.SVF
+    python3 -I tools/jamoset.py --layout 844 "$HB"/'$KMYZN16.FNT' --eng "$HB"/'$KROHN16.FNT' --symbols --check -o $OUT/KMYZN16J.SVF
+    python3 -I tools/jamoset.py --layout 844-hbios24 "$HB"/'$KMYZN24.FNT' --eng "$HB"/'$KROHN24.FNT' --symbols --check -o $OUT/KMYZN24J.SVF
+
+`$KMYZN24.FNT`의 완성형 음절 2,350자는 자모 360개 뒤(360 x 90 = 32,400 바이트), 셀의 3행부터(+9 바이트)이고, `$KROHN24.FNT`의
+ASCII는 오프셋 6(3행 x 2 바이트)에서 60 바이트 간격이다. 기준선은 잘라 낸 24행의 22행이다: `$KROHN24.FNT`의 'H'는 30행 셀의
+5-24행, 잘라 낸 칸의 2-21행을 덮고, `jamoset.py`는 12x24 `--eng` 페이스의 기준선을 그 아래 행으로 잡는다. 완성형도 같은 22로 자른다:
+
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KMYZN24.FNT' --offset 32409 --glyph 24x24 --stride 90 --chars ks-hangul --dense --ascent 22 -o $OUT/kmyzn24-hangul.bdf
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KROHN24.FNT' --offset 6 --glyph 12x24 --stride 60 --chars ascii --count 128 --ascent 22 -o $OUT/krohn24.bdf
+    python3 -I tools/bdfface.py --hangul $OUT/kmyzn24-hangul.bdf --ascii $OUT/krohn24.bdf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/KMYZN24.SVF
+
+기호와 한자는 [Windows 레시피](windows.ko.md#windows-hfont-sys)의 `HFONT.SYS`처럼 `tbmfont.py map`의 슬롯 맵으로 자른다(SPHJ
+파일은 헤더 없이 기호 블록부터 시작한다):
+
+    python3 -I tools/tbmfont.py map --blocks symbols,hanja -o $OUT/sphj.map
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KSPHJ16.FNT' --offset 0 --glyph 16x16 --chars map --map $OUT/sphj.map -o $OUT/ksphj16.bdf
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KSPHJ24.FNT' --offset 9 --glyph 24x24 --stride 90 --chars map --map $OUT/sphj.map --ascent 22 -o $OUT/ksphj24.bdf
+
+측정한 결과(점검 줄 `안녕하세요 ABC 123`, 24 px의 잉크는 `line 400 32 0 24`):
+
+| 페이스 | 바이트 | 글리프 | measure | 잉크 |
+|---|---:|---|---|---:|
+| `KGOZN16J.SVF`, 고딕 16 px 자모 세트(`--eng $KSAHN16`) | `15,736` | 441(조각 344) | `width=144 ascent=14 descent=2` | 535 |
+| `KMYZN16J.SVF`, 명조 16 px 자모 세트(`--eng $KROHN16`) | `15,864` | 441(조각 344) | `width=144 ascent=14 descent=2` | 509 |
+| `KMYZN24J.SVF`, 명조 24 px 자모 세트(`--eng $KROHN24`) | `23,380` | 441(조각 344) | `width=216 ascent=22 descent=2` | 966 |
+| `KMYZN24.SVF`, 같은 파일의 완성형 2,350자 + `$KROHN24` ASCII | `220,248` | 2,447 | `width=216 ascent=22 descent=2` | 983 |
+| `ksphj16.bdf` / `ksphj24.bdf` | | 5,872 / 5,871 | | |
+
+세 자모 세트 모두 `--check`가 음절 11,172자를 조합하고, 16 px 둘은 `johab844.py`의 음절과 같다("identical to johab844.py").
+`svf2to3.py --check`는 네 페이스를 모두 그대로 둔다. `fontmetrics.py`는 16 px 자모 세트에서 `--symbols`의 U+2026 하나만 advance를
+1 px 넘는다고 알린다. 24 px 자모 세트의 ascent 22는 `--eng` 페이스의 기준선('H' 잉크 아래 행)으로,
+`jamoset.py`가 12x24 영문 페이스에서 기본으로 가져온다. 완성형 페이스도 같은 `--ascent 22`로 잘랐으므로 둘 다 영문 기준선에 선다.
+
+**자모 세트와 같은 파일의 완성형.** `$KMYZN24.FNT`에는 두 가지가 다 있으니 비교할 수 있다. 자모 세트(`KMYZN24J.SVF`)가 조합한
+KS X 1001 음절 2,350자를 파일 자신의 완성형 음절과 같은 24x24 칸에서 비교하면 정확히 같은 음절은 0자, 평균 IoU 0.450(p5 0.211)이다.
+칸을 옮겨도(가로 -2..2, 세로 -3..3) 나아지지 않는다. 1 px 허용 F1은 평균 0.947(p5 0.823)이고, 잉크 합계는 거의 같다(완성형 292,819, 자모
+세트 294,308 픽셀). 획의 모양은 같고, 조각이 놓이는 자리가 음절마다 1 px씩 다르다: 완성형은 모음과 받침에 맞춰 자모를 따로
+옮겨 그렸다(예: `헌`의 ㅎ과 ㅓ). 가장 다른 음절은 ㅟ, ㅝ, ㅢ 계열이다(`뗍 찌 츤 쮜 쒼 쭤 윗 귓 킥 쪄`). 반대 방향으로, 완성형
+페이스에 `jamoset.py --layout 844 --from-svf $OUT/KMYZN24.SVF --mask-font none --check`로 8x4x4를 맞추면 `fit: 2350 syllables, IoU
+0.719 (p5 0.457), F1 tol1 0.986`, 정확 17자, `30,664 바이트`다. 파일의 자모 세트는 HBIOS가 그리는 그대로이고, 완성형 페이스는
+음절마다 손본 디자인이다(바이트는 약 9.4배).
+
+![IBM HBIOS V3.0의 고딕 16 px 자모 세트($KGOZN16)와 산세리프 영문($KSAHN16), $KSPHJ16의 기호, 2배](../images/recipes/dos/hbios-gothic16.png)
+
+*IBM HBIOS V3.0 고딕 16 px: `$KGOZN16.FNT` 자모 세트, `$KSAHN16.FNT` 영문, `$KSPHJ16.FNT` 기호, 2배*
+
+![IBM HBIOS V3.0의 명조 16 px 자모 세트($KMYZN16)와 로만 영문($KROHN16), $KSPHJ16의 기호, 2배](../images/recipes/dos/hbios-myeongjo16.png)
+
+*IBM HBIOS V3.0 명조 16 px: `$KMYZN16.FNT` 자모 세트, `$KROHN16.FNT` 영문, `$KSPHJ16.FNT` 기호, 2배*
+
+![IBM HBIOS V3.0의 명조 24 px 자모 세트($KMYZN24의 앞 360개)와 12x24 영문($KROHN24), $KSPHJ24의 기호, 2배](../images/recipes/dos/hbios-myeongjo24.png)
+
+*IBM HBIOS V3.0 명조 24 px 자모 세트(`$KMYZN24.FNT`의 자모 360개), `$KROHN24.FNT` 영문, `$KSPHJ24.FNT` 기호, 2배*
+
+![같은 $KMYZN24 파일의 완성형 음절 2,350자로 만든 페이스, 2배](../images/recipes/dos/hbios-myeongjo24-precomposed.png)
+
+*같은 `$KMYZN24.FNT`의 완성형 음절 2,350자(같은 영문과 기호), 2배: 위 자모 세트와 비교*
+
+그림은 `tools/doc_figures_hbios.py --disk "$HB"`가 위의 명령으로 페이스를 만들어 그린다(`--check`로 저장소의 그림과 바이트 단위 비교,
+[도구 설명서](../tools.ko.md)).
+
 <a id="hwp-1x와-2x-폰트"></a>
 
 ### HWP 1.x와 2.x 폰트

@@ -76,6 +76,103 @@ fill pieces are not blank, but look at the result (`svfline.py line ... "가나�
 (30,720 bytes) and 24x48 (49,152 bytes) PFT English fonts of the same package, each scaled by whole numbers to the cell;
 the desktop app pairs a 40 or 48 px face with the English font of its own height, the same family (G / M) first.
 
+<a id="ibm-pc-dos-한글-hbios-v30"></a>
+
+### IBM PC DOS 한글 (HBIOS V3.0)
+
+The IBM Korea HBIOS V3.0 disk (1994 release, files dated 1998) keeps the Hangul BIOS (`HBIOS.EXE`) and its fonts in
+separate files. The font files have no header; the driver reads their paths from the keys of its configuration file
+`DOSK.INI` (`SBCS0816`, `SBCS1224`, `DBCS1616`, `DBCS2424`, `SPHJ1616`, `SPHJ2424`, `FONTPATH`). In the names HN is
+half width (SBCS, English), ZN full width (DBCS, Hangul), SPHJ symbols and hanja (the scheme of Japanese DOS/V).
+
+| Key | Files | Bytes | Contents |
+|---|---|---:|---|
+| `DBCS1616` | `$KGOZN16.FNT`, `$KMYZN16.FNT` | 11,520 | a 16x16 8x4x4 jamo set of 360 pieces (gothic, myeongjo) |
+| `DBCS2424` | `$KMYZN24.FNT` | 243,900 | 2,710 cells of 24x30 (90 bytes, ink in rows 3-26): the 360 pieces of an 8x4x4 jamo set, then the 2,350 KS X 1001 syllables |
+| `SBCS0816` | `$KSAHN16.FNT` (sans), `$KROHN16.FNT` (roman) | 4,096 | 256 English glyphs of 8x16 |
+| `SBCS1224` | `$KROHN24.FNT` | 15,360 | 256 cells of 16x30 (60 bytes, the 12x24 art in rows 3-26) |
+| `SPHJ1616` | `$KSPHJ16.FNT` | 192,512 | 16x16: the 1,128 symbol slots + 4,888 hanja (KS X 1001 order, 32 bytes) |
+| `SPHJ2424` | `$KSPHJ24.FNT` | 541,440 | 24x30 cells: the 1,128 symbol slots + 4,888 hanja (90 bytes) |
+
+`$KGOZN24.FNT` (gothic 24) is named in the font list of `HCONFIG.EXE` (the configuration program) but is not on the
+disk. `HJSPC.TBL` (12,508 bytes) is a code table with no glyphs; the `*.DRV` files are display and keyboard drivers. The driver composes syllables from a jamo
+set, so the 16 px files are the raw 8x4x4 of [the table above](#other-dos-era-korean-fonts) and the 24 px file is the
+`844-hbios24` layout (the layout of Taebaek 3.5's `GOTHIC24.FNT` and `MY24.FNT`). The English half is the disk's SBCS
+file: the 8x16 ones are raw 4,096-byte fonts, and `--eng` knows the 12x24 one in 16x30 cells by its size (15,360).
+
+**Source and licence.** IBM Korea's proprietary firmware fonts, read from the user's own disk; for research only, and
+no face in `svf/` is made from them. The images below show faces the recipe built as small samples only; the fonts and
+the files made from them are not distributed. The font files are untrusted data: the tools only read bytes (`python3
+-I`); `HBIOS.EXE` is not run. `$HB` is the folder with the disk's files (quote the names so the shell leaves their `$`
+alone).
+
+    python3 -I tools/jamoset.py --layout 844 "$HB"/'$KGOZN16.FNT' --eng "$HB"/'$KSAHN16.FNT' --symbols --check -o $OUT/KGOZN16J.SVF
+    python3 -I tools/jamoset.py --layout 844 "$HB"/'$KMYZN16.FNT' --eng "$HB"/'$KROHN16.FNT' --symbols --check -o $OUT/KMYZN16J.SVF
+    python3 -I tools/jamoset.py --layout 844-hbios24 "$HB"/'$KMYZN24.FNT' --eng "$HB"/'$KROHN24.FNT' --symbols --check -o $OUT/KMYZN24J.SVF
+
+The 2,350 precomposed syllables of `$KMYZN24.FNT` start after the 360 jamo pieces (360 x 90 = 32,400 bytes), at row 3
+of the cell (+9 bytes); the ASCII of `$KROHN24.FNT` starts at offset 6 (row 3 x 2 bytes), 60 bytes apart. The baseline
+is row 22 of the 24-row cut: the 'H' of `$KROHN24.FNT` covers rows 5-24 of its 30-row cell, rows 2-21 of the cut, and
+`jamoset.py` takes the row under it as the baseline of a 12x24 `--eng` face. The precomposed cut uses the same 22:
+
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KMYZN24.FNT' --offset 32409 --glyph 24x24 --stride 90 --chars ks-hangul --dense --ascent 22 -o $OUT/kmyzn24-hangul.bdf
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KROHN24.FNT' --offset 6 --glyph 12x24 --stride 60 --chars ascii --count 128 --ascent 22 -o $OUT/krohn24.bdf
+    python3 -I tools/bdfface.py --hangul $OUT/kmyzn24-hangul.bdf --ascii $OUT/krohn24.bdf --cell 24x24 --chars-from $OUT/ks.txt -o $OUT/KMYZN24.SVF
+
+The symbols and hanja are cut with the slot map of `tbmfont.py map`, as `HFONT.SYS` in the [Windows
+recipe](windows.md#windows-hfont-sys) (the SPHJ files have no header and start with the symbol block):
+
+    python3 -I tools/tbmfont.py map --blocks symbols,hanja -o $OUT/sphj.map
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KSPHJ16.FNT' --offset 0 --glyph 16x16 --chars map --map $OUT/sphj.map -o $OUT/ksphj16.bdf
+    python3 -I tools/rawcarve.py bdf "$HB"/'$KSPHJ24.FNT' --offset 9 --glyph 24x24 --stride 90 --chars map --map $OUT/sphj.map --ascent 22 -o $OUT/ksphj24.bdf
+
+Measured (check line `안녕하세요 ABC 123`; the ink of the 24 px faces with `line 400 32 0 24`):
+
+| Face | Bytes | Glyphs | measure | Ink |
+|---|---:|---|---|---:|
+| `KGOZN16J.SVF`, gothic 16 px jamo set (`--eng $KSAHN16`) | `15,736` | 441 (344 pieces) | `width=144 ascent=14 descent=2` | 535 |
+| `KMYZN16J.SVF`, myeongjo 16 px jamo set (`--eng $KROHN16`) | `15,864` | 441 (344 pieces) | `width=144 ascent=14 descent=2` | 509 |
+| `KMYZN24J.SVF`, myeongjo 24 px jamo set (`--eng $KROHN24`) | `23,380` | 441 (344 pieces) | `width=216 ascent=22 descent=2` | 966 |
+| `KMYZN24.SVF`, the same file's 2,350 precomposed syllables + `$KROHN24` ASCII | `220,248` | 2,447 | `width=216 ascent=22 descent=2` | 983 |
+| `ksphj16.bdf` / `ksphj24.bdf` | | 5,872 / 5,871 | | |
+
+For all three jamo sets `--check` composes the 11,172 syllables, and the two 16 px ones equal the syllables of
+`johab844.py` ("identical to johab844.py"). `svf2to3.py --check` leaves all four faces as they are. `fontmetrics.py`
+reports, for the 16 px jamo sets, only the U+2026 of `--symbols` reaching 1 px past its advance. The ascent 22 of the
+24 px jamo set is the baseline of its `--eng` face (the row under the ink of 'H'), which `jamoset.py` takes by default
+for a 12x24 English face; the precomposed face is cut with the same `--ascent 22`, so both stand on the English
+baseline.
+
+**The jamo set against the same file's precomposed syllables.** `$KMYZN24.FNT` holds both, so they can be compared.
+The 2,350 KS X 1001 syllables composed by the jamo set (`KMYZN24J.SVF`), against the file's own precomposed syllables
+in the same 24x24 box: 0 exactly the same, mean IoU 0.450 (p5 0.211). Moving the box (-2..2 across, -3..3 down) does
+not help. With 1 px tolerance the F1 is 0.947 on average (p5 0.823), and the ink totals are nearly equal (292,819
+pixels precomposed, 294,308 composed). The strokes have the same shapes; the pieces sit 1 px elsewhere from syllable
+to syllable: the precomposed glyphs move each jamo to suit the vowel and the final (the ㅎ and ㅓ of `헌`, for example).
+The ㅟ, ㅝ, ㅢ families differ most (`뗍 찌 츤 쮜 쒼 쭤 윗 귓 킥 쪄`). The other way round, fitting an 8x4x4 to the precomposed
+face with `jamoset.py --layout 844 --from-svf $OUT/KMYZN24.SVF --mask-font none --check` gives `fit: 2350 syllables,
+IoU 0.719 (p5 0.457), F1 tol1 0.986`, 17 exact, `30,664 bytes`. The file's jamo set is what HBIOS draws; the
+precomposed face is a design touched up syllable by syllable (about 9.4 times the bytes).
+
+![The IBM HBIOS V3.0 gothic 16 px jamo set ($KGOZN16) with the sans English font ($KSAHN16) and the symbols of $KSPHJ16, x2](../images/recipes/dos/hbios-gothic16.png)
+
+*IBM HBIOS V3.0 gothic 16 px: the `$KGOZN16.FNT` jamo set, `$KSAHN16.FNT` English, `$KSPHJ16.FNT` symbols, x2*
+
+![The IBM HBIOS V3.0 myeongjo 16 px jamo set ($KMYZN16) with the roman English font ($KROHN16) and the symbols of $KSPHJ16, x2](../images/recipes/dos/hbios-myeongjo16.png)
+
+*IBM HBIOS V3.0 myeongjo 16 px: the `$KMYZN16.FNT` jamo set, `$KROHN16.FNT` English, `$KSPHJ16.FNT` symbols, x2*
+
+![The IBM HBIOS V3.0 myeongjo 24 px jamo set (the first 360 pieces of $KMYZN24) with the 12x24 English font ($KROHN24) and the symbols of $KSPHJ24, x2](../images/recipes/dos/hbios-myeongjo24.png)
+
+*The IBM HBIOS V3.0 myeongjo 24 px jamo set (the 360 pieces of `$KMYZN24.FNT`), `$KROHN24.FNT` English, `$KSPHJ24.FNT` symbols, x2*
+
+![The face made from the 2,350 precomposed syllables of the same $KMYZN24 file, x2](../images/recipes/dos/hbios-myeongjo24-precomposed.png)
+
+*The 2,350 precomposed syllables of the same `$KMYZN24.FNT` (same English and symbols), x2: compare with the jamo set above*
+
+The images are drawn by `tools/doc_figures_hbios.py --disk "$HB"`, which builds the faces with the commands above
+(`--check` compares with the images in the repository byte for byte; [Tool reference](../tools.md)).
+
 <a id="hwp-1x-and-2x-fonts"></a>
 
 ### HWP 1.x and 2.x fonts
