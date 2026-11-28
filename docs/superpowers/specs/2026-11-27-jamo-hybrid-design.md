@@ -15,7 +15,10 @@
 > | IoU cost of the gates | | 0.001-0.009 |
 > | speed, 11,172 syllables, 4 threads, after the model | 5-9 s | default 7-15 s, ladder 30-90 s |
 >
-> Open: KS-only sources draw the other 8,822 syllables no better than v1 (0.72-0.84 against 0.68-0.88); the default
+> Open: KS-only sources draw the other 8,822 syllables no better than v1 (0.72-0.84 against 0.68-0.88); a likely
+> factor is that groups sharing no jamo (initial and final problems hold several jamo; a source with holes has many such
+> groups) merge at zero cost in the tolerance phase, without evidence that they share a design, and those groupings
+> then place the unseen contexts; the default
 > is larger than v1's; Gothic A1, Single Day and the Windows 95 Gulim strikes are in the weights' training data, so
 > they are not held out; the tolerance, slack and class caps were chosen on four fonts, mono only; `--big` has had one
 > smoke run, no evaluation.
