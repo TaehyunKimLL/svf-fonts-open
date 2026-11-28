@@ -807,8 +807,11 @@ def main(argv=None):
     if a.from_svf:
         src = from_svf(a.from_svf)
     else:
-        cell = tuple(int(x) for x in a.cell.lower().split("x")) if a.cell else None
-        if cell and not (len(cell) == 2 and all(4 <= v <= MAX_CELL for v in cell)):
+        try:
+            cell = tuple(int(x) for x in a.cell.lower().split("x")) if a.cell else None
+        except ValueError:
+            cell = ()
+        if cell is not None and not (len(cell) == 2 and all(4 <= v <= MAX_CELL for v in cell)):
             ap.error(f"--cell {a.cell}: WxH, each 4..{MAX_CELL}")
         src = from_ttf(a.from_ttf, a.size, cell, a.baseline, a.pylib)
     max_classes = LIMITS[a.big][1]
