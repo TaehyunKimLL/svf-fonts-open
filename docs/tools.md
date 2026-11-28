@@ -843,7 +843,8 @@ repository root (`DIR` holds numpy built for the same Python; the tests skip wit
 
 **Speed.** With 4 threads, for 11,172 syllables: the model about 15 s, then one build 1.5-4 s, the default (five class
 caps) 7-15 s, the `--max-bytes` / `--min-iou` ladder 30-90 s. These hold for cells up to about 24 px; time and memory
-grow with the cell's pixels: at a 48 px cell the default took about 2 min and 2.0 GB peak (v1 1.6 GB). numpy uses every core by default; on a loaded many-core
+grow with the cell's pixels: at a 48 px cell the default took about 2 min and 1.4 GB peak
+(v1: about 1 min, 1.6 GB). numpy uses every core by default; on a loaded many-core
 machine set `OMP_NUM_THREADS` (for example 4): a 2,357-syllable face took 29 s with all threads and 6 s with 4 there.
 
 ### `tools/jamonet.py`

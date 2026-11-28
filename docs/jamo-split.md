@@ -789,7 +789,7 @@ The builder ships as `tools/jamohybrid.py` ([tools](tools.md#toolsjamohybridpy))
 - Faces built with a fold model (standard limits): 14-30 KB, composed IoU 0.93-0.995, label accuracy 0.95-0.996.
 - Options: `--max-bytes`, `--min-iou`, `--tol`, `--classes`, `--big` (off by default).
 - Speed (4 threads, 11,172 syllables, cells up to about 24 px): the model about 15 s, the default face 7-15 s more,
-  the ladder 30-90 s. At a 48 px cell the default took about 2 min and 2.0 GB peak memory (v1 1.6 GB).
+  the ladder 30-90 s. At a 48 px cell the default took about 2 min and 1.4 GB peak memory (v1: about 1 min, 1.6 GB).
 
 `tools/train_jamohybrid.py` (torch) trains new weights from a manifest of sources.
 
