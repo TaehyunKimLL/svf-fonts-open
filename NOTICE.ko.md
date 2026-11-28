@@ -99,6 +99,17 @@ Paperlogy는 폰트 파일에 OFL을 명시한다. 페이스 여섯 개(`NGOTB17
 sha256, 학습 스크립트, 시드, 평가를 적었다. 가중치 사용에 관한 라이선스 문제는 이 프로젝트에서 쓰는 글꼴과 마찬가지로
 사용자의 책임이다.
 
+`tools/models/jamofill-v1.npz`는 `tools/jamohybrid.py --fill`이 쓰는 글꼴 간 묶음 순위 모델(60-64-64-1 MLP)의
+가중치다. 코드와 같이 MIT 라이선스를 따른다. 학습 자료 때문에 여기에 따로 적는다.
+
+- 열린 글꼴의 비트맵만, 12 px와 16 px: Single Day, Neo Dunggeunmo, DovemayoGothic, 삼육대체 Light와 Regular,
+  Thin Mulmaru, WenQuanYi Zen Hei, Exqt(OFL-1.1. WenQuanYi는 GPL-2.0과 글꼴 예외).
+- 그 페이스들의 분리 레이블.
+
+학습 계보에 독점 글꼴은 없다. 남겨 둔 평가에서는 마이크로소프트 굴림(XP), 매직, 편지와 Un, Gothic A1 글꼴도
+채점했지만, 그 비트맵은 저장소에 없고 학습에도 쓰지 않았다. [tools/models/jamofill-v1.md](tools/models/jamofill-v1.md)에
+학습 페이스마다 sha256, 특징, 학습 명령과 시드, 남겨 둔 결과를 적었다.
+
 ## 독점 형식 변환기
 
 일부 도구는 상용 시스템의 폰트 형식을 읽는다. `tools/macfbit3.py`와 `tools/macfbit_svf.py`(클래식 Mac
