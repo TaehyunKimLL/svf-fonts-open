@@ -1,7 +1,18 @@
 # Learned jamo split in this repository (`tools/jamohybrid.py`) - design
 
-> **Phase A: design for review.** Nothing is implemented yet. Phase B (code, training, evaluation, documentation) starts
-> after this note is approved.
+> **Phase B implemented (2026-11-28)** on branch `jamo-hybrid`: `tools/jamohybrid.py`, `tools/jamonet.py`,
+> `tools/train_jamohybrid.py`, `tools/test_jamohybrid.py`, `tools/models/jamohybrid-v1.npz` with
+> `tools/models/jamohybrid-v1.md`. Owner decisions: train on everything available (section 1); the weights are MIT like
+> the code, listed separately in NOTICE with their training provenance. Measured against this design:
+>
+> | Item | Design | Result |
+> |---|---|---|
+> | model | smallest within 0.003 of base 32 | base 16 (488,755 parameters), never more than 0.002 below base 32 on a held-out face |
+> | weights | about 1 MB, fp16 | 910,579 bytes, fp16 |
+> | numpy vs torch | max probability difference < 1e-3 | 0.0037 with fp16 weights (labels threshold at 0.5); fp32 would double the file |
+> | speed | 2,350 syllables <= 5 s, 11,172 <= 20 s | 3.2 s and 14.8 s for the model (4 CPU threads); a standard face builds in about 6 s |
+> | training data | section 1 table | as listed; composite TrueType fonts (1.2) left for a later version |
+> | maker | follow-up | not done |
 
 ## Goal
 
