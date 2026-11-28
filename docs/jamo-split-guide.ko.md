@@ -27,19 +27,23 @@ mkdir -p "$OUT"
 
 도구별 실행 요구 사항은 [도구 설명서](tools.ko.md)를 따른다.
 
-- `tools/jamohybrid.py`: Python 3과 `numpy`가 필요하다. `--from-ttf`에는 `freetype-py`도 필요하다(`torch`는 필요 없다).
-  가상 환경의 Python을 직접 쓰거나, `--pylib DIR` 또는 환경 변수 `JAMOSET_PYLIB=DIR`로 패키지가 있는 경로를 지정한다.
+- `tools/jamohybrid.py`: `numpy`가 필요하다(`torch`는 필요 없다). `--from-ttf`에는 `freetype-py`도 필요하다.
   코어가 많은 기계에서는 `OMP_NUM_THREADS=4`를 설정하면 `numpy` 스레드 경합을 줄여 더 빠르다.
-- `tools/jamoset.py`, `tools/mkfont.py`, `tools/svfline.py`: 표준 `python3 -I`로 실행한다(`mkfont.py`에는 Pillow 필요).
+- `tools/jamoset.py`: `--from-svf`는 표준 라이브러리만으로 동작한다. `--from-ttf`(1 bpp `mono`)에는 `freetype-py`가 필요하다(GSUB 마스크에는 `uharfbuzz`, `--bpp 2` 또는 `--binarize threshold|ridge`에는 `fontTools`).
+- `tools/mkfont.py`: `Pillow`(FreeType 지원 포함)가 필요하다(`fontTools`는 선택).
+- `tools/svfline.py`: 표준 라이브러리만으로 동작한다.
+- 사례 3의 음절 수 확인 한 줄 명령(`python3 -I -c 'import freetype…'`)에는 `freetype-py`가 필요하다.
+- `--pylib DIR`과 `JAMOSET_PYLIB=DIR`은 `jamohybrid.py`와 `jamoset.py`에만 적용되며, `mkfont.py`나 단독 `python3 -I -c` 명령에는 닿지 않는다.
+  가장 간단한 방법은 `numpy`, `freetype-py`, `Pillow`를 모두 설치한 Python 3 환경 하나로 이 가이드의 모든 명령을 실행하는 것이다.
 - 내려받은 폰트는 신뢰하지 않는 데이터로 다루며, 모든 도구는 격리 모드(`-I`)로 실행한다.
 
 ```sh
-# numpy와 freetype-py가 시스템 Python 경로에 없을 때
+# jamohybrid.py / jamoset.py에 별도 site-packages 경로를 지정할 때
 export JAMOSET_PYLIB=/path/to/site-packages
 export OMP_NUM_THREADS=4
 ```
 
-이 문서의 모든 그림은 `tools/doc_figures_jamoguide.py`로 생성하며, `--check`로 바이트 단위 재현을 검증한다.
+이 문서의 모든 그림은 `tools/doc_figures_jamoguide.py`가 세 사례의 OFL 폰트(Neo둥근모 16, 나눔고딕, Galmuri11)만으로 생성하며, `--check`로 바이트 단위 재현을 검증한다.
 
 ## 2. 출력과 리포트 읽는 법
 
@@ -59,6 +63,8 @@ check: composed 11172 syllables from 1232 glyphs, JSET 12279 bytes
 | `exact` | 원본과 픽셀이 1비트도 다르지 않은 음절 수 | 조합형 기반 폰트일수록 높다 |
 | `pieces`, `sets`, `classes` | 저장된 조각 수, 초성/중성/종성 벌 수, 초성x종성 갈래 수 | 표준 JSET 한도는 32/24/16벌, 12x12 갈래다 |
 | `pieces fail a gate` | 정체 관문(잉크량·구멍·획·꺾임)을 통과하지 못한 조각 수 | v2에서는 보통 0이다. 0이 아니면 해당 자모를 눈으로 확인한다 |
+| `;` 뒤의 선택 규칙 문구 | 이 페이스를 고른 종료 규칙(`the smallest class cap within 0.005 IoU…`, `smallest with IoU >= X`, `most accurate within N B`, `fixed limits`) | `--min-iou` / `--max-bytes` 목표를 만족했는지, 가장 가까운 후보로 대체됐는지 확인한다 |
+| `jset=v1 v1=… v2=…` (`jamoset.py`) | 기록한 JSET 블록 버전과 v1·v2 블록의 바이트 크기 | `v1 - v2` 차이가 크면(예: adaptive 12x12) `--jset-version 2`나 `auto`로 수 KB 줄일 수 있다 |
 | `check:` | `--check`가 11,172음절을 모두 조합해 테이블 무결성을 확인한 결과 | 항상 실행한다. 단, 화질이 아니라 구조 정상 여부만 보장한다 |
 
 `--report OUT.json`을 주면 선택한 지점, 시도한 사다리, 갈래·벌·관문 수치, `blank_jamo` 목록이 JSON으로 저장된다.
@@ -70,10 +76,10 @@ warning: no source syllable shows ...: drawn blank where the face uses them
 
 이 경고가 나오면 해당 자모가 들어간 음절은 빈 조각으로 그려진다. 더 많은 음절이 들어 있는 원본(가능하면 11,172자를 모두 가진 TTF)을 주어야 해결된다.
 
-숫자만 믿지 말고 `tools/svfline.py`나 `web/` 피커로 실제 문장을 렌더링해 눈으로 확인한다.
+숫자만 믿지 말고 `tools/svfline.py`나 `web/` 피커로 실제 문장을 렌더링해 눈으로 확인한다(예: 저장소에 동봉된 페이스 측정).
 
 ```sh
-python3 -I tools/svfline.py measure "다람쥐 헌 쳇바퀴에 타고파" "$OUT/neodg16-hybrid.svf"
+python3 -I tools/svfline.py measure "다람쥐 헌 쳇바퀴에 타고파" svf/dos/NEODG16.SVF
 ```
 
 ## 3. 사례 1: 비트맵 조합형 친화 페이스 — Neo둥근모 16 (NEODG16.SVF)
@@ -159,7 +165,7 @@ check: composed 11172 syllables from 892 glyphs, JSET 9921 bytes; tables are the
 
 ### 흔한 문제와 해결
 
-- **호환 자모 `ㅡ`(U+3161)가 빈칸으로 나오는 문제**: `NEODG16.SVF`는 U+3161 통째 글리프를 이미 갖고 있어 세 결과 모두 정상 출력한다.
+- **호환 자모 `ㅡ`(U+3161): 호환 자모가 없는 원본에서는 빈칸으로 그려진다**: `NEODG16.SVF`는 U+3161 통째 글리프를 이미 갖고 있어 세 결과 모두 정상 출력한다.
   만약 호환 자모가 없는 원본을 `jamoset 844`로 분리하면 중성 `ㅡ`가 빈 조각이어서 U+3161도 비어 나온다([자모 분리 4.3](jamo-split.ko.md#43-작은-픽셀-글꼴-비어-있는-중성-ㅡ)).
   원본을 만들 때 `mkfont.py --unicode ascii,ksx1001-hangul,3131-3163`으로 호환 자모를 포함하거나 `jamohybrid.py`를 쓰면 막을 수 있다.
 - **adaptive 표가 클 때**: `--jset-version 2`(또는 `auto`)를 주면 `neodg16-adapt.svf`의 JSET 블록이 9,921 B에서 2,844 B로 줄어든다.
@@ -167,8 +173,8 @@ check: composed 11172 syllables from 892 glyphs, JSET 9921 bytes; tables are the
 ### 다른 방법을 고를 때
 
 - Neo둥근모처럼 원래 8x4x4 규칙으로 만든 비트맵 폰트라면 `jamoset.py --layout 844`가 가장 빠르고 정확(IoU 1.000)하다.
-- Arduino Uno처럼 12 KB 이하가 필요하면 `621` 레이아웃(`svf/dos/NEODG16G.SVF`, 10,684 B)이나 `jamomerge.py`로 줄인다.
-- 조각의 자모 정체성(예: 비KS 음절 조합이나 조각 재활용)이 중요하다면 `jamohybrid.py`를 쓴다.
+- Arduino Uno처럼 12 KB 이하의 MCU가 필요하면 `621` 레이아웃(`svf/dos/NEODG16G.SVF`, 10,684 B)이나 `jamomerge.py`로 줄인다.
+- 조각의 자모 정체성이 중요하다면(예: 비KS 음절을 깔끔하게 외삽해야 할 때) `jamohybrid.py`를 쓴다.
 
 ## 4. 사례 2: 작은 크기의 아웃라인 폰트 — 나눔고딕 12 / 16 px
 
@@ -398,7 +404,7 @@ check: composed 11172 syllables from 569 glyphs, JSET 6683 bytes
 ### 다른 방법을 고를 때
 
 - 픽셀 폰트가 애초에 KS 2,350자만 필요하고 플래시가 110 KB 이상 남으면 완성형(`106,204 B`)을 그대로 쓴다.
-- 11,172자가 필요하고 26 KB 안팎 예산이라면 `jamohybrid.py --from-ttf`가 완성형(494 KB)의 5.3% 크기로 거의 원본 그대로 그린다.
+- 11,172자가 필요하고 26 KB 안팎 예산이라면 `jamohybrid.py --from-ttf`가 완성형(494 KB)의 5.3% 크기에서 IoU 0.9867을 낸다.
 
 ## 6. 빠른 선택 기준
 
