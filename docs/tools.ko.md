@@ -1066,6 +1066,24 @@ JSET 버전 1 조회)을 그린다.
 
 **내부 모듈.** `jamoset.py`, `jamofit.py`(`jamoset`을 거쳐), `mkfont.py`. **서드파티.** Pillow. **테스트.** `--check`.
 
+### `tools/doc_figures_jamoguide.py`
+
+**목적.** [jamo-split-guide.ko.md](jamo-split-guide.ko.md)와 [jamo-split-guide.md](jamo-split-guide.md)의 샘플 및 조각 그림을 그린다. Neo둥근모 16, 나눔고딕 12 / 16 px, Galmuri11 12 px에 대한 원본·분리 비교와 초성·중성·종성 조각 분해 표를 만든다.
+
+**상태.** 특수 목적(문서).
+
+**입력.** OFL 폰트 경로를 인수로 받는다. `--neodg`(기본 `svf/dos/NEODG16.SVF`), `--nanumgothic FILE`(`NanumGothic.ttf`), `--galmuri11 FILE`(`Galmuri11.ttf`), 그리고 선택적으로 `numpy` / `freetype-py`용 `--pylib DIR`. 스크립트에 사설 폰트 경로는 없으며, 지정하지 않거나 파일이 없는 사례는 건너뛴다. 각 페이스는 임시 디렉터리에서 가이드의 명령(`jamohybrid.py`, `jamoset.py`, `mkfont.py`)을 `-I`로 실행해 만든다.
+
+**출력.** `docs/images/jamo-split-guide/`에 인덱스 PNG 6장(고정 팔레트, 메타데이터 없음): `case1-neodg16-sample.png`, `case1-neodg16-pieces.png`, `case2-nanumgothic-sample.png`, `case2-nanumgothic-pieces.png`, `case3-galmuri11-sample.png`, `case3-galmuri11-pieces.png`. 샘플 그림은 흰 바탕 검정 글자 2배 확대이고, 조각 표는 초성·중성·종성을 색으로 구분해 4배 확대하며 라벨은 `NEODG16.SVF`로 그린다.
+
+**사용법.**
+
+    OMP_NUM_THREADS=4 python3 -I tools/doc_figures_jamoguide.py --nanumgothic FONT --galmuri11 FONT [--neodg FILE] [--pylib DIR] [--out DIR] [--check]
+
+`--check`는 메모리에서 다시 그려 `DIR`의 파일과 바이트 단위로 비교한다(다르거나 파일이 없거나 건너뛴 페이스가 하나라도 있으면 종료 코드 1이며, 건너뛴 페이스를 출력해 일부 실행이 `ok`를 내지 않게 한다).
+
+**내부 모듈.** `jamoset.py`, `svfline.py`(그리고 `jamohybrid.py`, `jamoset.py`, `mkfont.py`를 실행한다). **서드파티.** Pillow, numpy, freetype-py. **테스트.** `--check`.
+
 ### `tools/doc_figures_aa.py`
 
 **목적.** [anti-aliasing.ko.md](anti-aliasing.ko.md)의 픽셀 그림(한 음절의 1/2/8 bpp, 타깃별 2 bpp 단계, 2 bpp 자모 조합의 최댓값과

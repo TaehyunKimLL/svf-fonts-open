@@ -1136,6 +1136,24 @@ It takes about a second.
 **Repository modules imported.** `jamoset.py`, `jamofit.py` (through `jamoset`), `mkfont.py`. **Third-party.** Pillow.
 **Test.** `--check`.
 
+### `tools/doc_figures_jamoguide.py`
+
+**Purpose.** Draws the sample and piece figures of [jamo-split-guide.md](jamo-split-guide.md) and [jamo-split-guide.ko.md](jamo-split-guide.ko.md): precomposed against split comparisons and initial/medial/final piece sheets for Neo Dunggeunmo 16, NanumGothic 12 / 16 px and Galmuri11 12 px.
+
+**Status.** Special-purpose (documentation).
+
+**Inputs.** OFL font paths as arguments: `--neodg` (default `svf/dos/NEODG16.SVF`), `--nanumgothic FILE` (`NanumGothic.ttf`), `--galmuri11 FILE` (`Galmuri11.ttf`), plus optional `--pylib DIR` for `numpy` / `freetype-py`. No private font path is written in the script; any omitted or missing font skips its case. Each face is built in a temporary directory by the guide's commands (`jamohybrid.py`, `jamoset.py`, `mkfont.py`), run with `-I`.
+
+**Outputs.** Six indexed PNGs in `docs/images/jamo-split-guide/` (fixed palette, no metadata): `case1-neodg16-sample.png`, `case1-neodg16-pieces.png`, `case2-nanumgothic-sample.png`, `case2-nanumgothic-pieces.png`, `case3-galmuri11-sample.png`, `case3-galmuri11-pieces.png`. Sample images are black on white at 2x; piece sheets colour initial, medial and final pieces at 4x with labels from `NEODG16.SVF`.
+
+**Synopsis.**
+
+    OMP_NUM_THREADS=4 python3 -I tools/doc_figures_jamoguide.py --nanumgothic FONT --galmuri11 FONT [--neodg FILE] [--pylib DIR] [--out DIR] [--check]
+
+`--check` regenerates in memory and compares with the files in `DIR` byte for byte (exit 1 on a difference, a missing file, or any skipped face; skipped faces are listed so a partial run never reports `ok`).
+
+**Repository modules imported.** `jamoset.py`, `svfline.py` (and runs `jamohybrid.py`, `jamoset.py`, `mkfont.py`). **Third-party.** Pillow, numpy, freetype-py. **Test.** `--check`.
+
 ### `tools/doc_figures_aa.py`
 
 **Purpose.** Draws the pixel figures of [anti-aliasing.md](anti-aliasing.md) (one syllable at 1/2/8 bpp, the 2 bpp
