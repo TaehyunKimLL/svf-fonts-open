@@ -23,10 +23,12 @@ face. Unlike the pixel fit it also gets the split right: which pixels are the in
      slot the model gave it; a failing re-fit keeps the piece.
   5. A context no source syllable shows joins the group the other lead classes (vowels, tail classes) most often put
      it with, else that of the nearest context that has syllables (by how alike the vowels and classes are); a (group,
-     jamo) pair without syllables takes the piece of the nearest group that has one.
+     jamo) pair without syllables takes the piece of the nearest group that has one. A jamo no syllable of its problem
+     shows at all (no syllable with that initial, vowel or final in the class) has no piece and draws blank; the
+     summary warns and the report lists it (blank_jamo).
 
-  python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF] [--tol PX]
-                              [--classes LC,TC]
+  python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF]
+                              [--tol PX] [--classes LC,TC]
   python3 tools/jamohybrid.py --from-ttf FONT --size N [--cell WxH] [--baseline R] -o OUT.SVF ...
   options: --big (BIG limits; default off), --rule derived|structural, --model PATH, --report OUT.json, --check,
            --jset-version 1|2|auto, --pylib DIR (a directory holding numpy, also $JAMOSET_PYLIB)
@@ -69,7 +71,7 @@ SLACK = 0.005                # the default face: the smallest within this compos
 # the --max-bytes / --min-iou ladder: every class cap at these merge tolerances (multiples of the default)
 TOL_LADDER = (6.0, 4.0, 3.0, 2.0, 1.0, 0.5)
 BIG_TOL_LADDER = (2.0, 1.0, 0.5)
-TOL_UNIT = 1.0               # default merge tolerance: this many pixels per syllable at a 12 px cell, scaled with the cell
+TOL_UNIT = 1.0               # default merge tolerance: pixels per syllable at a 12 px cell, scaled with the cell
 
 
 def load_numpy(pylib=None):
@@ -550,10 +552,12 @@ def sibling_votes(problems):
 
 def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
     """Per problem: the group of every context (a context no syllable shows joins the group its sibling problems
-    most often put it with, else that of the nearest context that has syllables), and a piece for every (group, jamo): the vote; where the vote fails a gate, the member proposal
-    nearest to it that passes, else the nearest passing piece of the same jamo in another group; where no syllable
-    shows the jamo in the group, the piece of the nearest group that has it (a gate-passing one first). Returns piece {(slot, problem key, group, jamo): bitmap}, users (same keys ->
-    syllable rows) and group_of {(slot, problem key): {context: group}}."""
+    most often put it with, else that of the nearest context that has syllables), and a piece for every (group, jamo):
+    the vote; where the vote fails a gate, the member proposal nearest to it that passes, else the nearest passing
+    piece of the same jamo in another group; where no syllable shows the jamo in the group, the piece of the nearest
+    group that has it (a gate-passing one first); where no syllable of the problem shows the jamo at all, none (the
+    jamo draws blank; stats["pieces_blank"]). Returns piece {(slot, problem key, group, jamo): bitmap}, users (same
+    keys -> syllable rows), group_of {(slot, problem key): {context: group}} and borrowed {key: donor key}."""
     shape = gates.shape
     piece, users, group_of, borrowed = {}, {}, {}, {}
     votes = sibling_votes(problems)
@@ -640,6 +644,8 @@ def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
                 if pick is not None:
                     borrowed[(p.slot, p.key, g, j)] = (p.slot, p.key, pick, j)
                     stats["pieces_borrowed"] += 1
+                else:
+                    stats["pieces_blank"] += 1      # no syllable of the problem shows this jamo
     return piece, users, group_of, borrowed
 
 
@@ -781,9 +787,14 @@ def prepare(src, model, rule_name, max_classes):
             src.gates = Gates(jamo, prop)
             src.dist = axis_distances(jamo, prop)
         lead, tail = structural_classes() if rule_name == "structural" else derived_classes(src.dist, max_classes)
-        cache[key] = dict(jamo=jamo, prob=prob, prop=prop, ink=ink, gates=src.gates, dist=src.dist, lead=lead, tail=tail,
-                          problems=make_problems(jamo, prob, ink, lead, tail))
+        cache[key] = dict(jamo=jamo, prob=prob, prop=prop, ink=ink, gates=src.gates, dist=src.dist, lead=lead,
+                          tail=tail, problems=make_problems(jamo, prob, ink, lead, tail))
     return cache[key]
+
+
+def drop_prepared(src, rule_name, max_classes):
+    """Free the cached problems of one class cap once its builds are done (they dominate memory at large cells)."""
+    src.__dict__.get("_prep", {}).pop((rule_name, tuple(max_classes)), None)
 
 
 def build_face(src, model, rule_name, limits, max_classes, big, jset_version, log=None, tol=None, gate_merges=True):
@@ -819,6 +830,14 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
     init_src = {(s, L): srcp((0, lead[L], s, L)) for s in range(ni) for L in range(19)}
     med_src = {(s, V): srcp((1, V, s, V)) for s in range(nm) for V in range(21)}
     fin_src = {(s, T): srcp((2, tail[T], s, T)) for s in range(nf) for T in range(1, 28)}
+    # jamo without a piece in a group their problem uses: no source syllable shows them, so they draw blank
+    blank = set()
+    for slot, srcs, cls in ((0, init_src, lead), (1, med_src, list(range(21))), (2, fin_src, tail)):
+        used = {k: set(group_of[(slot, k)].values()) for k in set(cls) if (slot, k) in group_of}
+        for (s, j), v in srcs.items():
+            if v is None and s in used.get(cls[j], ()):
+                blank.add((slot, j))
+    blank = [f"{SLOTS[slot]} {NAMES[slot][j]}" for slot, j in sorted(blank)]
     layout = J.Layout("hybrid", None, nlc, ntc, ni, nm, nf, lambda L: lead[L], lambda T: tail[T],
                       lambda c, V, t: group_of[(0, c)][(V, t)], lambda c, V, t: group_of[(1, V)][(c, t)],
                       lambda c, V, t: group_of[(2, t)][(c, V)] if t else 0,
@@ -853,6 +872,7 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
                 syllables=len(src.syl), ks_syllables=int(ks.sum()),
                 comp_iou_ks=round(float(ious[ks].mean()), 4) if ks.any() else None,
                 merge_tolerance_px=round(float(tol), 3), pieces=len(bitmaps), gates_failing=failing,
+                blank_jamo=blank,
                 serif_tolerance=gates.frac, gates_off=gates.off,
                 lead_classes=["".join(LEADS[L] for L in range(19) if lead[L] == c) for c in range(nlc)],
                 tail_classes=["".join(TAILS[T] for T in range(28) if tail[T] == c) for c in range(ntc)],
@@ -901,7 +921,8 @@ def choose_point(infos, max_bytes=None, min_iou=None):
     if max_bytes is not None:
         ok = [i for i in idx if infos[i]["bytes"] <= max_bytes]
         if ok:
-            return max(ok, key=lambda i: (infos[i]["comp_iou"], -infos[i]["bytes"])), f"most accurate within {max_bytes} B"
+            best = max(ok, key=lambda i: (infos[i]["comp_iou"], -infos[i]["bytes"]))
+            return best, f"most accurate within {max_bytes} B"
         return min(idx, key=lambda i: infos[i]["bytes"]), f"none within {max_bytes} B: the smallest"
     ok = [i for i in idx if infos[i]["comp_iou"] >= min_iou]
     if ok:
@@ -919,8 +940,10 @@ def class_caps(rule_name, big, classes=None):
 def build_default(src, model, rule_name, limits, big, jset_version, log=None, tol=None, classes=None):
     """The face at @p limits and one merge tolerance: built for every class cap, the smallest within SLACK composed
     IoU of the most accurate is kept. Returns (bytes, layout, info) with info["choice"]."""
-    pts = [build_face(src, model, rule_name, limits, mc, big, jset_version, log, tol=tol)
-           for mc in class_caps(rule_name, big, classes)]
+    pts = []
+    for mc in class_caps(rule_name, big, classes):
+        pts.append(build_face(src, model, rule_name, limits, mc, big, jset_version, log, tol=tol))
+        drop_prepared(src, rule_name, mc)
     top = max(p[2]["comp_iou"] for p in pts)
     out, layout, info = min((p for p in pts if p[2]["comp_iou"] >= top - SLACK), key=lambda p: p[2]["bytes"])
     info["choice"] = dict(rule="fixed limits" if len(pts) == 1 else
@@ -933,16 +956,21 @@ def build_default(src, model, rule_name, limits, big, jset_version, log=None, to
 def build_ladder(src, model, rule_name, big, jset_version, max_bytes=None, min_iou=None, log=None, classes=None):
     """The --max-bytes / --min-iou ladder: the standard limits at every class cap and every merge tolerance of
     TOL_LADDER (fewer classes and a larger tolerance = a smaller face), and with @p big the BIG limits likewise; the
-    point choose_point keeps. Returns (bytes, layout, info) with info["choice"]."""
+    point choose_point keeps. @p classes fixes the cap of both halves (clamped to the standard row for the standard
+    one). Returns (bytes, layout, info) with info["choice"]."""
     h = src.pre.shape[1]
-    pts = [build_face(src, model, rule_name, LIMITS[False][0], mc, False, jset_version, log, tol=m * default_tol(h))
-           for mc in class_caps(rule_name, False, None if big else classes) for m in TOL_LADDER]
-    if big:
-        pts += [build_face(src, model, rule_name, LIMITS[True][0], mc, True, jset_version, log, tol=m * default_tol(h))
-                for mc in class_caps(rule_name, True, classes) for m in BIG_TOL_LADDER]
+    std = None if classes is None else tuple(min(c, m) for c, m in zip(classes, LIMITS[False][1]))
+    pts = []
+    for b, caps, ladder in ((False, class_caps(rule_name, False, std), TOL_LADDER),
+                            (True, class_caps(rule_name, True, classes) if big else (), BIG_TOL_LADDER)):
+        for mc in caps:
+            pts += [build_face(src, model, rule_name, LIMITS[b][0], mc, b, jset_version, log, tol=m * default_tol(h))
+                    for m in ladder]
+            drop_prepared(src, rule_name, mc)
     pick, why = choose_point([p[2] for p in pts], max_bytes, min_iou)
     out, layout, info = pts[pick]
-    info["choice"] = dict(rule=why, ladder=[dict(limits=p[2]["limits"], big=p[2]["big"], max_classes=p[2]["max_classes"],
+    info["choice"] = dict(rule=why, ladder=[dict(limits=p[2]["limits"], big=p[2]["big"],
+                                                 max_classes=p[2]["max_classes"],
                                                  merge_tolerance_px=p[2]["merge_tolerance_px"], bytes=p[2]["bytes"],
                                                  comp_iou=p[2]["comp_iou"]) for p in pts])
     return out, layout, info
@@ -954,7 +982,7 @@ def parse_classes(ap, text, big):
         c = tuple(int(x) for x in text.split(","))
     except ValueError:
         c = ()
-    hi = LIMITS[big][1] if not big else (19, 28)
+    hi = LIMITS[big][1]
     if len(c) != 2 or not (1 <= c[0] <= hi[0] and 2 <= c[1] <= hi[1]):
         ap.error(f"--classes {text!r}: LC,TC with LC 1..{hi[0]} and TC 2..{hi[1]}"
                  f"{'' if big else ' (--big for more)'}")
@@ -964,7 +992,8 @@ def parse_classes(ap, text, big):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     src_g = ap.add_mutually_exclusive_group(required=True)
-    src_g.add_argument("--from-svf", metavar="FACE.SVF", help="a 1 bpp precomposed SVF face (every syllable it holds is used)")
+    src_g.add_argument("--from-svf", metavar="FACE.SVF",
+                       help="a 1 bpp precomposed SVF face (every syllable it holds is used)")
     src_g.add_argument("--from-ttf", metavar="FONT", help="an outline font rendered at --size (as jamoset.py; every "
                        "syllable the font draws is used)")
     ap.add_argument("--size", type=int, help="--from-ttf: pixel size")
@@ -976,18 +1005,21 @@ def main(argv=None):
                     "structural uses fixed classes (7 lead, 4 tail)")
     lim = ap.add_mutually_exclusive_group()
     lim.add_argument("--limits", help="set limits NI,NM,NF (default 32,24,16; with --big 64,48,32)")
-    lim.add_argument("--max-bytes", type=int, help="the most accurate face of the tolerance ladder within this many bytes")
-    lim.add_argument("--min-iou", type=float, help="the smallest face of the tolerance ladder whose composed IoU reaches this")
+    lim.add_argument("--max-bytes", type=int,
+                     help="the most accurate face of the tolerance ladder within this many bytes")
+    lim.add_argument("--min-iou", type=float,
+                     help="the smallest face of the tolerance ladder whose composed IoU reaches this")
     ap.add_argument("--tol", type=float, metavar="PX", help="merge tolerance: groups merge while that adds at most PX "
                     "pixels of disagreement per syllable of the smaller group (default cell height / 12; 0 keeps every "
                     "group the set limits allow). Not with --max-bytes / --min-iou, which walk a ladder of tolerances")
     ap.add_argument("--classes", metavar="LC,TC", help="the caps on lead and tail classes (standard: up to 12,12; "
-                    "--big: 19,28). Default: several caps are built and the smallest face within 0.005 composed IoU "
-                    "of the most accurate is kept (a class pair costs 63 table bytes)")
-    ap.add_argument("--big", action="store_true", help="JSET BIG: the tool's default limits become 64/48/32 sets and 19 x 28 "
-                    "classes (the format's BIG row allows up to 128/128/64; the --max-bytes / --min-iou ladder adds "
-                    "BIG points to the standard ones); engines built with SVF_JSET_BIG read it. The standard face is "
-                    "the default")
+                    "--big: 19,28; the standard points of a --big ladder take at most 12,12). Default: several caps "
+                    "are built and the smallest face within 0.005 composed IoU of the most accurate is kept (a class "
+                    "pair costs 63 table bytes). Not with --rule structural")
+    ap.add_argument("--big", action="store_true", help="JSET BIG: the tool's default limits become 64/48/32 sets and "
+                    "19 x 28 classes (the format's BIG row allows up to 128/128/64; the --max-bytes / --min-iou "
+                    "ladder adds BIG points to the standard ones); engines built with SVF_JSET_BIG read it. The "
+                    "standard face is the default")
     ap.add_argument("--model", default=DEFAULT_MODEL, help="weights (.npz, tools/jamonet.py format)")
     ap.add_argument("--report", metavar="OUT.json", help="write the chosen point, the ladder and the build details")
     ap.add_argument("--check", action="store_true", help="compose all 11,172 syllables of the output (jamoset check)")
@@ -1007,6 +1039,8 @@ def main(argv=None):
         ap.error(f"--tol {a.tol}: 0..{MAX_CELL}")
     if a.limits:
         parse_limits(ap, a.limits, a.big)          # before any work
+    if a.classes and a.rule == "structural":
+        ap.error("--classes: not with --rule structural (its classes are fixed: 7 lead, 4 tail)")
     classes = parse_classes(ap, a.classes, a.big) if a.classes else None
     model = jamonet.Model(a.model)
     if a.from_svf:
@@ -1031,11 +1065,16 @@ def main(argv=None):
     info["model"] = dict(file=os.path.basename(a.model), **{k: model.meta.get(k) for k in ("base", "trained")})
     with open(a.output, "wb") as fh:
         fh.write(out)
-    ks = f", KS {info['comp_iou_ks']}" if info.get("comp_iou_ks") is not None and info["ks_syllables"] != info["syllables"] else ""
+    ks = (f", KS {info['comp_iou_ks']}" if info.get("comp_iou_ks") is not None
+          and info["ks_syllables"] != info["syllables"] else "")
+    sets = "/".join(str(x) for x in info["sets"])
     print(f"{a.output}: {info['bytes']} bytes, composed IoU {info['comp_iou']}{ks} ({info['comp_exact']} of "
-          f"{info['syllables']} exact), {info['pieces']} pieces, sets {info['sets'][0]}/{info['sets'][1]}/{info['sets'][2]}, "
+          f"{info['syllables']} exact), {info['pieces']} pieces, sets {sets}, "
           f"classes {info['classes'][0]}x{info['classes'][1]}{', BIG' if info['big'] else ''}, "
           f"{info['gates_failing']} pieces fail a gate; {choice['rule']}")
+    if info["blank_jamo"]:
+        print(f"warning: no source syllable shows {', '.join(info['blank_jamo'])}: drawn blank where the face "
+              "uses them", file=sys.stderr)
     if a.check:
         print("check:", J.check(out, layout, None))
     if a.report:

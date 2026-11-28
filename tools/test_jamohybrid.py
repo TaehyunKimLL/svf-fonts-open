@@ -229,6 +229,7 @@ class TestChoice(unittest.TestCase):
         ap = argparse.ArgumentParser()
         self.assertEqual(JH.parse_classes(ap, "8,6", False), (8, 6))
         self.assertEqual(JH.parse_classes(ap, "19,28", True), (19, 28))
+        self.assertEqual(JH.parse_classes(ap, "13,20", True), (13, 20))     # beyond the standard row with --big
         for text in ("13,12", "8", "8,1", "x,y"):
             with self.assertRaises(SystemExit, msg=text):
                 with open(os.devnull, "w") as null:
@@ -485,6 +486,72 @@ class TestGrouping(unittest.TestCase):
         self.assertEqual(len(one["choice"]["ladder"]), len(JH.TOL_LADDER))
         self.assertIn("comp_iou_ks", info)
         self.assertEqual(info["ks_syllables"], int(np.isin(syl, JH.ks_syllables()).sum()))
+        self.assertEqual(src.__dict__.get("_prep"), {})          # cached problems are freed after each class cap
+
+    def test_big_ladder_keeps_the_given_class_cap(self):
+        """--big --classes LC,TC: the standard half of the ladder uses the cap too, clamped to the standard row."""
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        info = JH.build_ladder(src, None, "derived", True, 1, max_bytes=10 ** 9, classes=(19, 6))[2]
+        lad = info["choice"]["ladder"]
+        self.assertEqual(len(lad), len(JH.TOL_LADDER) + len(JH.BIG_TOL_LADDER))
+        self.assertEqual({tuple(p["max_classes"]) for p in lad if not p["big"]}, {(12, 6)})
+        self.assertEqual({tuple(p["max_classes"]) for p in lad if p["big"]}, {(19, 6)})
+
+    def test_big_face(self):
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        out, layout, info = JH.build_face(src, None, "derived", (64, 48, 32), (19, 28), True, 1)
+        self.assertTrue(info["big"])
+        self.assertEqual(info["comp_exact"], len(syl))
+        self.assertIn("composed 11172 syllables", J.check(out, layout, None))
+        self.assertTrue(all(a <= b for a, b in zip(info["sets"], (64, 48, 32))))
+        self.assertLessEqual(info["classes"][0], 19)
+        self.assertLessEqual(info["classes"][1], 28)
+
+    def test_blank_jamo_reported(self):
+        """The synthetic face has only the vowels ㅏ ㅗ and the final ㄴ: the other 19 vowels and 26 finals have no
+        piece and are reported; every initial has one."""
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        info = JH.build_face(src, None, "derived", (32, 24, 16), (12, 12), False, 1)[2]
+        blank = info["blank_jamo"]
+        self.assertEqual(len([b for b in blank if b.startswith("medial ")]), 19)
+        self.assertEqual(len([b for b in blank if b.startswith("final ")]), 26)
+        self.assertEqual(len(blank), 45)
+        self.assertIn("medial ㅐ", blank)
+        self.assertNotIn("medial ㅏ", blank)
+        self.assertNotIn("final ㄴ", blank)
+        self.assertEqual(info["stats"]["pieces_blank"], 45)
+
+
+@unittest.skipIf(np is None, "numpy not available")
+class TestUsage(unittest.TestCase):
+    """Usage errors of the new options exit before any file is read."""
+
+    def run_main(self, *args):
+        import jamohybrid as JH
+        with open(os.devnull, "w") as null:
+            old, sys.stderr = sys.stderr, null
+            try:
+                with self.assertRaises(SystemExit) as cm:
+                    JH.main(["--from-svf", "missing.SVF", "-o", os.devnull, *args])
+            finally:
+                sys.stderr = old
+        self.assertEqual(cm.exception.code, 2, args)
+
+    def test_usage_errors(self):
+        self.run_main("--tol", "-1")
+        self.run_main("--tol", "1000")
+        self.run_main("--tol", "1", "--max-bytes", "30000")
+        self.run_main("--tol", "1", "--min-iou", "0.9")
+        self.run_main("--classes", "13,12")                     # above the standard row
+        self.run_main("--classes", "20,12", "--big")            # above the BIG row
+        self.run_main("--classes", "8", "--big")
+        self.run_main("--classes", "8,8", "--rule", "structural")
 
 
 @unittest.skipIf(np is None or not os.path.exists(MODEL), "numpy or the shipped weights not available")

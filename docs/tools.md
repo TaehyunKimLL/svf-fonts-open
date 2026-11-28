@@ -807,7 +807,8 @@ syllable pixels; a face with no Hangul syllables is refused with a message.
 5. `jamofit.fit_pieces` re-fits the pieces to the source, each pixel only in a slot the model gave it; a re-fit that
    fails a gate is dropped.
 6. A context the source does not draw joins the group the other lead classes (vowels, tail classes) most often put it
-   with, else that of the nearest context.
+   with, else that of the nearest context. A jamo no syllable of its lead class (vowel, tail class) shows has no piece
+   and draws blank.
 7. Stopping rule. A (lead class, tail class) pair costs 63 table bytes and a piece its bitmap. The default face is
    built for the class caps 12x12, 12x6, 8x8, 6x6 and 4x4 at the default tolerance (cell height / 12 px), and the
    smallest within 0.005 composed IoU of the most accurate is kept.
@@ -820,7 +821,7 @@ syllable pixels; a face with no Hangul syllables is refused with a message.
 | `--big` | JSET BIG: the tool's default limits become 64 / 48 / 32 sets and 19 x 28 classes (the format's BIG row allows 128 / 128 / 64); engines built with `SVF_JSET_BIG` read it |
 | `--limits NI,NM,NF` | the set limits: 1 or more each, at most 32 / 24 / 16 (128 / 128 / 64 with `--big`) |
 | `--tol PX` | the merge tolerance in pixels per syllable (default cell height / 12; 0 keeps every group the limits allow) |
-| `--classes LC,TC` | fixed caps on the lead and tail classes instead of trying several |
+| `--classes LC,TC` | fixed caps on the lead and tail classes instead of trying several (the standard points of a `--big` ladder take at most 12,12); not with `--rule structural` |
 | `--max-bytes N` | the most accurate face within N bytes of the ladder: every class cap at 6, 4, 3, 2, 1 and 0.5 times the default tolerance, and with `--big` also BIG points |
 | `--min-iou X` | the smallest face of the ladder whose composed IoU reaches X |
 | `--rule derived\|structural` | lead and tail classes clustered from the face (default) or fixed (7 lead, 4 tail) |
@@ -830,7 +831,8 @@ syllable pixels; a face with no Hangul syllables is refused with a message.
 | `--jset-version 1\|2\|auto` | as `jamoset.py` |
 
 **Outputs.** `-o OUT.SVF` (SVFN v3 with a JSET block); a summary line (bytes, composed IoU over all source syllables
-and over the KS ones where they differ, exact syllables, pieces, sets, classes, pieces failing a gate).
+and over the KS ones where they differ, exact syllables, pieces, sets, classes, pieces failing a gate); a warning line
+when a jamo appears in no source syllable (it draws blank; `blank_jamo` in the report).
 
 **Synopsis.** `python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--min-iou 0.9 | --max-bytes N] [--tol PX]
 [--classes LC,TC] [--big] [--report R.json] [--check]`.
@@ -840,7 +842,8 @@ and over the KS ones where they differ, exact syllables, pieces, sets, classes, 
 repository root (`DIR` holds numpy built for the same Python; the tests skip without it).
 
 **Speed.** With 4 threads, for 11,172 syllables: the model about 15 s, then one build 1.5-4 s, the default (five class
-caps) 7-15 s, the `--max-bytes` / `--min-iou` ladder 30-90 s. numpy uses every core by default; on a loaded many-core
+caps) 7-15 s, the `--max-bytes` / `--min-iou` ladder 30-90 s. These hold for cells up to about 24 px; time and memory
+grow with the cell's pixels: at a 48 px cell the default took about 2 min and 2.0 GB peak (v1 1.6 GB). numpy uses every core by default; on a loaded many-core
 machine set `OMP_NUM_THREADS` (for example 4): a 2,357-syllable face took 29 s with all threads and 6 s with 4 there.
 
 ### `tools/jamonet.py`
