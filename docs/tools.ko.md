@@ -933,6 +933,11 @@ syllables`와 같음. `default`와 `dos` 원본에 대한 레이아웃, 메트�
 
 ## 4. 검사와 확인
 
+문서와 에이전트 스킬은 테스트로 검사한다. `python3 -B -m unittest tools.test_tools_doc tools.test_recipes
+tools.test_skills`를 실행한다. `tools/test_skills.py`는 `skills/*/SKILL.md`를 읽어 프런트매터, 존재하는 도구 파일,
+`jamohybrid.py`와 `jamoset.py`가 정의한 옵션, 해석되는 링크와 앵커, 로컬 절대 경로가 없음을 확인한다. 테스트 파일은
+이 문서의 집계 대상이 아니므로 절로 두지 않고 여기서 설명한다.
+
 ### `tools/facecheck.py`
 
 **목적.** 페이스 매니페스트와 맵 페이스 검사: 커밋된 모든 페이스의 sha256을 기록하고, 이동 후 매니페스트를 검증하며,

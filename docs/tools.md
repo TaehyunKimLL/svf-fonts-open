@@ -998,6 +998,11 @@ font units, by contour grouping, peers and region clipping.
 
 ## 4. Inspection and checking
 
+The documentation and the agent skills are checked by tests: `python3 -B -m unittest tools.test_tools_doc
+tools.test_recipes tools.test_skills`. `tools/test_skills.py` reads `skills/*/SKILL.md` and requires valid frontmatter,
+tool files that exist, options `jamohybrid.py` and `jamoset.py` define, links and anchors that resolve, and no local
+absolute path. Test files are outside this document's census, so they are described here rather than as sections.
+
 ### `tools/facecheck.py`
 
 **Purpose.** Face manifest and map-face checks: record the sha256 of every committed face, verify a manifest after a
