@@ -791,35 +791,49 @@ checked before it is parsed: at most 16 MiB, a cell of at most 64 x 64, at most 
 syllable pixels; a face with no Hangul syllables is refused with a message.
 
 **Method.**
-1. `tools/jamonet.py` gives each syllable's initial, medial and final planes, conditioned on its jamo.
-2. Structural sets (initial = vowel group x final present, medial = initial class x final kind, final = vowel group),
-   then greedy splits by one initial, vowel or final within the limits.
-3. Each (set, jamo) piece is a probability-weighted vote of its syllables' planes. Pieces of one jamo merge while the
-   merged piece passes the identity gates and no syllable gets worse by more than max(1, cell / 12) pixels.
-4. `jamofit.fit_pieces` re-fits the pieces to the source, each pixel only in a slot the model gave it.
-5. Identity gates, calibrated on the face's own planes: ink and extent, holes, the ticks and stubs of the simple vowels
-   (with a serif tolerance), ㅅ and ㅈ. Contexts the source does not draw take the structurally nearest set's piece.
+1. `tools/jamonet.py` gives each syllable's initial, medial and final planes, conditioned on its jamo. Every syllable
+   the source holds is used: all a font draws with `--from-ttf`, all an SVF face holds with `--from-svf`.
+2. Lead classes of the initials and tail classes of the finals (no final alone): Ward clustering of what the other
+   slots show with each (`--rule derived`), or fixed classes (`--rule structural`).
+3. Groups inside the exact JSET structure. The tables read a syllable as cell = (lead class, vowel, tail class), so the
+   set limits hold per lead class for the initial, per vowel for the medial and per tail class for the final. In each
+   of these the contexts start apart and the cheapest pair merges (cost: the pixels that then disagree with the
+   group's probability-weighted majority piece), first down to the set limit, then on while a merge adds at most
+   `--tol` pixels per syllable of its smaller group.
+4. Identity gates, calibrated on the face's own planes: ink and extent, holes, the ticks and stubs of the simple vowels
+   (with a serif tolerance), ㅅ and ㅈ. A merge that would turn a passing piece into a failing one is refused, unless the
+   set limit leaves no other. A group's piece that fails is replaced by the member proposal nearest to it that passes,
+   else by the nearest passing piece of that jamo in another group.
+5. `jamofit.fit_pieces` re-fits the pieces to the source, each pixel only in a slot the model gave it; a re-fit that
+   fails a gate is dropped.
+6. A context the source does not draw joins the group the other lead classes (vowels, tail classes) most often put it
+   with, else that of the nearest context.
+7. Stopping rule. A (lead class, tail class) pair costs 63 table bytes and a piece its bitmap. The default face is
+   built for the class caps 12x12, 12x6, 8x8, 6x6 and 4x4 at the default tolerance (cell height / 12 px), and the
+   smallest within 0.005 composed IoU of the most accurate is kept.
 
 **Options.**
 
 | Option | Meaning |
 |---|---|
-| (default) | the standard JSET face: 32 / 24 / 16 sets, 12 x 12 classes |
+| (default) | the standard JSET face: up to 32 / 24 / 16 sets and 12 x 12 classes, the stopping rule above |
 | `--big` | JSET BIG: the tool's default limits become 64 / 48 / 32 sets and 19 x 28 classes (the format's BIG row allows 128 / 128 / 64); engines built with `SVF_JSET_BIG` read it |
-| `--limits NI,NM,NF` | the set limits: at least 16 / 21 / 8 (the structural sets), at most 32 / 24 / 16 (128 / 128 / 64 with `--big`) |
-| `--max-bytes N` | the most accurate face of the limit ladder within N bytes; the ladder is 16 / 21 / 8 ... 32 / 24 / 16, and with `--big` also 40 / 30 / 20 ... 96 / 72 / 48 |
+| `--limits NI,NM,NF` | the set limits: 1 or more each, at most 32 / 24 / 16 (128 / 128 / 64 with `--big`) |
+| `--tol PX` | the merge tolerance in pixels per syllable (default cell height / 12; 0 keeps every group the limits allow) |
+| `--classes LC,TC` | fixed caps on the lead and tail classes instead of trying several |
+| `--max-bytes N` | the most accurate face within N bytes of the ladder: every class cap at 6, 4, 3, 2, 1 and 0.5 times the default tolerance, and with `--big` also BIG points |
 | `--min-iou X` | the smallest face of the ladder whose composed IoU reaches X |
-| `--rule derived\|structural` | groups learned from the face (default) or the fixed groups |
+| `--rule derived\|structural` | lead and tail classes clustered from the face (default) or fixed (7 lead, 4 tail) |
 | `--model PATH` | other weights |
-| `--report OUT.json` | the chosen point, the ladder, sets, classes, gates, splits refused by the budget |
+| `--report OUT.json` | the chosen point, what was tried, sets, classes, pieces, gates, composed IoU over all source syllables and over the KS X 1001 ones |
 | `--check` | compose all 11,172 syllables of the output |
 | `--jset-version 1\|2\|auto` | as `jamoset.py` |
 
-**Outputs.** `-o OUT.SVF` (SVFN v3 with a JSET block); a summary line (bytes, composed IoU, exact syllables, sets,
-classes).
+**Outputs.** `-o OUT.SVF` (SVFN v3 with a JSET block); a summary line (bytes, composed IoU over all source syllables
+and over the KS ones where they differ, exact syllables, pieces, sets, classes, pieces failing a gate).
 
-**Synopsis.** `python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--min-iou 0.9 | --max-bytes N] [--big]
-[--report R.json] [--check]`.
+**Synopsis.** `python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--min-iou 0.9 | --max-bytes N] [--tol PX]
+[--classes LC,TC] [--big] [--report R.json] [--check]`.
 
 **Repository modules imported.** `jamoset.py`, `jamofit.py`, `jamonet.py`. **Third-party.** numpy; freetype-py with
 `--from-ttf`. **Test.** `tools/test_jamohybrid.py`: `JAMOSET_PYLIB=DIR python3 -B -m unittest tools.test_jamohybrid` from the

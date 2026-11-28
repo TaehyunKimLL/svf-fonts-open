@@ -423,6 +423,35 @@ class TestGrouping(unittest.TestCase):
                 bits = np.unpackbits(np.frombuffer(bytes(g), np.uint8).reshape(12, 2), axis=1)[:, :12]
                 self.assertIn(bits.astype(np.uint8).tobytes(), own, (rule, int(syl[i])))
 
+    def test_missing_context_is_placed_as_the_sibling_classes_group_it(self):
+        """Finals ㄴ and ㄹ share every design here but sit in two tail classes. One lead class has no syllable of ㅏ with
+        ㄹ: the other lead class groups (ㅏ, ㄹ) with (ㅏ, ㄴ), so the missing context joins that group and the missing
+        syllables compose exactly."""
+        JH = self.JH
+        Counter = __import__("collections").Counter
+        syl, planes = synthetic(tails=(0, 4, 8))
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        lead = [0] * 10 + [1] * 9
+        tail = [0] + [1 if T == 4 else 2 for T in range(1, 28)]
+        keep = ~((jamo[:, 0] >= 10) & (jamo[:, 1] == 0) & (jamo[:, 2] == 8))
+        probs = JH.make_problems(jamo[keep], planes[keep].astype(np.float32), planes[keep].max(axis=1), lead, tail)
+        gates, stats = FakeGates((12, 12)), Counter()
+        JH.group(probs, (32, 24, 16), 1.0, gates, stats)
+        dist = JH.axis_distances(jamo[keep], planes[keep])
+        piece, users, group_of, borrowed = JH.pieces_of_groups(probs, planes[keep], gates, dist, lead, tail, stats)
+        self.assertGreater(stats["contexts_placed_by_siblings"], 0)
+        g1 = group_of[(0, 1)]                                    # the initial groups of the lead class with the hole
+        self.assertEqual(g1[(0, 2)], g1[(0, 1)])                 # (ㅏ, ㄹ) with (ㅏ, ㄴ)
+        self.assertNotEqual(g1[(0, 2)], g1[(0, 0)])              # not with (ㅏ, no final)
+        self.assertNotEqual(g1[(0, 2)], g1[(8, 2)])              # nor with (ㅗ, ㄹ)
+        for i in np.nonzero(~keep)[0]:
+            L, V, T = (int(x) for x in jamo[i])
+            c, t = lead[L], tail[T]
+            got = [piece[borrowed.get(k, k)] for k in ((0, c, group_of[(0, c)][(V, t)], L),
+                                                       (1, V, group_of[(1, V)][(c, t)], V),
+                                                       (2, t, group_of[(2, t)][(c, V)], T))]
+            self.assertTrue((np.array(got) == planes[i]).all(), (L, V, T))
+
     def test_default_keeps_the_smallest_class_cap_within_the_slack(self):
         JH = self.JH
         syl, planes = synthetic()

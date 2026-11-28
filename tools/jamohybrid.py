@@ -21,8 +21,9 @@ face. Unlike the pixel fit it also gets the split right: which pixels are the in
      where it fails a gate, the member proposal nearest to it that passes; where none does, the nearest passing piece
      of that jamo in another group. Then jamofit re-fits the pieces to the precomposed syllables, each pixel only in a
      slot the model gave it; a failing re-fit keeps the piece.
-  5. A context no source syllable shows joins the group of the nearest context that has syllables (by how alike the
-     vowels and classes are); a (group, jamo) pair without syllables takes the piece of the nearest group that has one.
+  5. A context no source syllable shows joins the group the other lead classes (vowels, tail classes) most often put
+     it with, else that of the nearest context that has syllables (by how alike the vowels and classes are); a (group,
+     jamo) pair without syllables takes the piece of the nearest group that has one.
 
   python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF] [--tol PX]
                               [--classes LC,TC]
@@ -526,14 +527,36 @@ def context_distance(p, dist, lead, tail):
     return lambda x, y: dl[x[0], y[0]] + dv[x[1], y[1]]
 
 
+def sibling_votes(problems):
+    """Per slot, how the problems that show two contexts group them: votes[slot][(x, y)] = [together, both shown].
+    A context one lead class (vowel, tail class) lacks is placed where its siblings put it."""
+    votes = [defaultdict(lambda: [0, 0]) for _ in range(3)]
+    for p in problems:
+        if not len(p.full):
+            continue
+        gof = {}
+        for g, a in enumerate(np.nonzero(p.alive)[0]):
+            for item in p.mem[a]:
+                gof[p.ctx[item]] = g
+        shown = sorted(gof)
+        v = votes[p.slot]
+        for i, x in enumerate(shown):
+            for y in shown[i + 1:]:
+                e = v[(x, y)]
+                e[0] += gof[x] == gof[y]
+                e[1] += 1
+    return votes
+
+
 def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
-    """Per problem: the group of every context (a context no syllable shows joins the group of the nearest context
-    that has one), and a piece for every (group, jamo): the vote; where the vote fails a gate, the member proposal
+    """Per problem: the group of every context (a context no syllable shows joins the group its sibling problems
+    most often put it with, else that of the nearest context that has syllables), and a piece for every (group, jamo): the vote; where the vote fails a gate, the member proposal
     nearest to it that passes, else the nearest passing piece of the same jamo in another group; where no syllable
     shows the jamo in the group, the piece of the nearest group that has it (a gate-passing one first). Returns piece {(slot, problem key, group, jamo): bitmap}, users (same keys ->
     syllable rows) and group_of {(slot, problem key): {context: group}}."""
     shape = gates.shape
     piece, users, group_of, borrowed = {}, {}, {}, {}
+    votes = sibling_votes(problems)
     for p in problems:
         reps = [int(a) for a in np.nonzero(p.alive)[0]] if len(p.full) else []
         cd = context_distance(p, dist, lead, tail)
@@ -542,9 +565,24 @@ def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
             for item in p.mem[a]:
                 gof[p.ctx[item]] = g
         have = list(gof)
+        vs = votes[p.slot]
         for c in p.ctx:
             if c not in gof:
-                gof[c] = gof[min(have, key=lambda x: (cd(c, x), x))] if have else 0
+                # the group whose contexts the sibling problems most often put this context with (the problem's own
+                # grouping is not counted: it does not show the context); then the nearest context
+                score = defaultdict(lambda: [0.0, 0])
+                for x in have:
+                    e = vs.get((c, x) if c < x else (x, c))
+                    if e and e[1]:
+                        sc = score[gof[x]]
+                        sc[0] += e[0] / e[1]
+                        sc[1] += 1
+                best = max(score.items(), key=lambda kv: (kv[1][0] / kv[1][1], -kv[0])) if score else None
+                if best and best[1][0] > 0:
+                    gof[c] = best[0]
+                    stats["contexts_placed_by_siblings"] += 1
+                else:
+                    gof[c] = gof[min(have, key=lambda x: (cd(c, x), x))] if have else 0
                 stats["contexts_without_syllables"] += 1
         group_of[(p.slot, p.key)] = gof
         name = NAMES[p.slot]
