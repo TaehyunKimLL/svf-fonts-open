@@ -6,7 +6,7 @@
 
 **시작 전에.** 명령은 [색인](../recipes.ko.md)에서처럼 `$OUT`을 정하고 프로젝트 루트에서 실행한다. 모든 페이스는 [페이스 점검](../recipes.ko.md#페이스-점검)의 점검으로 끝난다. 자모 세트의 형식과 설계는 [자모 세트](../jamo-sets.ko.md)에 있다. 맞춤 자체는 입력별 레시피 문서에 있다.
 
-위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [자모 세트](../jamo-sets.ko.md), [자모 분리](../jamo-split.ko.md), [아웃라인 폰트](outline-fonts.ko.md), [기존 SVF, 그리고 SVF에서 다시 TTF로](svf-and-ttf.ko.md).
+위로: [레시피 색인](../recipes.ko.md) · 관련 문서: [자모 세트](../jamo-sets.ko.md), [자모 분리](../jamo-split.ko.md), [자모 분리 실습 가이드](../jamo-split-guide.ko.md), [아웃라인 폰트](outline-fonts.ko.md), [기존 SVF, 그리고 SVF에서 다시 TTF로](svf-and-ttf.ko.md).
 
 <a id="세트-수벌-수-정하기"></a>
 

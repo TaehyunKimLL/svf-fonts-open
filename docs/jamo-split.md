@@ -6,7 +6,8 @@ A precomposed (완성형) font draws every syllable whole. A jamo set (조합형
 a few **sets** (벌) and composes each syllable from two or three of them ([Jamo sets](jamo-sets.md)). Making a jamo set
 from a precomposed font, **jamo splitting** (자모 분리), means recovering pieces that the font never stored. This document
 describes how the tools of this repository do it, how each kind of source fares, what they do poorly, and what earlier
-attempts taught.
+attempts taught. For a step-by-step walkthrough with real OFL fonts and copy-pasteable commands, see the
+[Hands-on guide to jamo splitting](jamo-split-guide.md).
 
 Chapters 1 to 4 and 8 use numbers measured with the repository's tools (the command or the document it comes from is
 named) or cited from the recipe documents, which record their own runs. Chapter 6 and the numbers marked "in research" in
@@ -780,7 +781,7 @@ afford (wrong pixels with standard limits, fixed / derived groups: Seoul 10 써 
 
 ### 7.8 Availability
 
-The builder ships as `tools/jamohybrid.py` ([tools](tools.md#toolsjamohybridpy)). It needs numpy, not torch.
+The builder ships as `tools/jamohybrid.py` ([tools](tools.md#toolsjamohybridpy)). For worked examples on three OFL fonts (commands, measured outputs and piece sheets), see the [Hands-on guide to jamo splitting](jamo-split-guide.md). It needs numpy, not torch.
 - Model: `tools/models/jamohybrid-v1.npz`, 0.9 MB, MIT. It was trained on the Apple and Gulim ground truth, the
   HangulTalk 1.0 faces and the open jamo-set faces of `svf/`. [Its notes](../tools/models/jamohybrid-v1.md) list every
   source with its hash, and the held-out folds.
