@@ -723,6 +723,83 @@ P.json`.
 **테스트.** `tools/test_jamomerge.py`(합성 페이스: 빌드 / 읽기 왕복과 크기, 정규화, 모든 이동이
 약속대로 합성되는지, 탐욕 단계 하나, leak, stroke, tick 게이트).
 
+### `tools/jamohybrid.py`
+
+**목적.** 학습한 분리로 완성형 페이스에서 자모 세트 페이스를 만든다([자모 분리](jamo-split.ko.md)의 학습한 분리). 조합한 음절은
+원본을 따르고, 각 조각은 그 자모다.
+
+**상태.** 빌더. numpy가 필요하다(경로에 없으면 `--pylib DIR`이나 `$JAMOSET_PYLIB`). 가중치는 `tools/models/jamohybrid-v1.npz`다.
+`--from-ttf`에는 freetype-py가 필요하다. torch는 필요 없다.
+
+**입력.** `--from-svf FACE.SVF`(1 bpp 완성형 페이스. 다른 글리프, 메트릭, 플래그는 유지한다) 또는
+`--from-ttf FONT --size N [--cell WxH] [--baseline R]`(`jamoset.py --from-ttf`와 같이 렌더링한다). 입력 페이스는
+파싱하기 전에 확인한다. 최대 16 MiB, 셀 64 x 64 이하, 글리프 70,000개 이하, 음절 픽셀 11,172 x 64 x 64 이하다. 한글 음절이 없는
+페이스는 메시지와 함께 거부한다.
+
+**방법.**
+1. `tools/jamonet.py`가 음절마다 초성, 중성, 종성 판을 준다. 음절의 자모를 조건으로 받는다.
+2. 구조 벌(초성 = 모음 묶음 x 받침 유무, 중성 = 초성 갈래 x 받침 종류, 종성 = 모음 묶음)로 시작하고, 한도 안에서 초성, 모음,
+   종성 하나 기준으로 욕심껏 나눈다.
+3. (벌, 자모) 조각마다 그 음절들의 판을 확률 가중치로 투표한다. 한 자모의 조각은 합친 조각이 정체 관문을 통과하고 어느
+   음절도 max(1, 셀 / 12) 픽셀 넘게 나빠지지 않는 동안 합친다.
+4. `jamofit.fit_pieces`가 조각을 원본에 다시 맞춘다. 픽셀은 모델이 준 칸으로만 간다.
+5. 정체 관문은 페이스 자신의 판으로 정한다. 잉크와 크기, 구멍, 단순 모음의 곁획과 꼭지(세리프 허용), ㅅ과 ㅈ이다. 원본이
+   그리지 않는 문맥은 구조상 가장 가까운 벌의 조각을 쓴다.
+
+**옵션.**
+
+| 옵션 | 뜻 |
+|---|---|
+| (기본) | 표준 JSET 페이스: 32 / 24 / 16벌, 12 x 12 갈래 |
+| `--big` | JSET BIG: 도구의 기본 한도가 64 / 48 / 32벌, 19 x 28 갈래가 된다(형식의 BIG 행은 128 / 128 / 64까지 허용한다). `SVF_JSET_BIG`으로 빌드한 엔진이 읽는다 |
+| `--limits NI,NM,NF` | 벌 한도: 최소 16 / 21 / 8(구조 벌), 최대 32 / 24 / 16(`--big`이면 128 / 128 / 64) |
+| `--max-bytes N` | 한도 사다리에서 N바이트 안에 드는 가장 정확한 페이스. 사다리는 16 / 21 / 8 ... 32 / 24 / 16이고, `--big`이면 40 / 30 / 20 ... 96 / 72 / 48도 더한다 |
+| `--min-iou X` | 사다리에서 조합 IoU가 X에 이르는 가장 작은 페이스 |
+| `--rule derived\|structural` | 페이스에서 배운 묶음(기본) 또는 고정 묶음 |
+| `--model PATH` | 다른 가중치 |
+| `--report OUT.json` | 고른 지점, 사다리, 벌, 갈래, 관문, 예산 때문에 거부된 나누기 |
+| `--check` | 출력의 11,172자를 모두 조합한다 |
+| `--jset-version 1\|2\|auto` | `jamoset.py`와 같다 |
+
+**출력.** `-o OUT.SVF`(JSET 블록이 있는 SVFN v3). 요약 한 줄(바이트, 조합 IoU, 정확한 음절, 벌, 갈래).
+
+**사용법.** `python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--min-iou 0.9 | --max-bytes N] [--big]
+[--report R.json] [--check]`.
+
+**가져오는 저장소 모듈.** `jamoset.py`, `jamofit.py`, `jamonet.py`. **외부 의존성.** numpy. `--from-ttf`에는 freetype-py.
+**테스트.** `tools/test_jamohybrid.py`: 저장소 루트에서 `JAMOSET_PYLIB=DIR python3 -B -m unittest tools.test_jamohybrid`
+(`DIR`에 같은 파이썬용 numpy가 있다. 없으면 테스트를 건너뛴다).
+
+**속도.** numpy는 기본으로 모든 코어를 쓴다. 부하가 큰 다코어 기계에서는 `OMP_NUM_THREADS`(예: 4)를 정한다. 그런 기계에서
+2,357자 페이스가 모든 스레드로 29초, 4개로 6초 걸렸다.
+
+### `tools/jamonet.py`
+
+**목적.** 자모 분리 모델의 numpy 순전파. 32 x 32 캔버스(더 큰 셀은 다음 8의 배수)의 작은 U-Net이며, 시그모이드 판 셋을 내고
+음절의 자모를 조건으로 받는다. BatchNorm은 합성곱에 접어 넣었다. `jamohybrid.py`가 import하며 명령줄은 없다.
+
+**가중치 형식.** `.npz` 하나. `meta`(JSON: `format` `jamonet-1`, `base`, `cdim`)와 합성곱, 전치 합성곱, 임베딩 배열(fp16).
+`tools/train_jamohybrid.py`가 쓴다.
+
+**외부 의존성.** numpy. **테스트.** `tools/test_jamohybrid.py`(합성곱, 풀링, 전치 합성곱을 반복문과 비교, 무작위 작은 모델).
+
+### `tools/train_jamohybrid.py`
+
+**목적.** 자모 분리 모델을 학습하고 가중치를 내보낸다. 학습할 때만 쓴다. torch와 numpy가 필요하며, 어떤 도구나 테스트도
+import하지 않는다.
+
+**입력.** `--manifest SOURCES.tsv`: 한 줄에 원본 하나(`name kind path group weight licence note`). 종류는 `svf`(이 저장소의
+1 bpp 조합형 페이스: 조합한 음절과 그 조각)와 `npz`(다른 곳에서 준비한 정답 자료: `cps`, `jamo`, `pre`, `planes`, 선택적
+`has_planes`)다. 다른 종류는 `SOURCES`에 끼워 넣는다. `--sizes`는 렌더링하는 로더에 넘긴다.
+
+**옵션.** `--holdout GROUP ...`(묶음을 뺀다), `--eval GROUP ...`(그 묶음에서 잰다), `--base`(채널 수, 16 또는 32),
+`--epochs`, `--seed`, `--out DIR`.
+
+**출력.** `DIR/jamohybrid.npz`(fp16 가중치), `DIR/provenance.json`(원본마다 sha256과 라이선스, 시드, 에포크, numpy와 torch의
+확률 차이 최댓값), `DIR/eval.json`.
+
+**외부 의존성.** torch, numpy. **테스트.** 없음(학습 전용).
+
 ### `tools/jamoexc.py`
 
 **목적.** LIST 예외 페이스를 쓴다. 자모 세트 페이스에 선택한 음절과 호환 자모를 위한 온전한 글리프와 조각 재조합을 더한 것이며, list 모드의 JMAP 블록([SVF 명세](../spec/SVF.ko.md), JMAP LIST)이다. 페이스 자신의 JSET 바이트는

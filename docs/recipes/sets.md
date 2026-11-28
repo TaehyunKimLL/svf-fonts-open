@@ -105,11 +105,12 @@ Measured in 2026-11 with `jamoset.py --from-svf FACE --layout L`:
 
 | Use | Point | With today's tools |
 |---|---|---|
-| MCU | the smallest face whose IoU stays at about 0.90 or more, checked by eye | the first cap that reaches 0.90 for that face: above, `844` for Galmuri11, `adaptive:12,6,6` for Gulim and Seoul, `adaptive:24,12,12` for Baekmuk; then `jamomerge.py merge --points` to the budget |
-| Desktop / web | near the knee | `adaptive:16,8,8` up to the default |
+| MCU | the smallest face whose IoU stays at about 0.90 or more, checked by eye | the first cap that reaches 0.90 for that face: above, `844` for Galmuri11, `adaptive:12,6,6` for Gulim and Seoul, `adaptive:24,12,12` for Baekmuk; then `jamomerge.py merge --points` to the budget; or `jamohybrid.py --min-iou 0.9` |
+| Desktop / web | near the knee | `adaptive:16,8,8` up to the default; or `jamohybrid.py` (standard limits, `--big` where the engine reads BIG) |
 
-A learned split in research reaches the same IoU in fewer bytes: 0.89-0.96 at 18-36 KB with the standard JSET limits
+A learned split (`tools/jamohybrid.py`) reaches the same IoU in fewer bytes: 0.89-0.96 at 18-36 KB with the standard JSET limits
 (Baekmuk is the low end, 0.894 at 35.7 KB) ([Jamo splitting, 7.6](../jamo-split.md#76-size-and-accuracy)). Its `--max-bytes` / `--min-iou` knobs pick a point
-on that curve directly. They exist only in a private research repository for now.
+on that curve directly: `tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF --min-iou 0.9` (or `--max-bytes N`; `--big`
+for BIG limits).
 
 [Recipes index](../recipes.md) · [Tool reference](../tools.md)
