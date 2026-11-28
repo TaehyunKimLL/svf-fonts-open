@@ -21,14 +21,15 @@ face. Unlike the pixel fit it also gets the split right: which pixels are the in
      where it fails a gate, the member proposal nearest to it that passes; where none does, the nearest passing piece
      of that jamo in another group. Then jamofit re-fits the pieces to the precomposed syllables, each pixel only in a
      slot the model gave it; a failing re-fit keeps the piece.
-  5. A context no source syllable shows is placed by where the slot's ink sits for that (vowel, final): an additive
-     model of each slot's box, fitted to the syllables the source has (the final of the missing syllable is known even
-     where the source never draws the pair), gives the context the group whose pieces sit nearest. Where the model has
-     nothing to say it joins the group the other lead classes (vowels, tail classes) most often put it with, else that
-     of the nearest context that has syllables (by how alike the vowels and classes are); a (group, jamo) pair without
-     syllables takes the piece of the nearest group that has one. A jamo no syllable of its problem shows at all (no
-     syllable with that initial, vowel or final in the class) has no piece and draws blank; the summary warns and the
-     report lists it (blank_jamo).
+  5. The initial of a context no source syllable shows is placed by where its ink sits for that (vowel, final): an
+     additive model of the initial's box, fitted to the syllables the source has (the final is known even where the
+     source never draws the pair), gives the context the group whose pieces sit nearest. Only the initial is modelled:
+     the same model for the medial was measured and cost more than it gained, and the final does better from its own
+     cell. Where the model is unidentified or has nothing to say the context joins the group the other lead classes
+     (vowels, tail classes) most often put it with, else that of the nearest context that has syllables (by how alike
+     the vowels and classes are); a (group, jamo) pair without syllables takes the piece of the nearest group that has
+     one. A jamo no syllable of its problem shows at all (no syllable with that initial, vowel or final in the class)
+     has no piece and draws blank; the summary warns and the report lists it (blank_jamo).
 
   python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF]
                               [--tol PX] [--classes LC,TC]
@@ -560,9 +561,28 @@ def ink_box(a):
 
 
 def fit_boxes(obs, nu, nv, rounds=6):
-    """Additive fit (median polish) of box ~ mu + a[u] + b[v] over {(u, v): box}: each coordinate of the box is a
-    sum of a term of the first axis and one of the second."""
-    mu = np.median(np.array(list(obs.values())), axis=0) if obs else np.zeros(4)
+    """Additive fit (median polish) of box ~ mu + a[u] + b[v] over {(u, v): box}, or None when the observations do not
+    identify it: both axes need two observed levels, and the observed cells must form one connected bipartite graph
+    between them -- a single cell, or cells that do not link the levels, leave a[u] + b[v] at an unobserved cell
+    undetermined, and the prediction would then collapse to the global box. Each coordinate of the box is a sum of a
+    term of the first axis and one of the second."""
+    us, vs = {k[0] for k in obs}, {k[1] for k in obs}
+    if len(us) < 2 or len(vs) < 2:
+        return None
+    adj = defaultdict(set)
+    for u, v in obs:
+        adj[("u", u)].add(("v", v))
+        adj[("v", v)].add(("u", u))
+    start, seen, stack = next(iter(adj)), set(), [next(iter(adj))]
+    seen.add(start)
+    while stack:
+        for k in adj[stack.pop()]:
+            if k not in seen:
+                seen.add(k)
+                stack.append(k)
+    if len(seen) != len(adj):
+        return None
+    mu = np.median(np.array(list(obs.values())), axis=0)
     a, b = np.zeros((nu, 4)), np.zeros((nv, 4))
     for _ in range(rounds):
         for u in range(nu):
@@ -576,50 +596,35 @@ def fit_boxes(obs, nu, nv, rounds=6):
     return mu, a, b
 
 
-def box_models(prop, jamo, lead, tail):
-    """Where each slot's ink sits, as an additive model of the syllable's own jamo: the initial and the medial by
-    (vowel, final) -- the final's shape sets how much room is left -- and the final by (lead class, vowel), its own
-    cell. Used to place a context the source has no syllable for: the design is known for the final even when the
-    source never draws that (vowel, final) pair."""
-    nlc = max(lead) + 1
-    dims = ((21, 28), (21, 28), (nlc, 21))
-    obs = [defaultdict(list) for _ in range(3)]
+def box_model(prop, jamo):
+    """Where the initial's ink sits, as an additive model keyed by the syllable's own (vowel, final): the final's shape
+    sets how much room the initial gets, and the pair is known even where the source never draws it. Only the initial
+    is fitted. The medial was measured with the same model and loses more at the default class cap than it gains
+    (Galmuri11 12 px: initial +0.03, medial -0.03), and the final's own cell is better served by the sibling vote.
+    None when the source's cells cannot identify the model (see fit_boxes)."""
+    obs = defaultdict(list)
     for i in range(len(jamo)):
-        L, V, T = int(jamo[i, 0]), int(jamo[i, 1]), int(jamo[i, 2])
-        for slot in (0, 1):
-            b = ink_box(prop[i, slot])
-            if b is not None:
-                obs[slot][(V, T)].append(b)
-        if T:
-            b = ink_box(prop[i, 2])
-            if b is not None:
-                obs[2][(int(lead[L]), V)].append(b)
-    return [fit_boxes({k: np.median(np.array(v), axis=0) for k, v in o.items()}, *d) for o, d in zip(obs, dims)]
+        b = ink_box(prop[i, 0])
+        if b is not None:
+            obs[(int(jamo[i, 1]), int(jamo[i, 2]))].append(b)
+    return fit_boxes({k: np.median(np.array(v), axis=0) for k, v in obs.items()}, 21, 28)
 
 
-def box_placement(p, c, model, tail, boxes_of):
-    """The group of @p p whose pieces sit nearest the box the model predicts for context @p c, or None without a
-    model. @p model: (mu, a, b) of the slot; @p boxes_of: group -> the boxes of the group's pieces."""
+def box_placement(c, model, tail, boxes_of):
+    """The group whose pieces sit nearest the box the model predicts for context @p c (a (vowel, tail class)), or None
+    without candidates. Ties go to the group holding more pieces, then to the lower group index, so the choice never
+    depends on dict order. @p model: (mu, a, b) of the initial; @p boxes_of: group -> the boxes of its pieces."""
     mu, a, b = model
-    if p.slot == 2:
-        pred = mu + a[c[0]] + b[c[1]]
-    else:
-        u = c[0] if p.slot == 0 else p.key
-        ts = [0] if c[1] == 0 else [T for T in range(1, 28) if tail[T] == c[1]]
-        pred = np.median([mu + a[u] + b[T] for T in ts], axis=0)
-    best, pick = None, None
-    for g, bs in boxes_of.items():
-        if not bs:
-            continue
-        d = float(np.mean([np.abs(x - pred).sum() for x in bs]))
-        if best is None or d < best:
-            best, pick = d, g
-    return pick
+    ts = [0] if c[1] == 0 else [T for T in range(1, 28) if tail[T] == c[1]]
+    pred = np.median([mu + a[c[0]] + b[T] for T in ts], axis=0)
+    cands = [(float(np.mean([np.abs(x - pred).sum() for x in bs])), -len(bs), g)
+             for g, bs in boxes_of.items() if bs]
+    return min(cands)[2] if cands else None
 
 
 def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats, boxes=None):
-    """Per problem: the group of every context (a context no syllable shows takes, when @p boxes gives a layout model
-    for the slot, the group whose pieces sit nearest the box that model predicts; else it joins the group its sibling
+    """Per problem: the group of every context (a context no syllable shows takes, when @p boxes gives the initial's
+    layout model, the group whose pieces sit nearest the box that model predicts; else it joins the group its sibling
     problems most often put it with, else that of the nearest context that has syllables), and a piece for every
     (group, jamo):
     the vote; where the vote fails a gate, the member proposal nearest to it that passes, else the nearest passing
@@ -651,7 +656,7 @@ def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats, boxes=None)
                 stats["contexts_without_syllables"] += 1
                 # where the slot's ink should sit for this context, from the source's own syllables: the final of the
                 # context is known, so the design is not guesswork even when the pair was never drawn
-                g = box_placement(p, c, boxes[p.slot], tail, pboxes) if boxes is not None and p.slot == 0 else None
+                g = box_placement(c, boxes, tail, pboxes) if boxes is not None and p.slot == 0 else None
                 if g is not None:
                     gof[c] = g
                     stats["contexts_placed_by_box"] += 1
@@ -872,7 +877,7 @@ def prepare(src, model, rule_name, max_classes):
         lead, tail = structural_classes() if rule_name == "structural" else derived_classes(src.dist, max_classes)
         cache[key] = dict(jamo=jamo, prob=prob, prop=prop, ink=ink, gates=src.gates, dist=src.dist, lead=lead,
                           tail=tail, problems=make_problems(jamo, prob, ink, lead, tail),
-                          boxes=box_models(prop, jamo, lead, tail))
+                          boxes=box_model(prop, jamo))
     return cache[key]
 
 
