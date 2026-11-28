@@ -15,10 +15,15 @@
 > | IoU cost of the gates | | 0.001-0.009 |
 > | speed, 11,172 syllables, 4 threads, after the model | 5-9 s | default 7-15 s, ladder 30-90 s |
 >
-> Open: KS-only sources draw the other 8,822 syllables no better than v1 (0.72-0.84 against 0.68-0.88); a likely
-> factor is that groups sharing no jamo (initial and final problems hold several jamo; a source with holes has many such
-> groups) merge at zero cost in the tolerance phase, without evidence that they share a design, and those groupings
-> then place the unseen contexts; the default
+> Open: KS-only sources. On Galmuri11 12 px, 72 % of the non-KS syllables have a context the source never draws; their
+> initial and medial score 0.69 / 0.72 IoU against the model's own proposals, against 0.79 / 0.85 where the context has
+> a syllable and 0.99 in a face built from every syllable. The zero-cost merge is not the cause (a lead class of one
+> initial has no disjoint jamo and fails the same way; `--tol 0` changes nothing); thin evidence is. Placing an unseen
+> context by an additive model of where the slot's ink sits for that (vowel, final) -- known even where the source never
+> draws the pair -- recovers 0.01-0.02 composed IoU (Galmuri11 0.8837 to 0.8910 over all 11,172 syllables; Gothic A1
+> 0.7641 to 0.7722; a Windows Gulim outline 0.8525 to 0.8536). Footprint merge priors, merge ranking by disagreement per
+> syllable, medoids, sibling-cell boxes, boxes keyed by the tail class, and transplanting pieces from real syllables were
+> measured and did not help. The gap to a dense source is not halved; give the tool every syllable where possible. The default
 > is larger than v1's; Gothic A1, Single Day and the Windows 95 Gulim strikes are in the weights' training data, so
 > they are not held out; the tolerance, slack and class caps were chosen on four fonts, mono only; `--big` has had one
 > smoke run, no evaluation.

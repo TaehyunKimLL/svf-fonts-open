@@ -816,10 +816,14 @@ so those are not held out; the comparison is fair because v1 and v2 share them.
   under half their true ink: 0-1 per font (v1 0-19), UnBatang 13 (v1 71), mostly at 12 px where its unhinted render
   is itself broken.
 - v2's default is larger than v1's on four of the five fonts, because it keeps accuracy; `--max-bytes` gives v1's size.
-- Open: a face built from the KS 2,350 only draws the other 8,822 syllables no better than v1 (IoU 0.72-0.84 against
-  0.68-0.88; Single Day 0.04 worse), so give the tool every syllable, for example a TrueType font. The tolerance (cell
-  height / 12 px), the 0.005 slack and the class caps were chosen on the four open fonts, mono only. `--big` has had one
-  smoke run and no evaluation.
+- Open: a face built from the KS 2,350 only draws the other 8,822 syllables poorly. Of their contexts about 72 % have no
+  source syllable, and the pieces there came from a vote over contexts the source does show. They are now placed by a
+  layout model -- the box each slot's ink occupies, from the vowel and the final, which are known even where the source
+  never draws that pair -- and the composed IoU over all 11,172 syllables rose 0.8837 to 0.8910 on Galmuri11 12 px
+  (0.9867 from every syllable), 0.7641 to 0.7722 on Gothic A1 12 px (0.9705), and 0.8525 to 0.8536 on a Windows Gulim
+  outline, 12 px (0.9882); the KS syllables stay at 0.97-0.99. That is a small part of the gap: give the tool every
+  syllable, for example a TrueType font. The tolerance (cell height / 12 px), the 0.005 slack and the class caps were
+  chosen on the four open fonts, mono only. `--big` has had one smoke run and no evaluation.
 
 ### 7.9 Open problems
 
