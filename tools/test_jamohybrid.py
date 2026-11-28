@@ -182,8 +182,9 @@ class TestChoice(unittest.TestCase):
         import jamohybrid as JH
         ap = argparse.ArgumentParser()
         self.assertEqual(JH.parse_limits(ap, "24,22,12", False), (24, 22, 12))
+        self.assertEqual(JH.parse_limits(ap, "8,4,4", False), (8, 4, 4))        # v2 has no structural floor
         self.assertEqual(JH.parse_limits(ap, "128,128,64", True), (128, 128, 64))
-        for text, big in (("8,4,4", False), ("40,24,16", False), ("129,24,16", True), ("32,24", False), ("a,b,c", False)):
+        for text, big in (("0,4,4", False), ("40,24,16", False), ("129,24,16", True), ("32,24", False), ("a,b,c", False)):
             with self.assertRaises(SystemExit, msg=text):
                 with open(os.devnull, "w") as null:
                     old, sys.stderr = sys.stderr, null
@@ -219,7 +220,338 @@ class TestChoice(unittest.TestCase):
         import jamohybrid as JH
         self.assertEqual(JH.LIMITS[False], ((32, 24, 16), (12, 12)))
         self.assertEqual(JH.LIMITS[True], ((64, 48, 32), (19, 28)))
-        self.assertEqual(JH.LADDER[False][-1], (32, 24, 16))
+        self.assertEqual(list(JH.TOL_LADDER), sorted(JH.TOL_LADDER, reverse=True))   # small faces first
+        self.assertIn(1.0, JH.TOL_LADDER)                                            # the default face is on the ladder
+        self.assertEqual(JH.default_tol(12), 1.0)
+        self.assertEqual(JH.default_tol(24), 2.0)
+        self.assertEqual(JH.CLASS_GRID[False][0], (12, 12))
+        import argparse
+        ap = argparse.ArgumentParser()
+        self.assertEqual(JH.parse_classes(ap, "8,6", False), (8, 6))
+        self.assertEqual(JH.parse_classes(ap, "19,28", True), (19, 28))
+        self.assertEqual(JH.parse_classes(ap, "13,20", True), (13, 20))     # beyond the standard row with --big
+        for text in ("13,12", "8", "8,1", "x,y"):
+            with self.assertRaises(SystemExit, msg=text):
+                with open(os.devnull, "w") as null:
+                    old, sys.stderr = sys.stderr, null
+                    try:
+                        JH.parse_classes(ap, text, False)
+                    finally:
+                        sys.stderr = old
+
+
+class FakeGates:
+    """Gates that fail a piece with fewer than @p need ink pixels (a stand-in for the calibrated identity gates)."""
+
+    def __init__(self, shape, need=0):
+        self.shape, self.need = shape, need
+        self.frac, self.off = 0.0, []
+
+    def ok(self, k, name, piece):
+        return int(piece.sum()) >= self.need
+
+
+def synthetic(leads=range(19), vowels=(0, 8), tails=(0, 4), noise=None):
+    """A 12 x 12 face with a known structure: the initial is a block whose place depends on the vowel (beside ㅏ, above
+    ㅗ) and on having a final, plus a bit pattern of L; the medial a bar whose length depends on the final; the final
+    a block with a bit pattern of T. Returns (syl, planes (N, 3, 12, 12))."""
+    syl, planes = [], []
+    for L in leads:
+        for V in vowels:
+            for T in tails:
+                p = np.zeros((3, 12, 12), np.uint8)
+                y0 = 0 if T else 2
+                x0 = 1 if V == 0 else 3
+                p[0, y0:y0 + 3, x0:x0 + 5] = 1
+                for b in range(5):
+                    p[0, y0 + 3, x0 + b] = (L >> b) & 1
+                if V == 0:
+                    p[1, 0:(7 if T else 11), 8] = 1
+                    p[1, 3, 9] = 1
+                else:
+                    p[1, 6 if T else 9, 1:11] = 1
+                    p[1, (5 if T else 8), 5] = 1
+                if T:
+                    p[2, 8:11, 2:9] = 1
+                    for b in range(5):
+                        p[2, 11, 2 + b] = (T >> b) & 1
+                syl.append((L * 21 + V) * 28 + T)
+                planes.append(p)
+    planes = np.array(planes)
+    if noise is not None:
+        for i in noise:                              # one stray pixel of the initial in these syllables
+            planes[i, 0, 5, 0] = 1
+    return np.array(syl), planes
+
+
+def synthetic_source(JH, syl, planes):
+    src = JH.Source(syl, planes.max(axis=1), 10)
+    src._pred = (planes.astype(np.float32), planes.copy())      # the proposals are the truth
+    return src
+
+
+@unittest.skipIf(np is None, "numpy not available")
+class TestGrouping(unittest.TestCase):
+    def setUp(self):
+        import jamohybrid as JH
+        JH.np = np
+        self.JH = JH
+
+    def test_ward(self):
+        pts = np.array([0.0, 0.1, 0.2, 5.0, 5.1, 9.0])
+        d2 = (pts[:, None] - pts[None, :]) ** 2
+        self.assertEqual(self.JH.ward(d2, 3), [0, 0, 0, 1, 1, 2])
+        self.assertEqual(self.JH.ward(d2, 6), [0, 1, 2, 3, 4, 5])
+        self.assertEqual(self.JH.ward(d2, 1), [0] * 6)
+
+    def test_classes(self):
+        JH = self.JH
+        lead, tail = JH.structural_classes()
+        self.assertEqual((len(lead), max(lead) + 1, len(tail), max(tail) + 1), (19, 7, 28, 4))
+        self.assertEqual(tail.count(0), 1)                       # no final is alone in its class
+        syl, planes = synthetic()
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        dist = JH.axis_distances(jamo, planes)
+        self.assertEqual([d.shape for d in dist], [(19, 19), (21, 21), (28, 28)])
+        lead, tail = JH.derived_classes(dist, (12, 12))
+        self.assertEqual((len(lead), len(tail), tail[0], tail.count(0)), (19, 28, 0, 1))
+        self.assertLessEqual(max(lead) + 1, 12)
+        self.assertLessEqual(max(tail) + 1, 12)
+
+    def problems(self, syl, planes, lead=None, tail=None):
+        JH = self.JH
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        lead = lead or [0] * 19
+        tail = tail or [0] + [1] * 27
+        return JH.make_problems(jamo, planes.astype(np.float32), planes.max(axis=1), lead, tail), jamo
+
+    def test_limits_hold_per_class_vowel_and_tail_class(self):
+        """One problem per lead class (initial), per vowel (medial), per tail class (final); each merges down to its
+        slot's limit on its own, so two vowels may both keep `limit` medial groups."""
+        JH = self.JH
+        syl, planes = synthetic()
+        lead = [0] * 10 + [1] * 9
+        probs, _ = self.problems(syl, planes, lead)
+        self.assertEqual([p.slot for p in probs].count(0), 2)
+        self.assertEqual([p.slot for p in probs].count(1), 21)
+        self.assertEqual([p.slot for p in probs].count(2), 1)
+        stats = __import__("collections").Counter()
+        JH.group(probs, (2, 2, 1), 0, FakeGates((12, 12)), stats)
+        med = [p for p in probs if p.slot == 1 and len(p.full)]
+        self.assertEqual(len(med), 2)                            # ㅏ and ㅗ
+        self.assertEqual([p.groups() for p in med], [2, 2])      # 2 medial groups each: 4 in the slot, limit 2
+        for p in probs:
+            if len(p.full):
+                self.assertLessEqual(p.groups(), (2, 2, 1)[p.slot])
+
+    def test_tolerance_merges_noise_only(self):
+        """Contexts that differ by one stray pixel in one of ten syllables merge under the default tolerance and stay
+        apart at 0; contexts with different designs stay apart under it."""
+        JH = self.JH
+        syl, planes = synthetic(tails=(0, 4, 8))                 # finals ㄴ and ㄹ: the same initial and medial design
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        noisy = [i for i, (L, V, T) in enumerate(jamo) if T == 8 and V == 0 and L == 3]
+        syl, planes = synthetic(tails=(0, 4, 8), noise=noisy)
+        tail = [0] + [1 if T == 4 else 2 for T in range(1, 28)]
+        for tol, want in ((0, 6), (1.0, 4)):
+            probs, _ = self.problems(syl, planes, tail=tail)
+            JH.group(probs, (32, 24, 16), tol, FakeGates((12, 12)), __import__("collections").Counter())
+            init = next(p for p in probs if p.slot == 0)
+            self.assertEqual(init.groups(), want, tol)           # (V, no final / ㄴ / ㄹ): 6 contexts, 4 designs
+
+    def test_merge_that_breaks_a_gate_is_refused_unless_forced(self):
+        JH = self.JH
+        syl, planes = synthetic(leads=(0,), vowels=(8,), tails=(0, 4))
+        # the two medial bars of ㅗ (row 9 without a final, row 6 with one): their majority has too little ink
+        Counter = __import__("collections").Counter
+        probs, _ = self.problems(syl, planes)
+        med = next(p for p in probs if p.slot == 1 and len(p.full))
+        stats = Counter()
+        JH.group([med], (32, 24, 16), 100.0, FakeGates((12, 12), need=5), stats)
+        self.assertEqual(med.groups(), 2)                        # any tolerance: the merge would break the gate
+        self.assertGreaterEqual(stats["merge_refused_by_gate"], 1)
+        stats = Counter()
+        JH.group([med], (32, 1, 16), 0, FakeGates((12, 12), need=5), stats)
+        self.assertEqual(med.groups(), 1)                        # the set limit is hard
+        self.assertEqual(stats["merges_forced_through_a_gate"], 1)
+
+    def test_face_from_true_proposals_is_exact(self):
+        """The synthetic face is inside the structure: built from its own planes it composes every source syllable
+        exactly, passes the jamoset check, and the stored groups stay within the limits."""
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        out, layout, info = JH.build_face(src, None, "derived", (32, 24, 16), (12, 12), False, 1)
+        self.assertEqual(info["comp_exact"], len(syl))
+        self.assertEqual(info["comp_iou"], 1.0)
+        self.assertIn("composed 11172 syllables", J.check(out, layout, None))
+        self.assertTrue(all(a <= b for a, b in zip(info["sets"], (32, 24, 16))))
+        self.assertLessEqual(info["classes"][0], 12)
+        self.assertLessEqual(info["classes"][1], 12)
+        # tighter limits still build a valid face, less exact
+        out2, layout2, info2 = JH.build_face(src, None, "structural", (1, 1, 1), (12, 12), False, 1)
+        self.assertEqual(info2["sets"], [1, 1, 1])
+        self.assertLess(info2["comp_iou"], 1.0)
+        self.assertIn("composed 11172 syllables", J.check(out2, layout2, None))
+
+    def test_contexts_without_syllables(self):
+        """A source with holes, as a KS-only face has: the syllables of ㅏ with a final are missing for half the
+        initials. The face still composes all 11,172; the missing syllables are drawn with pieces of their own jamo
+        borrowed from the nearest group (the design of the missing context itself cannot be known)."""
+        JH = self.JH
+        syl, planes = synthetic()
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        keep = ~((jamo[:, 1] == 0) & (jamo[:, 2] == 4) & (jamo[:, 0] % 2 == 1))
+        for rule in ("structural", "derived"):
+            src = synthetic_source(JH, syl[keep], planes[keep])
+            out, layout, info = JH.build_face(src, None, rule, (32, 24, 16), (12, 12), False, 1)
+            self.assertEqual(info["comp_iou"], 1.0, rule)
+            self.assertIn("composed 11172 syllables", J.check(out, layout, None))
+            st = info["stats"]
+            self.assertGreater(st.get("pieces_borrowed", 0) + st.get("contexts_without_syllables", 0), 0, rule)
+            f = J.parse_svfn(out)
+            t = J.unpack(f.jset)
+            for i in np.nonzero(~keep)[0]:
+                c = J.compose(f, t, 0xAC00 + int(syl[i]))
+                a = np.unpackbits(np.frombuffer(bytes(c), np.uint8).reshape(12, 2), axis=1)[:, :12].astype(bool)
+                b = planes[i].max(axis=0).astype(bool)
+                self.assertGreater((a & b).sum() / (a | b).sum(), 0.4, (rule, int(syl[i])))
+                nums = J.pieces_of(t, 0xAC00 + int(syl[i]))
+                self.assertNotIn(J.BLANK, nums)                  # initial, medial and final are all drawn
+                # the initial piece is one this initial has in the source (its bit row identifies it)
+                g = f.glyphs[J.PIECE_BASE + nums[0]]
+                own = {planes[k, 0].tobytes() for k in np.nonzero(keep & (jamo[:, 0] == jamo[i, 0]))[0]}
+                bits = np.unpackbits(np.frombuffer(bytes(g), np.uint8).reshape(12, 2), axis=1)[:, :12]
+                self.assertIn(bits.astype(np.uint8).tobytes(), own, (rule, int(syl[i])))
+
+    def test_missing_context_is_placed_as_the_sibling_classes_group_it(self):
+        """Finals ㄴ and ㄹ share every design here but sit in two tail classes. One lead class has no syllable of ㅏ with
+        ㄹ: the other lead class groups (ㅏ, ㄹ) with (ㅏ, ㄴ), so the missing context joins that group and the missing
+        syllables compose exactly."""
+        JH = self.JH
+        Counter = __import__("collections").Counter
+        syl, planes = synthetic(tails=(0, 4, 8))
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        lead = [0] * 10 + [1] * 9
+        tail = [0] + [1 if T == 4 else 2 for T in range(1, 28)]
+        keep = ~((jamo[:, 0] >= 10) & (jamo[:, 1] == 0) & (jamo[:, 2] == 8))
+        probs = JH.make_problems(jamo[keep], planes[keep].astype(np.float32), planes[keep].max(axis=1), lead, tail)
+        gates, stats = FakeGates((12, 12)), Counter()
+        JH.group(probs, (32, 24, 16), 1.0, gates, stats)
+        dist = JH.axis_distances(jamo[keep], planes[keep])
+        piece, users, group_of, borrowed = JH.pieces_of_groups(probs, planes[keep], gates, dist, lead, tail, stats)
+        self.assertGreater(stats["contexts_placed_by_siblings"], 0)
+        g1 = group_of[(0, 1)]                                    # the initial groups of the lead class with the hole
+        self.assertEqual(g1[(0, 2)], g1[(0, 1)])                 # (ㅏ, ㄹ) with (ㅏ, ㄴ)
+        self.assertNotEqual(g1[(0, 2)], g1[(0, 0)])              # not with (ㅏ, no final)
+        self.assertNotEqual(g1[(0, 2)], g1[(8, 2)])              # nor with (ㅗ, ㄹ)
+        for i in np.nonzero(~keep)[0]:
+            L, V, T = (int(x) for x in jamo[i])
+            c, t = lead[L], tail[T]
+            got = [piece[borrowed.get(k, k)] for k in ((0, c, group_of[(0, c)][(V, t)], L),
+                                                       (1, V, group_of[(1, V)][(c, t)], V),
+                                                       (2, t, group_of[(2, t)][(c, V)], T))]
+            self.assertTrue((np.array(got) == planes[i]).all(), (L, V, T))
+
+    def test_default_keeps_the_smallest_class_cap_within_the_slack(self):
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        out, layout, info = JH.build_default(src, None, "derived", (32, 24, 16), False, 1)
+        tried = info["choice"]["tried"]
+        self.assertEqual([tuple(t["max_classes"]) for t in tried], list(JH.CLASS_GRID[False]))
+        top = max(t["comp_iou"] for t in tried)
+        ok = [t for t in tried if t["comp_iou"] >= top - JH.SLACK]
+        self.assertEqual(info["bytes"], min(t["bytes"] for t in ok))
+        self.assertIn("composed 11172 syllables", J.check(out, layout, None))
+        fixed = JH.build_default(src, None, "derived", (32, 24, 16), False, 1, classes=(12, 12))[2]
+        self.assertEqual(fixed["choice"]["rule"], "fixed limits")
+        self.assertEqual(len(JH.build_default(src, None, "structural", (32, 24, 16), False, 1)[2]["choice"]["tried"]), 1)
+
+    def test_ladder_and_ks_score(self):
+        JH = self.JH
+        syl, planes = synthetic(noise=range(0, 76, 7))
+        src = synthetic_source(JH, syl, planes)
+        out, layout, info = JH.build_ladder(src, None, "derived", False, 1, max_bytes=10 ** 9)
+        lad = info["choice"]["ladder"]
+        self.assertEqual(len(lad), len(JH.TOL_LADDER) * len(JH.CLASS_GRID[False]))
+        sizes = [p["bytes"] for p in lad]
+        for c in range(len(JH.CLASS_GRID[False])):               # within a class cap a smaller tolerance never
+            part = sizes[c * len(JH.TOL_LADDER):(c + 1) * len(JH.TOL_LADDER)]     # gives a smaller face
+            self.assertEqual(part, sorted(part))
+        self.assertEqual(info["comp_iou"], max(p["comp_iou"] for p in info["choice"]["ladder"]))
+        small = JH.build_ladder(src, None, "derived", False, 1, max_bytes=1)[2]
+        self.assertEqual(small["bytes"], min(sizes))
+        one = JH.build_ladder(src, None, "derived", False, 1, max_bytes=10 ** 9, classes=(6, 6))[2]
+        self.assertEqual(len(one["choice"]["ladder"]), len(JH.TOL_LADDER))
+        self.assertIn("comp_iou_ks", info)
+        self.assertEqual(info["ks_syllables"], int(np.isin(syl, JH.ks_syllables()).sum()))
+        self.assertEqual(src.__dict__.get("_prep"), {})          # cached problems are freed after each class cap
+
+    def test_big_ladder_keeps_the_given_class_cap(self):
+        """--big --classes LC,TC: the standard half of the ladder uses the cap too, clamped to the standard row."""
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        info = JH.build_ladder(src, None, "derived", True, 1, max_bytes=10 ** 9, classes=(19, 6))[2]
+        lad = info["choice"]["ladder"]
+        self.assertEqual(len(lad), len(JH.TOL_LADDER) + len(JH.BIG_TOL_LADDER))
+        self.assertEqual({tuple(p["max_classes"]) for p in lad if not p["big"]}, {(12, 6)})
+        self.assertEqual({tuple(p["max_classes"]) for p in lad if p["big"]}, {(19, 6)})
+
+    def test_big_face(self):
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        out, layout, info = JH.build_face(src, None, "derived", (64, 48, 32), (19, 28), True, 1)
+        self.assertTrue(info["big"])
+        self.assertEqual(info["comp_exact"], len(syl))
+        self.assertIn("composed 11172 syllables", J.check(out, layout, None))
+        self.assertTrue(all(a <= b for a, b in zip(info["sets"], (64, 48, 32))))
+        self.assertLessEqual(info["classes"][0], 19)
+        self.assertLessEqual(info["classes"][1], 28)
+
+    def test_blank_jamo_reported(self):
+        """The synthetic face has only the vowels ㅏ ㅗ and the final ㄴ: the other 19 vowels and 26 finals have no
+        piece and are reported; every initial has one."""
+        JH = self.JH
+        syl, planes = synthetic()
+        src = synthetic_source(JH, syl, planes)
+        info = JH.build_face(src, None, "derived", (32, 24, 16), (12, 12), False, 1)[2]
+        blank = info["blank_jamo"]
+        self.assertEqual(len([b for b in blank if b.startswith("medial ")]), 19)
+        self.assertEqual(len([b for b in blank if b.startswith("final ")]), 26)
+        self.assertEqual(len(blank), 45)
+        self.assertIn("medial ㅐ", blank)
+        self.assertNotIn("medial ㅏ", blank)
+        self.assertNotIn("final ㄴ", blank)
+        self.assertEqual(info["stats"]["pieces_blank"], 45)
+
+
+@unittest.skipIf(np is None, "numpy not available")
+class TestUsage(unittest.TestCase):
+    """Usage errors of the new options exit before any file is read."""
+
+    def run_main(self, *args):
+        import jamohybrid as JH
+        with open(os.devnull, "w") as null:
+            old, sys.stderr = sys.stderr, null
+            try:
+                with self.assertRaises(SystemExit) as cm:
+                    JH.main(["--from-svf", "missing.SVF", "-o", os.devnull, *args])
+            finally:
+                sys.stderr = old
+        self.assertEqual(cm.exception.code, 2, args)
+
+    def test_usage_errors(self):
+        self.run_main("--tol", "-1")
+        self.run_main("--tol", "1000")
+        self.run_main("--tol", "1", "--max-bytes", "30000")
+        self.run_main("--tol", "1", "--min-iou", "0.9")
+        self.run_main("--classes", "13,12")                     # above the standard row
+        self.run_main("--classes", "20,12", "--big")            # above the BIG row
+        self.run_main("--classes", "8", "--big")
+        self.run_main("--classes", "8,8", "--rule", "structural")
 
 
 @unittest.skipIf(np is None or not os.path.exists(MODEL), "numpy or the shipped weights not available")

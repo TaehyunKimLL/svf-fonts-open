@@ -102,8 +102,11 @@ NanumGothic Bold(`mkfont.py ... --size 16 --bpp 1`, 아웃라인 폰트의 래�
 | MCU | IoU가 약 0.90 이상으로 남는 가장 작은 글꼴. 눈으로 확인한다 | 그 글꼴에서 0.90에 처음 이르는 상한. 위 표에서 갈무리11은 `844`, 굴림과 서울은 `adaptive:12,6,6`, 백묵은 `adaptive:24,12,12`다. 이어서 `jamomerge.py merge --points`로 예산에 맞춘다. 또는 `jamohybrid.py --min-iou 0.9` |
 | 데스크톱 / 웹 | 무릎 근처 | `adaptive:16,8,8`부터 기본값까지. 또는 `jamohybrid.py`(표준 한도, 엔진이 BIG을 읽으면 `--big`) |
 
-학습한 분리(`tools/jamohybrid.py`)는 같은 IoU를 더 적은 바이트로 낸다. 표준 JSET 한도에서 18-36 KB에 0.89-0.96이다(가장 낮은 것은 백묵, 35.7 KB에 0.894)
-([자모 분리, 7.6](../jamo-split.ko.md#76-크기와-정확도)). 그 `--max-bytes` / `--min-iou` 옵션은 곡선 위의 지점을 바로 고른다.
-`tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF --min-iou 0.9`(또는 `--max-bytes N`. BIG 한도는 `--big`)로 쓴다.
+학습한 분리(`tools/jamohybrid.py`)는 같은 IoU를 더 적은 바이트로 낸다. v2 기본값은 트루타입 글꼴의 모든 음절로 만들 때(12-24 px)
+21-57 KB에 0.95-0.99였고, v1의 바이트에서는 v1보다 IoU가 0.03-0.09 높았다. 애플과 굴림 스트라이크(KS만)에서는 23-35 KB에
+0.97-0.99다([자모 분리, 7.8](../jamo-split.ko.md#78-쓸-수-있는-도구)). 할 수 있으면 모든 음절을 준다. KS 2,350자만으로 만든
+페이스는 나머지 음절을 잘 그리지 못한다. `--max-bytes N` / `--min-iou X`는 사다리 위의 지점을 바로 고른다.
+`tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF --min-iou 0.9`로 쓴다. `--tol PX`(크면 조각이 준다)와 `--classes LC,TC`(적으면
+표가 작아진다)는 한 지점을 손으로 정한다. BIG 한도는 `--big`이다.
 
 [레시피 색인](../recipes.ko.md) · [도구 설명서](../tools.ko.md)

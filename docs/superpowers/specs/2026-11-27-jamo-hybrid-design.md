@@ -1,5 +1,28 @@
 # Learned jamo split in this repository (`tools/jamohybrid.py`) - design
 
+> **v2 implemented (2026-11-28)** on branch `jamo-hybrid-v2`, same weights. The top-down sets of the Goal and sections 3
+> and 5 below are v1. v2 groups inside the exact JSET structure (set limits per lead class, per vowel, per tail class),
+> merges bottom-up under the identity gates, and stops on a merge tolerance (`--tol`, default cell height / 12 px) and
+> class caps (`--classes`; the default keeps the smallest of 12x12, 12x6, 8x8, 6x6, 4x4 within 0.005 IoU of the best).
+> Measured ([Jamo splitting, 7.8](../../jamo-split.md#78-availability)):
+>
+> | Item | v1 | v2 |
+> |---|---|---|
+> | composed IoU at v1's bytes, five TrueType fonts (font means) | 0.845-0.998 | 0.938-0.997 (+0.03 to +0.09; Single Day -0.001) |
+> | default, same fonts | 26.6-49.9 KB | 20.9-57.3 KB, 0.953-0.993 (larger on four fonts) |
+> | Apple and Gulim strikes at v1's bytes | 0.914-0.960 | 0.952-0.980 |
+> | stored pieces failing a gate | font means 2.7-17.2 | 0 in every face |
+> | IoU cost of the gates | | 0.001-0.009 |
+> | speed, 11,172 syllables, 4 threads, after the model | 5-9 s | default 7-15 s, ladder 30-90 s |
+>
+> Open: KS-only sources draw the other 8,822 syllables no better than v1 (0.72-0.84 against 0.68-0.88); a likely
+> factor is that groups sharing no jamo (initial and final problems hold several jamo; a source with holes has many such
+> groups) merge at zero cost in the tolerance phase, without evidence that they share a design, and those groupings
+> then place the unseen contexts; the default
+> is larger than v1's; Gothic A1, Single Day and the Windows 95 Gulim strikes are in the weights' training data, so
+> they are not held out; the tolerance, slack and class caps were chosen on four fonts, mono only; `--big` has had one
+> smoke run, no evaluation.
+
 > **Phase B implemented (2026-11-28)** on branch `jamo-hybrid`: `tools/jamohybrid.py`, `tools/jamonet.py`,
 > `tools/train_jamohybrid.py`, `tools/test_jamohybrid.py`, `tools/models/jamohybrid-v1.npz` with
 > `tools/models/jamohybrid-v1.md`. Owner decisions: train on everything available (section 1); the weights are MIT like
