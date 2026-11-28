@@ -551,7 +551,7 @@ syllables are needed and the source is close to an OR of pieces.
    proves the tables compose, not that the pieces are the jamo; the identity check needs an external recogniser that the
    repository does not ship and that was never run here on a real model. In research, a per-pixel model put 98-99.5 % of the
    pixels in the right slot, against 66-92 % for pixel fitting (7.2, 7.3). Faces built from it with hard identity gates kept
-   95.5-99.7 % on the Apple and Gulim ground-truth faces (7.4, 7.6). Neither is in this repository (7.8).
+   95.5-99.7 % on the Apple and Gulim ground-truth faces (7.4, 7.6). `tools/jamohybrid.py` now builds such faces (7.8).
 3. **Blank or degenerate pieces.** A piece no syllable needs ink in stays blank (4.3); a piece of a context the source
    never draws is copied from another set or left blank (`unseen_pieces`). The compatibility jamo then draw blank or wrong.
 4. **Designs not built from pieces.** Kasan 0.872, CPC-400S 0.794, Quiz King of Fighters 0.835 with 8x4x4: the result is a
@@ -596,7 +596,8 @@ references; only the findings are reported here, no data from them.
 | 2026-10-27 to 10-28 | 12 px faces from fonts' own conjoining (GSUB) pieces | the font's positional variants as pieces; more sets; LIST of whole syllables | mean IoU 0.58 against the hinted glyphs (layout differs, ±1 px shift only reaches 0.64); a stroke filter costs about 0.03 IoU; LIST beat extra classes at every size and gained 0.134 IoU per KB against 0.045 for sets; split-half check 0.812 / 0.813 (no overfitting) | decomposing whole precomposed glyphs dropped at 12 px; the format judged expressive enough: the gaps are in pieces and evaluators |
 | 2026-11-01 | | | | the follow-up face-quality research (evaluation-driven piece search, layout correction, evaluator reliability) cancelled; the findings kept in the research notes |
 | 2026-11-09 | | | | jamo segmentation research stopped for now; the tools stay as they are |
-| 2026-11-27 | a split checked against real pieces | ground-truth pairs (Mac 7.1.2 planes = 7.5.3 strikes; Windows 95 Gulim component strikes); a per-pixel model; structural sets with voting and identity gates (chapter 7) | pixel fitting puts 66-92 % of pixels in the right slot, the model 98-99.5 %; the hybrid beats `adaptive` at equal bytes on every face measured | research only; the standard JSET face stays the default, BIG an option; a public model needs open training data |
+| 2026-11-27 | a split checked against real pieces | ground-truth pairs (Mac 7.1.2 planes = 7.5.3 strikes; Windows 95 Gulim component strikes); a per-pixel model; structural sets with voting and identity gates (chapter 7) | pixel fitting puts 66-92 % of pixels in the right slot, the model 98-99.5 %; the hybrid beats `adaptive` at equal bytes on every face measured | the standard JSET face stays the default, BIG an option |
+| 2026-11-28 | the learned split as a tool | `tools/jamohybrid.py` with a numpy model (`tools/jamonet.py`, weights trained on the ground truth and the open faces) | held-out faces: label accuracy 0.988-0.998 for the model; built faces as in research (7.8) | shipped; maker integration is a follow-up |
 
 **What was learned.**
 
@@ -626,7 +627,7 @@ on choosing set counts for bitmap faces.
 - Source: a research run of 2026-11 in a private research repository.
 - Data: mostly bitmaps of proprietary fonts (Apple, Microsoft, IBM). Only numbers are given. Rows of those fonts cannot
   be re-run from this repository.
-- Tools: not in this repository (7.8).
+- Tools: the research code; since 2026-11-28 the builder ships as `tools/jamohybrid.py` (7.8).
 
 ### 7.1 Ground truth
 
@@ -775,11 +776,17 @@ afford (wrong pixels with standard limits, fixed / derived groups: Seoul 10 써 
 
 ### 7.8 Availability
 
-The model and the hybrid builder exist only in the research repository. The model was trained on proprietary bitmaps
-and is not shipped. This repository has `jamoset.py` (844, adaptive), `jamomerge.py` and `jamofill.py`.
+The builder ships as `tools/jamohybrid.py` ([tools](tools.md#toolsjamohybridpy)). It needs numpy, not torch.
+- Model: `tools/models/jamohybrid-v1.npz`, 0.9 MB, MIT. It was trained on the Apple and Gulim ground truth, the
+  HangulTalk 1.0 faces and the open jamo-set faces of `svf/`. [Its notes](../tools/models/jamohybrid-v1.md) list every
+  source with its hash, and the held-out folds.
+- Held-out label accuracy of the model: 0.988-0.998 on the Apple faces, 0.991 / 0.986 on Gulim, and on the open
+  families SANS8J, Neo Dunggeunmo Pro and Single Day (0.95-0.997).
+- Faces built with a fold model (standard limits): 14-30 KB, composed IoU 0.93-0.995, label accuracy 0.95-0.996.
+- Options: `--max-bytes`, `--min-iou`, `--big` (off by default).
+- Speed: a 2,350-syllable face builds in about 6 s on a desktop CPU.
 
-A public version needs a model trained on open data only. The synthetic-only result in 7.3 (Seoul 12: 0.975) shows this
-is feasible. Open jamo-set faces and open fonts built from components would be the training data.
+`tools/train_jamohybrid.py` (torch) trains new weights from a manifest of sources.
 
 ### 7.9 Open problems
 
