@@ -95,7 +95,7 @@ Paperlogy는 폰트 파일에 OFL을 명시한다. 페이스 여섯 개(`NGOTB17
   애플 HangulTalk 1.0 글꼴(Gotic, Munjo), 윈도 95 굴림 비트맵 스트라이크.
 - `svf/`의 열린 조합형 페이스(OFL-1.1. SANS8J는 MIT도).
 
-이 저장소에는 글꼴 비트맵이 들어 있지 않다. [tools/models/jamohybrid-v1.md](tools/models/jamohybrid-v1.md)에 학습 원본마다
+이 저장소에는 독점 학습 글꼴의 비트맵이 들어 있지 않다. [tools/models/jamohybrid-v1.md](tools/models/jamohybrid-v1.md)에 학습 원본마다
 sha256, 학습 스크립트, 시드, 평가를 적었다. 가중치 사용에 관한 라이선스 문제는 이 프로젝트에서 쓰는 글꼴과 마찬가지로
 사용자의 책임이다.
 

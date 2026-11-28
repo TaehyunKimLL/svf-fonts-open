@@ -786,7 +786,9 @@ learned split): the composed syllables follow the source, and each piece is its 
 `tools/models/jamohybrid-v1.npz`; freetype-py for `--from-ttf`. Not torch.
 
 **Inputs.** `--from-svf FACE.SVF` (a 1 bpp precomposed face; its other glyphs, metrics and flags are kept) or
-`--from-ttf FONT --size N [--cell WxH] [--baseline R]` (rendered as `jamoset.py --from-ttf` renders).
+`--from-ttf FONT --size N [--cell WxH] [--baseline R]` (rendered as `jamoset.py --from-ttf` renders). An input face is
+checked before it is parsed: at most 16 MiB, a cell of at most 64 x 64, at most 70,000 glyphs and 11,172 x 64 x 64
+syllable pixels; a face with no Hangul syllables is refused with a message.
 
 **Method.**
 1. `tools/jamonet.py` gives each syllable's initial, medial and final planes, conditioned on its jamo.
@@ -803,9 +805,9 @@ learned split): the composed syllables follow the source, and each piece is its 
 | Option | Meaning |
 |---|---|
 | (default) | the standard JSET face: 32 / 24 / 16 sets, 12 x 12 classes |
-| `--big` | JSET BIG limits: 64 / 48 / 32 sets, 19 x 28 classes (engines built with `SVF_JSET_BIG`) |
-| `--limits NI,NM,NF` | the set limits |
-| `--max-bytes N` | the most accurate face of the limit ladder within N bytes |
+| `--big` | JSET BIG: the tool's default limits become 64 / 48 / 32 sets and 19 x 28 classes (the format's BIG row allows 128 / 128 / 64); engines built with `SVF_JSET_BIG` read it |
+| `--limits NI,NM,NF` | the set limits: at least 16 / 21 / 8 (the structural sets), at most 32 / 24 / 16 (128 / 128 / 64 with `--big`) |
+| `--max-bytes N` | the most accurate face of the limit ladder within N bytes; the ladder is 16 / 21 / 8 ... 32 / 24 / 16, and with `--big` also 40 / 30 / 20 ... 96 / 72 / 48 |
 | `--min-iou X` | the smallest face of the ladder whose composed IoU reaches X |
 | `--rule derived\|structural` | groups learned from the face (default) or the fixed groups |
 | `--model PATH` | other weights |
@@ -820,7 +822,11 @@ classes).
 [--report R.json] [--check]`.
 
 **Repository modules imported.** `jamoset.py`, `jamofit.py`, `jamonet.py`. **Third-party.** numpy; freetype-py with
-`--from-ttf`. **Test.** `tools/test_jamohybrid.py`.
+`--from-ttf`. **Test.** `tools/test_jamohybrid.py`: `JAMOSET_PYLIB=DIR python3 -B -m unittest tools.test_jamohybrid` from the
+repository root (`DIR` holds numpy built for the same Python; the tests skip without it).
+
+**Speed.** numpy uses every core by default; on a loaded many-core machine set `OMP_NUM_THREADS` (for example 4):
+a 2,357-syllable face took 29 s with all threads and 6 s with 4 there.
 
 ### `tools/jamonet.py`
 

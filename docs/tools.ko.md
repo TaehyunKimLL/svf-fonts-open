@@ -732,7 +732,9 @@ P.json`.
 `--from-ttf`에는 freetype-py가 필요하다. torch는 필요 없다.
 
 **입력.** `--from-svf FACE.SVF`(1 bpp 완성형 페이스. 다른 글리프, 메트릭, 플래그는 유지한다) 또는
-`--from-ttf FONT --size N [--cell WxH] [--baseline R]`(`jamoset.py --from-ttf`와 같이 렌더링한다).
+`--from-ttf FONT --size N [--cell WxH] [--baseline R]`(`jamoset.py --from-ttf`와 같이 렌더링한다). 입력 페이스는
+파싱하기 전에 확인한다. 최대 16 MiB, 셀 64 x 64 이하, 글리프 70,000개 이하, 음절 픽셀 11,172 x 64 x 64 이하다. 한글 음절이 없는
+페이스는 메시지와 함께 거부한다.
 
 **방법.**
 1. `tools/jamonet.py`가 음절마다 초성, 중성, 종성 판을 준다. 음절의 자모를 조건으로 받는다.
@@ -749,9 +751,9 @@ P.json`.
 | 옵션 | 뜻 |
 |---|---|
 | (기본) | 표준 JSET 페이스: 32 / 24 / 16벌, 12 x 12 갈래 |
-| `--big` | JSET BIG 한도: 64 / 48 / 32벌, 19 x 28 갈래(`SVF_JSET_BIG`으로 빌드한 엔진) |
-| `--limits NI,NM,NF` | 벌 한도 |
-| `--max-bytes N` | 한도 사다리에서 N바이트 안에 드는 가장 정확한 페이스 |
+| `--big` | JSET BIG: 도구의 기본 한도가 64 / 48 / 32벌, 19 x 28 갈래가 된다(형식의 BIG 행은 128 / 128 / 64까지 허용한다). `SVF_JSET_BIG`으로 빌드한 엔진이 읽는다 |
+| `--limits NI,NM,NF` | 벌 한도: 최소 16 / 21 / 8(구조 벌), 최대 32 / 24 / 16(`--big`이면 128 / 128 / 64) |
+| `--max-bytes N` | 한도 사다리에서 N바이트 안에 드는 가장 정확한 페이스. 사다리는 16 / 21 / 8 ... 32 / 24 / 16이고, `--big`이면 40 / 30 / 20 ... 96 / 72 / 48도 더한다 |
 | `--min-iou X` | 사다리에서 조합 IoU가 X에 이르는 가장 작은 페이스 |
 | `--rule derived\|structural` | 페이스에서 배운 묶음(기본) 또는 고정 묶음 |
 | `--model PATH` | 다른 가중치 |
@@ -765,7 +767,11 @@ P.json`.
 [--report R.json] [--check]`.
 
 **가져오는 저장소 모듈.** `jamoset.py`, `jamofit.py`, `jamonet.py`. **외부 의존성.** numpy. `--from-ttf`에는 freetype-py.
-**테스트.** `tools/test_jamohybrid.py`.
+**테스트.** `tools/test_jamohybrid.py`: 저장소 루트에서 `JAMOSET_PYLIB=DIR python3 -B -m unittest tools.test_jamohybrid`
+(`DIR`에 같은 파이썬용 numpy가 있다. 없으면 테스트를 건너뛴다).
+
+**속도.** numpy는 기본으로 모든 코어를 쓴다. 부하가 큰 다코어 기계에서는 `OMP_NUM_THREADS`(예: 4)를 정한다. 그런 기계에서
+2,357자 페이스가 모든 스레드로 29초, 4개로 6초 걸렸다.
 
 ### `tools/jamonet.py`
 

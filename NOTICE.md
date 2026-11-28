@@ -96,7 +96,7 @@ licence like the code. It is listed here separately because of what it was train
   (Seoul, AppleMyungjo, AppleGothic), Apple HangulTalk 1.0 fonts (Gotic, Munjo), and the Windows 95 Gulim bitmap strikes;
 - the open jamo-set faces of `svf/` (OFL-1.1; SANS8J also MIT).
 
-No font bitmap is included in this repository. [tools/models/jamohybrid-v1.md](tools/models/jamohybrid-v1.md) lists
+No bitmap of the proprietary training fonts is included in this repository. [tools/models/jamohybrid-v1.md](tools/models/jamohybrid-v1.md) lists
 every training source with its sha256, the training script, the seed and the evaluation. Licence questions about using
 the weights are the user's responsibility, as with the fonts used in this project.
 
