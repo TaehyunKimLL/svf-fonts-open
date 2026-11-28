@@ -5,29 +5,38 @@ Like `jamoset.py --from-svf` / `--from-ttf`, it builds a jamo set (JSET) whose c
 face. Unlike the pixel fit it also gets the split right: which pixels are the initial, the medial and the final.
 
   1. Proposals. A per-pixel model (tools/jamonet.py, weights tools/models/jamohybrid-v1.npz) gives every syllable's
-     initial / medial / final planes, conditioned on the syllable's jamo.
-  2. Sets, top-down. Structural sets: initial = vowel group x final present, medial = initial class x final kind, final =
-     vowel group. Then greedy splits by one initial, vowel or final while the set and class limits allow (standard JSET:
-     32 / 24 / 16 sets, 12 x 12 classes; --big: 64 / 48 / 32, 19 x 28).
-  3. Pieces, bottom-up. A (set, jamo) piece is the per-pixel majority of its syllables' proposals weighted by the model's
-     probabilities. Pieces of one jamo merge (inside a coarse class) when the merged piece passes the identity gates and
-     no syllable's error grows past max(1, cell / 12) px. Then jamofit re-fits the pieces to the precomposed syllables,
-     each pixel only in a slot the model gave it.
+     initial / medial / final planes, conditioned on the syllable's jamo. Every syllable the source holds is used.
+  2. Classes. Lead classes (of the 19 initials) and tail classes (of the 28 finals; no final alone) by Ward clustering
+     of what the other slots show with each initial / final (--rule derived), or fixed ones (--rule structural).
+  3. Groups, bottom-up, inside the exact JSET structure. The tables read a syllable as cell = (lead class, vowel, tail
+     class), so the set limits hold per lead class for the initial, per vowel for the medial and per tail class for the
+     final (standard JSET: 32 / 24 / 16 sets, 12 x 12 classes; --big: 64 / 48 / 32, 19 x 28). In each of these the
+     contexts start apart and the cheapest pair merges - cost = the pixels that then disagree with the group's
+     majority piece - first down to the set limit, then on while a merge adds at most --tol pixels per syllable of its
+     smaller group (default cell height / 12 px): such merges remove prediction noise, not designs.
   4. Identity gates (hard): enough ink and extent; holes (ㅁ ㅂ ㅇ ㅎ ㅃ have one, ㄱ ㄴ ㄷ ㄹ ㅅ ㅈ ㅋ none); the ticks of
      ㅏ ㅑ ㅓ ㅕ ㅣ and the stubs of ㅗ ㅛ ㅜ ㅠ ㅡ, with a serif tolerance; ㅅ and ㅈ slant. Each check is on where at least
-     90 % of the face's own proposals pass it. A failing vote is replaced by the nearest proposal that passes, a merge
-     that would fail is not made, a failing re-fit keeps the vote.
-  5. Contexts no source syllable shows take the piece of the structurally nearest set (same vowel class and final kind
-     first, then vowel group, then the nearest initial), gated like the others.
+     90 % of the face's own proposals pass it. A merge that would turn a passing piece into a failing one is not made
+     (unless the set limit leaves no other). A group's piece is the majority weighted by the model's probabilities;
+     where it fails a gate, the member proposal nearest to it that passes; where none does, the nearest passing piece
+     of that jamo in another group. Then jamofit re-fits the pieces to the precomposed syllables, each pixel only in a
+     slot the model gave it; a failing re-fit keeps the piece.
+  5. A context no source syllable shows joins the group of the nearest context that has syllables (by how alike the
+     vowels and classes are); a (group, jamo) pair without syllables takes the piece of the nearest group that has one.
 
-  python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF]
+  python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF] [--tol PX]
+                              [--classes LC,TC]
   python3 tools/jamohybrid.py --from-ttf FONT --size N [--cell WxH] [--baseline R] -o OUT.SVF ...
   options: --big (BIG limits; default off), --rule derived|structural, --model PATH, --report OUT.json, --check,
            --jset-version 1|2|auto, --pylib DIR (a directory holding numpy, also $JAMOSET_PYLIB)
 
-Without --max-bytes / --min-iou / --limits the standard face at 32 / 24 / 16 is built. --max-bytes and --min-iou walk a
-ladder of set limits (standard: 16/21/8 ... 32/24/16; --big: 40/30/20 ... 96/72/48) and keep the most accurate face within
-the bytes, or the smallest that reaches the composed IoU. Needs numpy (and freetype-py for --from-ttf); not torch.
+Stopping rule. A (lead class, tail class) pair costs 63 table bytes and a stored piece its bitmap, so the face is kept
+small in two ways: the merge tolerance above, and the class caps. Without --max-bytes / --min-iou the face is built at
+the standard limits and the default tolerance for the class caps 12x12, 12x6, 8x8, 6x6 and 4x4, and the smallest within
+0.005 composed IoU of the most accurate is kept (--classes fixes the cap). --max-bytes and --min-iou walk a ladder -
+every class cap at 6 ... 0.5 times the default tolerance; with --big also BIG points - and keep the most accurate face
+within the bytes, or the smallest that reaches the composed IoU. The report gives the composed IoU over
+every source syllable and over the KS X 1001 ones. Needs numpy (and freetype-py for --from-ttf); not torch.
 """
 
 import argparse
@@ -50,14 +59,16 @@ VOWELS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
 TAILS = "-ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
 NAMES = (LEADS, VOWELS, TAILS)
 SLOTS = ("initial", "medial", "final")
-V_VERT, V_HORZ = set("ㅏㅐㅑㅒㅓㅔㅕㅖㅣ"), set("ㅗㅛㅜㅠㅡ")
-VG8 = ["ㅏㅑㅓㅕㅣ", "ㅐㅒㅔㅖ", "ㅗㅛㅡ", "ㅜㅠ", "ㅘㅚㅢ", "ㅙ", "ㅝㅟ", "ㅞ"]
 LEAD7 = ["ㄱㄲㅋ", "ㄴㄷㅅ", "ㄸㄹㅌ", "ㅁㅂㅇㅈ", "ㅃㅆㅉ", "ㅊㅎ", "ㅍ"]
 COMPLEX = set("ㄳㄵㄶㄺㄻㄼㄽㄾㄿㅀㅄ")
 LIMITS = {False: ((32, 24, 16), (12, 12)), True: ((64, 48, 32), (19, 28))}
-LADDER = {False: [(16, 21, 8), (20, 22, 10), (24, 22, 12), (28, 23, 14), (32, 24, 16)],
-          True: [(40, 30, 20), (48, 36, 24), (64, 48, 32), (80, 60, 40), (96, 72, 48)]}
-AXES = ("initial", "vowel", "final")
+# The class caps tried (lead, tail): a (lead class, tail class) pair costs 63 table bytes, so fewer classes can pay.
+CLASS_GRID = {False: ((12, 12), (12, 6), (8, 8), (6, 6), (4, 4)), True: ((19, 28), (19, 14), (12, 12))}
+SLACK = 0.005                # the default face: the smallest within this composed IoU of the most accurate class cap
+# the --max-bytes / --min-iou ladder: every class cap at these merge tolerances (multiples of the default)
+TOL_LADDER = (6.0, 4.0, 3.0, 2.0, 1.0, 0.5)
+BIG_TOL_LADDER = (2.0, 1.0, 0.5)
+TOL_UNIT = 1.0               # default merge tolerance: this many pixels per syllable at a 12 px cell, scaled with the cell
 
 
 def load_numpy(pylib=None):
@@ -77,11 +88,6 @@ def load_numpy(pylib=None):
 
 def lvt(s):
     return s // 588, (s // 28) % 21, s % 28
-
-
-def vclass(V):
-    c = VOWELS[V]
-    return "vert" if c in V_VERT else "horz" if c in V_HORZ else "mix"
 
 
 # ---- identity checks ---------------------------------------------------------------------------------------------
@@ -190,6 +196,7 @@ class Gates:
     """The identity gates of a face, calibrated on its own proposals."""
 
     def __init__(self, jamo, prop):
+        self.shape = prop.shape[2:]
         self.frac = FRACS[-1]
         for f in FRACS:                     # serif tolerance: the smallest share under which the ticks pass (95 %)
             ok = True
@@ -246,279 +253,368 @@ class Gates:
         return True
 
 
-# ---- rules -------------------------------------------------------------------------------------------------------
+# ---- classes -------------------------------------------------------------------------------------------------------
 
-def structural_rule():
-    vg = [next(g for g, s in enumerate(VG8) if v in s) for v in VOWELS]
-    lc = [next(g for g, s in enumerate(LEAD7) if c in s) for c in LEADS]
-    tk = [0] + [1 if t in "ㄴㅅ" else 3 if t in COMPLEX else 2 for t in TAILS[1:]]
-    return vg, lc, tk
+def structural_classes():
+    """Fixed lead classes (7) and tail classes (none, ㄴ ㅅ, the other single finals, the double finals)."""
+    lead = [next(g for g, s in enumerate(LEAD7) if c in s) for c in LEADS]
+    tail = [0] + [1 if t in "ㄴㅅ" else 3 if t in COMPLEX else 2 for t in TAILS[1:]]
+    return lead, tail
 
 
-def cluster(profiles, n):
-    """Average-linkage clustering (L1) of a few profiles into @p n groups, numbered by first appearance."""
-    m = len(profiles)
-    groups = [[i] for i in range(m)]
-    d = np.abs(profiles[:, None, :] - profiles[None, :, :]).sum(axis=2)
-    while len(groups) > n:
-        best = None
-        for a in range(len(groups)):
-            for b in range(a + 1, len(groups)):
-                v = d[np.ix_(groups[a], groups[b])].mean()
-                if best is None or v < best[0]:
-                    best = (v, a, b)
-        _, a, b = best
-        groups[a] += groups[b]
-        del groups[b]
-    lab = [0] * m
-    for g, mem in enumerate(groups):
-        for i in mem:
-            lab[i] = g
+def ward(d2, k):
+    """Ward clustering from squared distances into at most @p k groups, numbered by first appearance."""
+    n = len(d2)
+    d = np.array(d2, np.float64)
+    np.fill_diagonal(d, np.inf)
+    size = np.ones(n)
+    label = list(range(n))
+    alive = list(range(n))
+    while len(alive) > k:
+        sub = d[np.ix_(alive, alive)]
+        a, b = np.unravel_index(int(np.argmin(sub)), sub.shape)
+        i, j = alive[a], alive[b]
+        for m in alive:
+            if m != i and m != j:
+                v = ((size[i] + size[m]) * d[i, m] + (size[j] + size[m]) * d[j, m] - size[m] * d[i, j]) / \
+                    (size[i] + size[j] + size[m])
+                d[i, m] = d[m, i] = v
+        size[i] += size[j]
+        label = [i if x == j else x for x in label]
+        alive.remove(j)
     ids = {}
-    return [ids.setdefault(x, len(ids)) for x in lab]
+    return [ids.setdefault(x, len(ids)) for x in label]
 
 
-def derived_rule(jamo, prob):
-    """Vowel groups (8), initial classes (7), final kinds (none + 3) from the face's own proposals."""
-    n, _, h, w = prob.shape
-
-    def means(key_a, key_b, slot, na, nb):
-        out = np.zeros((nb, na, h * w))
-        cnt = np.zeros((nb, na))
-        for i in range(n):
-            out[jamo[i, key_b], jamo[i, key_a]] += prob[i, slot].reshape(-1)
-            cnt[jamo[i, key_b], jamo[i, key_a]] += 1
-        mm = out / np.maximum(cnt, 1)[..., None]
-        for a in range(na):
-            have = cnt[:, a] > 0
-            if have.any():
-                mm[~have, a] = mm[have, a].mean(axis=0)
-        return mm.reshape(nb, -1)
-    vg = cluster(means(0, 1, 0, 19, 21), 8)
-    lc = cluster(means(1, 0, 1, 21, 19), 7)
-    out = np.zeros((28, 21, 2 * h * w))
-    cnt = np.zeros((28, 21))
-    for i in range(n):
-        out[jamo[i, 2], jamo[i, 1]] += prob[i, :2].reshape(-1)
-        cnt[jamo[i, 2], jamo[i, 1]] += 1
-    mm = out / np.maximum(cnt, 1)[..., None]
-    for v in range(21):
-        have = cnt[1:, v] > 0
-        if have.any():
-            mm[1:][~have, v] = mm[1:][have, v].mean(axis=0)
-    tk = [0] + [c + 1 for c in cluster(mm[1:].reshape(27, -1), 3)]
-    return vg, lc, tk
-
-
-class Rule:
-    """Sets per raw context: aset[k][(L, V, T)] -> set (k = 2 only T > 0); coarse[k][set] the class merges stay in."""
-
-    def __init__(self, vg, lc, tk):
-        self.vg, self.lc7, self.tk = vg, lc, tk
-        mk = sorted(set(min(t, 2) for t in tk))
-        mk_of = {t: mk.index(min(t, 2)) for t in set(tk)}
-        self.aset = [{}, {}, {}]
-        self.coarse = [{}, {}, {}]
-        for L in range(19):
-            for V in range(21):
-                for T in range(28):
-                    i = vg[V] * 2 + (T > 0)
-                    m = lc[L] * len(mk) + mk_of[tk[T]]
-                    self.aset[0][(L, V, T)] = i
-                    self.aset[1][(L, V, T)] = m
-                    self.coarse[0].setdefault(i, (vclass(V), T > 0))
-                    self.coarse[1].setdefault(m, T > 0)
-                    if T:
-                        self.aset[2][(L, V, T)] = vg[V]
-                        self.coarse[2].setdefault(vg[V], vclass(V))
-        self.splits = []
-
-    def sets(self, L, V, T):
-        k = (L, V, T)
-        return (self.aset[0][k], self.aset[1][k], self.aset[2][k] if T else -1)
-
-    def counts(self):
-        return tuple(len(set(a.values())) for a in self.aset)
-
-    def classes(self):
-        sigL = [tuple(self.aset[k][(L, V, T)] for k in range(3) for V in range(21) for T in range(28) if k < 2 or T)
-                for L in range(19)]
-        sigT = [(T == 0,) + tuple(self.aset[k][(L, V, T)] for k in range(3) for L in range(19) for V in range(21)
-                                  if k < 2 or T) for T in range(28)]
-        ids, idt = {}, {}
-        lc = [ids.setdefault(s, len(ids)) for s in sigL]
-        tc = [idt.setdefault(s, len(idt)) for s in sigT]
-        return lc, len(ids), tc, len(idt)
-
-    def renumber(self):
-        for k in range(3):
-            ids = {}
-            for key in sorted(self.aset[k]):
-                ids.setdefault(self.aset[k][key], len(ids))
-            self.aset[k] = {key: ids[v] for key, v in self.aset[k].items()}
-            self.coarse[k] = {ids[v]: c for v, c in self.coarse[k].items() if v in ids}
+def axis_distances(jamo, prop):
+    """Squared distances between the initials, the vowels and the finals by what the *other* slots show with each:
+    initials by the medial and final proposals over every (V, T), vowels by the initial and final over (L, T), finals
+    by the initial and medial over (L, V). A syllable the source lacks takes the mean of the others in its place. Each
+    matrix is divided by its median (0 on the diagonal). Large cells are pooled to at most 24 px a side first."""
+    n, _, h, w = prop.shape
+    f = max(1, -(-max(h, w) // 24))
+    hp, wp = -(-h // f) * f, -(-w // f) * f
+    p = np.zeros((n, 3, hp, wp), np.float32)
+    p[:, :, :h, :w] = prop
+    p = p.reshape(n, 3, hp // f, f, wp // f, f).mean(axis=(3, 5)).reshape(n, 3, -1)
+    idx = np.full((19, 21, 28), -1)
+    idx[jamo[:, 0], jamo[:, 1], jamo[:, 2]] = np.arange(n)
+    out = []
+    for axis, slots in ((0, (1, 2)), (1, (0, 2)), (2, (0, 1))):
+        m = (19, 21, 28)[axis]
+        ix = np.moveaxis(idx, axis, 0).reshape(m, -1)
+        d = np.zeros((m, m))
+        for col in range(ix.shape[1]):
+            rows = ix[:, col]
+            have = rows >= 0
+            if have.sum() < 2:
+                continue
+            x = p[rows[have]][:, slots].reshape(int(have.sum()), -1)
+            full = np.repeat(x.mean(axis=0)[None], m, axis=0)
+            full[have] = x
+            g = full @ full.T
+            q = np.diag(g)
+            d += q[:, None] + q[None, :] - 2 * g
+        d = np.maximum(d, 0)
+        off = d[np.triu_indices(m, 1)]
+        med = float(np.median(off[off > 0])) if (off > 0).any() else 1.0
+        out.append(d / med)
+    return out
 
 
-# ---- votes, splits, merges ---------------------------------------------------------------------------------------
+def derived_classes(dist, max_classes):
+    """Lead and tail classes by Ward clustering of the axis distances; no final is its own tail class."""
+    lead = ward(dist[0], max_classes[0])
+    tail = [0] + [c + 1 for c in ward(dist[2][1:, 1:], max_classes[1] - 1)]
+    return lead, tail
 
-def vote(users, ink, prob, k):
-    pk = prob[users, k]
-    ik = ink[users].astype(np.float32)
-    return ((ik * pk).sum(0) > ((1 - ik) + ik * (1 - pk)).sum(0)).astype(np.uint8)
 
+# ---- grouping inside the JSET structure ----------------------------------------------------------------------------
+#
+# The tables read a syllable as cell = (lead class of L, V, tail class of T); initial = init_piece[init_set[cell]][L],
+# medial = med_piece[med_set[cell]][V], final = fin_piece[fin_set[cell]][T]. A set number is therefore only ever read
+# for the jamo of the cell's own class, and the set limits hold
+#     per lead class for the initial   (contexts (V, tail class); a group holds one piece per initial of the class),
+#     per vowel for the medial         (contexts (lead class, tail class); one piece),
+#     per tail class for the final     (contexts (lead class, V); one piece per final of the class).
+# A Problem is one of these: its contexts are merged bottom-up into at most `limit` groups.
+
+def vote_of(s, n):
+    """The piece of summed weighted votes: a pixel is on when its ink-weighted probability outweighs the rest."""
+    return (2 * s > n[..., None]).astype(np.uint8)
+
+
+class Problem:
+    def __init__(self, slot, key, jamo, ctx, s, n, users):
+        self.slot, self.key, self.jamo, self.ctx = slot, key, jamo, ctx      # ctx: the context of each item
+        self.s0, self.n0 = s, n                                              # (items, jamo, px), (items, jamo)
+        self.users0 = users                                                  # [item][jamo index] -> syllable rows
+        self.full = np.nonzero(n.sum(axis=1) > 0)[0]                         # items some syllable shows
+        self.d0 = None                                                       # the unmerged cost matrix, kept
+
+    def start(self):
+        """A fresh merge state over the items that have syllables."""
+        self.s = self.s0[self.full].copy()
+        self.n = self.n0[self.full].copy()
+        m = len(self.full)
+        self.mem = [[int(i)] for i in self.full]
+        self.alive = np.ones(m, bool)
+        self.cost = self.c(self.s, self.n)
+        self.tot = self.n.sum(axis=1)
+        self.gate = [None] * m                                               # per group: {jamo index: vote passes}
+        self.d = np.full((m, m), np.inf, np.float32)
+        if self.d0 is None:
+            for a in range(m):
+                self.row(a)
+            self.d0 = self.d.copy()
+        else:
+            self.d = self.d0.copy()
+        return self
+
+    @staticmethod
+    def c(s, n):
+        return np.minimum(s, n[..., None] - s).sum(axis=(-1, -2))
+
+    def row(self, a):
+        idx = np.nonzero(self.alive)[0]
+        idx = idx[idx != a]
+        self.d[a, :] = np.inf
+        self.d[:, a] = np.inf
+        if len(idx):
+            r = self.c(self.s[idx] + self.s[a], self.n[idx] + self.n[a]) - self.cost[idx] - self.cost[a]
+            self.d[a, idx] = r
+            self.d[idx, a] = r
+
+    def groups(self):
+        return int(self.alive.sum())
+
+    def gates_of(self, g, gates):
+        if self.gate[g] is None:
+            v = vote_of(self.s[g], self.n[g])
+            self.gate[g] = {ji: gates.ok(self.slot, NAMES[self.slot][j], v[ji].reshape(gates.shape))
+                            for ji, j in enumerate(self.jamo) if self.n[g, ji] > 0}
+        return self.gate[g]
+
+    def best(self, tol=None):
+        """(cost, a, b) of the cheapest merge; with @p tol only among the merges whose added disagreement is at most
+        tol pixels per syllable of the smaller group."""
+        d = self.d
+        if tol is not None:
+            small = np.minimum(self.tot[:, None], self.tot[None, :])
+            d = np.where(d <= tol * small, d, np.inf)
+        k = int(np.argmin(d))
+        a, b = divmod(k, d.shape[1])
+        return float(d[a, b]), a, b
+
+    def breaks_gate(self, a, b, gates):
+        """Would merging a and b turn a piece that passes its identity gates into one that fails?"""
+        ga, gb = self.gates_of(a, gates), self.gates_of(b, gates)
+        s, n = self.s[a] + self.s[b], self.n[a] + self.n[b]
+        v = vote_of(s, n)
+        merged = {}
+        for ji, j in enumerate(self.jamo):
+            if n[ji] > 0:
+                merged[ji] = gates.ok(self.slot, NAMES[self.slot][j], v[ji].reshape(gates.shape))
+                if not merged[ji] and (ga.get(ji) or gb.get(ji)):
+                    return True, None
+        return False, merged
+
+    def merge(self, a, b, merged_gate=None):
+        self.s[a] += self.s[b]
+        self.n[a] += self.n[b]
+        self.tot[a] += self.tot[b]
+        self.cost[a] = self.c(self.s[a], self.n[a])
+        self.mem[a] += self.mem[b]
+        self.alive[b] = False
+        self.gate[a] = merged_gate
+        self.d[b, :] = np.inf
+        self.d[:, b] = np.inf
+        self.row(a)
+
+
+def make_problems(jamo, prob, ink, lead, tail):
+    """The Problems of a face for the given classes, with S = the ink-weighted probabilities summed per context."""
+    n_syl, _, h, w = prob.shape
+    px = h * w
+    nlc, ntc = max(lead) + 1, max(tail) + 1
+    lc = np.asarray(lead)[jamo[:, 0]]
+    tc = np.asarray(tail)[jamo[:, 2]]
+    wv = (prob * ink[:, None]).reshape(n_syl, 3, px).astype(np.float32)
+    out = []
+
+    def add(slot, key, members, ctx, sel, item_of, jamo_of):
+        pos = {c: i for i, c in enumerate(ctx)}
+        jpos = {j: i for i, j in enumerate(members)}
+        s = np.zeros((len(ctx), len(members), px), np.float32)
+        n = np.zeros((len(ctx), len(members)), np.float32)
+        users = [[[] for _ in members] for _ in ctx]
+        if len(sel):
+            it = np.array([pos[item_of(i)] for i in sel])
+            jj = np.array([jpos[jamo_of(i)] for i in sel])
+            np.add.at(s, (it, jj), wv[sel, slot])
+            np.add.at(n, (it, jj), 1)
+            for i, a, b in zip(sel, it, jj):
+                users[a][b].append(int(i))
+        out.append(Problem(slot, key, members, ctx, s, n, users))
+    for c in range(nlc):
+        add(0, c, [L for L in range(19) if lead[L] == c], [(V, t) for V in range(21) for t in range(ntc)],
+            np.nonzero(lc == c)[0], lambda i: (int(jamo[i, 1]), int(tc[i])), lambda i: int(jamo[i, 0]))
+    for V in range(21):
+        add(1, V, [V], [(c, t) for c in range(nlc) for t in range(ntc)],
+            np.nonzero(jamo[:, 1] == V)[0], lambda i: (int(lc[i]), int(tc[i])), lambda i: V)
+    for t in range(1, ntc):
+        add(2, t, [T for T in range(1, 28) if tail[T] == t], [(c, V) for c in range(nlc) for V in range(21)],
+            np.nonzero(tc == t)[0], lambda i: (int(lc[i]), int(jamo[i, 1])), lambda i: int(jamo[i, 2]))
+    return out
+
+
+def group(problems, limits, tol, gates, stats, gate_merges=True):
+    """Merge every problem's contexts: first down to the slot's set limit (the cheapest merge that breaks no identity
+    gate; a forced one when only gate-breaking merges are left), then on while a merge adds at most @p tol pixels of
+    disagreement per syllable of its smaller group (those merges remove prediction noise, not designs)."""
+    for p in problems:
+        p.start()
+        refused = set()
+
+        def take(tol_):
+            while True:
+                cost, a, b = p.best(tol_)
+                if not np.isfinite(cost):
+                    return False
+                if gate_merges:
+                    bad, mg = p.breaks_gate(a, b, gates)
+                    if bad:
+                        refused.add((a, b))
+                        p.d[a, b] = p.d[b, a] = np.inf
+                        stats["merge_refused_by_gate"] += 1
+                        continue
+                else:
+                    mg = None
+                p.merge(a, b, mg)
+                stats["merges"] += 1
+                return True
+        while p.groups() > limits[p.slot]:
+            if not take(None):
+                # only gate-breaking merges are left: the limit is hard, so the cheapest of them is made
+                for a, b in refused:
+                    if p.alive[a] and p.alive[b]:
+                        p.d[a, b] = p.d[b, a] = p.c(p.s[a] + p.s[b], p.n[a] + p.n[b]) - p.cost[a] - p.cost[b]
+                refused.clear()
+                cost, a, b = p.best(None)
+                if not np.isfinite(cost):
+                    break
+                p.merge(a, b, None)
+                stats["merges_forced_through_a_gate"] += 1
+        if tol is not None and tol > 0:
+            while p.groups() > 1 and take(tol):
+                pass
+
+
+def context_distance(p, dist, lead, tail):
+    """A function d(ctx, ctx') between two contexts of a problem from the axis distances (class distances are the
+    mean over the classes' members)."""
+    nlc, ntc = max(lead) + 1, max(tail) + 1
+
+    def classd(d, lab, k):
+        mem = [[i for i, x in enumerate(lab) if x == c] for c in range(k)]
+        return np.array([[float(d[np.ix_(a, b)].mean()) if a and b else 0.0 for b in mem] for a in mem])
+    dl, dt, dv = classd(dist[0], lead, nlc), classd(dist[2], tail, ntc), dist[1]
+    if p.slot == 0:
+        return lambda x, y: dv[x[0], y[0]] + dt[x[1], y[1]]
+    if p.slot == 1:
+        return lambda x, y: dl[x[0], y[0]] + dt[x[1], y[1]]
+    return lambda x, y: dl[x[0], y[0]] + dv[x[1], y[1]]
+
+
+def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
+    """Per problem: the group of every context (a context no syllable shows joins the group of the nearest context
+    that has one), and a piece for every (group, jamo): the vote; where the vote fails a gate, the member proposal
+    nearest to it that passes, else the nearest passing piece of the same jamo in another group; where no syllable
+    shows the jamo in the group, the piece of the nearest group that has it (a gate-passing one first). Returns piece {(slot, problem key, group, jamo): bitmap}, users (same keys ->
+    syllable rows) and group_of {(slot, problem key): {context: group}}."""
+    shape = gates.shape
+    piece, users, group_of, borrowed = {}, {}, {}, {}
+    for p in problems:
+        reps = [int(a) for a in np.nonzero(p.alive)[0]] if len(p.full) else []
+        cd = context_distance(p, dist, lead, tail)
+        gof = {}
+        for g, a in enumerate(reps):
+            for item in p.mem[a]:
+                gof[p.ctx[item]] = g
+        have = list(gof)
+        for c in p.ctx:
+            if c not in gof:
+                gof[c] = gof[min(have, key=lambda x: (cd(c, x), x))] if have else 0
+                stats["contexts_without_syllables"] += 1
+        group_of[(p.slot, p.key)] = gof
+        name = NAMES[p.slot]
+        failing = []
+        for g, a in enumerate(reps):
+            v = vote_of(p.s[a], p.n[a])
+            for ji, j in enumerate(p.jamo):
+                if p.n[a, ji] <= 0:
+                    continue
+                us = np.array([i for item in p.mem[a] for i in p.users0[item][ji]])
+                b = v[ji].reshape(shape)
+                if not gates.ok(p.slot, name[j], b):
+                    stats["vote_gate_fail"] += 1
+                    e = err(b, prop[us, p.slot])
+                    for i in np.argsort(e, kind="stable"):
+                        if gates.ok(p.slot, name[j], prop[us[i], p.slot]):
+                            b = prop[us[i], p.slot].copy()
+                            stats["vote_replaced_by_proposal"] += 1
+                            break
+                    else:
+                        failing.append((g, ji, j))
+                piece[(p.slot, p.key, g, j)] = b
+                users[(p.slot, p.key, g, j)] = us
+        # a piece that still fails (no member proposal passes): the group draws this jamo with the nearest piece
+        # of the same jamo that passes, and its syllables join that piece's
+        for g, ji, j in failing:
+            own = piece[(p.slot, p.key, g, j)]
+            cands = sorted((int((piece[(p.slot, p.key, g2, j)] != own).sum()), g2) for g2 in range(len(reps))
+                           if g2 != g and (p.slot, p.key, g2, j) in piece and (g2, ji, j) not in failing)
+            if cands:
+                donor = (p.slot, p.key, cands[0][1], j)
+                borrowed[(p.slot, p.key, g, j)] = donor
+                users[donor] = np.concatenate([users[donor], users.pop((p.slot, p.key, g, j))])
+                del piece[(p.slot, p.key, g, j)]
+                stats["gate_fail_took_nearest_passing_piece"] += 1
+            else:
+                stats["vote_gate_fail_kept"] += 1
+        # (group, jamo) pairs no syllable shows: borrowed from the nearest group that has the jamo
+        ctx_of = defaultdict(list)
+        for c, g in gof.items():
+            ctx_of[g].append(c)
+        ngroups = max(len(reps), 1)
+        for g in range(ngroups):
+            for ji, j in enumerate(p.jamo):
+                if (p.slot, p.key, g, j) in piece or (p.slot, p.key, g, j) in borrowed:
+                    continue
+                cands = []
+                for g2, a2 in enumerate(reps):
+                    if (p.slot, p.key, g2, j) in piece:
+                        near = min(cd(x, p.ctx[item]) for x in ctx_of[g] for item in p.mem[a2] if p.n0[item, ji] > 0)
+                        cands.append((near, g2))
+                cands.sort()
+                pick = next((g2 for _, g2 in cands if gates.ok(p.slot, name[j], piece[(p.slot, p.key, g2, j)])),
+                            cands[0][1] if cands else None)
+                if pick is not None:
+                    borrowed[(p.slot, p.key, g, j)] = (p.slot, p.key, pick, j)
+                    stats["pieces_borrowed"] += 1
+    return piece, users, group_of, borrowed
+
+
+# ---- re-fit --------------------------------------------------------------------------------------------------------
 
 def err(piece, props):
     return (piece[None] != props).sum(axis=(1, 2))
 
 
-def refine(rule, jamo, prop, prob, ink, limits, max_classes):
-    """Top-down splits within the limits; returns the best split the budget refused per slot."""
-    keys = [tuple(int(v) for v in x) for x in jamo]
-    cache, refused = {}, {}
-
-    def cost(k, idx):
-        byj = defaultdict(list)
-        for i in idx:
-            byj[keys[i][k]].append(i)
-        tot = 0
-        for j, us in byj.items():
-            ck = (k, j, tuple(us))
-            if ck not in cache:
-                u = np.array(us)
-                cache[ck] = int(err(vote(u, ink, prob, k), prop[u, k]).sum())
-            tot += cache[ck]
-        return tot
-
-    def members_of(k):
-        m = defaultdict(list)
-        for i, key in enumerate(keys):
-            if not (k == 2 and key[2] == 0):
-                m[rule.aset[k][key]].append(i)
-        return m
-
-    def candidates(k, members):
-        out = []
-        for sid, idx in members.items():
-            base = cost(k, idx)
-            if base == 0:
-                continue
-            for ax in range(3):
-                vals = sorted({keys[i][ax] for i in idx})
-                if len(vals) < 2:
-                    continue
-                for v in vals:
-                    A = [i for i in idx if keys[i][ax] == v]
-                    B = [i for i in idx if keys[i][ax] != v]
-                    gain = base - cost(k, A) - cost(k, B)
-                    if gain > 0:
-                        out.append((gain, k, sid, ax, v))
-        return out
-
-    while True:
-        cands = []
-        for k in range(3):
-            if rule.counts()[k] < limits[k]:
-                cands += candidates(k, members_of(k))
-        if not cands:
-            break
-        cands.sort(reverse=True)
-        applied = False
-        for gain, k, sid, ax, v in cands:
-            new = max(rule.aset[k].values()) + 1
-            moved = [key for key, s in rule.aset[k].items() if s == sid and key[ax] == v]
-            for key in moved:
-                rule.aset[k][key] = new
-            _, nl, _, nt = rule.classes()
-            if nl > max_classes[0] or nt > max_classes[1]:
-                for key in moved:
-                    rule.aset[k][key] = sid
-                refused.setdefault("classes", dict(gain_px=gain, slot=SLOTS[k], axis=AXES[ax], value=NAMES[ax][v]))
-                continue
-            rule.coarse[k][new] = rule.coarse[k][sid]
-            rule.splits.append((SLOTS[k], AXES[ax], NAMES[ax][v], int(gain)))
-            applied = True
-            break
-        if not applied:
-            break
-    for k in range(3):
-        if rule.counts()[k] >= limits[k]:
-            c = candidates(k, members_of(k))
-            if c:
-                g = max(c)
-                refused[SLOTS[k]] = dict(gain_px=int(g[0]), axis=AXES[g[3]], value=NAMES[g[3]][g[4]])
-    rule.renumber()
-    return refused
-
-
-def build_pieces(jamo, prop, prob, ink, rule, gates, tol, stats):
-    users = defaultdict(list)
-    for i, (L, V, T) in enumerate(jamo):
-        for k, s in enumerate(rule.sets(int(L), int(V), int(T))):
-            if s >= 0:
-                users[(k, s, (int(L), int(V), int(T))[k])].append(i)
-    piece = {}
-    for key, us in users.items():
-        k, s, j = key
-        us = np.array(us)
-        v = vote(us, ink, prob, k)
-        name = NAMES[k][j]
-        if not gates.ok(k, name, v):
-            stats["vote_gate_fail"] += 1
-            e = err(v, prop[us, k])
-            for i in np.argsort(e, kind="stable"):
-                if gates.ok(k, name, prop[us[i], k]):
-                    v = prop[us[i], k].copy()
-                    stats["vote_replaced_by_proposal"] += 1
-                    break
-            else:
-                stats["vote_gate_fail_kept"] += 1
-        piece[key] = v
-    # bottom-up merges inside coarse classes
-    groups = defaultdict(list)
-    for (k, s, j) in piece:
-        groups[(k, j, rule.coarse[k][s])].append(s)
-
-    def users_of(k, sets, j):
-        return [i for s in sets for i in users[(k, s, j)]]
-    for (k, j, _), sets in groups.items():
-        name = NAMES[k][j]
-        clusters = {s: [s] for s in sets}
-        cur = {s: piece[(k, s, j)] for s in sets}
-        bad = set()
-        while True:
-            reps = list(clusters)
-            cands = sorted((int((cur[x] != cur[y]).sum()), x, y) for i, x in enumerate(reps) for y in reps[i + 1:]
-                           if (x, y) not in bad)
-            if not cands:
-                break
-            dist, ra, rb = cands[0]
-            members = clusters[ra] + clusters[rb]
-            us = np.array(users_of(k, members, j))
-            merged = cur[ra] if dist == 0 else vote(us, ink, prob, k)
-            ok = gates.ok(k, name, merged)
-            if ok and dist:
-                before = np.concatenate([err(cur[ra], prop[np.array(users_of(k, clusters[ra], j)), k]),
-                                         err(cur[rb], prop[np.array(users_of(k, clusters[rb], j)), k])])
-                ok = bool((err(merged, prop[us, k]) <= np.maximum(tol, before)).all())
-            if not ok:
-                bad.add((ra, rb))
-                stats["merge_refused"] += 1
-                continue
-            clusters[ra] = members
-            del clusters[rb]
-            cur[ra] = merged
-            del cur[rb]
-            bad = {pr for pr in bad if ra not in pr and rb not in pr}
-            stats["merges"] += 1
-        for r, mem in clusters.items():
-            for s in mem:
-                piece[(k, s, j)] = cur[r]
-    return piece, users
-
-
 def refit(piece, users, prop, ink, gates, stats, passes=12):
     """Re-fit the grouped pieces to the precomposed syllables (jamofit.fit_pieces), each piece confined to the pixels
-    its users' proposals or its vote give that slot."""
+    its users' proposals or its vote give that slot. Keys are (slot, ..., jamo); pieces with equal bitmaps of one
+    jamo are fitted as one."""
     import jamofit as JF
     h, w = ink.shape[1:]
     weights = 1 << np.arange(w - 1, -1, -1, dtype=object)
@@ -527,13 +623,13 @@ def refit(piece, users, prop, ink, gates, stats, passes=12):
         return JF.from_rows([int((a[y].astype(object) * weights).sum()) for y in range(h)], w)
     keyid, members = {}, defaultdict(list)
     for key, a in piece.items():
-        kid = (key[0], key[2], a.tobytes())
+        kid = (key[0], key[-1], a.tobytes())
         keyid[key] = kid
         members[kid].append(key)
     syl = {}
-    for (k, s, j), us in users.items():
+    for key, us in users.items():
         for i in us:
-            syl.setdefault(i, [None, None, None])[k] = keyid[(k, s, j)]
+            syl.setdefault(int(i), [None, None, None])[key[0]] = keyid[key]
     masks = {}
     for kid, keys in members.items():
         us = np.array([i for key in keys for i in users[key]])
@@ -552,27 +648,6 @@ def refit(piece, users, prop, ink, gates, stats, passes=12):
         for key in keys:
             piece[key] = a
     stats["refit_kept_vote"] = kept
-
-
-def fallback_piece(rule, piece, gates, lead_prof, k, s, j):
-    """The piece of jamo j in slot k for a set no source syllable reaches, from the structurally nearest set."""
-    def summary(sid):
-        ctx = [key for key, v in rule.aset[k].items() if v == sid and key[k] == j]
-        return (set((vclass(V), rule.tk[T]) for L, V, T in ctx), set(rule.vg[V] for _, V, _ in ctx),
-                set(L for L, _, _ in ctx))
-    tgt = summary(s)
-    cands = []
-    for (kk, sid, jj), a in piece.items():
-        if kk != k or jj != j:
-            continue
-        c = summary(sid)
-        lead_d = min((float(np.abs(lead_prof[x] - lead_prof[y]).sum()) for x in tgt[2] for y in c[2]), default=1e9)
-        cands.append(((0 if tgt[0] & c[0] else 1, 0 if tgt[1] & c[1] else 1, round(lead_d, 3), sid), a))
-    cands.sort(key=lambda x: x[0])
-    for _, a in cands:
-        if gates.ok(k, NAMES[k][j], a):
-            return a, True
-    return (cands[0][1], False) if cands else (None, False)
 
 
 # ---- one face ------------------------------------------------------------------------------------------------------
@@ -648,31 +723,50 @@ def from_ttf(path, size, cell, baseline, pylib):
     return Source(np.array(syl), np.array(pre, np.uint8), ascent, extra=ascii_glyphs, info=tinfo)
 
 
-def build_face(src, model, rule_name, limits, max_classes, big, jset_version, log=None):
-    """Build one face; returns (bytes, layout, info)."""
+def default_tol(h):
+    """The default merge tolerance: pixels of added disagreement per syllable of the smaller group."""
+    return TOL_UNIT * h / 12.0
+
+
+def prepare(src, model, rule_name, max_classes):
+    """Proposals, gates, classes and the unmerged problems of a source; kept on it for the ladder's other points."""
     import jamonet
+    cache = src.__dict__.setdefault("_prep", {})
+    key = (rule_name, tuple(max_classes))
+    if key not in cache:
+        jamo = np.array([lvt(int(s)) for s in src.syl], np.int64)
+        if not hasattr(src, "_pred"):
+            src._pred = jamonet.predict(model, src.pre, jamo)
+        prob, prop = src._pred
+        ink = src.pre.astype(np.uint8)
+        if "gates" not in src.__dict__:
+            src.gates = Gates(jamo, prop)
+            src.dist = axis_distances(jamo, prop)
+        lead, tail = structural_classes() if rule_name == "structural" else derived_classes(src.dist, max_classes)
+        cache[key] = dict(jamo=jamo, prob=prob, prop=prop, ink=ink, gates=src.gates, dist=src.dist, lead=lead, tail=tail,
+                          problems=make_problems(jamo, prob, ink, lead, tail))
+    return cache[key]
+
+
+def build_face(src, model, rule_name, limits, max_classes, big, jset_version, log=None, tol=None, gate_merges=True):
+    """Build one face; returns (bytes, layout, info). @p tol: the merge tolerance in pixels per syllable (None: the
+    default for the cell; 0: no merging beyond the set limits)."""
     t0 = time.time()
-    jamo = np.array([lvt(int(s)) for s in src.syl], np.int64)
-    if not hasattr(src, "_pred"):
-        src._pred = jamonet.predict(model, src.pre, jamo)
-    prob, prop = src._pred
-    ink = src.pre.astype(np.uint8)
+    P = prepare(src, model, rule_name, max_classes)
+    jamo, prop, ink, gates, lead, tail = P["jamo"], P["prop"], P["ink"], P["gates"], P["lead"], P["tail"]
     h, w = ink.shape[1:]
-    tol = max(1, round(h / 12))
-    gates = Gates(jamo, prop)
-    rule = Rule(*(structural_rule() if rule_name == "structural" else derived_rule(jamo, prob)))
+    if tol is None:
+        tol = default_tol(h)
     stats = Counter()
-    refused = refine(rule, jamo, prop, prob, ink, limits, max_classes)
-    piece, users = build_pieces(jamo, prop, prob, ink, rule, gates, tol, stats)
+    group(P["problems"], limits, tol, gates, stats, gate_merges)
+    piece, users, group_of, borrowed = pieces_of_groups(P["problems"], prop, gates, P["dist"], lead, tail, stats)
     refit(piece, users, prop, ink, gates, stats)
-    lead_prof = np.zeros((19, h * w))
-    for L in range(19):
-        sel = jamo[:, 0] == L
-        if sel.any():
-            lead_prof[L] = prop[sel, 0].reshape(int(sel.sum()), -1).mean(axis=0)
-    lc, nlc, tc, ntc = rule.classes()
-    ni, nm, nf = rule.counts()
-    bitmaps, index, memo, fb = [], {}, {}, Counter()
+    nlc, ntc = max(lead) + 1, max(tail) + 1
+    count = [1, 1, 1]
+    for (slot, _), gof in group_of.items():
+        count[slot] = max(count[slot], max(gof.values()) + 1)
+    ni, nm, nf = count
+    bitmaps, index = [], {}
 
     def idx(a):
         key = a.tobytes()
@@ -681,26 +775,15 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
             bitmaps.append(a)
         return index[key]
 
-    def srcp(k, s, j):
-        if (k, s, j) in piece:
-            return idx(piece[(k, s, j)])
-        if (k, s, j) not in memo:
-            if not any(v == s and key[k] == j for key, v in rule.aset[k].items()):
-                memo[(k, s, j)] = None
-            else:
-                a, ok = fallback_piece(rule, piece, gates, lead_prof, k, s, j)
-                fb["gated" if ok else "gate_failed"] += 1
-                memo[(k, s, j)] = None if a is None else idx(a)
-        return memo[(k, s, j)]
-    repL = {c: lc.index(c) for c in range(nlc)}
-    repT = {c: tc.index(c) for c in range(ntc)}
-    init_src = {(s, L): srcp(0, s, L) for s in range(ni) for L in range(19)}
-    med_src = {(s, V): srcp(1, s, V) for s in range(nm) for V in range(21)}
-    fin_src = {(s, T): srcp(2, s, T) for s in range(nf) for T in range(1, 28)}
-    layout = J.Layout("hybrid", None, nlc, ntc, ni, nm, nf, lambda L: lc[L], lambda T: tc[T],
-                      lambda c, V, t: rule.aset[0][(repL[c], V, repT[t])],
-                      lambda c, V, t: rule.aset[1][(repL[c], V, repT[t])],
-                      lambda c, V, t: rule.aset[2][(repL[c], V, repT[t])] if repT[t] else 0,
+    def srcp(key):
+        a = piece.get(borrowed.get(key, key))
+        return None if a is None else idx(a)
+    init_src = {(s, L): srcp((0, lead[L], s, L)) for s in range(ni) for L in range(19)}
+    med_src = {(s, V): srcp((1, V, s, V)) for s in range(nm) for V in range(21)}
+    fin_src = {(s, T): srcp((2, tail[T], s, T)) for s in range(nf) for T in range(1, 28)}
+    layout = J.Layout("hybrid", None, nlc, ntc, ni, nm, nf, lambda L: lead[L], lambda T: tail[T],
+                      lambda c, V, t: group_of[(0, c)][(V, t)], lambda c, V, t: group_of[(1, V)][(c, t)],
+                      lambda c, V, t: group_of[(2, t)][(c, V)] if t else 0,
                       lambda s, L: init_src[(s, L)], lambda s, V: med_src[(s, V)], lambda s, T: fin_src[(s, T)])
 
     class Pieces:
@@ -711,35 +794,54 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
             return J.Glyph(w, h, [int("".join("1" if x else "0" for x in r), 2) for r in bitmaps[i]])
     out, _, _ = J.build_from_source(layout, Pieces(), None, src.base, src.ascent, src.extra, src.base is not None,
                                     src.advance, jset_version=jset_version, jset_big=big)
-    # quality of the written face against the source
+    # quality of the written face against the source: every source syllable, and the KS X 1001 ones among them
     f = J.parse_svfn(out)
     t = J.unpack(f.jset)
     nb = (w + 7) // 8
-    inter = union = exact = 0
-    ious = []
+    ious = np.zeros(len(src.syl))
+    exact = 0
     for i, s in enumerate(src.syl):
         c = J.compose(f, t, 0xAC00 + int(s))
-        a = np.array([[(int.from_bytes(c[y * nb:(y + 1) * nb], "big") >> (nb * 8 - 1 - x)) & 1 for x in range(w)]
-                      for y in range(h)], bool)
+        a = np.unpackbits(np.frombuffer(bytes(c), np.uint8).reshape(h, nb), axis=1)[:, :w].astype(bool)
         b = ink[i].astype(bool)
         u = (a | b).sum()
-        ious.append((a & b).sum() / u if u else 1.0)
+        ious[i] = (a & b).sum() / u if u else 1.0
         exact += bool((a == b).all())
+    ks = np.isin(src.syl, ks_syllables())
+    failing = sum(1 for (slot, j, _), a in {(k[0], k[-1], a.tobytes()): a for k, a in piece.items()}.items()
+                  if not gates.ok(slot, NAMES[slot][j], a))
     info = dict(limits=list(limits), max_classes=list(max_classes), big=big, rule=rule_name, sets=[ni, nm, nf],
-                classes=[nlc, ntc], bytes=len(out), comp_iou=round(float(np.mean(ious)), 4), comp_exact=int(exact),
-                syllables=len(src.syl), serif_tolerance=gates.frac, gates_off=gates.off, splits=len(rule.splits),
-                refused_by_budget=refused, fallback=dict(fb), stats=dict(stats), seconds=round(time.time() - t0, 1))
+                classes=[nlc, ntc], bytes=len(out), comp_iou=round(float(ious.mean()), 4), comp_exact=int(exact),
+                syllables=len(src.syl), ks_syllables=int(ks.sum()),
+                comp_iou_ks=round(float(ious[ks].mean()), 4) if ks.any() else None,
+                merge_tolerance_px=round(float(tol), 3), pieces=len(bitmaps), gates_failing=failing,
+                serif_tolerance=gates.frac, gates_off=gates.off,
+                lead_classes=["".join(LEADS[L] for L in range(19) if lead[L] == c) for c in range(nlc)],
+                tail_classes=["".join(TAILS[T] for T in range(28) if tail[T] == c) for c in range(ntc)],
+                stats=dict(stats), seconds=round(time.time() - t0, 1))
     if log:
-        log(f"limits {limits}: {len(out)} bytes, IoU {info['comp_iou']}, sets {ni}/{nm}/{nf}, classes {nlc}x{ntc}")
+        log(f"limits {tuple(limits)}, tolerance {tol:.2f} px: {len(out)} bytes, IoU {info['comp_iou']}, "
+            f"{len(bitmaps)} pieces, sets {ni}/{nm}/{nf}, classes {nlc}x{ntc}")
     return out, layout, info
 
 
-FLOOR = (16, 21, 8)          # the structural sets every face starts from
+_KS = None
+
+
+def ks_syllables():
+    """The 2,350 KS X 1001 syllables as indices from U+AC00."""
+    global _KS
+    if _KS is None:
+        _KS = np.array([ord(bytes([0xB0 + i // 94, 0xA1 + i % 94]).decode("euc_kr")) - 0xAC00 for i in range(2350)])
+    return _KS
+
+
+FLOOR = (1, 1, 1)            # the grouping needs no minimum; a set limit is at least one group
 FORMAT_ROW = {False: (32, 24, 16), True: (128, 128, 64)}
 
 
 def parse_limits(ap, text, big):
-    """--limits NI,NM,NF checked against the structural floor and the format's standard (or BIG) row."""
+    """--limits NI,NM,NF checked against the format's standard (or BIG) row."""
     try:
         lim = tuple(int(x) for x in text.split(","))
     except ValueError:
@@ -749,7 +851,7 @@ def parse_limits(ap, text, big):
     row = FORMAT_ROW[big]
     for name, v, lo, hi in zip(("NI", "NM", "NF"), lim, FLOOR, row):
         if not lo <= v <= hi:
-            ap.error(f"--limits: {name} {v} is outside {lo}..{hi} (structural sets {FLOOR}; "
+            ap.error(f"--limits: {name} {v} is outside {lo}..{hi} ("
                      f"{'BIG' if big else 'standard'} row {row}{'' if big else '; --big for more'})")
     return lim
 
@@ -769,25 +871,85 @@ def choose_point(infos, max_bytes=None, min_iou=None):
     return max(idx, key=lambda i: infos[i]["comp_iou"]), f"none reaches IoU {min_iou}: the most accurate"
 
 
+def class_caps(rule_name, big, classes=None):
+    """The class caps to try: the given one, the single fixed pair of --rule structural, else CLASS_GRID."""
+    if classes is not None:
+        return (tuple(classes),)
+    return (LIMITS[big][1],) if rule_name == "structural" else CLASS_GRID[big]
+
+
+def build_default(src, model, rule_name, limits, big, jset_version, log=None, tol=None, classes=None):
+    """The face at @p limits and one merge tolerance: built for every class cap, the smallest within SLACK composed
+    IoU of the most accurate is kept. Returns (bytes, layout, info) with info["choice"]."""
+    pts = [build_face(src, model, rule_name, limits, mc, big, jset_version, log, tol=tol)
+           for mc in class_caps(rule_name, big, classes)]
+    top = max(p[2]["comp_iou"] for p in pts)
+    out, layout, info = min((p for p in pts if p[2]["comp_iou"] >= top - SLACK), key=lambda p: p[2]["bytes"])
+    info["choice"] = dict(rule="fixed limits" if len(pts) == 1 else
+                          f"the smallest class cap within {SLACK} IoU of the most accurate",
+                          tried=[dict(max_classes=p[2]["max_classes"], classes=p[2]["classes"], bytes=p[2]["bytes"],
+                                      comp_iou=p[2]["comp_iou"]) for p in pts])
+    return out, layout, info
+
+
+def build_ladder(src, model, rule_name, big, jset_version, max_bytes=None, min_iou=None, log=None, classes=None):
+    """The --max-bytes / --min-iou ladder: the standard limits at every class cap and every merge tolerance of
+    TOL_LADDER (fewer classes and a larger tolerance = a smaller face), and with @p big the BIG limits likewise; the
+    point choose_point keeps. Returns (bytes, layout, info) with info["choice"]."""
+    h = src.pre.shape[1]
+    pts = [build_face(src, model, rule_name, LIMITS[False][0], mc, False, jset_version, log, tol=m * default_tol(h))
+           for mc in class_caps(rule_name, False, None if big else classes) for m in TOL_LADDER]
+    if big:
+        pts += [build_face(src, model, rule_name, LIMITS[True][0], mc, True, jset_version, log, tol=m * default_tol(h))
+                for mc in class_caps(rule_name, True, classes) for m in BIG_TOL_LADDER]
+    pick, why = choose_point([p[2] for p in pts], max_bytes, min_iou)
+    out, layout, info = pts[pick]
+    info["choice"] = dict(rule=why, ladder=[dict(limits=p[2]["limits"], big=p[2]["big"], max_classes=p[2]["max_classes"],
+                                                 merge_tolerance_px=p[2]["merge_tolerance_px"], bytes=p[2]["bytes"],
+                                                 comp_iou=p[2]["comp_iou"]) for p in pts])
+    return out, layout, info
+
+
+def parse_classes(ap, text, big):
+    """--classes LC,TC: the lead / tail class caps, at least 1 lead and 2 tail classes, within the format's row."""
+    try:
+        c = tuple(int(x) for x in text.split(","))
+    except ValueError:
+        c = ()
+    hi = LIMITS[big][1] if not big else (19, 28)
+    if len(c) != 2 or not (1 <= c[0] <= hi[0] and 2 <= c[1] <= hi[1]):
+        ap.error(f"--classes {text!r}: LC,TC with LC 1..{hi[0]} and TC 2..{hi[1]}"
+                 f"{'' if big else ' (--big for more)'}")
+    return c
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     src_g = ap.add_mutually_exclusive_group(required=True)
-    src_g.add_argument("--from-svf", metavar="FACE.SVF", help="a 1 bpp precomposed SVF face")
-    src_g.add_argument("--from-ttf", metavar="FONT", help="an outline font rendered at --size (as jamoset.py)")
+    src_g.add_argument("--from-svf", metavar="FACE.SVF", help="a 1 bpp precomposed SVF face (every syllable it holds is used)")
+    src_g.add_argument("--from-ttf", metavar="FONT", help="an outline font rendered at --size (as jamoset.py; every "
+                       "syllable the font draws is used)")
     ap.add_argument("--size", type=int, help="--from-ttf: pixel size")
     ap.add_argument("--cell", help="--from-ttf: cell WxH (default SIZExSIZE)")
     ap.add_argument("--baseline", type=int, help="--from-ttf: baseline row")
     ap.add_argument("-o", "--output", required=True)
     ap.add_argument("--rule", choices=("derived", "structural"), default="derived",
-                    help="derived (default): groups learned from the face's own proposals; structural: fixed groups")
+                    help="the lead / tail classes: derived (default) clusters them from the face's own proposals; "
+                    "structural uses fixed classes (7 lead, 4 tail)")
     lim = ap.add_mutually_exclusive_group()
     lim.add_argument("--limits", help="set limits NI,NM,NF (default 32,24,16; with --big 64,48,32)")
-    lim.add_argument("--max-bytes", type=int, help="the most accurate face of the limit ladder within this many bytes")
-    lim.add_argument("--min-iou", type=float, help="the smallest face of the limit ladder whose composed IoU reaches this")
+    lim.add_argument("--max-bytes", type=int, help="the most accurate face of the tolerance ladder within this many bytes")
+    lim.add_argument("--min-iou", type=float, help="the smallest face of the tolerance ladder whose composed IoU reaches this")
+    ap.add_argument("--tol", type=float, metavar="PX", help="merge tolerance: groups merge while that adds at most PX "
+                    "pixels of disagreement per syllable of the smaller group (default cell height / 12; 0 keeps every "
+                    "group the set limits allow). Not with --max-bytes / --min-iou, which walk a ladder of tolerances")
+    ap.add_argument("--classes", metavar="LC,TC", help="the caps on lead and tail classes (standard: up to 12,12; "
+                    "--big: 19,28). Default: several caps are built and the smallest face within 0.005 composed IoU "
+                    "of the most accurate is kept (a class pair costs 63 table bytes)")
     ap.add_argument("--big", action="store_true", help="JSET BIG: the tool's default limits become 64/48/32 sets and 19 x 28 "
                     "classes (the format's BIG row allows up to 128/128/64; the --max-bytes / --min-iou ladder adds "
-                    "40/30/20 ... 96/72/48 to the standard points); engines built with SVF_JSET_BIG read it. The "
-                    "standard face is the default")
+                    "BIG points to the standard ones); engines built with SVF_JSET_BIG read it. The standard face is "
+                    "the default")
     ap.add_argument("--model", default=DEFAULT_MODEL, help="weights (.npz, tools/jamonet.py format)")
     ap.add_argument("--report", metavar="OUT.json", help="write the chosen point, the ladder and the build details")
     ap.add_argument("--check", action="store_true", help="compose all 11,172 syllables of the output (jamoset check)")
@@ -801,8 +963,13 @@ def main(argv=None):
         ap.error("--from-ttf needs --size")
     if a.size is not None and not 4 <= a.size <= MAX_CELL:
         ap.error(f"--size {a.size}: 4..{MAX_CELL}")
+    if a.tol is not None and (a.max_bytes is not None or a.min_iou is not None):
+        ap.error("--tol: not with --max-bytes / --min-iou")
+    if a.tol is not None and not 0 <= a.tol <= MAX_CELL:
+        ap.error(f"--tol {a.tol}: 0..{MAX_CELL}")
     if a.limits:
         parse_limits(ap, a.limits, a.big)          # before any work
+    classes = parse_classes(ap, a.classes, a.big) if a.classes else None
     model = jamonet.Model(a.model)
     if a.from_svf:
         src = from_svf(a.from_svf)
@@ -814,30 +981,23 @@ def main(argv=None):
         if cell is not None and not (len(cell) == 2 and all(4 <= v <= MAX_CELL for v in cell)):
             ap.error(f"--cell {a.cell}: WxH, each 4..{MAX_CELL}")
         src = from_ttf(a.from_ttf, a.size, cell, a.baseline, a.pylib)
-    max_classes = LIMITS[a.big][1]
     jv = a.jset_version if a.jset_version == "auto" else int(a.jset_version)
     log = lambda m: print(m, file=sys.stderr)  # noqa: E731
     if a.max_bytes is None and a.min_iou is None:
         limits = parse_limits(ap, a.limits, a.big) if a.limits else LIMITS[a.big][0]
-        out, layout, info = build_face(src, model, a.rule, limits, max_classes, a.big, jv, log)
-        choice = dict(rule="fixed limits")
+        out, layout, info = build_default(src, model, a.rule, limits, a.big, jv, log, a.tol, classes)
     else:
-        # the ladder: the standard points, and with --big the BIG points as well
-        pts = [build_face(src, model, a.rule, lim_, LIMITS[False][1], False, jv, log) for lim_ in LADDER[False]]
-        if a.big:
-            pts += [build_face(src, model, a.rule, lim_, max_classes, True, jv, log) for lim_ in LADDER[True]]
-        pick, why = choose_point([p[2] for p in pts], a.max_bytes, a.min_iou)
-        out, layout, info = pts[pick]
-        choice = dict(rule=why, ladder=[dict(limits=p[2]["limits"], bytes=p[2]["bytes"], comp_iou=p[2]["comp_iou"])
-                                        for p in pts])
-    info["choice"] = choice
+        out, layout, info = build_ladder(src, model, a.rule, a.big, jv, a.max_bytes, a.min_iou, log, classes)
+    choice = info["choice"]
     info["source"] = src.info
     info["model"] = dict(file=os.path.basename(a.model), **{k: model.meta.get(k) for k in ("base", "trained")})
     with open(a.output, "wb") as fh:
         fh.write(out)
-    print(f"{a.output}: {info['bytes']} bytes, composed IoU {info['comp_iou']} ({info['comp_exact']} of "
-          f"{info['syllables']} exact), sets {info['sets'][0]}/{info['sets'][1]}/{info['sets'][2]}, classes "
-          f"{info['classes'][0]}x{info['classes'][1]}{', BIG' if a.big else ''}; {choice['rule']}")
+    ks = f", KS {info['comp_iou_ks']}" if info.get("comp_iou_ks") is not None and info["ks_syllables"] != info["syllables"] else ""
+    print(f"{a.output}: {info['bytes']} bytes, composed IoU {info['comp_iou']}{ks} ({info['comp_exact']} of "
+          f"{info['syllables']} exact), {info['pieces']} pieces, sets {info['sets'][0]}/{info['sets'][1]}/{info['sets'][2]}, "
+          f"classes {info['classes'][0]}x{info['classes'][1]}{', BIG' if info['big'] else ''}, "
+          f"{info['gates_failing']} pieces fail a gate; {choice['rule']}")
     if a.check:
         print("check:", J.check(out, layout, None))
     if a.report:
