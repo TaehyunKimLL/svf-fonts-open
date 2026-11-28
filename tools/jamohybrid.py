@@ -675,6 +675,10 @@ class FillModel:
                 a = z[k]
                 if a.dtype.kind != "f" or a.shape != shape:
                     raise ValueError(f"{path}: {k} is {a.dtype} {a.shape}, want float {shape}")
+                if not n.all(n.isfinite(a)):
+                    raise ValueError(f"{path}: {k} holds NaN or infinite values")
+                if k == "sd" and not n.all(a > 0):
+                    raise ValueError(f"{path}: sd must be positive")
                 total += a.size
                 self.p[k] = a.astype(n.float32)
             if total > MAX_FILL_PARAMS:

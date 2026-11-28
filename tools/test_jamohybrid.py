@@ -684,6 +684,9 @@ class TestFillRanker(unittest.TestCase):
                     ("missing", lambda a: a.pop("W2")),
                     ("shape", lambda a: a.__setitem__("W0", np.zeros((59, 64), np.float32))),
                     ("dtype", lambda a: a.__setitem__("b0", np.zeros(64, np.int32))),
+                    ("sd-zero", lambda a: a.__setitem__("sd", np.zeros(60, np.float32))),
+                    ("nan", lambda a: a.__setitem__("b1", np.full(64, np.nan, np.float32))),
+                    ("inf", lambda a: a.__setitem__("W2", np.full((64, 1), np.inf, np.float32))),
                     ("meta", lambda a: a.__setitem__("meta", np.array('{"format": "other"}')))):
                 bad = dict(arrays)
                 change(bad)
