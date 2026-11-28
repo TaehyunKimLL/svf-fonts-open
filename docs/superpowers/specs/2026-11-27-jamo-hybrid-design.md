@@ -7,9 +7,9 @@
 >
 > | Item | Design | Result |
 > |---|---|---|
-> | model | smallest within 0.003 of base 32 | base 16 (488,755 parameters), never more than 0.002 below base 32 on a held-out face |
-> | weights | about 1 MB, fp16 | 910,579 bytes, fp16 |
-> | numpy vs torch | max probability difference < 1e-3 | 0.0037 with fp16 weights (labels threshold at 0.5); fp32 would double the file |
+> | model | smallest within 0.003 of base 32 | base 16 (487,347 parameters as shipped), never more than 0.002 below base 32 on a held-out face |
+> | weights | about 1 MB, fp16 | 910,733 bytes, fp16 |
+> | numpy vs torch | max probability difference < 1e-3 | 3.7e-6 with float32 weights (TF32 off in torch); 0.0040 with the shipped fp16 weights, 15 of 1,918,350 slot pixels flipping at 0.5; fp32 weights would double the file |
 > | speed | 2,350 syllables <= 5 s, 11,172 <= 20 s | 3.2 s and 14.8 s for the model (4 CPU threads); a standard face builds in about 6 s |
 > | training data | section 1 table | as listed; composite TrueType fonts (1.2) left for a later version |
 > | maker | follow-up | not done |

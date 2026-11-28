@@ -5,16 +5,18 @@ Licence: MIT, like the code. [NOTICE](../../NOTICE.md#model-weights-toolsmodels)
 
 | Item | Value |
 |---|---|
-| file | `jamohybrid-v1.npz`, 910,579 bytes |
-| sha256 | `42f8677f5c8a47da4dde3c9386bfc9ee906f79165f77ccbb337e9161c44d52e6` |
-| model | U-Net, base 16 channels, 488,755 parameters, conditioned on L / V / T (embedding 16); BatchNorm folded; fp16 |
-| training | `tools/train_jamohybrid.py --base 16 --epochs 20 --seed 0`; 89.3 s on one GPU (591 MiB peak) |
-| numpy vs torch | largest probability difference 0.0037 (fp16 weights) |
+| file | `jamohybrid-v1.npz`, 910,733 bytes |
+| sha256 | `9cfc3547d894e98ef66113f6956a22d5465fa9376ba400e54d0bb649a67e016a` |
+| model | U-Net, base 16 channels, 487,347 parameters as shipped (BatchNorm folded; 488,755 in torch), conditioned on L / V / T (embedding 16); fp16 |
+| training command | `python3 tools/train_jamohybrid.py --manifest manifest-v1.tsv --epochs 20 --base 16 --seed 0 --out runs/b16-ship3 --eval apple-seoul12 gulim sans8j` (89.4 s on one GPU, 591 MiB peak) |
+| numpy vs torch | on 2,944 training syllables: largest probability difference 3.7e-06 with float32 weights (the numpy code), 0.0040 with the shipped fp16 weights; 15 of 1,918,350 slot pixels change label at 0.5 |
 | inference (numpy, 4 CPU threads) | 3.2 s for 2,357 syllables, 14.8 s for 11,172 |
+
+The fp16 rounding of the weights is the only source of the difference; the torch side runs with TF32 off for the comparison.
 
 ## Training sources
 
-No bitmap of these sources is in this repository. The sha256 is that of the source file the training script read.
+No bitmap of the proprietary sources (kind `npz`) is in this repository. The `svf` sources are this repository's faces. The sha256 is that of the file the training script read.
 
 | name | kind | group | licence | file | sha256 | syllables |
 |---|---|---|---|---|---|---|
@@ -73,7 +75,7 @@ No bitmap of these sources is in this repository. The sha256 is that of the sour
 
 ## Evaluation (held-out folds)
 
-Each fold trains without one group and measures it: the share of ink pixels in the right slot (label accuracy) of the model's planes.
+Each fold trains without one group (same command with `--holdout GROUP --eval GROUP`) and measures it: the share of ink pixels in the right slot (label accuracy) of the model's planes.
 
 | held-out group | base 16 | base 32 |
 |---|---|---|
@@ -96,7 +98,7 @@ Faces built by `jamohybrid.py` with the fold model of each held-out face: bytes,
 | AppleMyungjo 12 | 18,160 B, 0.982, 0.984 | 34,980 B, 0.995, 0.992 |
 | AppleMyungjo 24 | 29,784 B, 0.985, 0.990 | 44,592 B, 0.998, 0.997 |
 | AppleGothic 24 | 28,096 B, 0.995, 0.996 | 44,732 B, 0.998, 0.998 |
-| Gulim 12 | 23,740 B, 0.949, 0.958 | 35,284 B, 0.982, 0.984 |
-| Gulim 16 | 26,328 B, 0.931, 0.948 | 43,144 B, 0.979, 0.982 |
+| Gulim 12 | 23,736 B, 0.949, 0.958 | 35,172 B, 0.982, 0.984 |
+| Gulim 16 | 26,220 B, 0.931, 0.948 | 42,980 B, 0.979, 0.982 |
 
 For comparison, `jamoset.py --layout adaptive` on the same faces: 43-96 KB, IoU 0.973-0.999, label accuracy 0.66-0.73 (Gulim, on its 1,928 component syllables: 0.68 / 0.70).

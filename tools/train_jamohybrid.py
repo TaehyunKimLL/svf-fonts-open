@@ -148,8 +148,8 @@ def make_model(base, cdim, cond):
     return UNet()
 
 
-def export(model, base, cdim, cond, path, extra):
-    """Fold BatchNorm into the convolutions and write the jamonet-1 weights (fp16)."""
+def export(model, base, cdim, cond, path, extra, dtype=np.float16):
+    """Fold BatchNorm into the convolutions and write the jamonet-1 weights (fp16; float32 for the parity check)."""
     import torch
     sd = {}
     m = model.eval()
@@ -170,7 +170,7 @@ def export(model, base, cdim, cond, path, extra):
         sd["bott.w"] = m.bott.weight.detach().cpu().numpy()
         sd["bott.b"] = m.bott.bias.detach().cpu().numpy()
     meta = dict(format="jamonet-1", base=base, cdim=cdim, cond=cond, canvas=32, **extra)
-    np.savez_compressed(path, meta=np.array(json.dumps(meta)), **{k: v.astype(np.float16) for k, v in sd.items()})
+    np.savez_compressed(path, meta=np.array(json.dumps(meta)), **{k: v.astype(dtype) for k, v in sd.items()})
 
 
 def main():
@@ -254,9 +254,33 @@ def main():
     wpath = os.path.join(a.out, "jamohybrid.npz")
     export(model, a.base, a.cdim, not a.no_cond, wpath,
            dict(seed=a.seed, epochs=a.epochs, holdout=a.holdout, trained=time.strftime("%Y-%m-%d")))
-    # numpy check and evaluation
-    net = jamonet.Model(wpath)
+    # parity: the numpy forward pass of the exported weights against torch, on a training sample (always) and the eval
+    # sets; once with the float32 export (the numpy code itself) and once with the fp16 file (the shipped rounding).
     model.eval()
+    # full float32 on the GPU for the comparison (TF32 convolutions round to 10-bit mantissas)
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    p32 = os.path.join(a.out, "parity-fp32.npz")
+    export(model, a.base, a.cdim, not a.no_cond, p32, {}, np.float32)
+    net, net32 = jamonet.Model(wpath), jamonet.Model(p32)
+    os.remove(p32)
+    rng = np.random.default_rng(a.seed)
+    sample = []
+    for g in groups:
+        idx = rng.choice(len(g["x"]), min(64, len(g["x"])), replace=False)
+        sample.append((g["x"][idx].numpy()[:, 0], g["lvt"][idx].numpy()))
+    parity = dict(syllables=0, ink_pixels=0, max_prob_diff_fp32=0.0, max_prob_diff_fp16=0.0, label_flips_fp16=0)
+    for xs, lv in sample:
+        with torch.no_grad():
+            tprob = torch.sigmoid(model(torch.from_numpy(xs[:, None]).to(dev), torch.from_numpy(lv).to(dev))).cpu().numpy()
+        for key, nt in (("fp32", net32), ("fp16", net)):
+            nprob = 1 / (1 + np.exp(-np.clip(nt.forward(xs[:, None].astype(np.float32), lv), -60, 60)))
+            ink = (xs > 0)[:, None].repeat(3, 1)
+            parity[f"max_prob_diff_{key}"] = max(parity[f"max_prob_diff_{key}"], float(np.abs(nprob - tprob)[ink].max()))
+            if key == "fp16":
+                parity["label_flips_fp16"] += int(((nprob > 0.5) != (tprob > 0.5))[ink].sum())
+                parity["ink_pixels"] += int(ink.sum())
+        parity["syllables"] += len(xs)
     res = {}
     worst = 0.0
     for gname, items in evalsets.items():
@@ -278,11 +302,13 @@ def main():
                 cond=not a.no_cond, params=int(sum(p.numel() for p in model.parameters())), train_seconds=round(train_s, 1),
                 device=torch.cuda.get_device_name(0) if dev == "cuda" else "cpu",
                 gpu_peak_mib=round(torch.cuda.max_memory_allocated() / 2 ** 20) if dev == "cuda" else None,
-                loss=losses, numpy_check=dict(max_abs_prob_diff=worst), weights_sha256=sha256(wpath),
-                weights_bytes=os.path.getsize(wpath), argv=sys.argv[1:])
+                loss=losses, numpy_check=dict(training_sample=parity, eval_max_abs_prob_diff=worst),
+                folded_params=net.params, weights_sha256=sha256(wpath),
+                weights_bytes=os.path.getsize(wpath), argv=sys.argv[1:],
+                command="python3 tools/train_jamohybrid.py " + " ".join(sys.argv[1:]))
     json.dump(info, open(os.path.join(a.out, "provenance.json"), "w"), indent=1)
     json.dump(res, open(os.path.join(a.out, "eval.json"), "w"), indent=1)
-    print("done", a.out, info["params"], "params", info["train_seconds"], "s, numpy diff", worst, flush=True)
+    print("done", a.out, info["params"], "params", info["train_seconds"], "s, parity", parity, flush=True)
 
 
 if __name__ == "__main__":
