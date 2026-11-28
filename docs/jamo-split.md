@@ -788,7 +788,10 @@ The builder ships as `tools/jamohybrid.py` ([tools](tools.md#toolsjamohybridpy))
 - Held-out label accuracy of the model: 0.988-0.998 on the Apple faces, 0.991 / 0.986 on Gulim, and on the open
   families SANS8J, Neo Dunggeunmo Pro and Single Day (0.95-0.997).
 - Faces built with a fold model (standard limits): 14-30 KB, composed IoU 0.93-0.995, label accuracy 0.95-0.996.
-- Options: `--max-bytes`, `--min-iou`, `--tol`, `--classes`, `--big` (off by default).
+- Options: `--max-bytes`, `--min-iou`, `--tol`, `--classes`, `--big` (off by default), and `--fill` (on by default): a
+  cross-font ranker chooses the group of a context the KS 2,350 never draw, with the box model as its fallback. Its
+  weights (`tools/models/jamofill-v1.npz`) are 32,928 B, MIT; [notes](../tools/models/jamofill-v1.md) list the training
+  lineages, the features and the held-out results.
 - Speed (4 threads, 11,172 syllables, cells up to about 24 px): the model about 15 s, the default face 7-15 s more,
   the ladder 30-90 s. At a 48 px cell the default took about 2 min and 1.4 GB peak memory (v1: about 1 min, 1.6 GB).
 
@@ -817,13 +820,17 @@ so those are not held out; the comparison is fair because v1 and v2 share them.
   is itself broken.
 - v2's default is larger than v1's on four of the five fonts, because it keeps accuracy; `--max-bytes` gives v1's size.
 - Open: a face built from the KS 2,350 only draws the other 8,822 syllables poorly. Of their contexts about 72 % have no
-  source syllable, and the pieces there came from a vote over contexts the source does show. They are now placed by a
-  layout model -- the box each slot's ink occupies, from the vowel and the final, which are known even where the source
-  never draws that pair -- and the composed IoU over all 11,172 syllables rose 0.8837 to 0.8910 on Galmuri11 12 px
-  (0.9867 from every syllable), 0.7641 to 0.7722 on Gothic A1 12 px (0.9705), and 0.8525 to 0.8536 on a Windows Gulim
-  outline, 12 px (0.9882); the KS syllables stay at 0.97-0.99. That is a small part of the gap: give the tool every
-  syllable, for example a TrueType font. The tolerance (cell height / 12 px), the 0.005 slack and the class caps were
-  chosen on the four open fonts, mono only. `--big` has had one smoke run and no evaluation.
+  source syllable, and the pieces there came from a vote over contexts the source does show. A layout model -- the box
+  each slot's ink occupies, from the vowel and the final, which are known even where the source never draws that pair --
+  raised the composed IoU over all 11,172 syllables 0.8837 to 0.8910 on Galmuri11 12 px (0.9867 from every syllable),
+  0.7641 to 0.7722 on Gothic A1 12 px (0.9705), and 0.8525 to 0.8536 on a Windows Gulim outline, 12 px (0.9882).
+  Since `--fill` (on by default) a cross-font ranker chooses the group of such a context first, with that layout model
+  as the fallback: on ten held-out composite faces at 12 px it raised non-KS IoU by 0.0414 on average (Pyunji +0.079,
+  UnGungseo +0.061, UnBatang +0.045, Gothic A1 +0.026) with bytes, KS IoU and gate failures unchanged. Galmuri11 12 px
+  built from the KS 2,350 scores 0.8687 over the 8,822 non-KS syllables (0.8930 over all 11,172; KS 0.9838 and 24,576 B
+  unchanged). That is still a small part of the gap: give the tool every syllable, for example a TrueType font. The
+  tolerance (cell height / 12 px), the 0.005 slack and the class caps were chosen on the four open fonts, mono only.
+  `--big` has had one smoke run and no evaluation.
 
 ### 7.9 Open problems
 
