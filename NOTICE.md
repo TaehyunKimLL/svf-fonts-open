@@ -100,6 +100,18 @@ No bitmap of the proprietary training fonts is included in this repository. [too
 every training source with its sha256, the training script, the seed and the evaluation. Licence questions about using
 the weights are the user's responsibility, as with the fonts used in this project.
 
+`tools/models/jamofill-v1.npz` holds the cross-font group ranker of `tools/jamohybrid.py --fill` (a 60-64-64-1 MLP).
+It is under the MIT licence like the code. It is listed here separately because of what it was trained on:
+
+- bitmaps of open fonts only, at 12 and 16 px: Single Day, Neo Dunggeunmo, DovemayoGothic, Sahmyook Light and
+  Regular, Thin Mulmaru, WenQuanYi Zen Hei and Exqt (OFL-1.1; WenQuanYi GPL-2.0 with font exception);
+- the split labels of those faces.
+
+No proprietary font was in its training lineages. The held-out evaluation also scored Microsoft Gulim (XP), Magic and
+Pyunji and the Un and Gothic A1 faces; none of their bitmaps is included in this repository and none was used for
+training. [tools/models/jamofill-v1.md](tools/models/jamofill-v1.md) lists every training face with its sha256,
+the features, the training command and seed, and the held-out results.
+
 ## Converters for proprietary formats
 
 Some tools read font formats of commercial systems: `tools/macfbit3.py` and `tools/macfbit_svf.py` (classic Mac

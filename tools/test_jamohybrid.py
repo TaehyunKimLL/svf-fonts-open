@@ -20,6 +20,8 @@ except ImportError:
 import jamoset as J  # noqa: E402
 
 MODEL = os.path.join(HERE, "models", "jamohybrid-v1.npz")
+FILL = os.path.join(HERE, "models", "jamofill-v1.npz")
+PARITY = os.path.join(HERE, "testdata", "jamofill-parity.json")
 SANS = os.path.join(ROOT, "svf", "iolo", "SANS8J.SVF")
 
 
@@ -629,6 +631,198 @@ class TestSparsePlacement(unittest.TestCase):
         self.assertEqual(info["comp_iou"], 1.0)
 
 
+def tiny_fill_model(path, seed=0):
+    """A random jamofill-1 weights file in the shipped format (60-64-64-1 float32)."""
+    rng = np.random.default_rng(seed)
+    sd = {"mu": rng.normal(0, 0.2, 60), "sd": np.full(60, 1.5), "med": rng.normal(0, 0.1, 60),
+          "W0": rng.normal(0, 0.2, (60, 64)), "b0": rng.normal(0, 0.1, 64),
+          "W1": rng.normal(0, 0.2, (64, 64)), "b1": rng.normal(0, 0.1, 64),
+          "W2": rng.normal(0, 0.2, (64, 1)), "b2": rng.normal(0, 0.1, 1)}
+    meta = dict(format="jamofill-1", features=60, hidden=[64, 64])
+    np.savez(path, meta=np.array(json.dumps(meta)), **{k: v.astype(np.float32) for k, v in sd.items()})
+
+
+@unittest.skipIf(np is None, "numpy not available")
+class TestFillRanker(unittest.TestCase):
+    """The --fill cross-font group ranker: weight loading, the 60 features (against the research code's fixture), the
+    choice, the fallback, and the promise that only unseen contexts change."""
+
+    def setUp(self):
+        import jamohybrid as JH
+        JH.np = np
+        self.JH = JH
+
+    def face(self, full=False):
+        """The synthetic face of the parity fixture, or one with every context shown (all 21 vowels, a final of each
+        structural tail class: 19 x 21 x 4 syllables, no unseen context)."""
+        JH = self.JH
+        if full:
+            syl, planes = synthetic(vowels=range(21), tails=(0, 4, 8, 12))
+            return synthetic_source(JH, syl, planes)
+        syl, planes = synthetic(vowels=(0, 4, 8, 12), tails=(0, 4, 8))
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        keep = (jamo[:, 1] != 12) & ~((jamo[:, 1] == 8) & (jamo[:, 2] == 8))
+        return synthetic_source(JH, syl[keep], planes[keep])
+
+    def grouped(self, full=False):
+        JH = self.JH
+        P = JH.prepare(self.face(full), None, "derived", (12, 12))
+        JH.group(P["problems"], (32, 24, 16), 0.0 if not full else None, P["gates"], JH.Counter(), True)
+        return P
+
+    def test_weights_validated(self):
+        JH = self.JH
+        with tempfile.TemporaryDirectory() as d:
+            good = os.path.join(d, "good.npz")
+            tiny_fill_model(good)
+            m = JH.FillModel(good)
+            self.assertEqual(m.params, 8309)
+            self.assertEqual(m.score(np.zeros((3, 60), np.float32)).shape, (3,))
+            with np.load(good, allow_pickle=False) as z:
+                arrays = {k: z[k] for k in z.files}
+            for name, change in (
+                    ("missing", lambda a: a.pop("W2")),
+                    ("shape", lambda a: a.__setitem__("W0", np.zeros((59, 64), np.float32))),
+                    ("dtype", lambda a: a.__setitem__("b0", np.zeros(64, np.int32))),
+                    ("sd-zero", lambda a: a.__setitem__("sd", np.zeros(60, np.float32))),
+                    ("nan", lambda a: a.__setitem__("b1", np.full(64, np.nan, np.float32))),
+                    ("inf", lambda a: a.__setitem__("W2", np.full((64, 1), np.inf, np.float32))),
+                    ("meta", lambda a: a.__setitem__("meta", np.array('{"format": "other"}')))):
+                bad = dict(arrays)
+                change(bad)
+                path = os.path.join(d, name + ".npz")
+                np.savez(path, **bad)
+                with self.assertRaises(ValueError, msg=name):
+                    JH.FillModel(path)
+            big = os.path.join(d, "big.npz")
+            with open(big, "wb") as fh:
+                fh.truncate(JH.MAX_FILL_FILE + 1)
+            with self.assertRaises(ValueError):
+                JH.FillModel(big)
+
+    def test_shipped_weights(self):
+        if not os.path.exists(FILL):
+            self.skipTest("no shipped fill weights")
+        m = self.JH.FillModel(FILL)
+        self.assertEqual(m.meta.get("format"), "jamofill-1")
+        self.assertEqual(m.params, 8309)
+        self.assertLessEqual(os.path.getsize(FILL), self.JH.MAX_FILL_FILE)
+
+    def test_features_match_the_research_fixture(self):
+        """The 60 numbers per (context, candidate) equal the research fill.Feats rows; the fixture holds rows and keys
+        only, no glyph bitmap."""
+        JH = self.JH
+        if not os.path.exists(PARITY):
+            self.skipTest("no parity fixture")
+        with open(PARITY, encoding="utf-8") as fh:
+            fixture = json.load(fh)
+        P = self.grouped()
+        F = JH.FillFeatures(P, P["prop"])
+
+        class Recorder:
+            def __init__(self):
+                self.rows = {}
+
+            def features(self):
+                return F
+
+            def choose(self, p, c, cands):
+                if len(cands) >= 2:
+                    for o in cands:
+                        self.rows[(int(p.slot), int(c[0]), int(c[1]), int(o["g"]))] = F.row(p, c, o)
+                return None
+
+        rec = Recorder()
+        JH.pieces_of_groups(P["problems"], P["prop"], P["gates"], P["dist"], P["lead"], P["tail"], JH.Counter(),
+                            P["boxes"], rec)
+        self.assertEqual(fixture["features"], 60)
+        self.assertEqual({k[0] for k in fixture["keys"]}, {0, 1, 2})
+        for key, row in zip(fixture["keys"], fixture["rows"]):
+            k = tuple(key)
+            self.assertIn(k, rec.rows, k)
+            np.testing.assert_allclose(rec.rows[k], np.array(row), rtol=0, atol=1e-6, err_msg=str(k))
+
+    def test_choice_and_fallback(self):
+        """The best score wins; fewer than two candidates, an unusable model or an invalid group falls back to the
+        baseline order, unchanged."""
+        JH = self.JH
+        P = self.grouped()
+
+        class Last:
+            def score(self, X):
+                return np.arange(len(X), dtype=float)
+
+        class F:
+            def row(self, p, c, o):
+                return [0.0] * 60
+
+        fill = JH.Fill(Last(), P, P["prop"])
+        fill._F = F()
+        cands = [{"g": 2}, {"g": 5}, {"g": 3}]
+        self.assertEqual(fill.choose(None, None, cands), 3)
+        self.assertIsNone(fill.choose(None, None, cands[:1]))
+
+        base = JH.pieces_of_groups(P["problems"], P["prop"], P["gates"], P["dist"], P["lead"], P["tail"],
+                                   JH.Counter(), P["boxes"])[2]
+
+        class Bad:
+            def features(self):
+                return JH.FillFeatures(P, P["prop"])
+
+            def choose(self, p, c, cands):
+                return 999
+
+        stats = JH.Counter()
+        bad = JH.pieces_of_groups(P["problems"], P["prop"], P["gates"], P["dist"], P["lead"], P["tail"], stats,
+                                  P["boxes"], Bad())[2]
+        self.assertEqual(bad, base)
+        self.assertEqual(stats.get("contexts_placed_by_fill", 0), 0)
+
+        class First:
+            def features(self):
+                return JH.FillFeatures(P, P["prop"])
+
+            def choose(self, p, c, cands):
+                return cands[0]["g"] if cands else None
+
+        stats = JH.Counter()
+        first = JH.pieces_of_groups(P["problems"], P["prop"], P["gates"], P["dist"], P["lead"], P["tail"], stats,
+                                    P["boxes"], First())[2]
+        self.assertGreater(stats["contexts_placed_by_fill"], 0)
+        self.assertNotEqual(first, base)                       # at least one unseen context moved
+
+    def test_bytes_ks_and_gates_unchanged(self):
+        """A KS-only face with and without --fill: same bytes, sets, pieces and gates; every source syllable composes
+        to the same bitmap; only unseen contexts changed."""
+        JH = self.JH
+        if not os.path.exists(FILL):
+            self.skipTest("no shipped fill weights")
+        src = self.face()
+        off, _, info0 = JH.build_face(src, None, "derived", (32, 24, 16), (12, 12), False, 1, fill=None)
+        on, _, info1 = JH.build_face(src, None, "derived", (32, 24, 16), (12, 12), False, 1,
+                                     fill=JH.FillModel(FILL))
+        self.assertEqual(len(on), len(off))
+        for k in ("sets", "pieces", "gates_failing", "comp_iou"):
+            self.assertEqual(info1[k], info0[k], k)
+        self.assertGreater(info1["fill"]["contexts_placed_by_fill"], 0)
+        f0, t0 = J.parse_svfn(off), J.unpack(J.parse_svfn(off).jset)
+        f1, t1 = J.parse_svfn(on), J.unpack(J.parse_svfn(on).jset)
+        for s in src.syl:
+            self.assertEqual(J.compose(f0, t0, 0xAC00 + int(s)), J.compose(f1, t1, 0xAC00 + int(s)), int(s))
+
+    def test_all_syllable_build_is_byte_identical(self):
+        """Every context shown: the fill has nothing to decide and the face is bit-identical."""
+        JH = self.JH
+        if not os.path.exists(FILL):
+            self.skipTest("no shipped fill weights")
+        src = self.face(full=True)
+        off, _, _ = JH.build_face(src, None, "structural", (32, 24, 16), (12, 12), False, 1, fill=None)
+        on, _, info = JH.build_face(src, None, "structural", (32, 24, 16), (12, 12), False, 1,
+                                    fill=JH.FillModel(FILL))
+        self.assertEqual(on, off)
+        self.assertEqual(info["fill"]["contexts_placed_by_fill"], 0)
+
+
 @unittest.skipIf(np is None, "numpy not available")
 class TestUsage(unittest.TestCase):
     """Usage errors of the new options exit before any file is read."""
@@ -653,6 +847,7 @@ class TestUsage(unittest.TestCase):
         self.run_main("--classes", "20,12", "--big")            # above the BIG row
         self.run_main("--classes", "8", "--big")
         self.run_main("--classes", "8,8", "--rule", "structural")
+        self.run_main("--fill", "/nonexistent/jamofill.npz")    # the weights are checked before the source is read
 
 
 @unittest.skipIf(np is None or not os.path.exists(MODEL), "numpy or the shipped weights not available")
@@ -701,6 +896,18 @@ class TestProvenance(unittest.TestCase):
         for notice in ("NOTICE.md", "NOTICE.ko.md"):
             with open(os.path.join(ROOT, notice), encoding="utf-8") as fh:
                 self.assertIn("tools/models/jamohybrid-v1.npz", fh.read())
+
+    def test_fill_weights_listed(self):
+        if not os.path.exists(FILL):
+            self.skipTest("no shipped fill weights")
+        import hashlib
+        with open(FILL, "rb") as fh:
+            sha = hashlib.sha256(fh.read()).hexdigest()
+        with open(os.path.join(HERE, "models", "jamofill-v1.md"), encoding="utf-8") as fh:
+            self.assertIn(sha, fh.read())
+        for notice in ("NOTICE.md", "NOTICE.ko.md"):
+            with open(os.path.join(ROOT, notice), encoding="utf-8") as fh:
+                self.assertIn("tools/models/jamofill-v1.npz", fh.read())
 
 
 if __name__ == "__main__":

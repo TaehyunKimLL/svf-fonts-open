@@ -806,15 +806,22 @@ syllable pixels; a face with no Hangul syllables is refused with a message.
    else by the nearest passing piece of that jamo in another group.
 5. `jamofit.fit_pieces` re-fits the pieces to the source, each pixel only in a slot the model gave it; a re-fit that
    fails a gate is dropped.
-6. A context the source does not draw is placed by where the initial's ink sits for that (vowel, final): an additive
-   model of the initial's box (top, left, bottom, right), fitted to the syllables the source has -- the final is known
-   even where the source never draws that pair, which is what a face of the 2,350 KS syllables mostly lacks -- gives the
-   context the group whose pieces sit nearest. Only the initial is modelled: the same model for the medial was measured
-   and lost more than it gained at the default class cap, and the final does better from its own cell. A model the
-   source's cells cannot identify is not used. Where the model is absent the context joins the group the other lead
-   classes (vowels, tail classes) most often put it with, else that of the nearest context. A jamo no syllable of its
-   lead class (vowel, tail class) shows has no piece and draws blank.
-7. Stopping rule. A (lead class, tail class) pair costs 63 table bytes and a piece its bitmap. The default face is
+6. A context the source does not draw is placed by the cross-font ranker `--fill` (on by default; `--fill none` turns it
+   off): for every candidate group it computes 60 scale-free numbers from the face's own pieces and geometry (the slot
+   and vowel, the layout prediction, the lead- and tail-class mean boxes, the share of syllables without a final, and
+   the group's member count, context distance, box, sibling vote and nearest-neighbour shares), and a 60-64-64-1
+   float32 MLP (`tools/models/jamofill-v1.npz`) scores the group it expects to match the font's true piece best. It
+   can only choose a group the face already stores, so bytes, pieces, sets and gates do not change. Fewer than two
+   candidates, an invalid answer or no model fall back to the order in the next step.
+7. The baseline placement: by where the initial's ink sits for that (vowel, final), an additive model of the initial's
+   box (top, left, bottom, right), fitted to the syllables the source has -- the final is known even where the source
+   never draws that pair, which is what a face of the 2,350 KS syllables mostly lacks -- gives the context the group
+   whose pieces sit nearest. Only the initial is modelled: the same model for the medial was measured and lost more
+   than it gained at the default class cap, and the final does better from its own cell. A model the source's cells
+   cannot identify is not used. Where the model is absent the context joins the group the other lead classes (vowels,
+   tail classes) most often put it with, else that of the nearest context. A jamo no syllable of its lead class (vowel,
+   tail class) shows has no piece and draws blank.
+8. Stopping rule. A (lead class, tail class) pair costs 63 table bytes and a piece its bitmap. The default face is
    built for the class caps 12x12, 12x6, 8x8, 6x6 and 4x4 at the default tolerance (cell height / 12 px), and the
    smallest within 0.005 composed IoU of the most accurate is kept.
 
@@ -831,6 +838,7 @@ syllable pixels; a face with no Hangul syllables is refused with a message.
 | `--min-iou X` | the smallest face of the ladder whose composed IoU reaches X |
 | `--rule derived\|structural` | lead and tail classes clustered from the face (default) or fixed (7 lead, 4 tail) |
 | `--model PATH` | other weights |
+| `--fill [MODEL.npz]` | choose the group of a context the source never draws with the cross-font ranker (default `tools/models/jamofill-v1.npz`; `--fill none` turns it off); it changes only which stored group such a context joins, so bytes, pieces, sets and gates are unchanged |
 | `--report OUT.json` | the chosen point, what was tried, sets, classes, pieces, gates, composed IoU over all source syllables and over the KS X 1001 ones |
 | `--check` | compose all 11,172 syllables of the output |
 | `--jset-version 1\|2\|auto` | as `jamoset.py` |
@@ -840,14 +848,16 @@ and over the KS ones where they differ, exact syllables, pieces, sets, classes, 
 when a jamo appears in no source syllable (it draws blank; `blank_jamo` in the report).
 
 **Synopsis.** `python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--min-iou 0.9 | --max-bytes N] [--tol PX]
-[--classes LC,TC] [--big] [--report R.json] [--check]`.
+[--classes LC,TC] [--fill [MODEL.npz]|none] [--big] [--report R.json] [--check]`.
 
 **Repository modules imported.** `jamoset.py`, `jamofit.py`, `jamonet.py`. **Third-party.** numpy; freetype-py with
 `--from-ttf`. **Test.** `tools/test_jamohybrid.py`: `JAMOSET_PYLIB=DIR python3 -B -m unittest tools.test_jamohybrid` from the
 repository root (`DIR` holds numpy built for the same Python; the tests skip without it).
 
 **Speed.** With 4 threads, for 11,172 syllables: the model about 15 s, then one build 1.5-4 s, the default (five class
-caps) 7-15 s, the `--max-bytes` / `--min-iou` ladder 30-90 s. These hold for cells up to about 24 px; time and memory
+caps) 7-15 s, the `--max-bytes` / `--min-iou` ladder 30-90 s. A KS-only source has about 4,300 unseen contexts and the
+fill adds about 2 s per build (about 10 s for the default's five class caps; the ranker scores a few candidates per
+context); a source with every context shown does no fill work. These hold for cells up to about 24 px; time and memory
 grow with the cell's pixels: at a 48 px cell the default took about 2 min and 1.4 GB peak
 (v1: about 1 min, 1.6 GB). numpy uses every core by default; on a loaded many-core
 machine set `OMP_NUM_THREADS` (for example 4): a 2,357-syllable face took 29 s with all threads and 6 s with 4 there.

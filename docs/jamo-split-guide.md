@@ -369,14 +369,14 @@ Both faces were scored against the full 11,172-syllable precomposed reference (`
 | Precomposed all 11,172 | 494,364 | 1.0000 (2,350) | 1.0000 (8,822) | — | — | — | — |
 | Precomposed KS 2,350 | 106,204 | 1.0000 (2,350) | not present | — | — | — | — |
 | `--from-ttf` (11,172) | 26,176 | 0.9876 (1,730) | **0.9864 (6,382)** | 539 | 28 / 15 / 5 | 12x6 | 0 |
-| `--from-svf` (KS 2,350) | 24,576 | 0.9838 (1,767) | **0.8565 (2,754)** | 473 | 30 / 15 / 4 | 12x6 | 0 |
+| `--from-svf` (KS 2,350) | 24,576 | 0.9838 (1,767) | **0.8687 (3,022)** | 473 | 30 / 15 / 4 | 12x6 | 0 |
 
 Per-syllable IoU on the non-KS sample `똠 뷁 쀍 햏 펲 꺆 놔둬`:
 
 | Syllable | `똠` | `뷁` | `쀍` | `햏` | `펲` | `꺆` | `놔` | `둬` |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | `--from-ttf` (11,172) | 1.000 | 1.000 | 0.731 | 1.000 | 1.000 | 1.000 | 0.558 | 1.000 |
-| `--from-svf` (KS 2,350) | 1.000 | 0.845 | 0.640 | 1.000 | 0.982 | 1.000 | 1.000 | 1.000 |
+| `--from-svf` (KS 2,350) | 1.000 | 0.778 | 0.630 | 1.000 | 0.982 | 1.000 | 1.000 | 1.000 |
 
 ### Sample images and pieces
 
@@ -391,7 +391,7 @@ Per-syllable IoU on the non-KS sample `똠 뷁 쀍 햏 펲 꺆 놔둬`:
 ### What to look at
 
 - The KS-only build prints `composed IoU 0.9838` because the tool can only score the 2,350 syllables it was given.
-- Against the real 8,822 non-KS syllables, its IoU drops by **0.130** (from 0.9864 to 0.8565) and exact syllables fall from 6,382 to 2,754, because unseen contexts must be extrapolated.
+- Against the real 8,822 non-KS syllables, its IoU drops by **0.1177** (from 0.9864 to 0.8687) and exact syllables fall from 6,382 to 3,022, because unseen contexts must be extrapolated. The default `--fill` ranker raises the KS-only mean (0.8565 without it) but does not make every syllable better: `뷁` and `쀍` in the sample below still lose.
 - In figures 5 and 6 (`뷁`, `쀍`), the KS-only face misaligns or crowds the compound vowel (`ㅞ`) and double final (`ㄺ`).
 - Feeding all 11,172 syllables (`gal12-ttf.svf`) costs only 1,600 bytes more (26,176 B) and keeps both KS and non-KS above 0.986.
 

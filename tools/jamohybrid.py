@@ -25,17 +25,22 @@ face. Unlike the pixel fit it also gets the split right: which pixels are the in
      additive model of the initial's box, fitted to the syllables the source has (the final is known even where the
      source never draws the pair), gives the context the group whose pieces sit nearest. Only the initial is modelled:
      the same model for the medial was measured and cost more than it gained, and the final does better from its own
-     cell. Where the model is unidentified or has nothing to say the context joins the group the other lead classes
-     (vowels, tail classes) most often put it with, else that of the nearest context that has syllables (by how alike
-     the vowels and classes are); a (group, jamo) pair without syllables takes the piece of the nearest group that has
-     one. A jamo no syllable of its problem shows at all (no syllable with that initial, vowel or final in the class)
-     has no piece and draws blank; the summary warns and the report lists it (blank_jamo).
+     cell. With --fill (on by default, --fill none turns it off) a cross-font ranker decides first: it scores every
+     candidate group of such a context from the face's own pieces and geometry, and picks the group it expects to match
+     the font's true piece best (a 60-64-64-1 float32 MLP, tools/models/jamofill-v1.npz; ~1.5 ms per context). It can
+     only choose a group the face already stores, so bytes, pieces, sets and gates do not change; the baseline order
+     below stays the fallback where there are fewer than two candidates. Where the model is unidentified or has
+     nothing to say the context joins the group the other lead classes (vowels, tail classes) most often put it with,
+     else that of the nearest context that has syllables (by how alike the vowels and classes are); a (group, jamo)
+     pair without syllables takes the piece of the nearest group that has one. A jamo no syllable of its problem shows
+     at all (no syllable with that initial, vowel or final in the class) has no piece and draws blank; the summary
+     warns and the report lists it (blank_jamo).
 
   python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF]
-                              [--tol PX] [--classes LC,TC]
+                              [--tol PX] [--classes LC,TC] [--fill [MODEL.npz]]
   python3 tools/jamohybrid.py --from-ttf FONT --size N [--cell WxH] [--baseline R] -o OUT.SVF ...
-  options: --big (BIG limits; default off), --rule derived|structural, --model PATH, --report OUT.json, --check,
-           --jset-version 1|2|auto, --pylib DIR (a directory holding numpy, also $JAMOSET_PYLIB)
+  options: --big (BIG limits; default off), --rule derived|structural, --model PATH, --fill [PATH|none],
+           --report OUT.json, --check, --jset-version 1|2|auto, --pylib DIR (a directory holding numpy, also $JAMOSET_PYLIB)
 
 Stopping rule. A (lead class, tail class) pair costs 63 table bytes and a stored piece its bitmap, so the face is kept
 small in two ways: the merge tolerance above, and the class caps. Without --max-bytes / --min-iou the face is built at
@@ -61,6 +66,10 @@ import jamoset as J  # noqa: E402
 
 np = None
 DEFAULT_MODEL = os.path.join(HERE, "models", "jamohybrid-v1.npz")
+DEFAULT_FILL = os.path.join(HERE, "models", "jamofill-v1.npz")
+FILL_FEATURES, FILL_HIDDEN = 60, (64, 64)     # the --fill ranker: 60-64-64-1, float32, numpy only
+MAX_FILL_FILE = 1 << 20                        # a weights file larger than this is refused before loading
+MAX_FILL_PARAMS = 65536                        # and one with more parameters
 LEADS = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
 VOWELS = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
 TAILS = "-ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
@@ -622,11 +631,250 @@ def box_placement(c, model, tail, boxes_of):
     return min(cands)[2] if cands else None
 
 
-def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats, boxes=None):
-    """Per problem: the group of every context (a context no syllable shows takes, when @p boxes gives the initial's
-    layout model, the group whose pieces sit nearest the box that model predicts; else it joins the group its sibling
-    problems most often put it with, else that of the nearest context that has syllables), and a piece for every
-    (group, jamo):
+# ---- the cross-font group ranker (--fill) --------------------------------------------------------------------------
+#
+# A context no source syllable shows takes the group the baseline order (box model, sibling votes, nearest context)
+# puts it with. `--fill` asks a cross-font ranker first: for each candidate group, one row of 60 scale-free numbers
+# computed from the face's own pieces (the layout prediction, the class mean boxes, and the group's distance, box,
+# sibling vote and nearest-neighbour shares); the ranker is a 60-64-64-1 float32 MLP that scores the mean IoU the
+# group's piece would have with the piece the font actually draws there. It can only pick a group the face already
+# stores, so grouping, bytes, pieces, sets and every identity gate stay as they are; a context with fewer than two
+# candidates, an invalid answer or an unusable model falls back to the baseline. Weights: tools/models/jamofill-v1.npz.
+
+class FillModel:
+    """The --fill weights: mu / sd / med (60) and three float32 matrices W0 (60, 64), W1 (64, 64), W2 (64, 1) with
+    their biases, read with allow_pickle=False and checked by name, shape and dtype before use."""
+
+    def __init__(self, path):
+        n = np
+        try:
+            size = os.path.getsize(path)
+        except OSError as e:
+            raise ValueError(f"{path}: {e.strerror}")
+        if size > MAX_FILL_FILE:
+            raise ValueError(f"{path}: {size} bytes, more than {MAX_FILL_FILE}")
+        with n.load(path, allow_pickle=False) as z:
+            files = set(z.files)
+            self.meta = {}
+            if "meta" in files:
+                try:
+                    self.meta = json.loads(str(z["meta"]))
+                except ValueError:
+                    raise ValueError(f"{path}: meta is not JSON")
+                if self.meta.get("format") != "jamofill-1":
+                    raise ValueError(f"{path}: not a jamofill-1 weights file")
+            want = {"mu": (FILL_FEATURES,), "sd": (FILL_FEATURES,), "med": (FILL_FEATURES,),
+                    "W0": (FILL_FEATURES, FILL_HIDDEN[0]), "b0": (FILL_HIDDEN[0],),
+                    "W1": (FILL_HIDDEN[0], FILL_HIDDEN[1]), "b1": (FILL_HIDDEN[1],),
+                    "W2": (FILL_HIDDEN[1], 1), "b2": (1,)}
+            if files - {"meta"} != set(want):
+                raise ValueError(f"{path}: arrays {sorted(files ^ (set(want) | {'meta'}))} missing or unexpected")
+            total = 0
+            self.p = {}
+            for k, shape in want.items():
+                a = z[k]
+                if a.dtype.kind != "f" or a.shape != shape:
+                    raise ValueError(f"{path}: {k} is {a.dtype} {a.shape}, want float {shape}")
+                if not n.all(n.isfinite(a)):
+                    raise ValueError(f"{path}: {k} holds NaN or infinite values")
+                if k == "sd" and not n.all(a > 0):
+                    raise ValueError(f"{path}: sd must be positive")
+                total += a.size
+                self.p[k] = a.astype(n.float32)
+            if total > MAX_FILL_PARAMS:
+                raise ValueError(f"{path}: {total} parameters, more than {MAX_FILL_PARAMS}")
+            self.params, self.path = total, path
+
+    def score(self, X):
+        """The model's score for rows X (N, 60): one float per row, higher is the better group."""
+        n = np
+        p = self.p
+        Z = n.asarray(X, n.float32)
+        Z = (n.where(n.isnan(Z), p["med"], Z) - p["mu"]) / p["sd"]
+        Z = n.maximum(Z @ p["W0"] + p["b0"], 0)
+        Z = n.maximum(Z @ p["W1"] + p["b1"], 0)
+        return (Z @ p["W2"] + p["b2"])[:, 0]
+
+
+def fill_boxes(prop, jamo, lead, tail):
+    """An additive ink-box model per slot as the ranker's features see it (initial and medial by (vowel, final), final
+    by (lead class, vowel)), fitted to the pieces the source has. A slot without observations gets a zero model."""
+    h = prop.shape[2]
+    dims = ((21, 28), (21, 28), (max(lead) + 1, 21))
+    obs = [[{} for _ in range(dims[s][0])] for s in range(3)]
+    for i in range(len(jamo)):
+        L, V, T = int(jamo[i, 0]), int(jamo[i, 1]), int(jamo[i, 2])
+        for slot in (0, 1):
+            b = ink_box(prop[i, slot])
+            if b is not None:
+                obs[slot][V].setdefault(T, []).append(b)
+        if T:
+            b = ink_box(prop[i, 2])
+            if b is not None:
+                obs[2][int(lead[L])].setdefault(V, []).append(b)
+    out = []
+    for s in range(3):
+        o = {}
+        for u, col in enumerate(obs[s]):
+            for v, bs in col.items():
+                o[(u, v)] = np.median(np.array(bs), axis=0)
+        out.append(fit_boxes(o, *dims[s]) if o else
+                   (np.zeros(4), np.zeros((dims[s][0], 4)), np.zeros((dims[s][1], 4))))
+    return out
+
+
+def fill_pred_box(p, c, tail, boxes):
+    """The ranker's layout prediction for context @p c of problem @p p, from the per-slot additive models @p boxes."""
+    model = boxes[p.slot]
+    if model is None:
+        return np.zeros(4)
+    mu, a, b = model
+    if p.slot == 2:
+        return mu + a[c[0]] + b[c[1]]
+    u = c[0] if p.slot == 0 else p.key
+    ts = [0] if c[1] == 0 else [T for T in range(1, 28) if tail[T] == c[1]]
+    return np.median([mu + a[u] + b[T] for T in ts], axis=0)
+
+
+def group_boxes(p, reps, shape):
+    """group -> the ink boxes of its pieces (one per jamo the group shows), for the ranker's candidate features."""
+    out = {}
+    for g, a in enumerate(reps):
+        v = vote_of(p.s[a], p.n[a])
+        out[g] = [b for b in (ink_box(v[ji].reshape(shape)) for ji in range(len(p.jamo)) if p.n[a, ji] > 0)
+                  if b is not None]
+    return out
+
+
+def fill_candidates(p, c, reps, pboxes, pred, cd, gof, vs, h):
+    """One record per candidate group of problem p for context c: the group's piece box against the predicted box,
+    the context distance, the sibling vote and structural flags; dmin_rel, boxd_rel and sib_rel are relative to the
+    candidate set, and knn1 / knn3 / knn8 are the nearest-neighbour shares."""
+    out = []
+    sibv = {}                                   # group -> [sum of vote shares, count], one pass over the shown contexts
+    for x in gof:
+        e = vs.get((c, x) if c < x else (x, c))
+        if e and e[1]:
+            v = sibv.setdefault(gof[x], [0.0, 0])
+            v[0] += e[0] / e[1]
+            v[1] += 1
+    for g, a in enumerate(reps):
+        members = [p.ctx[item] for item in p.mem[a]]
+        dmin = min(cd(c, x) for x in members)
+        dmean = float(np.mean([cd(c, x) for x in members]))
+        bs = pboxes.get(g, [])
+        if bs:
+            box = np.mean(bs, axis=0)
+            bd = float(np.abs(box - pred).sum())
+        else:
+            box, bd = np.zeros(4), np.nan
+        sc, tot = sibv.get(g, [0.0, 0])
+        sib = sc / tot if tot else 0.0
+        same = 0
+        if p.slot == 0:
+            same = max((x[0] == c[0]) for x in members)
+        elif p.slot == 2:
+            same = max((x[1] == c[1]) for x in members)
+        out.append(dict(g=g, a=a, n=len(members), dmin=float(dmin), dmean=dmean, box=box, boxd=bd, sib=sib,
+                        same=float(same),
+                        area=float(sum(b[2] - b[0] + 1 for b in bs) / max(h, 1)) if bs else 0.0))
+    if out:
+        mean_box = np.mean([o["box"] for o in out], axis=0)
+        allmem = sorted((float(cd(c, p.ctx[i])), g) for g, a in enumerate(reps) for i in p.mem[a])
+        for o in out:
+            o["box_rel"] = o["box"] - mean_box
+            for k in (1, 3, 8):
+                o["knn%d" % k] = sum(1 for _, gg in allmem[:k] if gg == o["g"]) / float(min(k, len(allmem)))
+        dm = np.array([o["dmin"] for o in out])
+        l1 = np.array([o["boxd"] for o in out])
+        sb = np.array([o["sib"] for o in out])
+        for o, x, y, z in zip(out, dm, l1, sb):
+            o["dmin_rel"] = float((x - dm.min()) / (dm.max() - dm.min() + 1e-9))
+            o["boxd_rel"] = float((y - np.nanmin(l1)) / (np.nanmax(l1) - np.nanmin(l1) + 1e-9)) \
+                if np.isfinite(y) else 1.0
+            o["sib_rel"] = float(z / (sb.max() + 1e-9))
+    return out
+
+
+def fill_lead_tail(prop, jamo, lead, tail):
+    """Per lead class and per tail class, the mean ink box of the source's pieces of the initial / final, normalised
+    by the cell side; and the share of syllables without a final."""
+    h = prop.shape[2]
+    ol = [[] for _ in range(max(lead) + 1)]
+    ot = [[] for _ in range(max(tail) + 1)]
+    for i in range(len(jamo)):
+        b = ink_box(prop[i, 0])
+        if b is not None:
+            ol[int(lead[int(jamo[i, 0])])].append([(b[3] - b[1] + 1) / h, (b[2] - b[0] + 1) / h,
+                                                   (b[3] - b[1] + 1) * (b[2] - b[0] + 1) / h ** 2, b[2] / h])
+        T = int(jamo[i, 2])
+        b = ink_box(prop[i, 2]) if T else None
+        # the width term below is the research code's (b[2] - b[1], not b[3] - b[1]); the ranker was trained with it
+        ot[int(tail[T])].append([0, 0, 0, 0] if b is None else
+                                [(b[3] - b[1] + 1) / h, (b[2] - b[1] + 1) / h,
+                                 (b[3] - b[1] + 1) * (b[2] - b[1] + 1) / h ** 2, b[2] / h])
+    mk = lambda v: np.array(v).mean(axis=0) if v else np.zeros(4)  # noqa: E731
+    return [mk(v) for v in ol], [mk(v) for v in ot], \
+        [float(np.mean([int(jamo[i, 2]) == 0 for i in range(len(jamo))]))]
+
+
+class FillFeatures:
+    """The 60 features of one (context, candidate group) pair, in the fixed research layout: 3 slot one-hot, 21 vowel
+    one-hot, 4 predicted box, 4 lead-class stats, 4 tail-class stats, 1 empty-final share, 23 candidate features."""
+
+    def __init__(self, P, prop, boxes=None):
+        self.P, self.h = P, prop.shape[2]
+        self.boxes = boxes if boxes is not None else fill_boxes(prop, P["jamo"], P["lead"], P["tail"])
+        self.ls, self.ts, self.empty = fill_lead_tail(prop, P["jamo"], P["lead"], P["tail"])
+
+    def row(self, p, c, o):
+        h = self.h
+        V = c[0] if p.slot in (0, 1) else c[1]
+        lc = c[0] if p.slot in (1, 2) else max(self.P["lead"])
+        tc = c[1] if p.slot in (0, 1) else p.key
+        pb = fill_pred_box(p, c, self.P["tail"], self.boxes)
+        f = list(np.eye(3)[p.slot]) + [0.0] * 21
+        f[3 + V] = 1.0
+        f += [pb[0] / h, (pb[2] - pb[0] + 1) / h, (pb[3] - pb[1] + 1) / h, pb[1] / h]
+        f += list(self.ls[lc]) + list(self.ts[tc])
+        f.append(self.empty[0] if p.slot == 0 else 0.0)
+        bx = o["box"]
+        f += [o["n"] / 20.0, o["dmin"], o["dmin_rel"], o["dmean"], o["boxd"] / h, o["boxd_rel"], o["sib_rel"],
+              o["same"], (bx[0] - pb[0]) / h, (bx[1] - pb[1]) / h, (bx[2] - pb[2]) / h, (bx[3] - pb[3]) / h,
+              bx[0] / h, (bx[2] - bx[0] + 1) / h, (bx[3] - bx[1] + 1) / h,
+              (bx[3] - bx[1] + 1) * (bx[3] - bx[1] + 1) / h ** 2]
+        f += [o["box_rel"][0] / h, o["box_rel"][1] / h, o["box_rel"][2] / h, o["box_rel"][3] / h,
+              o["knn1"], o["knn3"], o["knn8"]]
+        return f
+
+
+class Fill:
+    """The ranker for one prepared face: `choose(p, c, cands)` returns the group with the highest score, or None when
+    the baseline must decide (fewer than two candidates). The feature tables are built on first use, so a face with no
+    unseen context (every syllable built) never computes them."""
+
+    def __init__(self, model, P, prop):
+        self.model, self.P, self.prop = model, P, prop
+        self._F = None
+
+    def features(self):
+        if self._F is None:
+            self._F = FillFeatures(self.P, self.prop)
+        return self._F
+
+    def choose(self, p, c, cands):
+        if len(cands) < 2:
+            return None
+        F = self.features()
+        X = np.array([F.row(p, c, o) for o in cands], np.float32)
+        return int(cands[int(np.argmax(self.model.score(X)))]["g"])
+
+
+def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats, boxes=None, fill=None):
+    """Per problem: the group of every context (a context no syllable shows takes, when @p fill gives the cross-font
+    ranker, the group its model scores highest; else, when @p boxes gives the initial's layout model, the group whose
+    pieces sit nearest the box that model predicts; else it joins the group its sibling problems most often put it
+    with, else that of the nearest context that has syllables), and a piece for every (group, jamo):
     the vote; where the vote fails a gate, the member proposal nearest to it that passes, else the nearest passing
     piece of the same jamo in another group; where no syllable shows the jamo in the group, the piece of the nearest
     group that has it (a gate-passing one first); where no syllable of the problem shows the jamo at all, none (the
@@ -644,18 +892,28 @@ def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats, boxes=None)
                 gof[p.ctx[item]] = g
         have = list(gof)
         vs = votes[p.slot]
+        unseen = [c for c in p.ctx if c not in gof]
         pboxes = {}
-        if boxes is not None and p.slot == 0:
-            for g, a in enumerate(reps):
-                v = vote_of(p.s[a], p.n[a])
-                pboxes[g] = [b for b in
-                             (ink_box(v[ji].reshape(shape)) for ji in range(len(p.jamo)) if p.n[a, ji] > 0)
-                             if b is not None]
+        if (boxes is not None and p.slot == 0) or (fill is not None and unseen):
+            pboxes = group_boxes(p, reps, shape)
         for c in p.ctx:
             if c not in gof:
                 stats["contexts_without_syllables"] += 1
-                # where the slot's ink should sit for this context, from the source's own syllables: the final of the
-                # context is known, so the design is not guesswork even when the pair was never drawn
+                # the cross-font ranker first: it can only choose among the groups the face already stores
+                g = None
+                if fill is not None and len(reps) >= 2:
+                    cands = fill_candidates(p, c, reps, pboxes,
+                                            fill_pred_box(p, c, tail, fill.features().boxes), cd, gof, vs, shape[0])
+                    g = fill.choose(p, c, cands)
+                    if g is not None and not 0 <= g < len(reps):
+                        g = None
+                if g is not None:
+                    gof[c] = g
+                    stats["contexts_placed_by_fill"] += 1
+                    continue
+                # else the baseline: where the slot's ink should sit for this context, from the source's own
+                # syllables; the final of the context is known, so the design is not guesswork even when the pair was
+                # never drawn
                 g = box_placement(c, boxes, tail, pboxes) if boxes is not None and p.slot == 0 else None
                 if g is not None:
                     gof[c] = g
@@ -886,9 +1144,10 @@ def drop_prepared(src, rule_name, max_classes):
     src.__dict__.get("_prep", {}).pop((rule_name, tuple(max_classes)), None)
 
 
-def build_face(src, model, rule_name, limits, max_classes, big, jset_version, log=None, tol=None, gate_merges=True):
+def build_face(src, model, rule_name, limits, max_classes, big, jset_version, log=None, tol=None, gate_merges=True,
+               fill=None):
     """Build one face; returns (bytes, layout, info). @p tol: the merge tolerance in pixels per syllable (None: the
-    default for the cell; 0: no merging beyond the set limits)."""
+    default for the cell; 0: no merging beyond the set limits). @p fill: the cross-font group ranker (None: off)."""
     t0 = time.time()
     P = prepare(src, model, rule_name, max_classes)
     jamo, prop, ink, gates, lead, tail = P["jamo"], P["prop"], P["ink"], P["gates"], P["lead"], P["tail"]
@@ -898,7 +1157,7 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
     stats = Counter()
     group(P["problems"], limits, tol, gates, stats, gate_merges)
     piece, users, group_of, borrowed = pieces_of_groups(P["problems"], prop, gates, P["dist"], lead, tail, stats,
-                                                        P["boxes"])
+                                                        P["boxes"], Fill(fill, P, prop) if fill is not None else None)
     refit(piece, users, prop, ink, gates, stats)
     nlc, ntc = max(lead) + 1, max(tail) + 1
     count = [1, 1, 1]
@@ -967,6 +1226,9 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
                 lead_classes=["".join(LEADS[L] for L in range(19) if lead[L] == c) for c in range(nlc)],
                 tail_classes=["".join(TAILS[T] for T in range(28) if tail[T] == c) for c in range(ntc)],
                 stats=dict(stats), seconds=round(time.time() - t0, 1))
+    if fill is not None:
+        info["fill"] = dict(file=os.path.basename(fill.path), features=FILL_FEATURES, parameters=fill.params,
+                            contexts_placed_by_fill=int(stats.get("contexts_placed_by_fill", 0)))
     if log:
         log(f"limits {tuple(limits)}, tolerance {tol:.2f} px: {len(out)} bytes, IoU {info['comp_iou']}, "
             f"{len(bitmaps)} pieces, sets {ni}/{nm}/{nf}, classes {nlc}x{ntc}")
@@ -1027,12 +1289,12 @@ def class_caps(rule_name, big, classes=None):
     return (LIMITS[big][1],) if rule_name == "structural" else CLASS_GRID[big]
 
 
-def build_default(src, model, rule_name, limits, big, jset_version, log=None, tol=None, classes=None):
+def build_default(src, model, rule_name, limits, big, jset_version, log=None, tol=None, classes=None, fill=None):
     """The face at @p limits and one merge tolerance: built for every class cap, the smallest within SLACK composed
     IoU of the most accurate is kept. Returns (bytes, layout, info) with info["choice"]."""
     pts = []
     for mc in class_caps(rule_name, big, classes):
-        pts.append(build_face(src, model, rule_name, limits, mc, big, jset_version, log, tol=tol))
+        pts.append(build_face(src, model, rule_name, limits, mc, big, jset_version, log, tol=tol, fill=fill))
         drop_prepared(src, rule_name, mc)
     top = max(p[2]["comp_iou"] for p in pts)
     out, layout, info = min((p for p in pts if p[2]["comp_iou"] >= top - SLACK), key=lambda p: p[2]["bytes"])
@@ -1043,7 +1305,8 @@ def build_default(src, model, rule_name, limits, big, jset_version, log=None, to
     return out, layout, info
 
 
-def build_ladder(src, model, rule_name, big, jset_version, max_bytes=None, min_iou=None, log=None, classes=None):
+def build_ladder(src, model, rule_name, big, jset_version, max_bytes=None, min_iou=None, log=None, classes=None,
+                 fill=None):
     """The --max-bytes / --min-iou ladder: the standard limits at every class cap and every merge tolerance of
     TOL_LADDER (fewer classes and a larger tolerance = a smaller face), and with @p big the BIG limits likewise; the
     point choose_point keeps. @p classes fixes the cap of both halves (clamped to the standard row for the standard
@@ -1054,8 +1317,8 @@ def build_ladder(src, model, rule_name, big, jset_version, max_bytes=None, min_i
     for b, caps, ladder in ((False, class_caps(rule_name, False, std), TOL_LADDER),
                             (True, class_caps(rule_name, True, classes) if big else (), BIG_TOL_LADDER)):
         for mc in caps:
-            pts += [build_face(src, model, rule_name, LIMITS[b][0], mc, b, jset_version, log, tol=m * default_tol(h))
-                    for m in ladder]
+            pts += [build_face(src, model, rule_name, LIMITS[b][0], mc, b, jset_version, log, tol=m * default_tol(h),
+                               fill=fill) for m in ladder]
             drop_prepared(src, rule_name, mc)
     pick, why = choose_point([p[2] for p in pts], max_bytes, min_iou)
     out, layout, info = pts[pick]
@@ -1111,6 +1374,10 @@ def main(argv=None):
                     "ladder adds BIG points to the standard ones); engines built with SVF_JSET_BIG read it. The "
                     "standard face is the default")
     ap.add_argument("--model", default=DEFAULT_MODEL, help="weights (.npz, tools/jamonet.py format)")
+    ap.add_argument("--fill", nargs="?", const=DEFAULT_FILL, default=DEFAULT_FILL, metavar="MODEL.npz",
+                    help="choose the group of a context the source never draws with the cross-font ranker "
+                    "(tools/models/jamofill-v1.npz by default; 'none' turns it off). It only changes which stored group "
+                    "an unseen context joins: bytes, pieces, sets and gates are unchanged")
     ap.add_argument("--report", metavar="OUT.json", help="write the chosen point, the ladder and the build details")
     ap.add_argument("--check", action="store_true", help="compose all 11,172 syllables of the output (jamoset check)")
     ap.add_argument("--jset-version", default="1", choices=("1", "2", "auto"))
@@ -1133,6 +1400,12 @@ def main(argv=None):
         ap.error("--classes: not with --rule structural (its classes are fixed: 7 lead, 4 tail)")
     classes = parse_classes(ap, a.classes, a.big) if a.classes else None
     model = jamonet.Model(a.model)
+    fill = None
+    if a.fill and a.fill != "none":
+        try:
+            fill = FillModel(a.fill)
+        except (OSError, ValueError) as e:
+            ap.error(f"--fill {a.fill}: {e}")
     if a.from_svf:
         src = from_svf(a.from_svf)
     else:
@@ -1147,9 +1420,9 @@ def main(argv=None):
     log = lambda m: print(m, file=sys.stderr)  # noqa: E731
     if a.max_bytes is None and a.min_iou is None:
         limits = parse_limits(ap, a.limits, a.big) if a.limits else LIMITS[a.big][0]
-        out, layout, info = build_default(src, model, a.rule, limits, a.big, jv, log, a.tol, classes)
+        out, layout, info = build_default(src, model, a.rule, limits, a.big, jv, log, a.tol, classes, fill)
     else:
-        out, layout, info = build_ladder(src, model, a.rule, a.big, jv, a.max_bytes, a.min_iou, log, classes)
+        out, layout, info = build_ladder(src, model, a.rule, a.big, jv, a.max_bytes, a.min_iou, log, classes, fill)
     choice = info["choice"]
     info["source"] = src.info
     info["model"] = dict(file=os.path.basename(a.model), **{k: model.meta.get(k) for k in ("base", "trained")})

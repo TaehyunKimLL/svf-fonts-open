@@ -228,6 +228,28 @@ A follow-up, not this card. After the tool and its report format settle, the des
 (jamohybrid)" next to "bdfface + from-svf fit". It needs a numpy check in `/api/caps`, the model path, and the
 size / accuracy choice in the UI.
 
+## 7. `--fill`: the cross-font group ranker
+
+A KS-only source leaves about 4,300 contexts with no syllable of their own. The baseline places the initial by an
+additive ink-box model, then sibling votes, then the nearest context. `--fill` asks a cross-font ranker first: for every
+unseen context, one row of 60 features per candidate group (the face's own pieces and geometry only -- no font
+identity, no file I/O), scored by a 60-64-64-1 float32 MLP trained on rows recorded from the training lineages; the
+argmax group is used when it is a valid index, else the baseline order runs unchanged. It can only choose a group the
+face already stores, so bytes, pieces, sets and gates do not change; a context with fewer than two candidates is not
+touched, and a source with every context shown builds byte-identically.
+
+- **Weights.** `tools/models/jamofill-v1.npz`: 32,928 B, 8,309 parameters, MIT, loaded with `allow_pickle=False` and
+  checked by array name, shape and float dtype, with a 1 MiB / 65,536-parameter budget. Provenance and held-out results
+  are in `tools/models/jamofill-v1.md`; NOTICE names the file and its training lineages (open fonts only).
+- **Feature parity.** The port is checked against a fixture computed by the research code: 18 rows across all three
+  slots, features and (slot, context, group) keys only, no glyph bitmap (`tools/testdata/jamofill-parity.json`).
+- **Default.** On by measurement: on ten held-out composite faces at 12 px the ranker raised non-KS IoU by 0.042 on
+  average (Gothic A1 +0.026, Pyunji +0.079, Un Batang +0.045), with bytes, KS IoU and gates unchanged. `--fill none`
+  restores the box-only baseline. Four synthetic tests cover loading, features, choice and fallback; two more assert the
+  unchanged bytes / KS / gates and the all-syllable identity.
+- **Cost.** About 4,300 contexts per KS-only face, about 2 s per build (about 10 s for the default's five class caps);
+  a source with every context shown does no fill work.
+
 ## Phase B outline
 
 1. Port the research code (`hybrid2`, gates, refit) to `tools/jamohybrid.py` with numpy-only inference.
