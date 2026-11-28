@@ -33,6 +33,7 @@ the bytes, or the smallest that reaches the composed IoU. Needs numpy (and freet
 import argparse
 import json
 import os
+import struct
 import sys
 import time
 from collections import Counter, defaultdict
@@ -135,7 +136,7 @@ def ticks(a, vertical, end_frac):
 
 def holes(a):
     """Closed counters: 4-connected background components that do not touch the border."""
-    bg = np.pad(1 - a, 1).astype(bool)
+    bg = np.pad(1 - a, 1, constant_values=1).astype(bool)   # the border is background
     h, w = bg.shape
     seen = np.zeros_like(bg)
     n = 0
@@ -584,11 +585,43 @@ class Source:
         self.base, self.extra, self.advance, self.info = base, extra, advance, info or {}
 
 
+# Limits on an input face (the face is untrusted data): checked before it is parsed or any array is built.
+MAX_FILE = 16 << 20
+MAX_CELL = 64
+MAX_GLYPHS = 70000
+MAX_PIXELS = 11172 * 64 * 64
+
+
 def from_svf(path):
-    data = open(path, "rb").read()
-    f = J.parse_svfn(data)
+    try:
+        size = os.path.getsize(path)
+    except OSError as e:
+        raise SystemExit(f"{path}: {e.strerror}")
+    if size > MAX_FILE:
+        raise SystemExit(f"{path}: {size} bytes, more than {MAX_FILE}")
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if len(data) < J.HEADER3_SIZE or data[:4] != J.MAGIC:
+        raise SystemExit(f"{path}: not an SVFN face")
+    head = struct.unpack_from(J.HEADER3, data)
+    version, count, cw, ch = head[1], head[7], head[8], head[9]
+    if version != J.VERSION:
+        raise SystemExit(f"{path}: SVFN version {version}; convert it with tools/svf2to3.py first")
+    if cw > MAX_CELL or ch > MAX_CELL:
+        raise SystemExit(f"{path}: cell {cw}x{ch} is larger than {MAX_CELL}x{MAX_CELL}")
+    if count > MAX_GLYPHS:
+        raise SystemExit(f"{path}: {count} glyphs, more than {MAX_GLYPHS}")
+    try:
+        f = J.parse_svfn(data)
+    except ValueError as e:
+        raise SystemExit(f"{path}: {e}")
     if f.bpp != 1 or f.flags & J.FLAG_JAMO:
         raise SystemExit(f"{path}: not a 1 bpp precomposed face")
+    n_syl = sum(1 for cp in f.glyphs if 0xAC00 <= cp <= 0xD7A3)
+    if not n_syl:
+        raise SystemExit(f"{path}: no Hangul syllables")
+    if n_syl * cw * ch > MAX_PIXELS:
+        raise SystemExit(f"{path}: {n_syl} syllables of {cw}x{ch} are more than {MAX_PIXELS} pixels")
     w, h = f.cell_w, f.cell_h
     nb = (w + 7) // 8
     syl, pre = [], []
@@ -598,6 +631,8 @@ def from_svf(path):
             rows = [int.from_bytes(g[y * nb:(y + 1) * nb], "big") >> (nb * 8 - w) for y in range(h)]
             pre.append([[(r >> (w - 1 - x)) & 1 for x in range(w)] for r in rows])
             syl.append(cp - 0xAC00)
+    if not syl:
+        raise SystemExit(f"{path}: every Hangul syllable is blank")
     return Source(np.array(syl), np.array(pre, np.uint8), f.ascent, base=data, advance=J.svf_advance(f),
                   info=dict(face=os.path.basename(path), cell=[w, h]))
 
@@ -699,6 +734,26 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
     return out, layout, info
 
 
+FLOOR = (16, 21, 8)          # the structural sets every face starts from
+FORMAT_ROW = {False: (32, 24, 16), True: (128, 128, 64)}
+
+
+def parse_limits(ap, text, big):
+    """--limits NI,NM,NF checked against the structural floor and the format's standard (or BIG) row."""
+    try:
+        lim = tuple(int(x) for x in text.split(","))
+    except ValueError:
+        ap.error(f"--limits {text!r}: three whole numbers NI,NM,NF")
+    if len(lim) != 3:
+        ap.error(f"--limits {text!r}: three whole numbers NI,NM,NF")
+    row = FORMAT_ROW[big]
+    for name, v, lo, hi in zip(("NI", "NM", "NF"), lim, FLOOR, row):
+        if not lo <= v <= hi:
+            ap.error(f"--limits: {name} {v} is outside {lo}..{hi} (structural sets {FLOOR}; "
+                     f"{'BIG' if big else 'standard'} row {row}{'' if big else '; --big for more'})")
+    return lim
+
+
 def choose_point(infos, max_bytes=None, min_iou=None):
     """Index of the ladder point to keep and why: the most accurate within @p max_bytes (else the smallest), or the
     smallest whose composed IoU reaches @p min_iou (else the most accurate)."""
@@ -729,8 +784,10 @@ def main(argv=None):
     lim.add_argument("--limits", help="set limits NI,NM,NF (default 32,24,16; with --big 64,48,32)")
     lim.add_argument("--max-bytes", type=int, help="the most accurate face of the limit ladder within this many bytes")
     lim.add_argument("--min-iou", type=float, help="the smallest face of the limit ladder whose composed IoU reaches this")
-    ap.add_argument("--big", action="store_true", help="JSET BIG limits (64/48/32 sets, 19 x 28 classes; engines with "
-                    "SVF_JSET_BIG); the standard face is the default")
+    ap.add_argument("--big", action="store_true", help="JSET BIG: the tool's default limits become 64/48/32 sets and 19 x 28 "
+                    "classes (the format's BIG row allows up to 128/128/64; the --max-bytes / --min-iou ladder adds "
+                    "40/30/20 ... 96/72/48 to the standard points); engines built with SVF_JSET_BIG read it. The "
+                    "standard face is the default")
     ap.add_argument("--model", default=DEFAULT_MODEL, help="weights (.npz, tools/jamonet.py format)")
     ap.add_argument("--report", metavar="OUT.json", help="write the chosen point, the ladder and the build details")
     ap.add_argument("--check", action="store_true", help="compose all 11,172 syllables of the output (jamoset check)")
@@ -742,21 +799,30 @@ def main(argv=None):
     jamonet.np = np
     if a.from_ttf and not a.size:
         ap.error("--from-ttf needs --size")
+    if a.size is not None and not 4 <= a.size <= MAX_CELL:
+        ap.error(f"--size {a.size}: 4..{MAX_CELL}")
+    if a.limits:
+        parse_limits(ap, a.limits, a.big)          # before any work
     model = jamonet.Model(a.model)
     if a.from_svf:
         src = from_svf(a.from_svf)
     else:
         cell = tuple(int(x) for x in a.cell.lower().split("x")) if a.cell else None
+        if cell and not (len(cell) == 2 and all(4 <= v <= MAX_CELL for v in cell)):
+            ap.error(f"--cell {a.cell}: WxH, each 4..{MAX_CELL}")
         src = from_ttf(a.from_ttf, a.size, cell, a.baseline, a.pylib)
     max_classes = LIMITS[a.big][1]
     jv = a.jset_version if a.jset_version == "auto" else int(a.jset_version)
     log = lambda m: print(m, file=sys.stderr)  # noqa: E731
     if a.max_bytes is None and a.min_iou is None:
-        limits = tuple(int(x) for x in a.limits.split(",")) if a.limits else LIMITS[a.big][0]
+        limits = parse_limits(ap, a.limits, a.big) if a.limits else LIMITS[a.big][0]
         out, layout, info = build_face(src, model, a.rule, limits, max_classes, a.big, jv, log)
         choice = dict(rule="fixed limits")
     else:
-        pts = [build_face(src, model, a.rule, lim_, max_classes, a.big, jv, log) for lim_ in LADDER[a.big]]
+        # the ladder: the standard points, and with --big the BIG points as well
+        pts = [build_face(src, model, a.rule, lim_, LIMITS[False][1], False, jv, log) for lim_ in LADDER[False]]
+        if a.big:
+            pts += [build_face(src, model, a.rule, lim_, max_classes, True, jv, log) for lim_ in LADDER[True]]
         pick, why = choose_point([p[2] for p in pts], a.max_bytes, a.min_iou)
         out, layout, info = pts[pick]
         choice = dict(rule=why, ladder=[dict(limits=p[2]["limits"], bytes=p[2]["bytes"], comp_iou=p[2]["comp_iou"])

@@ -100,12 +100,71 @@ class TestForward(unittest.TestCase):
             self.assertTrue((p1 == p2).all())
             self.assertTrue(((q1.max(axis=1) > 0) == (pre > 0)).all())    # every ink pixel gets a slot, nothing else
             self.assertEqual(int(q1[[0, 3], 2].sum()), 0)                   # no final plane without a final
+            self.assertEqual(float(p1[[0, 3], 2].max()), 0.0)
+
+    def test_weights_validated(self):
+        import jamonet
+        with tempfile.TemporaryDirectory() as d:
+            good = os.path.join(d, "tiny.npz")
+            tiny_model(good)
+            with np.load(good) as z:
+                arrays = {k: z[k] for k in z.files}
+            for name, change in (("missing", lambda a: a.pop("out.b")),
+                                 ("shape", lambda a: a.__setitem__("e1.0.w", np.zeros((5, 4, 3, 3), np.float16))),
+                                 ("dtype", lambda a: a.__setitem__("e1.0.b", np.zeros(4, np.int32)))):
+                bad = dict(arrays)
+                change(bad)
+                path = os.path.join(d, name + ".npz")
+                np.savez(path, **bad)
+                with self.assertRaises(ValueError, msg=name):
+                    jamonet.Model(path)
 
     def test_canvas_geometry(self):
         import jamonet
         self.assertEqual(jamonet.canvas_geometry(12, 12), (2, 32, 4, 4))
         self.assertEqual(jamonet.canvas_geometry(10, 10), (3, 32, 1, 1))
         self.assertEqual(jamonet.canvas_geometry(54, 46)[1], 56)
+
+
+@unittest.skipIf(np is None, "numpy not available")
+class TestChecks(unittest.TestCase):
+    def setUp(self):
+        import jamohybrid as JH
+        JH.np = np
+        self.JH = JH
+
+    def test_holes(self):
+        holes = self.JH.holes
+        bar = np.ones((1, 5), np.uint8)
+        ring = np.ones((4, 4), np.uint8)
+        ring[1:3, 1:3] = 0
+        giyeok = np.array([[1, 1, 1], [0, 0, 1], [0, 0, 1]], np.uint8)
+        dot = np.ones((1, 1), np.uint8)
+        two = np.ones((5, 4), np.uint8)
+        two[1, 1:3] = two[3, 1:3] = 0
+        self.assertEqual([holes(bar), holes(ring), holes(giyeok), holes(dot), holes(two)], [0, 1, 0, 0, 2])
+
+    def test_hole_checks(self):
+        ring = np.zeros((8, 8), np.uint8)
+        ring[1:7, 1:7] = 1
+        ring[3:5, 3:5] = 0
+        self.assertTrue(self.JH.check("ㅁ", 0, ring, 0)["holes"])
+        self.assertFalse(self.JH.check("ㄱ", 0, ring, 0)["holes"])
+        giyeok = np.zeros((8, 8), np.uint8)
+        giyeok[1, 1:6] = 1
+        giyeok[1:7, 5] = 1
+        self.assertTrue(self.JH.check("ㄱ", 0, giyeok, 0)["holes"])
+
+    def test_ticks_with_serif(self):
+        a = np.zeros((10, 4), np.uint8)
+        a[:, 1] = 1                 # ㅏ: the main vertical
+        a[5, 2:4] = 1               # its tick to the right
+        self.assertTrue(self.JH.check("ㅏ", 1, a, 0)["ticks"])
+        a[0, 0] = 1                 # a serif hook at the top left
+        self.assertFalse(self.JH.check("ㅏ", 1, a, 0)["ticks"])
+        self.assertTrue(self.JH.check("ㅏ", 1, a, 0.2)["ticks"])
+        a[5, 2:4] = 0               # the tick gone: caught with the serif tolerance too
+        self.assertFalse(self.JH.check("ㅏ", 1, a, 0.2)["ticks"])
 
 
 @unittest.skipIf(np is None, "numpy not available")
@@ -117,6 +176,44 @@ class TestChoice(unittest.TestCase):
         self.assertEqual(JH.choose_point(pts, max_bytes=5000)[0], 0)
         self.assertEqual(JH.choose_point(pts, min_iou=0.92)[0], 1)
         self.assertEqual(JH.choose_point(pts, min_iou=0.99)[0], 2)
+
+    def test_limits_checked(self):
+        import argparse
+        import jamohybrid as JH
+        ap = argparse.ArgumentParser()
+        self.assertEqual(JH.parse_limits(ap, "24,22,12", False), (24, 22, 12))
+        self.assertEqual(JH.parse_limits(ap, "128,128,64", True), (128, 128, 64))
+        for text, big in (("8,4,4", False), ("40,24,16", False), ("129,24,16", True), ("32,24", False), ("a,b,c", False)):
+            with self.assertRaises(SystemExit, msg=text):
+                with open(os.devnull, "w") as null:
+                    old, sys.stderr = sys.stderr, null
+                    try:
+                        JH.parse_limits(ap, text, big)
+                    finally:
+                        sys.stderr = old
+
+    def test_input_caps(self):
+        import jamohybrid as JH
+        JH.np = np
+        with tempfile.TemporaryDirectory() as d:
+            junk = os.path.join(d, "junk.SVF")
+            with open(junk, "wb") as fh:
+                fh.write(b"\0" * 100)
+            with self.assertRaises(SystemExit):
+                JH.from_svf(junk)
+            with self.assertRaises(SystemExit):           # a jamo-set face, not a precomposed one
+                JH.from_svf(SANS)
+            big = os.path.join(d, "big.SVF")             # a header claiming a 200 x 200 cell
+            head = bytearray(b"\0" * 48)
+            head[:4] = b"SVFN"
+            import struct
+            struct.pack_into("<H", head, 4, 3)
+            head[14], head[15] = 200, 200
+            with open(big, "wb") as fh:
+                fh.write(bytes(head))
+            with self.assertRaises(SystemExit) as cm:
+                JH.from_svf(big)
+            self.assertIn("larger than", str(cm.exception))
 
     def test_standard_limits_by_default(self):
         import jamohybrid as JH
@@ -133,7 +230,8 @@ class TestEndToEnd(unittest.TestCase):
         import jamohybrid as JH
         import jamonet
         JH.np = np
-        f = J.parse_svfn(open(SANS, "rb").read())
+        with open(SANS, "rb") as fh:
+            f = J.parse_svfn(fh.read())
         t = J.unpack(f.jset)
         w, h = f.cell_w, f.cell_h
         nb = (w + 7) // 8
@@ -163,11 +261,13 @@ class TestProvenance(unittest.TestCase):
         if not os.path.exists(MODEL):
             self.skipTest("no shipped weights")
         import hashlib
-        sha = hashlib.sha256(open(MODEL, "rb").read()).hexdigest()
-        notes = open(os.path.join(HERE, "models", "jamohybrid-v1.md"), encoding="utf-8").read()
-        self.assertIn(sha, notes)
+        with open(MODEL, "rb") as fh:
+            sha = hashlib.sha256(fh.read()).hexdigest()
+        with open(os.path.join(HERE, "models", "jamohybrid-v1.md"), encoding="utf-8") as fh:
+            self.assertIn(sha, fh.read())
         for notice in ("NOTICE.md", "NOTICE.ko.md"):
-            self.assertIn("tools/models/jamohybrid-v1.npz", open(os.path.join(ROOT, notice), encoding="utf-8").read())
+            with open(os.path.join(ROOT, notice), encoding="utf-8") as fh:
+                self.assertIn("tools/models/jamohybrid-v1.npz", fh.read())
 
 
 if __name__ == "__main__":

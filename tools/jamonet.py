@@ -20,8 +20,28 @@ Predictions are averaged back over each k x k block. Needs numpy only.
 """
 
 import json
+import os
 
 np = None
+MAX_FILE = 64 << 20          # a weights file larger than this is refused before loading
+MAX_PARAMS = 20_000_000       # and one with more parameters
+
+
+def expected_shapes(base, cdim, cond):
+    """{array name: shape} of a jamonet-1 weights file (BatchNorm folded)."""
+    cin = 1 + (cdim if cond else 0)
+    out = {}
+    for name, (i, o) in {"e1": (cin, base), "e2": (base, 2 * base), "e3": (2 * base, 4 * base), "b": (4 * base, 8 * base),
+                         "d3": (8 * base, 4 * base), "d2": (4 * base, 2 * base), "d1": (2 * base, base)}.items():
+        out[f"{name}.0.w"], out[f"{name}.0.b"] = (o, i, 3, 3), (o,)
+        out[f"{name}.1.w"], out[f"{name}.1.b"] = (o, o, 3, 3), (o,)
+    for name, (i, o) in {"u3": (8 * base, 4 * base), "u2": (4 * base, 2 * base), "u1": (2 * base, base)}.items():
+        out[f"{name}.w"], out[f"{name}.b"] = (i, o, 2, 2), (o,)
+    out["out.w"], out["out.b"] = (3, base, 1, 1), (3,)
+    if cond:
+        out["eL"], out["eV"], out["eT"] = (19, cdim), (21, cdim), (28, cdim)
+        out["bott.w"], out["bott.b"] = (8 * base, cdim), (8 * base,)
+    return out
 
 
 def _np():
@@ -35,12 +55,32 @@ def _np():
 class Model:
     def __init__(self, path):
         n = _np()
-        z = n.load(path, allow_pickle=False)
-        self.meta = json.loads(str(z["meta"]))
-        if self.meta.get("format") != "jamonet-1":
-            raise ValueError(f"{path}: not a jamonet-1 weights file")
-        self.p = {k: z[k].astype(n.float32) for k in z.files if k != "meta"}
-        self.cond = bool(self.meta.get("cond", True))
+        if os.path.getsize(path) > MAX_FILE:
+            raise ValueError(f"{path}: larger than {MAX_FILE} bytes")
+        with n.load(path, allow_pickle=False) as z:
+            if "meta" not in z.files:
+                raise ValueError(f"{path}: not a jamonet-1 weights file (no meta)")
+            self.meta = json.loads(str(z["meta"]))
+            if self.meta.get("format") != "jamonet-1":
+                raise ValueError(f"{path}: not a jamonet-1 weights file")
+            base, cdim = int(self.meta.get("base", 0)), int(self.meta.get("cdim", 0))
+            self.cond = bool(self.meta.get("cond", True))
+            if not (1 <= base <= 64 and 1 <= cdim <= 64):
+                raise ValueError(f"{path}: base {base} / cdim {cdim} out of range")
+            want = expected_shapes(base, cdim, self.cond)
+            if set(z.files) - {"meta"} != set(want):
+                raise ValueError(f"{path}: arrays {sorted(set(z.files) ^ (set(want) | {'meta'}))} missing or unexpected")
+            total = 0
+            self.p = {}
+            for k, shape in want.items():
+                a = z[k]
+                if a.dtype.kind != "f" or a.shape != shape:
+                    raise ValueError(f"{path}: {k} is {a.dtype} {a.shape}, want float {shape}")
+                total += a.size
+                self.p[k] = a.astype(n.float32)
+            if total > MAX_PARAMS:
+                raise ValueError(f"{path}: {total} parameters, more than {MAX_PARAMS}")
+            self.params = total
 
     # ---- layers ----------------------------------------------------------------------------------------------------
     @staticmethod
@@ -120,7 +160,7 @@ def from_canvas(p, h, w, geom):
 def predict(model, pre, jamo, batch=64):
     """Per-pixel slot probabilities and the proposals of a face: pre (N, h, w) 0/1, jamo (N, 3) L V T ->
     (prob (N, 3, h, w) float32, prop (N, 3, h, w) uint8). A pixel is in plane k when p > 0.5; an ink pixel no plane takes
-    goes to the most likely plane; a syllable without a final has no final plane."""
+    goes to the most likely allowed plane; a syllable without a final has no final plane (masked before the choice)."""
     n = _np()
     h, w = pre.shape[1:]
     x, geom = to_canvas(pre.astype(n.float32), model.meta.get("canvas", 32))
@@ -129,11 +169,11 @@ def predict(model, pre, jamo, batch=64):
         logit = model.forward(x[i:i + batch, None], n.asarray(jamo[i:i + batch], n.int64))
         out.append(1 / (1 + n.exp(-n.clip(logit, -60, 60))))
     prob = from_canvas(n.concatenate(out), h, w, geom).astype(n.float32)
+    prob[:, 2] *= (n.asarray(jamo)[:, 2] > 0)[:, None, None]      # no final plane without a final, before any choice
     ink = pre.astype(bool)
     prop = (prob > 0.5) & ink[:, None]
     none = ink & ~prop.any(axis=1)
-    am = prob.argmax(axis=1)
+    am = prob.argmax(axis=1)                                         # over the allowed planes (a masked one is 0)
     for k in range(3):
         prop[:, k] |= none & (am == k)
-    prop[:, 2] &= (n.asarray(jamo)[:, 2] > 0)[:, None, None]
     return prob, prop.astype(n.uint8)
