@@ -806,9 +806,13 @@ syllable pixels; a face with no Hangul syllables is refused with a message.
    else by the nearest passing piece of that jamo in another group.
 5. `jamofit.fit_pieces` re-fits the pieces to the source, each pixel only in a slot the model gave it; a re-fit that
    fails a gate is dropped.
-6. A context the source does not draw joins the group the other lead classes (vowels, tail classes) most often put it
-   with, else that of the nearest context. A jamo no syllable of its lead class (vowel, tail class) shows has no piece
-   and draws blank.
+6. A context the source does not draw is placed by where the slot's ink sits for that (vowel, final): an additive
+   model of each slot's box (top, left, bottom, right), fitted to the syllables the source has -- the initial and the
+   medial from the vowel and the final, the final from its own cell -- gives the context the group whose pieces sit
+   nearest. The final of the missing syllable is known even where the source never draws that pair, which is what a
+   face of the 2,350 KS syllables mostly lacks. Where the model has nothing to say the context joins the group the
+   other lead classes (vowels, tail classes) most often put it with, else that of the nearest context. A jamo no
+   syllable of its lead class (vowel, tail class) shows has no piece and draws blank.
 7. Stopping rule. A (lead class, tail class) pair costs 63 table bytes and a piece its bitmap. The default face is
    built for the class caps 12x12, 12x6, 8x8, 6x6 and 4x4 at the default tolerance (cell height / 12 px), and the
    smallest within 0.005 composed IoU of the most accurate is kept.
