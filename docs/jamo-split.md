@@ -8,10 +8,10 @@ from a precomposed font, **jamo splitting** (자모 분리), means recovering pi
 describes how the tools of this repository do it, how each kind of source fares, what they do poorly, and what earlier
 attempts taught.
 
-Chapters 1 to 4 and 7 use numbers measured with the repository's tools (the command or the document it comes from is
+Chapters 1 to 4 and 8 use numbers measured with the repository's tools (the command or the document it comes from is
 named) or cited from the recipe documents, which record their own runs. Chapter 6 and the numbers marked "in research" in
-chapters 3 to 5 come from earlier research runs, partly on proprietary fonts; they are reported as findings and cannot be
-reproduced from this repository. The figures are drawn by `python3 -I tools/doc_figures_split.py`
+chapters 3 to 5 come from earlier research runs, partly on proprietary fonts. Chapter 7 reports the learned split of
+2026-11 in the same way. These are findings; they cannot be reproduced from this repository. The figures are drawn by `python3 -I tools/doc_figures_split.py`
 from OFL fonts of this repository only (NanumGothic Regular, Neo Dunggeunmo, Neo Dunggeunmo Pro); `--check` re-renders them
 and compares byte for byte.
 
@@ -23,8 +23,9 @@ and compares byte for byte.
 4. [Case by case](#4-case-by-case)
 5. [What we do poorly](#5-what-we-do-poorly)
 6. [Problems met and what was learned](#6-problems-met-and-what-was-learned)
-7. [Practical guidance](#7-practical-guidance)
-8. [References and links](#8-references-and-links)
+7. [A learned split (research, 2026-11)](#7-a-learned-split-research-2026-11)
+8. [Practical guidance](#8-practical-guidance)
+9. [References and links](#9-references-and-links)
 
 ## 1. What the problem is
 
@@ -548,7 +549,9 @@ syllables are needed and the source is close to an OR of pieces.
    bar to the initial piece (4.3), let an initial swallow a vowel stroke, or drop the bar of ㄲ. In research, pieces of a
    12 px exact split carried 28-41 % pixels of other jamo on average, while every syllable composed exactly. `--check`
    proves the tables compose, not that the pieces are the jamo; the identity check needs an external recogniser that the
-   repository does not ship and that was never run here on a real model.
+   repository does not ship and that was never run here on a real model. In research, a per-pixel model put 98-99.5 % of the
+   pixels in the right slot, against 66-92 % for pixel fitting (7.2, 7.3). Faces built from it with hard identity gates kept
+   95.5-99.7 % on the Apple and Gulim ground-truth faces (7.4, 7.6). Neither is in this repository (7.8).
 3. **Blank or degenerate pieces.** A piece no syllable needs ink in stays blank (4.3); a piece of a context the source
    never draws is copied from another set or left blank (`unseen_pieces`). The compatibility jamo then draw blank or wrong.
 4. **Designs not built from pieces.** Kasan 0.872, CPC-400S 0.794, Quiz King of Fighters 0.835 with 8x4x4: the result is a
@@ -566,7 +569,7 @@ syllables are needed and the source is close to an OR of pieces.
 8. **Set-count and class limits.** The standard JSET allows 32 / 24 / 16 sets and 12 x 12 classes (BIG 128 / 128 / 64,
    19 x 28). In research, an exact split of a 12 px pixel font needed far more (114 / 37 / 33 sets, or 65 / 91 / 41 with honest pieces
    and a 19 x 27 class grid, section 6); a refinement loop on 12 px gothic faces was refused a split 73-376 times by the
-   limits.
+   limits. The 2026-11 hybrid is still rising at the standard limits on 9-16 px strikes (7.6, 7.9).
 9. **Speed.** A fixed-layout fit takes 10-15 s on an outline font, adaptive about a minute (66.8 s at 16 px; Gowun Batang
    Bold 20 px 89 s), 2 bpp over a minute (72.7 s), and a vector master minutes (172 s on a heavily loaded machine). The maker's mask fit has never been
    run in the maker.
@@ -593,6 +596,7 @@ references; only the findings are reported here, no data from them.
 | 2026-10-27 to 10-28 | 12 px faces from fonts' own conjoining (GSUB) pieces | the font's positional variants as pieces; more sets; LIST of whole syllables | mean IoU 0.58 against the hinted glyphs (layout differs, ±1 px shift only reaches 0.64); a stroke filter costs about 0.03 IoU; LIST beat extra classes at every size and gained 0.134 IoU per KB against 0.045 for sets; split-half check 0.812 / 0.813 (no overfitting) | decomposing whole precomposed glyphs dropped at 12 px; the format judged expressive enough: the gaps are in pieces and evaluators |
 | 2026-11-01 | | | | the follow-up face-quality research (evaluation-driven piece search, layout correction, evaluator reliability) cancelled; the findings kept in the research notes |
 | 2026-11-09 | | | | jamo segmentation research stopped for now; the tools stay as they are |
+| 2026-11-27 | a split checked against real pieces | ground-truth pairs (Mac 7.1.2 planes = 7.5.3 strikes; Windows 95 Gulim component strikes); a per-pixel model; structural sets with voting and identity gates (chapter 7) | pixel fitting puts 66-92 % of pixels in the right slot, the model 98-99.5 %; the hybrid beats `adaptive` at equal bytes on every face measured | research only; the standard JSET face stays the default, BIG an option; a public model needs open training data |
 
 **What was learned.**
 
@@ -606,6 +610,8 @@ references; only the findings are reported here, no data from them.
 - **A judge must be independent of the candidate.** A judge learned from P's own pieces ranked P above hand-made strikes.
 - **Exceptions beat sets for the last few percent.** Usage is concentrated; a LIST of frequent syllables is the cheapest
   gain.
+- **Check against real pieces.** Fonts that store pieces and also ship precomposed bitmaps give exact labels; they showed
+  that IoU and correct pieces are different targets (7.2).
 - **The format is not the bottleneck.** JSET v1/v2, BIG, JMAP and LIST express what the sources need; the work is in the
   pieces and in measuring them.
 
@@ -615,7 +621,176 @@ and Unifont builds its Hangul from a 6/3/1 set system by superimposing pieces
 ([Unifoundry: Hangul syllable generation](https://unifoundry.com/hangul/hangul-generation.html)). No public source was found
 on choosing set counts for bitmap faces.
 
-## 7. Practical guidance
+## 7. A learned split (research, 2026-11)
+
+- Source: a research run of 2026-11 in a private research repository.
+- Data: mostly bitmaps of proprietary fonts (Apple, Microsoft, IBM). Only numbers are given. Rows of those fonts cannot
+  be re-run from this repository.
+- Tools: not in this repository (7.8).
+
+### 7.1 Ground truth
+
+A split is checked against fonts that store their syllables as pieces and also exist as precomposed bitmaps.
+
+| Pair | Syllables with exact pieces | Note |
+|---|---|---|
+| Mac HangulTalk 7.1.2 jamo planes vs System 7.5.3 strikes (Seoul 12, AppleMyungjo 12 / 24, AppleGothic 24) | 2,350 / 2,350 each; AppleGothic 24: 2,349 (the strike of 몰 has 2 extra pixels) | the strikes are pixel-identical to the composed planes |
+| Windows 95 Gulim, bitmap strikes at 12 and 16 ppem (`EBDT` format 9 composites) | 1,928 / 2,350 KS syllables | built from 2 or 3 component bitmaps (initial, medial, final); the other 422 are whole bitmaps |
+| AppleGothic 12 (7.1.2 planes vs the 7.5.3 strike) | none | the strike was redrawn (IoU 0.567); used as a held-out face |
+
+The Gulim strikes are the second, independent source: a different designer, and component order gives the slots.
+
+### 7.2 Why pixel fitting splits wrongly
+
+`jamoset.py --from-svf` fits pieces that compose the syllables. It does not care which piece owns a pixel. Run on the
+four Apple faces as if no ground truth existed:
+
+| Method | Composed IoU | Pixels in the right slot (label accuracy) | Syllables with all pieces right |
+|---|---|---|---|
+| `844` with the mask font | 0.82-0.90 | 0.78-0.92 | 0-764 |
+| `adaptive` | 0.99-1.00 | 0.66-0.73 | 0-46 |
+
+Where a piece serves one or two syllables, adaptive gives it the whole syllable (ㅞ syllables end up all "initial").
+Elsewhere a vowel bar or a final goes to whichever slot is cheaper. A high IoU says nothing about the split (5, item 2).
+
+### 7.3 A per-pixel model
+
+A small U-Net (1.9 M parameters) reads the precomposed bitmap, scaled by a whole factor to a 32 x 32 canvas. It outputs
+one sigmoid plane per slot, so a shared joint pixel can belong to two slots. The syllable's initial, medial and final
+are always known and are given as conditioning (L / V / T). Training takes about 35 s on a desktop GPU.
+
+Leave-one-font-out (train on the other faces and on synthetic compositions, test on the held-out one):
+
+| Test face | Label accuracy | Syllables with all pieces right |
+|---|---|---|
+| Seoul 12 | 0.991 | 2,058 |
+| AppleMyungjo 12 | 0.988 | 1,639 |
+| AppleMyungjo 24 | 0.992 | 1,341 |
+| AppleGothic 24 | 0.995 | 1,632 (1,726 without L / V / T) |
+| Seoul 12, trained on synthetic faces only (DOS 8x4x4, HangulTalk 1.0) | 0.975 | 1,636 |
+| Gulim 12 / 16 (unseen designer, 1,928 syllables) | 0.989 / 0.986 | 1,339 / 999 |
+
+Conditioning helps on three of four faces. The remaining errors are joint pixels at 24 px, and stroke swaps at 12 px
+(Seoul's ㄱ before ㅑ ㅕ ㅐ: 갸 겨 갼 컸 캔).
+
+### 7.4 Grouping into sets
+
+The designers' own rules, read from their tables (the smallest set of context features that decides each variant):
+
+| Rule | Initial | Medial | Final |
+|---|---|---|---|
+| Apple 7.1.2 | final present x 8 vowel groups | initial group x final kind (none / ㄴㅅ / other) | vowel class or group |
+| HangulTalk 1.0 | vowel x final kind | final kind (x initial group for ㅓ ㅔ ㅕ) | vowel class (x initial) |
+| DOS 8x4x4 | final present x 5 vowel groups | ㄱㅋ or not x final present | vowel |
+
+A **hybrid** builds the sets in two directions:
+1. **Top-down, structural sets:** initial = vowel group x final present, medial = initial class x final kind, final =
+   vowel group. Then greedy splits, by one initial, vowel or final, up to the JSET limits.
+2. **Bottom-up, shapes:** each piece is a per-pixel vote of the model over the syllables that share it. Pieces of one
+   jamo merge when the merged piece passes the identity gates (7.5) and no syllable's error grows past 1-2 px.
+3. **Re-fit:** `jamofit` refits the pieces to the precomposed syllables, but a pixel may only go to a slot the model
+   gave it.
+
+Grouping agreement with the designer's own (adjusted Rand index, initial / medial / final):
+
+| Face | Hybrid, standard limits | `adaptive` |
+|---|---|---|
+| Seoul 12 | 0.95 / 0.85 / 0.90 | 0.59 / 0.22 / 0.51 |
+| AppleMyungjo 12 | 0.99 / 0.70 / 0.92 | 0.54 / 0.22 / 0.47 |
+| AppleMyungjo 24 | 0.96 / 0.81 / 0.94 | 0.54 / 0.24 / 0.52 |
+| AppleGothic 24 | 0.97 / 0.84 / 0.97 | 0.55 / 0.14 / 0.45 |
+| Gulim 12 (vs its components) | 0.84 / 0.51 / 0.75 (BIG: 0.91 / 0.73 / 0.64) | 0.56 / 0.29 / 0.16 |
+| Gulim 16 (vs its components) | 0.80 / 0.65 / 0.68 (BIG: 0.92 / 0.73 / 0.72) | 0.59 / 0.43 / 0.49 |
+
+The medial agrees least. Apple chooses it by initial more finely than 12 lead classes allow.
+
+### 7.5 Identity gates
+
+A piece must keep its jamo's form. The gates are hard:
+- a voted piece that fails one is replaced by the nearest user proposal that passes;
+- a merge whose piece would fail is not made;
+- a re-fitted piece that fails keeps its vote.
+
+| Gate | Check |
+|---|---|
+| mass, extent | at least half the median ink and 60 % of the median ink box of that jamo |
+| holes | ㅁ ㅂ ㅇ ㅎ ㅃ have a closed counter; ㄱ ㄴ ㄷ ㄹ ㅅ ㅈ ㅋ have none |
+| ticks | ㅏ ㅓ: 1, ㅑ ㅕ: 2, ㅣ: 0, on the side the vowel opens to (right for ㅏ ㅑ, left for ㅓ ㅕ), none on the other side |
+| stubs | ㅗ ㅜ: 1, ㅛ ㅠ: 2, ㅡ: 0, above the bar (ㅗ ㅛ) or below it (ㅜ ㅠ) |
+| slant | ㅅ: an apex, wider at the bottom; ㅈ: a bar over a ㅅ |
+
+Serifs break a naive tick count: a Myungjo hook at the top of ㅏ counts as a tick. The check therefore ignores side ink
+within a share of the stroke length at each end. The share is set per face:
+
+| Face | Calibrated on | Share |
+|---|---|---|
+| a GT face | its own GT pieces | AppleMyungjo 0.2; Seoul 12 0 (at 0.2 its upper ㅑ ㅕ ticks would be ignored) |
+| another size of a GT family | that family's GT face | as the family |
+| any other face | its own model proposals | 0-0.25 |
+
+Separately, each check is turned on only where at least 90 % of the reference pieces pass it.
+
+### 7.6 Size and accuracy
+
+Bytes are the jamo face without ASCII, and IoU is composed against precomposed over the 2,350 KS syllables. The table
+gives the hybrid at the standard limits (32 / 24 / 16 sets, 12 x 12 classes) and with BIG (64 / 48 / 32, 19 x 28), next
+to `adaptive` at a similar size and at its default.
+
+| Face | Precomposed | Hybrid standard | Hybrid BIG | `adaptive`, similar size | `adaptive` default |
+|---|---|---|---|---|---|
+| Galmuri11 16 px (open) | 103,452 | 22,112: 0.962 | 36,688: 0.988 | 22,300: 0.913 | 58,844: 0.985 |
+| Baekmuk Gulim 16 (open) | 121,836 | 35,708: 0.894 | 56,908: 0.943 | 37,912: 0.876 | 66,516: 0.931 |
+| Neo Dunggeunmo 16 (open; built from pieces) | 112,516 | 15,592: 0.999 | 29,540: 0.999 | 22,284: 1.000 | 22,284: 1.000 |
+| Daewoo Gothic 16 | 121,796 | 32,836: 0.904 | 51,308: 0.958 | 30,712: 0.863 | 66,436: 0.953 |
+| Seoul 10 | 83,660 | 18,000: 0.923 | 34,432: 0.957 | 19,956: 0.893 | 49,824: 0.954 |
+| AppleGothic 10 | 93,860 | 19,172: 0.959 | 40,968: 0.981 | 21,272: 0.902 | 53,760: 0.976 |
+| Gulim 12 | 103,232 | 23,196: 0.946 | 35,688: 0.982 | 22,284: 0.871 | 59,584: 0.985 |
+| Gulim 16 | 121,836 | 26,108: 0.937 | 42,244: 0.978 | 23,596: 0.861 | 64,724: 0.973 |
+| IBM HBIOS Myeongjo 24 | 215,088 | 50,552: 0.831 | 81,916: 0.899 | 46,628: 0.785 | 105,324: 0.883 |
+
+- **At a similar size, the hybrid is above adaptive on every face except Neo Dunggeunmo.** That face is built from
+  pieces, and `844` is already exact at 13,464 bytes.
+- **The BIG hybrid reaches adaptive's default IoU with 62-86 % of adaptive's bytes.** The exceptions are Gulim 12 (0.982
+  against 0.985, at 60 %) and Neo Dunggeunmo.
+- **It keeps the pieces right.** Label accuracy on Gulim is 0.957 / 0.955 standard and 0.983 / 0.982 BIG; adaptive
+  gets 0.680 / 0.700.
+- **The standard curve is still rising at 32 / 24 / 16.** The standard face is limited by its set budget, not by the
+  model.
+
+The research builder makes the trade-off a choice. It walks a ladder of set limits and picks:
+- `--max-bytes N`: the most accurate face within N bytes;
+- `--min-iou X`: the smallest face that reaches IoU X.
+
+| Use | Point |
+|---|---|
+| MCU | the smallest standard face with IoU ≥ 0.90: 12.3-32.8 KB on the faces above (Daewoo needs the full 32.8 KB). Baekmuk and HBIOS Myeongjo do not reach it. |
+| Desktop / web | the top of the standard ladder (32 / 24 / 16); with BIG, near the knee (40 / 30 / 20 to 96 / 72 / 48) |
+
+### 7.7 The JSET BIG option
+
+The standard JSET face is the default output. BIG is an option: an engine built with `SVF_JSET_BIG` reads it
+([Jamo sets](jamo-sets.md)). Results are reported for both. BIG fixes the one-pixel shifts the standard budget cannot
+afford (wrong pixels with standard limits, fixed / derived groups: Seoul 10 써 20 / 24 and 호 12 / 25, AppleGothic 10 왜
+38 / 40; with BIG 0).
+
+### 7.8 Availability
+
+The model and the hybrid builder exist only in the research repository. The model was trained on proprietary bitmaps
+and is not shipped. This repository has `jamoset.py` (844, adaptive), `jamomerge.py` and `jamofill.py`.
+
+A public version needs a model trained on open data only. The synthetic-only result in 7.3 (Seoul 12: 0.975) shows this
+is feasible. Open jamo-set faces and open fonts built from components would be the training data.
+
+### 7.9 Open problems
+
+| Problem | Measured |
+|---|---|
+| The final set budget at 9-16 px | final placement depends on the initial; the best split the budget refuses is worth 69-203 px per face |
+| A complex final moves the medial | 흙 at 10 px: the ㅡ bar sits one row higher above ㄺ; 13 wrong pixels even with BIG |
+| Faces below 0.90 at the standard limits | Baekmuk Gulim 16 (0.894) and HBIOS Myeongjo 24 (0.831); their precomposed glyphs vary more than sets can follow |
+| Medial grouping | ARI against Apple 0.70-0.85; Apple's medial needs more initial classes than 12 |
+
+## 8. Practical guidance
 
 ```mermaid
 flowchart TD
@@ -665,7 +840,7 @@ flowchart TD
   face of a precomposed design to be visibly approximate; use adaptive sets.
 - **Always.** Run `--check`; look at a line in `svfline.py line` or the picker; check the compatibility jamo (a blank ㅡ, 4.3).
 
-## 8. References and links
+## 9. References and links
 
 **In this repository**
 
