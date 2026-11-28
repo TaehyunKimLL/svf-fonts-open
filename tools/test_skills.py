@@ -13,7 +13,11 @@ on a line that names `tools/jamohybrid.py` or `tools/jamoset.py`, every `--optio
 Anchors resolve by GitHub's rules: an explicit `<a id="...">` or `<a name="...">`, or the slug of a heading (lowercase,
 punctuation removed, spaces to hyphens, a repeated slug numbered -1, -2, ...). Fenced code blocks hold no headings and
 no links. An absolute link (a leading `/`), a missing file or a missing anchor fails the test.
+
+The basics skill quotes the JSET limits and the syllable count, so this test also reads `JSET_LIMITS` and `_JMAP_NSYL`
+from `tools/jamoset.py` (as literals, without importing it) and requires the skill to state those numbers.
 """
+import ast
 import glob
 import os
 import re
@@ -126,6 +130,18 @@ def frontmatter(text):
     return out
 
 
+def module_constant(name, rel="tools/jamoset.py"):
+    """A module-level literal of a tool, read without importing it (no side effects, no dependencies)."""
+    tree = ast.parse(read(os.path.join(ROOT, rel)))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == name:
+                return ast.literal_eval(node.value)
+    raise AssertionError("no %s in %s" % (name, rel))
+
+
 class Skills(unittest.TestCase):
     def test_skills_exist(self):
         self.assertTrue(skill_dirs(), "no skills/*/SKILL.md")
@@ -203,6 +219,26 @@ class Skills(unittest.TestCase):
                 if ABSOLUTE.search(line):
                     problems.append("%s:%d: local absolute path" % (path, n))
         self.assertEqual(problems, [], "\n".join(problems))
+
+
+class Basics(unittest.TestCase):
+    """The basics skill states the JSET limits and the syllable count; they must be the tool's constants."""
+
+    PATH = os.path.join(SKILLS, "svf-fonts-hangul-basics", "SKILL.md")
+
+    def setUp(self):
+        if not os.path.isfile(self.PATH):
+            self.skipTest("no svf-fonts-hangul-basics skill")
+
+    def test_jset_limits_are_the_tool_s(self):
+        limits = module_constant("JSET_LIMITS")
+        text = read(self.PATH)
+        for row in ("std", "big"):
+            for want in ("%d x %d" % limits[row][:2], " / ".join(map(str, limits[row][2:]))):
+                self.assertIn(want, text, "the basics skill does not state %r" % want)
+
+    def test_syllable_count_is_the_tool_s(self):
+        self.assertIn("{:,}".format(module_constant("_JMAP_NSYL")), read(self.PATH))
 
 
 if __name__ == "__main__":

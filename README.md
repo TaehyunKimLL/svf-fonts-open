@@ -35,7 +35,7 @@ Mac) to SVF, by input kind.
 
 - [Tools](docs/tools.md) — command reference for font conversion and inspection.
 - [Recipes](docs/recipes.md) — conversion workflows for outlines, bitmaps, DOS, ROM/MAME, OS/2, HWP, TTF jamo and existing SVF faces.
-- [Agent skills](skills/) — procedures for agents: using the tools, choosing the recipe for a source, writing the docs.
+- [Agent skills](skills/) — procedures for agents: Hangul and SVF basics, using the tools, choosing the recipe for a source, writing the docs.
 
 ### 2.4. C renderer and applications
 
