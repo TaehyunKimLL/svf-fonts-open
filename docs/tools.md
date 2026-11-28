@@ -839,8 +839,9 @@ and over the KS ones where they differ, exact syllables, pieces, sets, classes, 
 `--from-ttf`. **Test.** `tools/test_jamohybrid.py`: `JAMOSET_PYLIB=DIR python3 -B -m unittest tools.test_jamohybrid` from the
 repository root (`DIR` holds numpy built for the same Python; the tests skip without it).
 
-**Speed.** numpy uses every core by default; on a loaded many-core machine set `OMP_NUM_THREADS` (for example 4):
-a 2,357-syllable face took 29 s with all threads and 6 s with 4 there.
+**Speed.** With 4 threads, for 11,172 syllables: the model about 15 s, then one build 1.5-4 s, the default (five class
+caps) 7-15 s, the `--max-bytes` / `--min-iou` ladder 30-90 s. numpy uses every core by default; on a loaded many-core
+machine set `OMP_NUM_THREADS` (for example 4): a 2,357-syllable face took 29 s with all threads and 6 s with 4 there.
 
 ### `tools/jamonet.py`
 

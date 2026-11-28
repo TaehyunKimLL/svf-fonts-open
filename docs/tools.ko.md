@@ -783,8 +783,9 @@ P.json`.
 **테스트.** `tools/test_jamohybrid.py`: 저장소 루트에서 `JAMOSET_PYLIB=DIR python3 -B -m unittest tools.test_jamohybrid`
 (`DIR`에 같은 파이썬용 numpy가 있다. 없으면 테스트를 건너뛴다).
 
-**속도.** numpy는 기본으로 모든 코어를 쓴다. 부하가 큰 다코어 기계에서는 `OMP_NUM_THREADS`(예: 4)를 정한다. 그런 기계에서
-2,357자 페이스가 모든 스레드로 29초, 4개로 6초 걸렸다.
+**속도.** 스레드 4개로 11,172자: 모델이 약 15초, 이어서 한 번 만들기 1.5-4초, 기본값(갈래 상한 다섯 가지) 7-15초,
+`--max-bytes` / `--min-iou` 사다리 30-90초. numpy는 기본으로 모든 코어를 쓴다. 부하가 큰 다코어 기계에서는
+`OMP_NUM_THREADS`(예: 4)를 정한다. 그런 기계에서 2,357자 페이스가 모든 스레드로 29초, 4개로 6초 걸렸다.
 
 ### `tools/jamonet.py`
 
