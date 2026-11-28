@@ -33,7 +33,7 @@ EXPLICIT = re.compile(r"<a\s+(?:id|name)=\"([^\"]+)\"")
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(\s*([^)\s]+)(?:\s+\"[^\"]*\")?\s*\)")
 TOOL = re.compile(r"(?<![\w./-])((?:tools|maker|web)/[\w./-]+\.py)\b")
 OPTION = re.compile(r"(?<![\w-])(--[a-z0-9][a-z0-9-]*)")
-ABSOLUTE = re.compile(r"(?:^|[\s\"'(=])/(?:home|Users|root)/|[A-Za-z]:\\\\(?:Users|Documents)")
+ABSOLUTE = re.compile(r"(?<![\w:/.-])/[A-Za-z0-9._-]|[A-Za-z]:\\")
 ARGUMENT = re.compile(r"add_argument\(")
 STRING = re.compile(r"[\"'](--[A-Za-z0-9_-]+)[\"']")
 
@@ -230,15 +230,23 @@ class Basics(unittest.TestCase):
         if not os.path.isfile(self.PATH):
             self.skipTest("no svf-fonts-hangul-basics skill")
 
+    def row(self, text, needle):
+        """The one line of the skill that states @p needle (the row that carries the concept)."""
+        hits = [line for line in text.splitlines() if needle in line]
+        self.assertEqual(len(hits), 1, "the basics skill has %d lines with %r" % (len(hits), needle))
+        return hits[0]
+
     def test_jset_limits_are_the_tool_s(self):
         limits = module_constant("JSET_LIMITS")
         text = read(self.PATH)
-        for row in ("std", "big"):
-            for want in ("%d x %d" % limits[row][:2], " / ".join(map(str, limits[row][2:]))):
-                self.assertIn(want, text, "the basics skill does not state %r" % want)
+        std_row, big_row = self.row(text, "| Standard limits |"), self.row(text, "| BIG |")
+        for row, row_limits in ((std_row, limits["std"]), (big_row, limits["big"])):
+            for want in ("%d x %d" % row_limits[:2], " / ".join(map(str, row_limits[2:]))):
+                self.assertIn(want, row, "the row does not state %r: %s" % (want, row))
 
     def test_syllable_count_is_the_tool_s(self):
-        self.assertIn("{:,}".format(module_constant("_JMAP_NSYL")), read(self.PATH))
+        row = self.row(read(self.PATH), "| Syllables | 19 x 21 x 28")
+        self.assertIn("{:,}".format(module_constant("_JMAP_NSYL")), row)
 
 
 if __name__ == "__main__":

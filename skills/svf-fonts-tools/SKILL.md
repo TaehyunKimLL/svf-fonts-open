@@ -95,10 +95,11 @@ python3 tools/svf2to3.py FACE.SVF "$OUT/x.SVF" --check
 
 - A jamo set is about a sixth of a precomposed face; choose it when memory is tight, the precomposed face when every
   syllable must be exactly the source's ([quick start](../../docs/recipes.md#quick-start-by-input-kind)).
-- `tools/jamohybrid.py` builds the standard JSET face by default; `--big` raises the limits (19 x 28 classes,
-  128/128/64 sets) for a reader built with `SVF_JSET_BIG`; `--min-iou X` keeps the smallest face reaching X (about 0.90
-  suits MCU targets); `--max-bytes N` keeps the most accurate face within a byte budget. Add `--check` and `--report`
-  to keep the evidence.
+- `tools/jamohybrid.py` builds the standard JSET face by default (12 x 12 classes, 32 / 24 / 16 sets); `--big` moves
+  the tool's limits to 19 x 28 classes and 64 / 48 / 32 sets, and `--limits NI,NM,NF` goes up to the format's BIG row,
+  128 / 128 / 64, for a reader built with `SVF_JSET_BIG` (the documented BIG ladder runs 40 / 30 / 20 to 96 / 72 / 48);
+  `--min-iou X` keeps the smallest face reaching X (about 0.90 suits MCU targets); `--max-bytes N` keeps the most
+  accurate face within a byte budget. Add `--check` and `--report` to keep the evidence.
 - How many sets (벌) a face should have, and what each costs:
   [Choosing the number of sets](../../docs/recipes/sets.md#choosing-the-number-of-sets).
 
