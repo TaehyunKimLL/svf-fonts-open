@@ -675,12 +675,14 @@ class FillModel:
                 a = z[k]
                 if a.dtype.kind != "f" or a.shape != shape:
                     raise ValueError(f"{path}: {k} is {a.dtype} {a.shape}, want float {shape}")
+                with n.errstate(over="ignore", invalid="ignore"):
+                    a = a.astype(n.float32)         # check after the conversion: a large float64 overflows here
                 if not n.all(n.isfinite(a)):
-                    raise ValueError(f"{path}: {k} holds NaN or infinite values")
+                    raise ValueError(f"{path}: {k} holds NaN or infinite values (as float32)")
                 if k == "sd" and not n.all(a > 0):
                     raise ValueError(f"{path}: sd must be positive")
                 total += a.size
-                self.p[k] = a.astype(n.float32)
+                self.p[k] = a
             if total > MAX_FILL_PARAMS:
                 raise ValueError(f"{path}: {total} parameters, more than {MAX_FILL_PARAMS}")
             self.params, self.path = total, path
