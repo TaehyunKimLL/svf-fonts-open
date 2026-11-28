@@ -27,6 +27,7 @@ Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설�
 
 - [조합형과 자모 세트](docs/jamo-sets.ko.md) — 한글 인코딩, 세트 선택 규칙과 SVF JSET 예.
 - [자모 분리](docs/jamo-split.ko.md) — 완성형 글꼴에서 자모 세트 만들기: 맞춤, 경우별 처리, 잘 맞지 않는 것, 앞선 시도에서 배운 점.
+- [자모 분리 실습 가이드](docs/jamo-split-guide.ko.md) — OFL 폰트 3종으로 따라 하는 자모 분리 명령, 측정 결과와 조각 비교.
 - [안티앨리어싱](docs/anti-aliasing.ko.md) — 커버리지와 회색 단계, 1/2/8 bpp, 타깃별 단계-색 변환, AA 페이스 만들기, bpp 고르기.
 
 ### 2.3. 도구와 레시피
@@ -61,6 +62,7 @@ Mac)를 SVF로 변환하는 방법을 입력 종류별 레시피 장으로 설�
 | [docs/web-renderer-guide.ko.md](docs/web-renderer-guide.ko.md) | 웹 렌더러 사용법: emsdk 빌드, WASM 로딩, 캔버스·Node 예제, 색상, 측정, 메모리, picker API |
 | `docs/jamo-sets.ko.md` | 조합형 해설: 문자 집합, 글꼴 기법과 벌 체계(8x4x4 등), SVF의 JSET v1/v2/BIG/JMAP/LIST와 실제 페이스로 따라가는 예, MCU에서의 제약 |
 | `docs/jamo-split.ko.md` | 자모 분리: 완성형 글꼴에 자모 세트 맞추기(레이아웃, 1 bpp와 2 bpp 맞춤, 벡터 맞춤, 맥의 나머지 이전, LIST), 원본 종류별 결과, 수치로 적은 약점, 시도의 역사, 결정 흐름(그림은 `tools/doc_figures_split.py`) |
+| `docs/jamo-split-guide.ko.md` | 자모 분리 실습 가이드: OFL 폰트 3종(Neo둥근모 16, 나눔고딕 12/16 px, Galmuri11 12 px)으로 따라 하는 명령, 측정 표, 샘플 그림과 조각 분해(그림은 `tools/doc_figures_jamoguide.py`) |
 | `docs/anti-aliasing.ko.md` | 안티앨리어싱: 커버리지, 감마, 서브픽셀 렌더링을 하지 않는 이유, 1/2/8 bpp와 2 bpp 단계, 타깃별 단계-색 변환 규칙, 2 bpp 자모 세트의 최댓값(OR가 아님), 윤곽과 축소로 AA 페이스 만들기, 메모리·속도·bpp 선택(그림은 `tools/doc_figures_aa.py`) |
 | `docs/recipes.ko.md` | 레시피 색인: 입력 종류별 빠른 시작(아웃라인, 비트맵, DOS 원시, ROM, 클래식 Mac, 기존 SVF), 페이스 점검, KS X 1001과 인코딩 참고, 레시피 문서 목록 |
 | `docs/recipes/` | 입력 종류마다 레시피 문서 하나(아웃라인 폰트, 비트맵 폰트, DOS 시대 폰트, 프로그램 안의 폰트, 86Box / MSX / MAME ROM, OS/2, 클래식 Mac, 기존 SVF와 SVF에서 TTF로), 다시 실행한 수치가 든 각 레시피, 벌 수 정하기, maker의 경로 표(경로 대 명령줄), `svf/`의 각 페이스를 만드는 방법 |

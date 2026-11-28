@@ -6,7 +6,7 @@ How many sets (벌) a jamo set should have: the set systems `jamoset.py --layout
 
 **Before you start.** Commands run from the project root with `$OUT` set as in the [index](../recipes.md); every face ends with the checks of [Checking a face](../recipes.md#checking-a-face). The jamo-set format and design are in [Jamo sets](../jamo-sets.md); the fits themselves are in the recipe documents of each source.
 
-Up: [Recipes index](../recipes.md) · Related: [Jamo sets](../jamo-sets.md), [Jamo splitting](../jamo-split.md), [Outline fonts](outline-fonts.md), [Existing SVF faces, and SVF back to TTF](svf-and-ttf.md).
+Up: [Recipes index](../recipes.md) · Related: [Jamo sets](../jamo-sets.md), [Jamo splitting](../jamo-split.md), [Hands-on guide to jamo splitting](../jamo-split-guide.md), [Outline fonts](outline-fonts.md), [Existing SVF faces, and SVF back to TTF](svf-and-ttf.md).
 
 <a id="choosing-the-number-of-sets-벌-수"></a>
 
