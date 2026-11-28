@@ -687,6 +687,7 @@ class TestFillRanker(unittest.TestCase):
                     ("sd-zero", lambda a: a.__setitem__("sd", np.zeros(60, np.float32))),
                     ("nan", lambda a: a.__setitem__("b1", np.full(64, np.nan, np.float32))),
                     ("inf", lambda a: a.__setitem__("W2", np.full((64, 1), np.inf, np.float32))),
+                    ("f64-overflow", lambda a: a.__setitem__("b2", np.full(1, 1e300, np.float64))),
                     ("meta", lambda a: a.__setitem__("meta", np.array('{"format": "other"}')))):
                 bad = dict(arrays)
                 change(bad)
