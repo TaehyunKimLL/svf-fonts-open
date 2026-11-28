@@ -21,11 +21,14 @@ face. Unlike the pixel fit it also gets the split right: which pixels are the in
      where it fails a gate, the member proposal nearest to it that passes; where none does, the nearest passing piece
      of that jamo in another group. Then jamofit re-fits the pieces to the precomposed syllables, each pixel only in a
      slot the model gave it; a failing re-fit keeps the piece.
-  5. A context no source syllable shows joins the group the other lead classes (vowels, tail classes) most often put
-     it with, else that of the nearest context that has syllables (by how alike the vowels and classes are); a (group,
-     jamo) pair without syllables takes the piece of the nearest group that has one. A jamo no syllable of its problem
-     shows at all (no syllable with that initial, vowel or final in the class) has no piece and draws blank; the
-     summary warns and the report lists it (blank_jamo).
+  5. A context no source syllable shows is placed by where the slot's ink sits for that (vowel, final): an additive
+     model of each slot's box, fitted to the syllables the source has (the final of the missing syllable is known even
+     where the source never draws the pair), gives the context the group whose pieces sit nearest. Where the model has
+     nothing to say it joins the group the other lead classes (vowels, tail classes) most often put it with, else that
+     of the nearest context that has syllables (by how alike the vowels and classes are); a (group, jamo) pair without
+     syllables takes the piece of the nearest group that has one. A jamo no syllable of its problem shows at all (no
+     syllable with that initial, vowel or final in the class) has no piece and draws blank; the summary warns and the
+     report lists it (blank_jamo).
 
   python3 tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF [--max-bytes N | --min-iou X | --limits NI,NM,NF]
                               [--tol PX] [--classes LC,TC]
@@ -550,9 +553,75 @@ def sibling_votes(problems):
     return votes
 
 
-def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
-    """Per problem: the group of every context (a context no syllable shows joins the group its sibling problems
-    most often put it with, else that of the nearest context that has syllables), and a piece for every (group, jamo):
+def ink_box(a):
+    """(top, left, bottom, right) of the ink in @p a, or None when it is blank."""
+    ys, xs = np.nonzero(a)
+    return np.array([ys.min(), xs.min(), ys.max(), xs.max()], np.float64) if len(ys) else None
+
+
+def fit_boxes(obs, nu, nv, rounds=6):
+    """Additive fit (median polish) of box ~ mu + a[u] + b[v] over {(u, v): box}: each coordinate of the box is a
+    sum of a term of the first axis and one of the second."""
+    mu = np.median(np.array(list(obs.values())), axis=0) if obs else np.zeros(4)
+    a, b = np.zeros((nu, 4)), np.zeros((nv, 4))
+    for _ in range(rounds):
+        for u in range(nu):
+            r = [x - mu - b[k[1]] for k, x in obs.items() if k[0] == u]
+            if r:
+                a[u] = np.median(np.array(r), axis=0)
+        for v in range(nv):
+            r = [x - mu - a[k[0]] for k, x in obs.items() if k[1] == v]
+            if r:
+                b[v] = np.median(np.array(r), axis=0)
+    return mu, a, b
+
+
+def box_models(prop, jamo, lead, tail):
+    """Where each slot's ink sits, as an additive model of the syllable's own jamo: the initial and the medial by
+    (vowel, final) -- the final's shape sets how much room is left -- and the final by (lead class, vowel), its own
+    cell. Used to place a context the source has no syllable for: the design is known for the final even when the
+    source never draws that (vowel, final) pair."""
+    nlc = max(lead) + 1
+    dims = ((21, 28), (21, 28), (nlc, 21))
+    obs = [defaultdict(list) for _ in range(3)]
+    for i in range(len(jamo)):
+        L, V, T = int(jamo[i, 0]), int(jamo[i, 1]), int(jamo[i, 2])
+        for slot in (0, 1):
+            b = ink_box(prop[i, slot])
+            if b is not None:
+                obs[slot][(V, T)].append(b)
+        if T:
+            b = ink_box(prop[i, 2])
+            if b is not None:
+                obs[2][(int(lead[L]), V)].append(b)
+    return [fit_boxes({k: np.median(np.array(v), axis=0) for k, v in o.items()}, *d) for o, d in zip(obs, dims)]
+
+
+def box_placement(p, c, model, tail, boxes_of):
+    """The group of @p p whose pieces sit nearest the box the model predicts for context @p c, or None without a
+    model. @p model: (mu, a, b) of the slot; @p boxes_of: group -> the boxes of the group's pieces."""
+    mu, a, b = model
+    if p.slot == 2:
+        pred = mu + a[c[0]] + b[c[1]]
+    else:
+        u = c[0] if p.slot == 0 else p.key
+        ts = [0] if c[1] == 0 else [T for T in range(1, 28) if tail[T] == c[1]]
+        pred = np.median([mu + a[u] + b[T] for T in ts], axis=0)
+    best, pick = None, None
+    for g, bs in boxes_of.items():
+        if not bs:
+            continue
+        d = float(np.mean([np.abs(x - pred).sum() for x in bs]))
+        if best is None or d < best:
+            best, pick = d, g
+    return pick
+
+
+def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats, boxes=None):
+    """Per problem: the group of every context (a context no syllable shows takes, when @p boxes gives a layout model
+    for the slot, the group whose pieces sit nearest the box that model predicts; else it joins the group its sibling
+    problems most often put it with, else that of the nearest context that has syllables), and a piece for every
+    (group, jamo):
     the vote; where the vote fails a gate, the member proposal nearest to it that passes, else the nearest passing
     piece of the same jamo in another group; where no syllable shows the jamo in the group, the piece of the nearest
     group that has it (a gate-passing one first); where no syllable of the problem shows the jamo at all, none (the
@@ -570,10 +639,25 @@ def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
                 gof[p.ctx[item]] = g
         have = list(gof)
         vs = votes[p.slot]
+        pboxes = {}
+        if boxes is not None and p.slot == 0:
+            for g, a in enumerate(reps):
+                v = vote_of(p.s[a], p.n[a])
+                pboxes[g] = [b for b in
+                             (ink_box(v[ji].reshape(shape)) for ji in range(len(p.jamo)) if p.n[a, ji] > 0)
+                             if b is not None]
         for c in p.ctx:
             if c not in gof:
-                # the group whose contexts the sibling problems most often put this context with (the problem's own
-                # grouping is not counted: it does not show the context); then the nearest context
+                stats["contexts_without_syllables"] += 1
+                # where the slot's ink should sit for this context, from the source's own syllables: the final of the
+                # context is known, so the design is not guesswork even when the pair was never drawn
+                g = box_placement(p, c, boxes[p.slot], tail, pboxes) if boxes is not None and p.slot == 0 else None
+                if g is not None:
+                    gof[c] = g
+                    stats["contexts_placed_by_box"] += 1
+                    continue
+                # else the group whose contexts the sibling problems most often put this context with (the problem's
+                # own grouping is not counted: it does not show the context); then the nearest context
                 score = defaultdict(lambda: [0.0, 0])
                 for x in have:
                     e = vs.get((c, x) if c < x else (x, c))
@@ -587,7 +671,6 @@ def pieces_of_groups(problems, prop, gates, dist, lead, tail, stats):
                     stats["contexts_placed_by_siblings"] += 1
                 else:
                     gof[c] = gof[min(have, key=lambda x: (cd(c, x), x))] if have else 0
-                stats["contexts_without_syllables"] += 1
         group_of[(p.slot, p.key)] = gof
         name = NAMES[p.slot]
         failing = []
@@ -788,7 +871,8 @@ def prepare(src, model, rule_name, max_classes):
             src.dist = axis_distances(jamo, prop)
         lead, tail = structural_classes() if rule_name == "structural" else derived_classes(src.dist, max_classes)
         cache[key] = dict(jamo=jamo, prob=prob, prop=prop, ink=ink, gates=src.gates, dist=src.dist, lead=lead,
-                          tail=tail, problems=make_problems(jamo, prob, ink, lead, tail))
+                          tail=tail, problems=make_problems(jamo, prob, ink, lead, tail),
+                          boxes=box_models(prop, jamo, lead, tail))
     return cache[key]
 
 
@@ -808,7 +892,8 @@ def build_face(src, model, rule_name, limits, max_classes, big, jset_version, lo
         tol = default_tol(h)
     stats = Counter()
     group(P["problems"], limits, tol, gates, stats, gate_merges)
-    piece, users, group_of, borrowed = pieces_of_groups(P["problems"], prop, gates, P["dist"], lead, tail, stats)
+    piece, users, group_of, borrowed = pieces_of_groups(P["problems"], prop, gates, P["dist"], lead, tail, stats,
+                                                        P["boxes"])
     refit(piece, users, prop, ink, gates, stats)
     nlc, ntc = max(lead) + 1, max(tail) + 1
     count = [1, 1, 1]

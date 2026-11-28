@@ -529,6 +529,75 @@ class TestGrouping(unittest.TestCase):
 
 
 @unittest.skipIf(np is None, "numpy not available")
+class TestSparsePlacement(unittest.TestCase):
+    """A source with holes (what a face of the 2,350 KS syllables is): a context no syllable shows is placed by where
+    the slot's ink sits for that (vowel, final) pair, learned from the syllables the source does have."""
+
+    def setUp(self):
+        import jamohybrid as JH
+        JH.np = np
+        self.JH = JH
+
+    def test_ink_box_and_additive_fit(self):
+        JH = self.JH
+        a = np.zeros((8, 9), np.uint8)
+        a[1:4, 2:6] = 1
+        self.assertEqual(list(JH.ink_box(a)), [1, 2, 3, 5])
+        self.assertIsNone(JH.ink_box(np.zeros((4, 4), np.uint8)))
+        obs = {(u, v): np.array([u, v, u + 2, v + 3], float) for u in range(3) for v in range(4)}
+        mu, av, bv = JH.fit_boxes(obs, 3, 4)
+        for (u, v), b in obs.items():
+            self.assertTrue(np.allclose(mu + av[u] + bv[v], b), (u, v))
+
+    def test_box_model_predicts_a_missing_cell(self):
+        """The initial's box for a (vowel, final) pair the source lacks is predicted from the pairs it has."""
+        JH = self.JH
+        syl, planes = synthetic(vowels=(0, 4, 8, 12), tails=(0, 4, 8))
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        lead, tail = [0] * 19, [0] + [1 if T == 4 else 2 for T in range(1, 28)]
+        keep = ~((jamo[:, 1] == 8) & (jamo[:, 2] == 8))
+        mu, av, bv = JH.box_models(planes[keep].astype(np.float32), jamo[keep], lead, tail)[0]
+        held = np.nonzero((jamo[:, 1] == 8) & (jamo[:, 2] == 8))[0]
+        for i in held:
+            want = JH.ink_box(planes[i, 0])
+            self.assertLessEqual(np.abs(mu + av[8] + bv[8] - want).sum(), 1.0, int(syl[i]))
+
+    def test_sparse_source_places_by_the_box(self):
+        """One (vowel, final) cell removed: its syllables compose exactly, and the report says the contexts were placed
+        by the layout model."""
+        JH = self.JH
+        syl, planes = synthetic(vowels=(0, 4, 8, 12), tails=(0, 4, 8))
+        jamo = np.array([JH.lvt(int(s)) for s in syl])
+        keep = ~((jamo[:, 1] == 8) & (jamo[:, 2] == 8))
+        src = synthetic_source(JH, syl[keep], planes[keep])
+        out, layout, info = JH.build_face(src, None, "derived", (32, 24, 16), (12, 12), False, 1)
+        self.assertEqual(info["comp_iou"], 1.0)
+        st = info["stats"]
+        self.assertGreater(st["contexts_placed_by_box"], 0)
+        self.assertLessEqual(st["contexts_placed_by_box"] + st.get("contexts_placed_by_siblings", 0),
+                             st["contexts_without_syllables"])
+        self.assertIn("composed 11172 syllables", J.check(out, layout, None))
+        f = J.parse_svfn(out)
+        t = J.unpack(f.jset)
+        for i in np.nonzero(~keep)[0]:
+            c = J.compose(f, t, 0xAC00 + int(syl[i]))
+            a = np.unpackbits(np.frombuffer(bytes(c), np.uint8).reshape(12, 2), axis=1)[:, :12].astype(bool)
+            b = planes[i].max(axis=0).astype(bool)
+            self.assertEqual((a != b).sum(), 0, int(syl[i]))
+
+    def test_box_placement_leaves_a_shown_context_alone(self):
+        """Every context the source shows keeps its evidence group: the box model only fills contexts that have none,
+        and it never exceeds them."""
+        JH = self.JH
+        syl, planes = synthetic(vowels=(0, 4, 8), tails=(0, 4))
+        src = synthetic_source(JH, syl, planes)
+        info = JH.build_face(src, None, "derived", (32, 24, 16), (12, 12), False, 1)[2]
+        st = info["stats"]
+        self.assertLessEqual(st.get("contexts_placed_by_box", 0), st["contexts_without_syllables"])
+        self.assertEqual(info["comp_iou"], 1.0)
+
+
+@unittest.skipIf(np is None, "numpy not available")
 class TestUsage(unittest.TestCase):
     """Usage errors of the new options exit before any file is read."""
 
