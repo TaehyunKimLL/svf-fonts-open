@@ -108,9 +108,12 @@ Measured in 2026-11 with `jamoset.py --from-svf FACE --layout L`:
 | MCU | the smallest face whose IoU stays at about 0.90 or more, checked by eye | the first cap that reaches 0.90 for that face: above, `844` for Galmuri11, `adaptive:12,6,6` for Gulim and Seoul, `adaptive:24,12,12` for Baekmuk; then `jamomerge.py merge --points` to the budget; or `jamohybrid.py --min-iou 0.9` |
 | Desktop / web | near the knee | `adaptive:16,8,8` up to the default; or `jamohybrid.py` (standard limits, `--big` where the engine reads BIG) |
 
-A learned split (`tools/jamohybrid.py`) reaches the same IoU in fewer bytes: 0.89-0.96 at 18-36 KB with the standard JSET limits
-(Baekmuk is the low end, 0.894 at 35.7 KB) ([Jamo splitting, 7.6](../jamo-split.md#76-size-and-accuracy)). Its `--max-bytes` / `--min-iou` knobs pick a point
-on that curve directly: `tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF --min-iou 0.9` (or `--max-bytes N`; `--big`
-for BIG limits).
+A learned split (`tools/jamohybrid.py`) reaches the same IoU in fewer bytes. Its v2 default, built from every syllable of
+a TrueType font (12-24 px), gave 21-57 KB at 0.95-0.99, and at v1's bytes 0.03-0.09 more IoU than v1; on the Apple and
+Gulim strikes (KS only) 23-35 KB at 0.97-0.99 ([Jamo splitting, 7.8](../jamo-split.md#78-availability)). Give it every
+syllable where you can: a face built from the KS 2,350 alone draws the other syllables poorly. `--max-bytes N` /
+`--min-iou X` pick a point on its ladder directly: `tools/jamohybrid.py --from-svf FACE.SVF -o OUT.SVF --min-iou 0.9`;
+`--tol PX` (larger: fewer pieces) and `--classes LC,TC` (fewer: smaller tables) set one point by hand; `--big` for BIG
+limits.
 
 [Recipes index](../recipes.md) · [Tool reference](../tools.md)

@@ -598,6 +598,7 @@ references; only the findings are reported here, no data from them.
 | 2026-11-09 | | | | jamo segmentation research stopped for now; the tools stay as they are |
 | 2026-11-27 | a split checked against real pieces | ground-truth pairs (Mac 7.1.2 planes = 7.5.3 strikes; Windows 95 Gulim component strikes); a per-pixel model; structural sets with voting and identity gates (chapter 7) | pixel fitting puts 66-92 % of pixels in the right slot, the model 98-99.5 %; the hybrid beats `adaptive` at equal bytes on every face measured | the standard JSET face stays the default, BIG an option |
 | 2026-11-28 | the learned split as a tool | `tools/jamohybrid.py` with a numpy model (`tools/jamonet.py`, weights trained on the ground truth and the open faces) | held-out faces: label accuracy 0.988-0.998 for the model; built faces as in research (7.8) | shipped; maker integration is a follow-up |
+| 2026-11-28 | `jamohybrid.py` v2 | bottom-up merging inside the exact JSET structure (set limits per lead class, vowel, tail class), merge tolerance and class caps as the stopping rule | at v1's bytes +0.03 to +0.09 composed IoU on four of five TrueType fonts; no stored piece fails a gate (v1: font means 2.7-17.2) (7.8) | the default; KS-only sources still weak |
 
 **What was learned.**
 
@@ -692,6 +693,9 @@ A **hybrid** builds the sets in two directions:
 3. **Re-fit:** `jamofit` refits the pieces to the precomposed syllables, but a pixel may only go to a slot the model
    gave it.
 
+This is the research builder and `tools/jamohybrid.py` v1. v2 (7.8) drops the top-down sets: it merges bottom-up inside
+the exact JSET structure, where the set limits hold per lead class, per vowel and per tail class.
+
 Grouping agreement with the designer's own (adjusted Rand index, initial / medial / final):
 
 | Face | Hybrid, standard limits | `adaptive` |
@@ -783,10 +787,37 @@ The builder ships as `tools/jamohybrid.py` ([tools](tools.md#toolsjamohybridpy))
 - Held-out label accuracy of the model: 0.988-0.998 on the Apple faces, 0.991 / 0.986 on Gulim, and on the open
   families SANS8J, Neo Dunggeunmo Pro and Single Day (0.95-0.997).
 - Faces built with a fold model (standard limits): 14-30 KB, composed IoU 0.93-0.995, label accuracy 0.95-0.996.
-- Options: `--max-bytes`, `--min-iou`, `--big` (off by default).
-- Speed: a 2,350-syllable face builds in about 6 s on a desktop CPU.
+- Options: `--max-bytes`, `--min-iou`, `--tol`, `--classes`, `--big` (off by default).
+- Speed (4 threads, 11,172 syllables): the model about 15 s, the default face 7-15 s more, the ladder 30-90 s.
 
 `tools/train_jamohybrid.py` (torch) trains new weights from a manifest of sources.
+
+**v2 (2026-11-28).** The builder groups inside the exact JSET structure ([tools](tools.md#toolsjamohybridpy), Method):
+contexts merge bottom-up per lead class, vowel and tail class, under the identity gates, while a merge adds at most a
+tolerance of pixels per syllable; the default tries five class caps and keeps the smallest face within 0.005 IoU of the
+best. Measured with the same weights for v1 and v2, faces built from every syllable of four open TrueType fonts and a
+Windows Gulim outline (not redistributable), 12 / 16 / 24 px mono and grey; font means of bytes and composed IoU over all
+syllables (NanumGothic: its 8,822). The weights saw Gothic A1, Single Day and the Windows 95 Gulim strikes in training,
+so those are not held out; the comparison is fair because v1 and v2 share them.
+
+| Font | v1 | v2 at v1's bytes | v2 default | Pieces failing a gate, v1 / v2 |
+|---|---|---|---|---|
+| NanumGothic | 35.1 K, 0.895 | 33.8 K, 0.969 | 40.6 K, 0.984 | 4.0 / 0 |
+| Single Day | 26.6 K, 0.998 | 25.2 K, 0.997 | 20.9 K, 0.993 | 5.7 / 0 |
+| Gothic A1 | 49.9 K, 0.845 | 48.1 K, 0.938 | 57.3 K, 0.953 | 2.7 / 0 |
+| Windows Gulim | 38.1 K, 0.924 | 36.9 K, 0.972 | 42.6 K, 0.985 | 10.3 / 0 |
+| UnBatang | 43.4 K, 0.922 | 41.6 K, 0.952 | 48.0 K, 0.967 | 17.2 / 0 |
+
+- At equal bytes v2 gains 0.03-0.09 IoU (Single Day: -0.001, both near 1). On the Apple and Gulim bitmap faces (KS
+  2,350) it gains 0.013-0.039: Seoul 9 15.6 K 0.952 against 16.9 K 0.914.
+- The gates cost 0.001-0.009 IoU against no gates, and no stored piece fails one in any v2 face measured. Pieces with
+  under half their true ink: 0-1 per font (v1 0-19), UnBatang 13 (v1 71), mostly at 12 px where its unhinted render
+  is itself broken.
+- v2's default is larger than v1's on four of the five fonts, because it keeps accuracy; `--max-bytes` gives v1's size.
+- Open: a face built from the KS 2,350 only draws the other 8,822 syllables no better than v1 (IoU 0.72-0.84 against
+  0.68-0.88; Single Day 0.04 worse), so give the tool every syllable, for example a TrueType font. The tolerance (cell
+  height / 12 px), the 0.005 slack and the class caps were chosen on the four open fonts, mono only. `--big` has had one
+  smoke run and no evaluation.
 
 ### 7.9 Open problems
 
